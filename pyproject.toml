@@ -9,6 +9,7 @@ description = "Local-first audio-to-score transcription with Horn in F output"
 requires-python = ">=3.11"
 dependencies = [
     "music21>=9.1",
+    "mido>=1.3",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +43,28 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 mypy_path = "python"
 packages = ["hornscribe"]
 strict = true
-python_version = "3.11"
+# Checks run at 3.12: the supported interpreter (py -3.12) and because
+# numpy 2.5+ stubs (music21 transitive dep) use 3.12 `type` syntax and
+# fail to parse at 3.11. Ruff still gates syntax compat at py311.
+python_version = "3.12"
+
+# mido ships no py.typed marker; it is a tiny pure-Python SMF library.
+[[tool.mypy.overrides]]
+module = ["mido", "mido.*"]
+ignore_missing_imports = true
+
+# numpy 2.5+ stubs use Python 3.12 `type` statements; they are music21's
+# transitive dependency, not ours — skip following them.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+
+# music21 is only partially typed: constructors like Tie/Part/Horn/
+# TrebleClef and Stream.append are untyped. The notation adapter is the
+# single boundary that calls into them, so relax that one check there.
+[[tool.mypy.overrides]]
+module = "hornscribe.notation.to_music21"
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

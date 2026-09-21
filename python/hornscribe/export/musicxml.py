@@ -1,0 +1,303 @@
+"""ScoreDocument -> MusicXML 4.0 export (ENG-001; master plan §11, dev plan §13).
+
+Pipeline::
+
+    ScoreDocument -> music21 score -> MusicXML -> validate/patch -> final MusicXML
+
+music21 carries the engraving-level details; HornScribe then normalizes the
+emitted tree so exported documents are deterministic and identity-bearing:
+
+* every pitched ``<note>`` carries ``id="hs-sn-*"`` via
+  :func:`musicxml_note_id` — when engraving splits a canonical note into
+  tied fragments, fragment ``k`` gets ``hs-sn-<id>-k`` so all ``xs:ID``
+  values stay document-unique;
+* rest ``<note>`` elements carry presentation IDs ``hs-rest-*``;
+* ``score-part``/``part``/``score-instrument``/``midi-instrument`` IDs are
+  normalized to deterministic ``P1..``/``I1..`` (music21 generates random
+  ones);
+* volatile ``<encoding-date>`` is removed so identical input yields
+  byte-identical output;
+* Horn in F parts carry written pitches *and*
+  ``<transpose><diatonic>-4</diatonic><chromatic>-7</chromatic></transpose>``
+  (MusicXML transpose is written -> sounding, i.e. -P5).
+"""
+
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
+
+from music21.musicxml.m21ToXml import GeneralObjectExporter
+
+from hornscribe.domain.ids import (
+    ScoreNoteId,
+    canonical_note_id_from_musicxml,
+    is_musicxml_note_id,
+    musicxml_note_id,
+    musicxml_rest_id,
+)
+from hornscribe.domain.score import PitchSpace, ScoreDocument
+from hornscribe.instruments import horn_f
+from hornscribe.notation.to_music21 import build_music21_score
+
+_XML_DECL = '<?xml version="1.0" encoding="utf-8"?>'
+_MUSICXML_DOCTYPE = (
+    '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" '
+    '"http://www.musicxml.org/dtds/partwise.dtd">'
+)
+
+
+class ExportError(RuntimeError):
+    """Export produced XML that violates HornScribe invariants."""
+
+
+# ---------------------------------------------------------------------------
+# export API
+# ---------------------------------------------------------------------------
+
+
+def export_musicxml(
+    score: ScoreDocument,
+    presentation: PitchSpace = PitchSpace.CONCERT,
+) -> str:
+    """Export *score* as a MusicXML 4.0 string.
+
+    ``CONCERT`` emits sounding pitches with no transposition metadata;
+    ``WRITTEN_HORN_F`` emits written (+P5) pitches with the Horn in F
+    ``<transpose>`` element so a reader recovers sounding pitch.
+    """
+    m21_score = build_music21_score(score, presentation)
+    raw = GeneralObjectExporter().parse(m21_score)
+    text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+    return _normalize_musicxml(text, presentation)
+
+
+def export_concert_musicxml(score: ScoreDocument) -> str:
+    """``concert.musicxml``: canonical sounding pitches, no transposition."""
+    return export_musicxml(score, PitchSpace.CONCERT)
+
+
+def export_horn_in_f_musicxml(score: ScoreDocument) -> str:
+    """``horn_in_f.musicxml``: written +P5 pitches plus -P5 transpose metadata."""
+    return export_musicxml(score, PitchSpace.WRITTEN_HORN_F)
+
+
+def write_musicxml(
+    score: ScoreDocument,
+    path: Path,
+    presentation: PitchSpace = PitchSpace.CONCERT,
+) -> Path:
+    """Write :func:`export_musicxml` output to *path* (UTF-8)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(export_musicxml(score, presentation), encoding="utf-8", newline="\n")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# normalization / patching
+# ---------------------------------------------------------------------------
+
+_STEP_PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+
+
+def _normalize_musicxml(xml_text: str, presentation: PitchSpace) -> str:
+    root = ET.fromstring(xml_text)
+    if root.tag != "score-partwise":
+        raise ExportError(f"expected score-partwise root, got {root.tag!r}")
+    root.set("version", "4.0")
+
+    _strip_volatile_metadata(root)
+    _normalize_part_and_instrument_ids(root)
+    _assign_note_ids(root)
+
+    if presentation is PitchSpace.WRITTEN_HORN_F:
+        for part_el in root.findall("part"):
+            _ensure_horn_transpose(part_el)
+    else:
+        for part_el in root.findall("part"):
+            _forbid_transpose(part_el)
+
+    ET.indent(root, space="  ")
+    body = ET.tostring(root, encoding="unicode")
+    return f"{_XML_DECL}\n{_MUSICXML_DOCTYPE}\n{body}\n"
+
+
+def _strip_volatile_metadata(root: ET.Element) -> None:
+    """Remove content that would break byte-determinism (encoding-date)."""
+    for encoding in root.iter("encoding"):
+        for child in list(encoding):
+            if child.tag == "encoding-date":
+                encoding.remove(child)
+
+
+def _normalize_part_and_instrument_ids(root: ET.Element) -> None:
+    """Replace music21's random part/instrument IDs with deterministic ones."""
+    part_list = root.find("part-list")
+    if part_list is None:
+        raise ExportError("MusicXML document has no part-list")
+    score_parts = part_list.findall("score-part")
+    id_map: dict[str, str] = {}
+    inst_counter = 0
+    for idx, sp in enumerate(score_parts, start=1):
+        old = sp.get("id")
+        new = f"P{idx}"
+        if old is not None:
+            id_map[old] = new
+        sp.set("id", new)
+        # midi-instrument/@id references its score-instrument/@id, so a
+        # score-instrument/midi-instrument pair keeps one shared ID.
+        per_part: dict[str, str] = {}
+        for child in sp:
+            if child.tag in ("score-instrument", "midi-instrument"):
+                old_inst = child.get("id") or ""
+                if old_inst not in per_part:
+                    inst_counter += 1
+                    per_part[old_inst] = f"I{inst_counter}"
+                child.set("id", per_part[old_inst])
+
+    for part_el in root.findall("part"):
+        old = part_el.get("id")
+        if old is None or old not in id_map:
+            raise ExportError(f"part element has unknown id {old!r}")
+        part_el.set("id", id_map[old])
+
+
+def _assign_note_ids(root: ET.Element) -> None:
+    """Ensure every ``<note>`` carries a deterministic, document-unique ID.
+
+    music21 duplicates ``note.id`` across fragments it splits (barline or
+    complex-duration splits).  Pitched fragments of one canonical note are
+    emitted consecutively, so the k-th occurrence of an export ID is
+    rewritten to the fragment form ``hs-sn-<id>-k``.  Rest and fragment
+    counters are document-global because ``note/@id`` is an ``xs:ID`` and
+    must be unique across the whole document.
+    """
+    counts: dict[ScoreNoteId, int] = {}
+    rest_ordinal = 0
+    for part_el in root.findall("part"):
+        for note_el in part_el.iter("note"):
+            if note_el.find("chord") is not None:
+                raise ExportError("chord <note> elements are unsupported in MVP export")
+            if note_el.find("rest") is not None:
+                rest_ordinal += 1
+                note_el.set("id", musicxml_rest_id(rest_ordinal))
+                continue
+            nid = note_el.get("id")
+            if nid is None or not is_musicxml_note_id(nid):
+                raise ExportError(f"pitched <note> missing HornScribe export id: {nid!r}")
+            canonical = canonical_note_id_from_musicxml(nid)
+            counts[canonical] = counts.get(canonical, 0) + 1
+            note_el.set("id", musicxml_note_id(canonical, counts[canonical]))
+
+
+def _ensure_horn_transpose(part_el: ET.Element) -> None:
+    """Horn in F MusicXML must declare written -> sounding = -P5."""
+    transpose = _first_transpose(part_el)
+    expected = (
+        str(horn_f.HORN_F_WRITTEN_TO_SOUNDING_DIATONIC),
+        str(horn_f.HORN_F_WRITTEN_TO_SOUNDING_CHROMATIC),
+    )
+    if transpose is None:
+        first_measure = part_el.find("measure")
+        if first_measure is None:
+            raise ExportError("horn part has no measures")
+        attributes = first_measure.find("attributes")
+        if attributes is None:
+            attributes = ET.Element("attributes")
+            first_measure.insert(0, attributes)
+        transpose = ET.SubElement(attributes, "transpose")
+        ET.SubElement(transpose, "diatonic").text = expected[0]
+        ET.SubElement(transpose, "chromatic").text = expected[1]
+        return
+    diatonic = transpose.findtext("diatonic")
+    chromatic = transpose.findtext("chromatic")
+    if (diatonic, chromatic) != expected:
+        raise ExportError(
+            f"horn part transpose is diatonic={diatonic} chromatic={chromatic}, "
+            f"expected {expected[0]}/{expected[1]}"
+        )
+
+
+def _forbid_transpose(part_el: ET.Element) -> None:
+    transpose = _first_transpose(part_el)
+    if transpose is None:
+        return
+    chromatic = transpose.findtext("chromatic")
+    if chromatic not in (None, "0"):
+        raise ExportError("concert export must not carry transposition metadata")
+
+
+def _first_transpose(part_el: ET.Element) -> ET.Element | None:
+    for measure in part_el.findall("measure"):
+        attributes = measure.find("attributes")
+        if attributes is not None:
+            transpose = attributes.find("transpose")
+            if transpose is not None:
+                return transpose
+    return None
+
+
+# ---------------------------------------------------------------------------
+# re-import helpers (round-trip verification)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ExportedNote:
+    """One ``<note>`` element read back from exported MusicXML."""
+
+    export_id: str
+    part_id: str
+    written_midi: int | None  # None for rests
+    sounding_midi: int | None  # written + part <transpose chromatic>
+    canonical_id: ScoreNoteId | None  # None for rests
+
+
+def _midi_from_pitch_el(pitch_el: ET.Element) -> int:
+    step = pitch_el.findtext("step")
+    octave = pitch_el.findtext("octave")
+    if step is None or octave is None:
+        raise ExportError("pitched <note> without step/octave")
+    alter = int(float(pitch_el.findtext("alter") or 0))
+    return (int(octave) + 1) * 12 + _STEP_PC[step] + alter
+
+
+def iter_exported_notes(xml_text: str) -> tuple[ExportedNote, ...]:
+    """Parse exported MusicXML back into per-note sounding identity.
+
+    ``sounding_midi`` applies the part's first ``<transpose>`` chromatic
+    value to the written pitch, which is the MuseScore/Verovio playback
+    interpretation.
+    """
+    root = ET.fromstring(xml_text)
+    if root.tag != "score-partwise":
+        raise ExportError(f"expected score-partwise root, got {root.tag!r}")
+    out: list[ExportedNote] = []
+    for part_el in root.findall("part"):
+        transpose = _first_transpose(part_el)
+        chromatic = int(transpose.findtext("chromatic") or 0) if transpose is not None else 0
+        for note_el in part_el.iter("note"):
+            export_id = note_el.get("id") or ""
+            if note_el.find("rest") is not None:
+                out.append(ExportedNote(export_id, part_el.get("id") or "", None, None, None))
+                continue
+            pitch_el = note_el.find("pitch")
+            if pitch_el is None:
+                raise ExportError("non-rest <note> without <pitch>")
+            written = _midi_from_pitch_el(pitch_el)
+            canonical = (
+                canonical_note_id_from_musicxml(export_id)
+                if is_musicxml_note_id(export_id)
+                else None
+            )
+            out.append(
+                ExportedNote(
+                    export_id=export_id,
+                    part_id=part_el.get("id") or "",
+                    written_midi=written,
+                    sounding_midi=written + chromatic,
+                    canonical_id=canonical,
+                )
+            )
+    return tuple(out)

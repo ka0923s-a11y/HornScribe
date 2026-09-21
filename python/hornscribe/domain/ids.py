@@ -13,6 +13,13 @@ ID rules
   presentation IDs (e.g. Verovio element IDs) are never domain IDs.
 * MusicXML ``note/@id`` values are deterministic export IDs derived from
   ``(score_revision, canonical_note_id)`` via :func:`musicxml_note_id`.
+* When notation engraving splits one canonical note into several tied
+  ``<note>`` fragments (barline splits, complex durations), fragment ``k > 1``
+  carries the suffixed ID ``hs-sn-<6 digits>-k`` so every emitted ``note/@id``
+  remains a document-unique ``xs:ID`` while still resolving to the same
+  canonical note via :func:`canonical_note_id_from_musicxml`.
+* MusicXML rest ``<note>`` elements carry presentation-only IDs
+  ``hs-rest-<6 digits>``; they never map back to canonical notes.
 """
 
 from __future__ import annotations
@@ -33,7 +40,8 @@ _SCORE_NOTE_RE = re.compile(r"^sn-\d{6}$")
 _REVISION_RE = re.compile(r"^rev-[0-9a-f]{16}$")
 _TRANSCRIPTION_RE = re.compile(r"^tr-[0-9a-f]{16}$")
 _PROJECT_RE = re.compile(r"^prj-[0-9a-f]{16}$")
-_MUSICXML_NOTE_RE = re.compile(r"^hs-sn-\d{6}$")
+_MUSICXML_NOTE_RE = re.compile(r"^hs-sn-\d{6}(?:-\d+)?$")
+_MUSICXML_REST_RE = re.compile(r"^hs-rest-\d{6}$")
 
 
 def is_raw_note_event_id(value: str) -> bool:
@@ -58,6 +66,10 @@ def is_project_id(value: str) -> bool:
 
 def is_musicxml_note_id(value: str) -> bool:
     return bool(_MUSICXML_NOTE_RE.match(value))
+
+
+def is_musicxml_rest_id(value: str) -> bool:
+    return bool(_MUSICXML_REST_RE.match(value))
 
 
 def _digest(payload: object) -> str:
@@ -85,23 +97,52 @@ def derive_score_revision_id(payload: object) -> ScoreRevisionId:
     return ScoreRevisionId(f"rev-{_digest(payload)[:16]}")
 
 
-def musicxml_note_id(note_id: ScoreNoteId) -> str:
+def musicxml_note_id(note_id: ScoreNoteId, fragment: int = 1) -> str:
     """Deterministic MusicXML ``note/@id`` for a canonical score note.
 
     The mapping is a pure function of the canonical note ID so a rendered
     element can always be traced back to domain identity:
     ``hs-sn-000042`` -> ``sn-000042``.
+
+    ``fragment`` is the 1-based ordinal of the emitted ``<note>`` element
+    when engraving splits the canonical note into tied fragments (barline
+    or complex-duration splits). Fragment 1 carries the canonical export
+    ID ``hs-sn-<6 digits>``; fragments 2+ carry ``hs-sn-<6 digits>-<k>`` so
+    every ``note/@id`` stays a document-unique ``xs:ID``.
     """
     if not is_score_note_id(note_id):
         raise ValueError(f"not a canonical score note id: {note_id!r}")
-    return f"hs-{note_id}"
+    if fragment < 1:
+        raise ValueError(f"fragment must be >= 1, got {fragment}")
+    if fragment == 1:
+        return f"hs-{note_id}"
+    return f"hs-{note_id}-{fragment}"
 
 
 def canonical_note_id_from_musicxml(export_id: str) -> ScoreNoteId:
-    """Inverse of :func:`musicxml_note_id`."""
+    """Inverse of :func:`musicxml_note_id`.
+
+    Accepts both ``hs-sn-<6 digits>`` and the tied-fragment form
+    ``hs-sn-<6 digits>-<k>``; a fragment ID resolves to the canonical note
+    it was split from.
+    """
     if not is_musicxml_note_id(export_id):
         raise ValueError(f"not a HornScribe MusicXML note id: {export_id!r}")
-    return ScoreNoteId(export_id.removeprefix("hs-"))
+    match = re.match(r"^hs-(sn-\d{6})", export_id)
+    assert match is not None  # guaranteed by is_musicxml_note_id
+    return ScoreNoteId(match.group(1))
+
+
+def musicxml_rest_id(ordinal: int) -> str:
+    """Presentation-only ID for a rest ``<note>`` element.
+
+    Rests have no canonical identity; the ID exists so every emitted
+    ``<note>`` element carries a deterministic, document-unique ``xs:ID``
+    (``hs-rest-<6 digits>``).
+    """
+    if ordinal < 1:
+        raise ValueError(f"ordinal must be >= 1, got {ordinal}")
+    return f"hs-rest-{ordinal:06d}"
 
 
 class IdAllocator:

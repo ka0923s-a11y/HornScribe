@@ -1,0 +1,80 @@
+{
+  "content": {
+    "keySignature": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "parts": [
+      {
+        "id": "part-1",
+        "name": "Horn in F",
+        "notes": [
+          {
+            "durationBeats": "1/1",
+            "id": "sn-000001",
+            "pitchMidi": 60,
+            "sourceEventIds": [],
+            "startBeat": "0/1",
+            "tieStart": false,
+            "tieStop": false,
+            "velocity": 80
+          },
+          {
+            "durationBeats": "3/2",
+            "id": "sn-000002",
+            "pitchMidi": 66,
+            "sourceEventIds": [],
+            "startBeat": "1/1",
+            "tieStart": false,
+            "tieStop": false,
+            "velocity": 80
+          },
+          {
+            "durationBeats": "4/1",
+            "id": "sn-000003",
+            "pitchMidi": 58,
+            "sourceEventIds": [],
+            "startBeat": "5/2",
+            "tieStart": false,
+            "tieStop": false,
+            "velocity": 80
+          },
+          {
+            "durationBeats": "2/1",
+            "id": "sn-000004",
+            "pitchMidi": 64,
+            "sourceEventIds": [],
+            "startBeat": "8/1",
+            "tieStart": false,
+            "tieStop": false,
+            "velocity": 80
+          }
+        ]
+      }
+    ],
+    "pickupBeats": "0/1",
+    "quantizationSettings": {
+      "grid": "1/16",
+      "triplets": false
+    },
+    "tempoMap": [
+      {
+        "bpm": 100.0,
+        "startBeat": "0/1"
+      }
+    ],
+    "timeSignature": {
+      "beatUnit": 4,
+      "beatsPerMeasure": 4
+    }
+  },
+  "pitchSpace": "concert",
+  "projectId": "prj-0355f65f8d9170de",
+  "revision": "rev-6a6a3bec5f88d527",
+  "sourceAudioHash": null,
+  "sourceAudioPath": null,
+  "title": "Golden Fixture",
+  "transcriptionBackend": null,
+  "transcriptionBackendVersion": null,
+  "transcriptionSettings": {}
+}

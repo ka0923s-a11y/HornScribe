@@ -1,1 +1,1 @@
-"""HornScribe engine module."""
+"""Notation rendering: canonical ScoreDocument -> notation streams."""

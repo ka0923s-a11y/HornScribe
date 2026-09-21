@@ -26,6 +26,11 @@ from hornscribe.domain.score import (  # noqa: E402
     TempoSegment,
     TimeSignature,
 )
+from hornscribe.export import export_filename  # noqa: E402
+from hornscribe.export.musicxml import (  # noqa: E402
+    export_concert_musicxml,
+    export_horn_in_f_musicxml,
+)
 from hornscribe.project.model import (  # noqa: E402
     SCHEMA_VERSION,
     HornScribeProject,
@@ -35,6 +40,15 @@ from hornscribe.project.model import (  # noqa: E402
 )
 
 OUT = Path(__file__).resolve().parent.parent / "fixtures"
+
+
+def _write_json(path: Path, data: object) -> None:
+    # newline="\n" keeps committed fixtures LF-only on every platform.
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def main() -> None:
@@ -84,17 +98,65 @@ def main() -> None:
 
     (OUT / "project").mkdir(parents=True, exist_ok=True)
     project_path = OUT / "project" / "minimal_v1.hornscribe.json"
-    project_path.write_text(
-        json.dumps(project.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_json(project_path, project.to_dict())
     score_path = OUT / "score" / "minimal_v1.score.json"
     score_path.parent.mkdir(parents=True, exist_ok=True)
-    score_path.write_text(
-        json.dumps(score.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_json(score_path, score.to_dict())
     print(f"wrote {project_path.relative_to(OUT.parent)} and {score_path.relative_to(OUT.parent)}")
+
+    golden = _golden_score(project_id)
+    golden_path = OUT / "score" / "golden_v1.score.json"
+    _write_json(golden_path, golden.to_dict())
+    print(f"wrote {golden_path.relative_to(OUT.parent)}")
+
+    _write_musicxml_fixtures("minimal_v1", score)
+    _write_musicxml_fixtures("golden_v1", golden)
+
+
+def _golden_score(project_id) -> ScoreDocument:
+    """Small deterministic score exercising ties, rests, and barline splits.
+
+    4/4, C major, 100 bpm. sn-000003 crosses the barline and its measure-2
+    fragment has a complex duration, so music21 splits it further — the
+    fixture therefore demonstrates hs-sn-*-k fragment IDs as well.
+    """
+    alloc = IdAllocator("sn")
+
+    def qn(pitch: int, start: str, dur: str) -> QuantizedNote:
+        return QuantizedNote(
+            id=ScoreNoteId(alloc.allocate()),
+            source_event_ids=(),
+            pitch_midi=pitch,
+            start_beat=Fraction(start),
+            duration_beats=Fraction(dur),
+            velocity=80,
+        )
+
+    notes = (
+        qn(60, "0", "1"),  # concert C4  -> written G4
+        qn(66, "1", "3/2"),  # concert F#4 -> written C#5 (dotted quarter)
+        qn(58, "5/2", "4"),  # concert Bb3 -> written F4, crosses barline
+        qn(64, "8", "2"),  # concert E4  -> written B4
+    )
+    payload = ScoreRevisionPayload(
+        tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=100.0),),
+        time_signature=TimeSignature(beats_per_measure=4, beat_unit=4),
+        key_signature=KeySignature(fifths=0, mode="major"),
+        pickup_beats=Fraction(0),
+        parts=(Part(id="part-1", name="Horn in F", notes=notes),),
+        quantization_settings={"grid": "1/16", "triplets": False},
+    )
+    return ScoreDocument(project_id=project_id, payload=payload, title="Golden Fixture")
+
+
+def _write_musicxml_fixtures(basename: str, score: ScoreDocument) -> None:
+    out_dir = OUT / "musicxml"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    concert_path = out_dir / export_filename("concert", basename)
+    horn_path = out_dir / export_filename("horn_in_f", basename)
+    concert_path.write_text(export_concert_musicxml(score), encoding="utf-8", newline="\n")
+    horn_path.write_text(export_horn_in_f_musicxml(score), encoding="utf-8", newline="\n")
+    print(f"wrote {concert_path.relative_to(OUT.parent)} and {horn_path.relative_to(OUT.parent)}")
 
 
 if __name__ == "__main__":

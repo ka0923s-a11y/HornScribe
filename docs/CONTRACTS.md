@@ -14,6 +14,8 @@
 | Transcription revision   | `tr-<sha256[:16]>`   | hash of backend + version + settings + audio hash |
 | Project                  | `prj-<sha256[:16]>`  | derived once at project creation            |
 | MusicXML `note/@id`      | `hs-sn-<6 digits>`   | pure function of the canonical note ID      |
+| MusicXML tied fragment   | `hs-sn-<6 digits>-<k>` | fragment k>1 of one canonical note split by engraving (barline/complex duration) |
+| MusicXML rest `note/@id` | `hs-rest-<6 digits>` | presentation-only, no canonical identity    |
 
 Rules:
 
@@ -29,6 +31,9 @@ Rules:
   canonical note back to the `rne-*` raw events that produced it.
 - `musicxml_note_id()` / `canonical_note_id_from_musicxml()` are exact
   inverses: rendered MusicXML hit-testing always recovers domain identity.
+  A canonical note split into tied `<note>` fragments during engraving
+  emits `hs-sn-XXXXXX` then `hs-sn-XXXXXX-2`, `-3`, … — document-unique
+  `xs:ID` values that all resolve to the same `sn-XXXXXX`.
 
 ## 2. Project file (schemaVersion 1)
 
