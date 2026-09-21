@@ -70,7 +70,7 @@ MVPでは **Python 3.10.x を標準環境**とする。
 
 - Basic Pitch が正式に対応している。
 - Windows + Python 3.10 では軽量な ONNX runtime 系を利用しやすい。
-- desktop UI dependencies (Tauri / React / Fluent / Verovio / wavesurfer.js) の現行版も Python 3.10+ をサポートする。
+- GUIはPython processから分離するため、desktop frontendのruntime要件をPython versionへ結合しない。
 - Python 3.11 では Basic Pitch の依存条件上 TensorFlow が入りやすく、MVPとしては依存が重い。
 - Python 3.12 は2026-09現在 upstream で対応作業が進行中のため、初期固定環境にはしない。
 
