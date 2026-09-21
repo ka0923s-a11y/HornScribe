@@ -6,7 +6,11 @@
 > Primary platform: Windows 11  
 > Operating model: Personal use, local-first, offline-capable, zero recurring cost  
 > Roadmap authority: [Master Plan](MASTER_PLAN.md)  
-> Related: [Development Plan](DEVELOPMENT_PLAN.md)
+> Related: [Development Plan](DEVELOPMENT_PLAN.md)  
+> **Interaction source of truth:** [GUI_UX_SPEC.md](GUI_UX_SPEC.md)  
+> **Visual/component source of truth:** [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)  
+> **UX quality gates:** [UX_VALIDATION.md](UX_VALIDATION.md)  
+> **Japanese copy:** [JAPANESE_UI_COPY.md](JAPANESE_UI_COPY.md)
 
 ---
 
@@ -120,14 +124,14 @@ Dorico は Setup / Write / Engrave / Play / Print のように作業文脈を分
 HornScribeではもっと少なくする。
 
 ```text
-Score
-Review
-Export
+楽譜
+要確認
+書き出し
 ```
 
-通常作業では Score を使う。
+通常作業では楽譜ワークスペースを使う。
 
-AI結果を確認したい時だけ Review に入る。
+AI結果を確認したい時だけ「要確認」コンテキストへ入る。
 
 ---
 
@@ -151,8 +155,8 @@ HornScribeでも再生追従を強制しない。
 ユーザーが楽譜や波形を手動移動した場合:
 
 ```text
-Follow Playback: temporarily suspended
-[Resume Follow]
+再生位置の追従を一時停止しました
+[追従を再開]
 ```
 
 とする。
@@ -327,7 +331,7 @@ WindowsではWebView2を利用する。
 
 ### 結論
 
-**HornScribeの最終GUIに採用する。**
+**HornScribeの第一候補としてArchitecture Spikeで検証する。正式採用はADR-0001がAcceptedになった時点とする。**
 
 複数言語化のコストより、UI品質・描画・interaction・保守上の利点が大きい。
 
