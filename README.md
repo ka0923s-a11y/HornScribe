@@ -21,10 +21,13 @@ Planning / architecture validation.
 
 1. **[Master Plan](docs/MASTER_PLAN.md)** — scope, milestones, gates, risks, and implementation order.
 2. **[Development Plan](docs/DEVELOPMENT_PLAN.md)** — music engine, transcription, notation, Horn in F, export, and testing details.
-3. **[GUI / UX Plan](docs/GUI_UX_PLAN.md)** — interaction design, visual system, accessibility, performance, and frontend architecture.
-4. **[Quantizer Design](docs/QUANTIZER_DESIGN.md)** — HSQ-v1 rhythm quantization algorithm, cost model, tests, and implementation phases.
-5. **[ADR-0001: Desktop UI Architecture](docs/adr/ADR-0001-desktop-ui-architecture.md)** — proposed Tauri/React architecture, pending spike validation.
-6. **[ADR-0002: Python Sidecar](docs/adr/ADR-0002-python-sidecar.md)** — proposed Python engine process boundary.
+3. **[GUI / UX Plan](docs/GUI_UX_PLAN.md)** — GUI research, framework rationale, and architecture background.
+4. **[GUI / UX Product Specification](docs/GUI_UX_SPEC.md)** — authoritative screens, interactions, state transitions, and keyboard behavior.
+5. **[Design System](docs/DESIGN_SYSTEM.md)** — authoritative visual tokens and component rules.
+6. **[UX Validation](docs/UX_VALIDATION.md)** — usability, accessibility, performance, and regression gates.
+7. **[Quantizer Design](docs/QUANTIZER_DESIGN.md)** — HSQ-v1 rhythm quantization algorithm, cost model, tests, and implementation phases.
+8. **[ADR-0001: Desktop UI Architecture](docs/adr/ADR-0001-desktop-ui-architecture.md)** — proposed Tauri/React architecture, pending spike validation.
+9. **[ADR-0002: Python Sidecar](docs/adr/ADR-0002-python-sidecar.md)** — proposed Python engine process boundary.
 
 If documents conflict, an **Accepted ADR** overrides the plans. Until an ADR is accepted, the Master Plan defines the active implementation sequence.
 
