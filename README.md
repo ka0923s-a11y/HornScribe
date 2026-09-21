@@ -20,6 +20,7 @@ Planning / architecture phase.
 The project plans are documented here:
 
 - **[Development Plan](docs/DEVELOPMENT_PLAN.md)**  
+**[GUI / UX Design & Implementation Plan](docs/GUI_UX_PLAN.md)**  
 **[GUI / UX Design & Implementation Plan](docs/GUI_UX_PLAN.md)** — transcription, notation, Horn in F, export, testing
 - **[GUI / UX Design & Implementation Plan](docs/GUI_UX_PLAN.md)** — interaction design, visual system, accessibility, performance, frontend architecture
 - **[ADR-0001: Desktop UI Architecture](docs/adr/ADR-0001-desktop-ui-architecture.md)** — proposed Tauri/React + Python worker boundary
