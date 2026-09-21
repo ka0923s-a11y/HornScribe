@@ -504,6 +504,8 @@ MVPでは次を採用する。
 
 # 9. Rhythm Quantizer
 
+> Detailed algorithm and implementation contract: [QUANTIZER_DESIGN.md](QUANTIZER_DESIGN.md)
+
 単純な「最も近い16分音符へ丸める」だけでは読みづらい譜面になる。
 
 量子化では、
