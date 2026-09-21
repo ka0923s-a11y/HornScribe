@@ -468,27 +468,40 @@ A deterministic synthetic corpus transcribes without corrupting project state.
 
 This is expected to be one of the highest-risk milestones.
 
-Implement in increasing complexity:
+The authoritative quantizer design is:
 
-1. user-supplied fixed BPM + 4/4
-2. quarter/eighth/sixteenth quantization
-3. rests
-4. bar splitting
-5. ties
-6. tempo suggestion
-7. key suggestion/spelling
-8. triplets
-9. pickup
-10. meter/tempo changes only after evidence requires them
+**[QUANTIZER_DESIGN.md](QUANTIZER_DESIGN.md)**
+
+HSQ-v1 uses:
+
+- seconds → musical-time TimeWarp
+- explicit MeterMap / metrical tree
+- k-best dynamic programming for onset placement
+- onset + IOI timing fidelity
+- joint note-duration/rest realization
+- notation complexity cost
+- tie/rest/tuplet costs
+- meter-aware readability
+- ReviewIssue generation for ambiguous rhythm
+
+Implementation sequence:
+
+1. QNT-001 — TimeWarp / BeatMap / MeterTree contracts
+2. QNT-002 — fixed-BPM binary-grid baselines and onset DP
+3. QNT-003 — joint note/rest realization and notation cost
+4. QNT-004 — 3/4, 2/4, 6/8 and pickup phase
+5. QNT-005 — triplet model and k-best ambiguity
+6. QNT-006 — music21/MusicXML realization
+7. QNT-007 — benchmark, ablation and weight freeze
 
 Principle:
 
 > Manual correction of BPM/meter is better than pretending an uncertain automatic estimate is authoritative.
 
-Evaluation must include notation complexity, not only timing error.
+Evaluation includes timing accuracy, score-level rhythm error, notation complexity, and user correction effort.
 
 Gate:
-synthetic rhythmic fixtures produce valid, human-readable measures and round-trip MusicXML.
+synthetic rhythmic fixtures and local horn benchmarks produce valid, readable, deterministic scores and round-trip MusicXML without rhythm mutation.
 
 ---
 
