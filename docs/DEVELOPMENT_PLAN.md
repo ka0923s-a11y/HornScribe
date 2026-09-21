@@ -4,7 +4,8 @@
 > Updated: 2026-09-21  
 > Scope: 個人利用、完全無料、ローカル完結、Windowsを第一対象とする
 
-> **GUI architecture update:** 高品質なdesktop UIについては [GUI / UX Design & Implementation Plan](GUI_UX_PLAN.md) と [ADR-0001](adr/ADR-0001-desktop-ui-architecture.md) を優先する。既存のPySide6記述は初期案であり、Tauri 2 + React/TypeScript + Python worker構成を技術spikeで検証後に正式固定する。
+> **Roadmap authority:** 実装順・マイルストーン・Go/No-Go条件は [MASTER_PLAN.md](MASTER_PLAN.md) を優先する。  
+> **GUI architecture:** 高品質なdesktop UIについては [GUI / UX Design & Implementation Plan](GUI_UX_PLAN.md) と [ADR-0001](adr/ADR-0001-desktop-ui-architecture.md) を参照する。Tauri 2 + React/TypeScript + Python worker構成は技術spike通過後に正式固定する。
 
 ## 0. この文書の位置づけ
 
@@ -64,17 +65,19 @@ Spotify Basic Pitch は軽量な自動採譜モデルで、音声からMIDI相�
 
 2026-09時点の upstream では v0.4.0 が最新で、Windows/macOS/Linux を対象としている。一方 Python 3.12 対応はちょうど upstream で作業中である。
 
-MVPでは **Python 3.10.x を標準環境**とする。
+**Python 3.10.x を製品の長期標準には固定しない。**
 
-理由:
+2026-09時点ではPython 3.10が2026年10月にEOL予定である一方、Basic Pitch 0.4.0は公式にはPython 3.11までを宣言し、Python 3.12対応はupstreamで進行中である。
 
-- Basic Pitch が正式に対応している。
-- Windows + Python 3.10 では軽量な ONNX runtime 系を利用しやすい。
-- GUIはPython processから分離するため、desktop frontendのruntime要件をPython versionへ結合しない。
-- Python 3.11 では Basic Pitch の依存条件上 TensorFlow が入りやすく、MVPとしては依存が重い。
-- Python 3.12 は2026-09現在 upstream で対応作業が進行中のため、初期固定環境にはしない。
+そのためPhase 0で次の互換性・パッケージングmatrixを実測し、engine runtimeを決定する。
 
-将来 Basic Pitch の Python 3.12+ 対応が安定した時点で更新する。
+- Python 3.10 + ONNX系: 互換性確認用。EOLが目前のため長期baselineにはしない。
+- Python 3.11 + Basic Pitch公式dependency path: primary stable candidate。ただしTensorFlow依存・bundle size・起動時間を測る。
+- Python 3.12+: upstream対応が安定した場合の移行候補。未merge/実験branchを無条件に製品baselineへしない。
+
+GUIはPython processから分離するため、desktop frontendのruntime要件をPython versionへ結合しない。
+
+v1前に選定runtimeのEOLと移行計画を明記する。
 
 参考:
 - https://github.com/spotify/basic-pitch
@@ -216,7 +219,7 @@ GUI/UX層は別文書 [GUI_UX_PLAN.md](GUI_UX_PLAN.md) の技術spikeで検証�
 | UI foundation | Fluent UI React v9 + HornScribe tokens | controls / theme / accessibility | Windows 11との整合 |
 | Score preview | Verovio WASM | MusicXML→interactive SVG | note/time mappingを検証 |
 | Waveform | wavesurfer.js | waveform / regions / timeline | stable releaseをpin |
-| Backend language | Python 3.10.x initially | AMT / music domain / export | Basic Pitch互換性を優先 |
+| Backend language | Python runtime TBD by compatibility matrix | AMT / music domain / export | 3.11をprimary candidate、3.10固定は禁止 |
 | Audio decode | FFmpeg | MP3/M4A/FLAC/OGG→内部形式 | subprocess経由 |
 | AMT | Basic Pitch | Audio→NoteEvent | baseline backend |
 | MIDI | pretty_midi / mido | MIDI入出力 | 用途ごとに限定 |
@@ -853,7 +856,7 @@ Python music domain と desktop frontend をdirectory levelでも分離する。
 タスク:
 
 - [ ] `pyproject.toml`
-- [ ] Python 3.10固定
+- [ ] Python / Basic Pitch compatibility・packaging matrixを測定し、engine runtimeを決定
 - [ ] src layout
 - [ ] pytest
 - [ ] ruff
@@ -998,14 +1001,15 @@ sounding result = C4
 タスク:
 
 - [ ] concert MusicXML
-- [ ] Horn MusicXML
-- [ ] concert score MIDI
-- [ ] Horn score MIDI
-- [ ] optional performance MIDI
+- [ ] Horn in F written-pitch MusicXML
+- [ ] `playback.mid`（sounding/concert pitch）
+- [ ] optional `performance.mid`（raw / unquantized timing）
 - [ ] MusicXML validation
-- [ ] MuseScore detection
+- [ ] MuseScore detection/version diagnostics
 - [ ] PDF export
 - [ ] filename policy
+
+Standard MIDI FileはMusicXMLのような移調楽器のwritten/sounding notation semanticsを自動的には保持しないため、MVPでは曖昧な `horn_in_f.mid` を既定出力にしない。
 
 出力例:
 
@@ -1013,19 +1017,21 @@ sounding result = C4
 MySong/
   MySong_concert.musicxml
   MySong_horn_in_f.musicxml
-  MySong_concert.mid
-  MySong_horn_in_f.mid
+  MySong_playback.mid
   MySong_concert.pdf
   MySong_horn_in_f.pdf
 ```
+
+必要なら将来 `performance.mid` を追加する。
 
 受け入れ条件:
 
 - MuseScoreで両MusicXMLが開く
 - Horn譜の表示音が+P5
 - Horn譜の再生音がconcertと一致
+- `playback.mid` はsounding/concert pitchであることがtestで固定される
 - PDFが生成される
-- MuseScoreなしでもMusicXML/MIDIは出力可能
+- MuseScoreなしでもMusicXML/playback MIDIは出力可能
 
 ---
 
@@ -1424,7 +1430,7 @@ MVP完成条件:
 - [ ] BPMを手動修正できる
 - [ ] 量子化設定を変更できる
 - [ ] Concert/Horn MusicXMLを保存できる
-- [ ] Concert/Horn MIDIを保存できる
+- [ ] sounding/concert pitch semanticsの `playback.mid` を保存できる
 - [ ] MuseScoreがあればPDF保存できる
 - [ ] Concert C4 → Horn written G4 が保証される
 - [ ] Horn MusicXMLのtransposeは chromatic=-7
@@ -1545,9 +1551,9 @@ MusicXML / MIDI / PDF
 音楽処理の中核:
 
 ```text
-Python 3.10 initially
+Python runtime selected by measured compatibility/packaging matrix
 FFmpeg
-Basic Pitch (baseline AMT)
+Basic Pitch (baseline AMT; replaceable)
 HornScribe internal score model
 librosa
 music21
