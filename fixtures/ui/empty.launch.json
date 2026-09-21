@@ -1,0 +1,47 @@
+{
+  "id": "empty.launch",
+  "screenState": "EMPTY",
+  "scenario": "起動直後。音源も履歴もない最初の空状態。",
+  "elements": [
+    {
+      "id": "appShell",
+      "component": "AppShell",
+      "copyKey": "a11y.appShell",
+      "text": "HornScribe",
+      "role": "accessible name"
+    },
+    {
+      "id": "headline",
+      "component": "EmptyState",
+      "copyKey": "emptyStates.launch.headline",
+      "text": "ここに音声ファイルをドロップ"
+    },
+    {
+      "id": "orDivider",
+      "component": "EmptyState",
+      "copyKey": "emptyStates.launch.or",
+      "text": "または"
+    },
+    {
+      "id": "openButton",
+      "component": "Button",
+      "copyKey": "emptyStates.launch.cta",
+      "text": "音声ファイルを開く"
+    },
+    {
+      "id": "formats",
+      "component": "EmptyState",
+      "copyKey": "emptyStates.launch.formats",
+      "text": "WAV・MP3・FLAC・M4A・OGG"
+    },
+    {
+      "id": "privacyNote",
+      "component": "EmptyState",
+      "copyKey": "emptyStates.launch.privacy",
+      "text": "すべての解析はこのPC上で実行されます。"
+    }
+  ],
+  "sampleData": {
+    "recentProjects": []
+  }
+}

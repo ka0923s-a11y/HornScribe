@@ -1,0 +1,77 @@
+{
+  "id": "first_run.welcome",
+  "screenState": "FIRST_RUN",
+  "scenario": "初回起動時の案内。基本の流れと外部ツールの説明を日本語で提示する。",
+  "elements": [
+    {
+      "id": "welcome",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.welcome",
+      "text": "HornScribeへようこそ"
+    },
+    {
+      "id": "intro",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.intro",
+      "text": "音声ファイルから楽譜を作成し、F管ホルン用の楽譜として書き出せます。解析はすべてこのPC上で行われます。"
+    },
+    {
+      "id": "stepsHeading",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.stepsHeading",
+      "text": "基本的な流れ"
+    },
+    {
+      "id": "stepOpen",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.steps.open",
+      "text": "音声ファイルを開く"
+    },
+    {
+      "id": "stepTranscribe",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.steps.transcribe",
+      "text": "採譜を開始する"
+    },
+    {
+      "id": "stepReview",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.steps.review",
+      "text": "要確認箇所を見直す"
+    },
+    {
+      "id": "stepExport",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.steps.export",
+      "text": "MusicXMLやPDFを書き出す"
+    },
+    {
+      "id": "toolsHeading",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.toolsHeading",
+      "text": "外部ツール"
+    },
+    {
+      "id": "toolsNote",
+      "component": "FirstRunDialog",
+      "copyKey": "firstRun.toolsNote",
+      "text": "採譜にはFFmpeg、PDFの書き出しにはMuseScoreを使います。見つからない場合はあとで設定できます。"
+    },
+    {
+      "id": "start",
+      "component": "Button",
+      "copyKey": "firstRun.start",
+      "text": "はじめる"
+    },
+    {
+      "id": "skip",
+      "component": "Button",
+      "copyKey": "firstRun.skip",
+      "text": "あとで"
+    }
+  ],
+  "sampleData": {
+    "ffmpegDetected": true,
+    "museScoreDetected": false
+  }
+}

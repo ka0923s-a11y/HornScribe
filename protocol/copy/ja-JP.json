@@ -1,0 +1,679 @@
+{
+  "meta": {
+    "deckVersion": 1,
+    "locale": "ja-JP",
+    "standard": "docs/JAPANESE_UI_COPY.md",
+    "contract": "docs/UI_COPY_CONTRACT.md",
+    "note": "HornScribeのユーザー向けUI文言の正準定義。日本語のみ。翻訳フレームワークや言語切替の土台ではない。"
+  },
+  "app": {
+    "name": "HornScribe",
+    "untitledProject": "名称未設定",
+    "privacyNote": "すべての解析はこのPC上で実行されます。"
+  },
+  "common": {
+    "cancel": "キャンセル",
+    "retry": "再試行",
+    "close": "閉じる",
+    "save": "保存",
+    "dontSave": "保存しない",
+    "open": "開く",
+    "undo": "元に戻す",
+    "redo": "やり直す",
+    "delete": "削除",
+    "restore": "復元",
+    "reset": "リセット",
+    "back": "戻る",
+    "next": "次へ",
+    "prev": "前へ",
+    "browse": "参照…",
+    "chooseAnotherFile": "別のファイルを選ぶ",
+    "specifyLocation": "場所を指定",
+    "diagnostics": "診断情報",
+    "done": "完了",
+    "or": "または"
+  },
+  "menus": {
+    "file": {
+      "label": "ファイル",
+      "openAudio": "音声ファイルを開く",
+      "openProject": "プロジェクトを開く",
+      "recentProjects": "最近使ったプロジェクト",
+      "saveProject": "プロジェクトを保存",
+      "saveProjectAs": "名前を付けて保存",
+      "export": "書き出し",
+      "closeProject": "プロジェクトを閉じる",
+      "exit": "終了"
+    },
+    "edit": {
+      "label": "編集",
+      "undo": "元に戻す",
+      "redo": "やり直す"
+    },
+    "view": {
+      "label": "表示",
+      "concertPitch": "コンサートピッチ",
+      "hornInF": "F管ホルン",
+      "followPlayback": "再生位置を追従",
+      "properties": "プロパティ",
+      "scoreZoomIn": "楽譜を拡大",
+      "scoreZoomOut": "楽譜を縮小",
+      "scoreFitWidth": "楽譜を画面幅に合わせる"
+    },
+    "help": {
+      "label": "ヘルプ",
+      "diagnostics": "診断情報",
+      "about": "HornScribeについて"
+    }
+  },
+  "commandBar": {
+    "open": {
+      "label": "開く",
+      "tooltip": "音声ファイルを開く（Ctrl+O）"
+    },
+    "transcribe": {
+      "label": "採譜",
+      "tooltip": "採譜を開始する"
+    },
+    "retranscribe": {
+      "label": "採譜し直す",
+      "tooltip": "現在の元音源でもう一度採譜する"
+    },
+    "review": {
+      "label": "要確認",
+      "withCount": "要確認（{count}）"
+    },
+    "export": {
+      "label": "書き出し",
+      "tooltip": "MusicXML・PDF・MIDIを書き出す"
+    },
+    "overflow": {
+      "label": "その他",
+      "aria": "その他のコマンド"
+    }
+  },
+  "segments": {
+    "scoreView": {
+      "aria": "表示する楽譜の切替",
+      "concertPitch": "コンサートピッチ",
+      "hornInF": "F管ホルン",
+      "hornCaption": "記譜音",
+      "concertPitchTooltip": "コンサートピッチで表示（Ctrl+1）",
+      "hornInFTooltip": "F管ホルンで表示（Ctrl+2）"
+    }
+  },
+  "tooltips": {
+    "openAudio": "音声ファイルを開く（Ctrl+O）",
+    "playPause": "再生 / 一時停止（Space）",
+    "stop": "停止（Shift+Space）",
+    "skipBack": "戻る（J）",
+    "playPauseAlt": "再生 / 一時停止（K）",
+    "skipForward": "進む（L）",
+    "toStart": "先頭へ（Home）",
+    "toEnd": "末尾へ（End）",
+    "loop": "ループを切り替える（Ctrl+L）",
+    "follow": "再生位置を追従",
+    "scoreZoomIn": "楽譜を拡大（Ctrl++）",
+    "scoreZoomOut": "楽譜を縮小（Ctrl+-）",
+    "scoreFitWidth": "楽譜を画面幅に合わせる（Ctrl+0）",
+    "waveformZoom": "波形を拡大 / 縮小（Ctrl+ホイール）",
+    "settings": "設定",
+    "overflow": "その他のコマンド",
+    "pdfExportDisabled": "MuseScoreが見つからないためPDFを書き出せません",
+    "reviewMarker": "要確認箇所",
+    "loopRange": "ループ範囲"
+  },
+  "transport": {
+    "regionAria": "再生コントロール",
+    "play": "再生",
+    "pause": "一時停止",
+    "stop": "停止",
+    "skipBack": "戻る",
+    "skipForward": "進む",
+    "toStart": "先頭へ",
+    "toEnd": "末尾へ",
+    "loop": "ループ",
+    "follow": "追従",
+    "followFull": "再生位置を追従",
+    "resumeFollow": "追従を再開",
+    "followPaused": "再生位置の追従を一時停止しました",
+    "rate": "再生速度",
+    "rateAria": "再生速度",
+    "volume": "音量",
+    "position": "現在位置",
+    "duration": "総時間",
+    "timeDisplayAria": "現在位置と総時間",
+    "playSelection": "選択範囲を再生",
+    "zoomToSelection": "選択範囲へズーム",
+    "setLoopToSelection": "選択範囲をループ"
+  },
+  "waveform": {
+    "regionAria": "波形",
+    "seekAria": "波形上の再生位置",
+    "selectionAria": "波形の選択範囲",
+    "minimapAria": "波形全体のミニマップ",
+    "loading": "波形を読み込んでいます",
+    "zoomIn": "波形を拡大",
+    "zoomOut": "波形を縮小",
+    "resizeHandleAria": "波形の高さを変更"
+  },
+  "score": {
+    "regionAria": "楽譜",
+    "toolbarAria": "楽譜ツールバー",
+    "empty": "まだ楽譜はありません",
+    "rendering": "楽譜を表示しています",
+    "zoomAria": "楽譜の表示倍率",
+    "viewAria": "楽譜の表示方法",
+    "viewContinuous": "連続表示",
+    "viewPage": "ページ表示",
+    "selectedNoteAria": "選択中の音符",
+    "currentMeasureAria": "再生中の小節",
+    "hornCaption": "記譜音"
+  },
+  "transcription": {
+    "start": "採譜を開始",
+    "running": "採譜中",
+    "cancel": "キャンセル",
+    "cancelled": "採譜をキャンセルしました",
+    "completed": "採譜が完了しました",
+    "progressAria": "採譜の進捗",
+    "eta": "残り約 {eta}",
+    "options": {
+      "label": "採譜オプション",
+      "tempo": "テンポ",
+      "tempoAuto": "自動",
+      "tempoManual": "手動",
+      "meter": "拍子",
+      "minDuration": "最小音価",
+      "triplets": "三連符",
+      "simplicity": "楽譜の簡潔さ",
+      "range": "採譜範囲",
+      "rangeAll": "全体"
+    },
+    "stages": {
+      "preparing_audio": {
+        "pending": "音声を準備",
+        "active": "音声を準備しています",
+        "done": "音声を準備しました"
+      },
+      "transcribing": {
+        "pending": "音を解析",
+        "active": "音を解析しています",
+        "done": "音を解析しました"
+      },
+      "cleaning": {
+        "pending": "検出結果を整理",
+        "active": "検出結果を整理しています",
+        "done": "検出結果を整理しました"
+      },
+      "analyzing_rhythm": {
+        "pending": "リズムを解析",
+        "active": "リズムを解析しています",
+        "done": "リズムを解析しました"
+      },
+      "quantizing": {
+        "pending": "音符の長さと位置を整える",
+        "active": "音符の長さと位置を整えています",
+        "done": "音符の長さと位置を整えました"
+      },
+      "building_score": {
+        "pending": "楽譜を作成",
+        "active": "楽譜を作成しています",
+        "done": "楽譜を作成しました"
+      },
+      "rendering": {
+        "pending": "表示を準備",
+        "active": "楽譜を表示しています",
+        "done": "表示を準備しました"
+      }
+    }
+  },
+  "review": {
+    "title": "要確認",
+    "banner": "{count}か所を確認すると、より確かな楽譜になります",
+    "bannerCta": "要確認箇所を見る",
+    "position": "要確認 {current} / {total}",
+    "prev": "前へ",
+    "next": "次へ",
+    "playSource": "元音源を再生",
+    "markOk": "問題なし",
+    "fixPitch": "音高修正",
+    "deleteNote": "削除",
+    "exit": "要確認を終了",
+    "confidenceEvidence": "モデル確信度: {percent}%",
+    "allDone": "すべての要確認箇所を確認しました",
+    "remaining": "残り {count} か所",
+    "status": {
+      "accepted": "確認済み",
+      "dismissed": "対応不要",
+      "fixed": "修正済み"
+    },
+    "reasons": {
+      "low_model_confidence": {
+        "title": "検出結果を確認してください",
+        "detail": "モデル確信度が低い箇所です。元音源と比較して確認してください。"
+      },
+      "very_short_detection": {
+        "title": "音の長さを確認してください",
+        "detail": "非常に短い音として検出されました。実際の音かどうかを確認してください。"
+      },
+      "overlapping_candidates": {
+        "title": "音の重なりを確認してください",
+        "detail": "複数の候補があります。元音源を聞いて正しい解釈を選んでください。"
+      },
+      "quantization_ambiguous": {
+        "title": "リズムの解釈を確認してください",
+        "detail": "リズムの取り方が複数考えられます。"
+      },
+      "pitch_spelling_ambiguous": {
+        "title": "臨時記号の表記を確認してください",
+        "detail": "異名同音の表記が複数考えられます。"
+      },
+      "outside_preferred_horn_range": {
+        "title": "ホルンの音域を確認してください",
+        "detail": "一般的なホルンの音域を外れている可能性があります。"
+      },
+      "structural_measure_conflict": {
+        "title": "小節内の音価を確認してください",
+        "detail": "小節内の音の長さの合計が拍子と一致しません。"
+      },
+      "beat_alignment_uncertain": {
+        "title": "拍位置を確認してください",
+        "detail": "音の開始位置が拍の格子からずれている可能性があります。"
+      },
+      "beat_map_uncertain": {
+        "title": "テンポと拍位置を確認してください",
+        "detail": "テンポまたは拍の推定が不安定です。必要に応じて手動で設定してください。"
+      },
+      "possible_triplet": {
+        "title": "三連符の可能性があります",
+        "detail": "三連符として解釈できる箇所があります。"
+      },
+      "possible_grace_note": {
+        "title": "装飾音の可能性があります",
+        "detail": "装飾音として検出された音があります。"
+      },
+      "offset_ambiguous": {
+        "title": "音の長さを確認してください",
+        "detail": "音の終了位置が曖昧です。"
+      },
+      "pickup_ambiguous": {
+        "title": "弱起を確認してください",
+        "detail": "弱起（アウフタクト）の可能性があります。"
+      },
+      "meter_conflict": {
+        "title": "拍子を確認してください",
+        "detail": "現在の拍子と矛盾するリズムがあります。"
+      },
+      "onset_uncertain": {
+        "title": "音の開始位置を確認してください",
+        "detail": "音の開始タイミングが曖昧です。"
+      },
+      "pitch_uncertain": {
+        "title": "音高を確認してください",
+        "detail": "検出された音高が曖昧です。"
+      },
+      "multiple_candidates": {
+        "title": "複数の候補があります",
+        "detail": "候補を比較して、正しい解釈を選んでください。"
+      },
+      "other": {
+        "title": "この箇所を確認してください",
+        "detail": "元音源と比較して確認してください。"
+      }
+    }
+  },
+  "properties": {
+    "title": "プロパティ",
+    "close": "プロパティを閉じる",
+    "empty": "楽譜上の音符を選択すると、ここにプロパティが表示されます。",
+    "noteSection": "音符",
+    "rangeSection": "選択範囲",
+    "fields": {
+      "pitch": "音高",
+      "spelling": "表記",
+      "onset": "開始位置",
+      "duration": "音の長さ",
+      "measure": "小節",
+      "confidence": "モデル確信度",
+      "sourcePosition": "元音源の位置"
+    },
+    "actions": {
+      "pitchUp": "半音上げる",
+      "pitchDown": "半音下げる",
+      "enharmonic": "異名同音を切り替える",
+      "delete": "削除",
+      "restore": "復元",
+      "changeDuration": "音価を変更",
+      "tie": "タイを切り替える",
+      "nudgeOnset": "開始位置を調整",
+      "playSource": "元音源を再生"
+    }
+  },
+  "exportSheet": {
+    "title": "書き出し",
+    "scoreSection": "楽譜",
+    "pdfSection": "PDF",
+    "midiSection": "MIDI",
+    "options": {
+      "concertMusicxml": "コンサートピッチ MusicXML",
+      "hornMusicxml": "F管ホルン MusicXML",
+      "concertPdf": "コンサートピッチ PDF",
+      "hornPdf": "F管ホルン PDF",
+      "playbackMidi": "再生用MIDI（実音）"
+    },
+    "destination": "保存先",
+    "chooseDestination": "保存先を選ぶ",
+    "chooseAnotherDestination": "別の保存先を選ぶ",
+    "submit": "書き出す",
+    "running": "書き出しています",
+    "museScoreMissingNote": "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。",
+    "pdfDisabledTooltip": "MuseScoreが見つからないためPDFを書き出せません",
+    "completeTitle": "書き出しが完了しました",
+    "revealInExplorer": "エクスプローラーで表示",
+    "openInMusescore": "MuseScoreで開く"
+  },
+  "settings": {
+    "title": "設定",
+    "navAria": "設定のカテゴリ",
+    "appearance": {
+      "label": "外観",
+      "theme": "テーマ",
+      "themeSystem": "システム",
+      "themeLight": "ライト",
+      "themeDark": "ダーク"
+    },
+    "playback": {
+      "label": "再生",
+      "defaultRate": "標準再生速度",
+      "skipSeconds": "戻る/進む秒数",
+      "followPlayback": "再生位置を追従"
+    },
+    "transcription": {
+      "label": "採譜",
+      "backend": "採譜エンジン",
+      "bpm": "BPM",
+      "meter": "拍子",
+      "minDuration": "最小音価",
+      "triplets": "三連符"
+    },
+    "score": {
+      "label": "楽譜",
+      "initialView": "初期表示",
+      "continuous": "連続表示",
+      "page": "ページ表示"
+    },
+    "export": {
+      "label": "書き出し",
+      "defaultFolder": "既定の保存先",
+      "musescorePath": "MuseScoreの場所"
+    },
+    "tools": {
+      "label": "ツール",
+      "ffmpeg": "FFmpeg",
+      "musescore": "MuseScore",
+      "modelInfo": "モデル情報"
+    },
+    "advanced": {
+      "label": "詳細設定",
+      "cache": "キャッシュ",
+      "logs": "ログ",
+      "diagnostics": "診断情報"
+    }
+  },
+  "diagnostics": {
+    "title": "診断情報",
+    "fields": {
+      "appVersion": "HornScribeのバージョン",
+      "engineVersion": "Pythonエンジンのバージョン",
+      "protocolVersion": "プロトコルバージョン",
+      "backend": "採譜エンジン",
+      "ffmpeg": "FFmpeg",
+      "musescore": "MuseScore",
+      "verovio": "Verovio",
+      "wavesurfer": "wavesurfer",
+      "cachePath": "キャッシュの場所",
+      "logPath": "ログの場所",
+      "workerStatus": "エンジンの状態"
+    },
+    "copy": "診断情報をコピー",
+    "copied": "診断情報をコピーしました",
+    "openLogs": "ログフォルダを開く",
+    "restartEngine": "エンジンを再起動"
+  },
+  "dialogs": {
+    "retranscribeConfirm": {
+      "title": "採譜結果を作り直しますか？",
+      "body": "現在の手動修正に影響する可能性があります。",
+      "confirm": "採譜し直す",
+      "cancel": "キャンセル"
+    },
+    "unsavedChanges": {
+      "title": "保存されていない変更があります",
+      "body": "プロジェクトを閉じる前に変更を保存しますか？",
+      "save": "保存",
+      "discard": "保存しない",
+      "cancel": "キャンセル"
+    },
+    "recoveryFound": {
+      "title": "前回の状態を復元しますか？",
+      "body": "前回の終了時に保存されていない変更があります。復元できます。",
+      "confirm": "復元する",
+      "discard": "復元しない"
+    }
+  },
+  "errors": {
+    "audioOpenFailed": {
+      "title": "音声ファイルを開けません",
+      "body": "このファイル形式を読み込めないか、ファイルが破損している可能性があります。",
+      "actions": {
+        "chooseAnother": "別のファイルを選ぶ",
+        "diagnostics": "診断情報"
+      }
+    },
+    "ffmpegMissing": {
+      "title": "音声を準備できません",
+      "body": "FFmpegが見つかりません。音声ファイルの変換に必要です。プロジェクトと元音源は失われていません。FFmpegをインストールするか、場所を指定してからもう一度試してください。",
+      "actions": {
+        "specifyFfmpeg": "FFmpegの場所を指定",
+        "close": "閉じる"
+      }
+    },
+    "musescoreMissing": {
+      "title": "PDFを書き出せません",
+      "body": "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。",
+      "actions": {
+        "specifyMusescore": "MuseScoreの場所を指定",
+        "exportMusicxml": "MusicXMLを書き出す",
+        "close": "閉じる"
+      }
+    },
+    "workerCrashed": {
+      "title": "採譜エンジンが停止しました",
+      "body": "現在のプロジェクトと保存済みの採譜結果は失われていません。",
+      "actions": {
+        "restartEngine": "エンジンを再起動",
+        "diagnostics": "診断情報"
+      }
+    },
+    "workerNotResponding": {
+      "title": "採譜エンジンが応答していません",
+      "body": "現在のプロジェクトと保存済みの採譜結果は失われていません。エンジンを再起動できます。",
+      "actions": {
+        "restartEngine": "エンジンを再起動",
+        "diagnostics": "診断情報"
+      }
+    },
+    "sourceMoved": {
+      "title": "元音源が見つかりません",
+      "body": "前回の場所から音声ファイルが移動した可能性があります。採譜結果と楽譜は保持されています。",
+      "actions": {
+        "specifySource": "音源を指定"
+      }
+    },
+    "sourceHashMismatch": {
+      "title": "指定されたファイルは元音源と一致しません",
+      "body": "内容が異なるため、このファイルは元音源として関連付けられません。別のファイルを指定してください。",
+      "actions": {
+        "specifySource": "別の音源を指定",
+        "close": "閉じる"
+      }
+    },
+    "transcriptionFailed": {
+      "title": "採譜を完了できませんでした",
+      "body": "元音源とプロジェクトは保持されています。",
+      "actions": {
+        "retry": "再試行",
+        "diagnostics": "診断情報"
+      }
+    },
+    "exportFailed": {
+      "title": "書き出しを完了できませんでした",
+      "body": "書き出し先への保存に失敗しました。プロジェクトと楽譜は失われていません。",
+      "actions": {
+        "chooseDestination": "別の保存先を選ぶ",
+        "retry": "再試行"
+      }
+    },
+    "exportPermissionDenied": {
+      "title": "保存先に書き込めません",
+      "body": "選択したフォルダへの書き込み権限がありません。プロジェクトと楽譜は失われていません。",
+      "actions": {
+        "chooseDestination": "別の保存先を選ぶ"
+      }
+    },
+    "projectOpenFailed": {
+      "title": "プロジェクトを開けません",
+      "body": "ファイルが破損しているか、対応していない形式の可能性があります。",
+      "actions": {
+        "close": "閉じる",
+        "diagnostics": "診断情報"
+      }
+    },
+    "projectVersionTooNew": {
+      "title": "このプロジェクトを開けません",
+      "body": "新しいバージョンのHornScribeで作成されたプロジェクトです。HornScribeを更新してください。",
+      "actions": {
+        "close": "閉じる"
+      }
+    },
+    "scoreRenderFailed": {
+      "title": "楽譜を表示できません",
+      "body": "採譜結果とプロジェクトは保持されています。",
+      "actions": {
+        "retry": "再試行",
+        "diagnostics": "診断情報"
+      }
+    }
+  },
+  "emptyStates": {
+    "launch": {
+      "headline": "ここに音声ファイルをドロップ",
+      "or": "または",
+      "cta": "音声ファイルを開く",
+      "formats": "WAV・MP3・FLAC・M4A・OGG",
+      "privacy": "すべての解析はこのPC上で実行されます。",
+      "recentProjects": "最近使ったプロジェクト"
+    },
+    "noScore": {
+      "body": "まだ楽譜はありません",
+      "cta": "採譜を開始"
+    },
+    "properties": {
+      "body": "楽譜上の音符を選択すると、ここにプロパティが表示されます。"
+    },
+    "reviewDone": {
+      "body": "すべての要確認箇所を確認しました"
+    }
+  },
+  "loading": {
+    "starting": "起動しています",
+    "openingAudio": "音声ファイルを読み込んでいます",
+    "openingProject": "プロジェクトを読み込んでいます",
+    "waveform": "波形を読み込んでいます",
+    "preparingEngine": "採譜エンジンを準備しています"
+  },
+  "firstRun": {
+    "welcome": "HornScribeへようこそ",
+    "intro": "音声ファイルから楽譜を作成し、F管ホルン用の楽譜として書き出せます。解析はすべてこのPC上で行われます。",
+    "stepsHeading": "基本的な流れ",
+    "steps": {
+      "open": "音声ファイルを開く",
+      "transcribe": "採譜を開始する",
+      "review": "要確認箇所を見直す",
+      "export": "MusicXMLやPDFを書き出す"
+    },
+    "toolsHeading": "外部ツール",
+    "toolsNote": "採譜にはFFmpeg、PDFの書き出しにはMuseScoreを使います。見つからない場合はあとで設定できます。",
+    "start": "はじめる",
+    "skip": "あとで"
+  },
+  "dependencies": {
+    "statusFound": "検出済み",
+    "statusMissing": "見つかりません",
+    "statusChecking": "確認しています",
+    "specifyLocation": "場所を指定",
+    "ffmpeg": {
+      "name": "FFmpeg",
+      "purpose": "音声ファイルの変換に必要です。",
+      "missing": "FFmpegが見つかりません。音声ファイルを開く前に場所を指定してください。"
+    },
+    "musescore": {
+      "name": "MuseScore",
+      "purpose": "PDFの書き出しに必要です。",
+      "missing": "MuseScoreが見つかりません。MusicXMLとMIDIの書き出しはそのまま使えます。"
+    },
+    "engine": {
+      "name": "採譜エンジン",
+      "purpose": "音声の解析に必要です。",
+      "missing": "採譜エンジンが見つかりません。アプリを再起動しても解決しない場合は診断情報を確認してください。"
+    }
+  },
+  "notifications": {
+    "projectSaved": "プロジェクトを保存しました",
+    "sessionRestored": "前回の作業状態を復元しました",
+    "sourceRelinked": "元音源を関連付け直しました",
+    "followPaused": "再生位置の追従を一時停止しました",
+    "exportDone": "書き出しが完了しました",
+    "transcriptionDone": "採譜が完了しました"
+  },
+  "a11y": {
+    "appShell": "HornScribe",
+    "commandBar": "コマンドバー",
+    "statusBar": "状態表示",
+    "waveformRegion": "波形",
+    "scoreRegion": "楽譜",
+    "propertiesPanel": "プロパティ",
+    "transportBar": "再生コントロール",
+    "play": "再生",
+    "pause": "一時停止",
+    "stop": "停止",
+    "volume": "音量",
+    "position": "現在位置",
+    "rate": "再生速度",
+    "scoreZoom": "楽譜の表示倍率",
+    "loopToggle": "ループ",
+    "followToggle": "再生位置を追従",
+    "viewSwitcher": "コンサートピッチとF管ホルンの切替",
+    "closeProperties": "プロパティを閉じる",
+    "closeDialog": "ダイアログを閉じる",
+    "prevIssue": "前の要確認箇所",
+    "nextIssue": "次の要確認箇所",
+    "reviewProgress": "要確認の進捗",
+    "jobProgress": "採譜の進捗",
+    "selectedNote": "選択中の音符",
+    "timeDisplay": "現在位置と総時間",
+    "minimap": "波形全体のミニマップ",
+    "seekSlider": "波形上の再生位置",
+    "overflowMenu": "その他のコマンド",
+    "menuButton": "メニューを開く",
+    "exportOptions": "書き出しオプション",
+    "toolStatus": "外部ツールの状態",
+    "notifications": "通知",
+    "waveformResize": "波形の高さを変更",
+    "settingsNav": "設定のカテゴリ",
+    "reviewMarker": "要確認箇所",
+    "rangeSelectionStart": "選択範囲の開始",
+    "rangeSelectionEnd": "選択範囲の終了"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "id": "error.worker_crash",
+  "screenState": "ERROR",
+  "scenario": "採譜中にPythonエンジン（worker）がクラッシュ。プロジェクトと保存済み結果は保持されている。",
+  "elements": [
+    {
+      "id": "errorTitle",
+      "component": "ErrorSurface",
+      "copyKey": "errors.workerCrashed.title",
+      "text": "採譜エンジンが停止しました"
+    },
+    {
+      "id": "errorBody",
+      "component": "ErrorSurface",
+      "copyKey": "errors.workerCrashed.body",
+      "text": "現在のプロジェクトと保存済みの採譜結果は失われていません。"
+    },
+    {
+      "id": "actionRestart",
+      "component": "Button",
+      "copyKey": "errors.workerCrashed.actions.restartEngine",
+      "text": "エンジンを再起動"
+    },
+    {
+      "id": "actionDiagnostics",
+      "component": "Button",
+      "copyKey": "errors.workerCrashed.actions.diagnostics",
+      "text": "診断情報"
+    }
+  ],
+  "sampleData": {
+    "jobId": "job-0007",
+    "lastStage": "transcribing"
+  }
+}

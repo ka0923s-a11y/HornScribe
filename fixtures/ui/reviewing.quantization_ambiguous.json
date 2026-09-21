@@ -1,0 +1,76 @@
+{
+  "id": "reviewing.quantization_ambiguous",
+  "screenState": "REVIEWING",
+  "scenario": "要確認ワークスペース。12件中3件目。理由はリズム解釈の曖昧さ。",
+  "elements": [
+    {
+      "id": "position",
+      "component": "ReviewNavigator",
+      "copyKey": "review.position",
+      "params": {"current": 3, "total": 12},
+      "text": "要確認 3 / 12"
+    },
+    {
+      "id": "reasonTitle",
+      "component": "ReviewReason",
+      "copyKey": "review.reasons.quantization_ambiguous.title",
+      "text": "リズムの解釈を確認してください"
+    },
+    {
+      "id": "reasonDetail",
+      "component": "ReviewReason",
+      "copyKey": "review.reasons.quantization_ambiguous.detail",
+      "text": "リズムの取り方が複数考えられます。"
+    },
+    {
+      "id": "confidence",
+      "component": "ReviewReason",
+      "copyKey": "review.confidenceEvidence",
+      "params": {"percent": 72},
+      "text": "モデル確信度: 72%"
+    },
+    {
+      "id": "prev",
+      "component": "ReviewNavigator",
+      "copyKey": "review.prev",
+      "text": "前へ"
+    },
+    {
+      "id": "playSource",
+      "component": "ReviewNavigator",
+      "copyKey": "review.playSource",
+      "text": "元音源を再生"
+    },
+    {
+      "id": "markOk",
+      "component": "ReviewNavigator",
+      "copyKey": "review.markOk",
+      "text": "問題なし"
+    },
+    {
+      "id": "next",
+      "component": "ReviewNavigator",
+      "copyKey": "review.next",
+      "text": "次へ"
+    },
+    {
+      "id": "prevIssueAria",
+      "component": "IconButton",
+      "copyKey": "a11y.prevIssue",
+      "text": "前の要確認箇所",
+      "role": "accessible name"
+    },
+    {
+      "id": "nextIssueAria",
+      "component": "IconButton",
+      "copyKey": "a11y.nextIssue",
+      "text": "次の要確認箇所",
+      "role": "accessible name"
+    }
+  ],
+  "sampleData": {
+    "issueId": "ri-0003",
+    "measureLabel": "第12小節",
+    "sourceRangeLabel": "00:41.2 – 00:43.8"
+  }
+}

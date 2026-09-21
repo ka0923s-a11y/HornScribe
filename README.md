@@ -28,6 +28,8 @@ Planning / architecture validation.
 7. **[Quantizer Design](docs/QUANTIZER_DESIGN.md)** — HSQ-v1 rhythm quantization algorithm, cost model, tests, and implementation phases.
 8. **[ADR-0001: Desktop UI Architecture](docs/adr/ADR-0001-desktop-ui-architecture.md)** — proposed Tauri/React architecture, pending spike validation.
 9. **[ADR-0002: Python Sidecar](docs/adr/ADR-0002-python-sidecar.md)** — proposed Python engine process boundary.
+10. **[Japanese UI Copy](docs/JAPANESE_UI_COPY.md)** — copy standard for the Japanese-only UI.
+11. **[UI Copy Contract](docs/UI_COPY_CONTRACT.md)** — canonical `protocol/copy/ja-JP.json` deck rules and `fixtures/ui/` format.
 
 If documents conflict, an **Accepted ADR** overrides the plans. Until an ADR is accepted, the Master Plan defines the active implementation sequence.
 

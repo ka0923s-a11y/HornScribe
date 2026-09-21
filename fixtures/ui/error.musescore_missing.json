@@ -1,0 +1,40 @@
+{
+  "id": "error.musescore_missing",
+  "screenState": "ERROR",
+  "scenario": "PDF書き出し時にMuseScoreが見つからない。MusicXML書き出しの代替経路を提示する。",
+  "elements": [
+    {
+      "id": "errorTitle",
+      "component": "ErrorSurface",
+      "copyKey": "errors.musescoreMissing.title",
+      "text": "PDFを書き出せません"
+    },
+    {
+      "id": "errorBody",
+      "component": "ErrorSurface",
+      "copyKey": "errors.musescoreMissing.body",
+      "text": "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。"
+    },
+    {
+      "id": "actionSpecify",
+      "component": "Button",
+      "copyKey": "errors.musescoreMissing.actions.specifyMusescore",
+      "text": "MuseScoreの場所を指定"
+    },
+    {
+      "id": "actionExportXml",
+      "component": "Button",
+      "copyKey": "errors.musescoreMissing.actions.exportMusicxml",
+      "text": "MusicXMLを書き出す"
+    },
+    {
+      "id": "actionClose",
+      "component": "Button",
+      "copyKey": "errors.musescoreMissing.actions.close",
+      "text": "閉じる"
+    }
+  ],
+  "sampleData": {
+    "museScoreDetected": false
+  }
+}

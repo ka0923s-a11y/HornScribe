@@ -1,0 +1,28 @@
+{
+  "id": "error.source_moved",
+  "screenState": "ERROR",
+  "scenario": "保存済みプロジェクトを開いたが元音源が移動・削除されている。再リンクを促す。",
+  "elements": [
+    {
+      "id": "errorTitle",
+      "component": "ErrorSurface",
+      "copyKey": "errors.sourceMoved.title",
+      "text": "元音源が見つかりません"
+    },
+    {
+      "id": "errorBody",
+      "component": "ErrorSurface",
+      "copyKey": "errors.sourceMoved.body",
+      "text": "前回の場所から音声ファイルが移動した可能性があります。採譜結果と楽譜は保持されています。"
+    },
+    {
+      "id": "actionSpecify",
+      "component": "Button",
+      "copyKey": "errors.sourceMoved.actions.specifySource",
+      "text": "音源を指定"
+    }
+  ],
+  "sampleData": {
+    "lastKnownPath": "D:\\Recordings\\old_folder\\ホルン独奏_朝練_2026-09-21.wav"
+  }
+}
