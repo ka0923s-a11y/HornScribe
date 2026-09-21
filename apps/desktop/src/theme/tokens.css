@@ -1,0 +1,129 @@
+/**
+ * HornScribe semantic design tokens (docs/DESIGN_SYSTEM.md §3).
+ *
+ * Token layers: primitive → semantic (--hs-*) → component.
+ * Components must reference --hs-* tokens, never raw hex values.
+ * The raw values in THIS file are the documented §25 exception
+ * (the single place where primitives are bound to semantics).
+ *
+ * Values are Fluent v9 neutral/brand palette aligned: the accent stays
+ * consistent with Windows/Fluent instead of a fixed brand color (§3).
+ */
+
+:root {
+  /* ---- Typography (DESIGN_SYSTEM §5) ---- */
+  --hs-font-family:
+    "Segoe UI Variable",
+    "Segoe UI",
+    "Yu Gothic UI",
+    "Meiryo",
+    sans-serif;
+  --hs-font-size-caption: 12px;
+  --hs-font-size-compact: 13px;
+  --hs-font-size-body: 14px;
+  --hs-font-size-subtitle: 16px;
+  --hs-font-size-title: 20px;
+  --hs-font-size-display: 24px;
+
+  /* ---- Spacing, 4px grid (§6) ---- */
+  --hs-space-micro: 2px;
+  --hs-space-xs: 4px;
+  --hs-space-sm: 8px;
+  --hs-space-ms: 12px;
+  --hs-space-md: 16px;
+  --hs-space-ml: 20px;
+  --hs-space-lg: 24px;
+  --hs-space-xl: 32px;
+  --hs-space-2xl: 48px;
+
+  /* ---- Geometry (§7): radius is functional, not decorative ---- */
+  --hs-radius-input: 6px;
+  --hs-radius-panel: 8px;
+  --hs-radius-modal: 10px;
+  --hs-radius-score-paper: 3px;
+
+  /* ---- Motion (§18) ---- */
+  --hs-motion-fast: 100ms;
+  --hs-motion-normal: 180ms;
+  --hs-motion-panel: 220ms;
+  --hs-motion-dialog: 240ms;
+}
+
+/* ============================= LIGHT ============================= */
+:root,
+[data-hs-theme="light"] {
+  --hs-surface-app: #f3f3f3;
+  --hs-surface-score: #ffffff;
+  --hs-surface-panel: #fafafa;
+  --hs-surface-elevated: #ffffff;
+
+  --hs-text-primary: #242424;
+  --hs-text-secondary: #424242;
+  --hs-text-muted: #616161;
+  --hs-text-disabled: #bdbdbd;
+
+  --hs-border-subtle: #e0e0e0;
+  --hs-border-strong: #757575;
+
+  --hs-accent: #0f6cbd;
+  --hs-accent-hover: #115ea3;
+  --hs-accent-pressed: #0f548c;
+
+  --hs-focus: #000000;
+
+  --hs-status-info: #0f6cbd;
+  --hs-status-warning: #986f0b;
+  --hs-status-error: #c50f1f;
+  --hs-status-success: #107c10;
+
+  --hs-waveform: #5f6b73;
+  --hs-waveform-played: rgba(15, 108, 189, 0.75);
+  --hs-waveform-selection: rgba(15, 108, 189, 0.22);
+  --hs-playhead: #0c3b5e;
+
+  --hs-score-selection: rgba(15, 108, 189, 0.25);
+  --hs-score-active-note: #0f6cbd;
+  --hs-score-current-measure: rgba(0, 0, 0, 0.05);
+  --hs-review-marker: #986f0b;
+}
+
+/* ============================= DARK ============================== */
+/* DESIGN_SYSTEM §13 option A: dark chrome + light score paper.      */
+/* --hs-surface-score and the score-ink tokens intentionally stay     */
+/* light so notation keeps normal readability on a dark shell.        */
+[data-hs-theme="dark"] {
+  --hs-surface-app: #1f1f1f;
+  --hs-surface-score: #fafafa;
+  --hs-surface-panel: #292929;
+  --hs-surface-elevated: #383838;
+
+  --hs-text-primary: #ffffff;
+  --hs-text-secondary: #d6d6d6;
+  --hs-text-muted: #adadad;
+  --hs-text-disabled: #5c5c5c;
+
+  --hs-border-subtle: #404040;
+  --hs-border-strong: #adadad;
+
+  --hs-accent: #479ef5;
+  --hs-accent-hover: #62abf5;
+  --hs-accent-pressed: #2886de;
+
+  --hs-focus: #ffffff;
+
+  --hs-status-info: #62abf5;
+  --hs-status-warning: #fee06e;
+  --hs-status-error: #f1707b;
+  --hs-status-success: #9fd89f;
+
+  --hs-waveform: #9eaab2;
+  --hs-waveform-played: rgba(71, 158, 245, 0.8);
+  --hs-waveform-selection: rgba(71, 158, 245, 0.3);
+  --hs-playhead: #a6c8fa;
+
+  /* Score marks land on the (light) score paper in both themes. */
+  --hs-score-selection: rgba(15, 108, 189, 0.25);
+  --hs-score-active-note: #0f6cbd;
+  --hs-score-current-measure: rgba(0, 0, 0, 0.06);
+  --hs-review-marker: #8a6308;
+}

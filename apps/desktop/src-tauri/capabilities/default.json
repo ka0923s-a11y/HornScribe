@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "メインウィンドウの最小権限セット。fs / dialog / asset protocol / shell / http などのプラグイン権限は一切付与しない。core:default に含まれない core:menu / core:tray / core:image はこのスパイクでは不要なため列挙からも除外する。",
+  "windows": ["main"],
+  "permissions": [
+    "core:app:default",
+    "core:event:default",
+    "core:path:default",
+    "core:resources:default",
+    "core:webview:default",
+    "core:window:default"
+  ]
+}

@@ -1,0 +1,29 @@
+[package]
+name = "hornscribe-desktop"
+version = "0.1.0"
+description = "HornScribe desktop shell (UI-001 spike)"
+authors = ["HornScribe project"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# Desktop-only spike: the Tauri 2 template ships ["staticlib", "cdylib", "rlib"]
+# for mobile embedding, but on x86_64-pc-windows-gnu the cdylib link fails —
+# GNU ld auto-exports every symbol (~89,700 > the 65,535 DLL export limit).
+# rlib alone is sufficient for the bin target; revisit if mobile is added.
+[lib]
+name = "hornscribe_desktop_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+# Spike defaults: keep symbols for profiling startup/memory.
+# Strip/panic=abort/LTO decisions belong to the packaging milestone.
+panic = "unwind"
+incremental = false
