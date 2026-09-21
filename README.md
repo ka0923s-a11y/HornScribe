@@ -17,9 +17,11 @@ HornScribe is a personal, local-first application for transcribing audio into re
 
 Planning / architecture phase.
 
-The implementation plan, technical decisions, test strategy, MusicXML transposition rules, and phased Codex task list are documented here:
+The project plans are documented here:
 
-**[Development Plan](docs/DEVELOPMENT_PLAN.md)**
+- **[Development Plan](docs/DEVELOPMENT_PLAN.md)** — transcription, notation, Horn in F, export, testing
+- **[GUI / UX Design & Implementation Plan](docs/GUI_UX_PLAN.md)** — interaction design, visual system, accessibility, performance, frontend architecture
+- **[ADR-0001: Desktop UI Architecture](docs/adr/ADR-0001-desktop-ui-architecture.md)** — proposed Tauri/React + Python worker boundary
 
 ## Core architecture rule
 
@@ -36,16 +38,29 @@ Concert C4
 
 This prevents double-transposition errors and keeps all transcription backends independent from instrument-specific notation.
 
-## Planned MVP stack
+## Planned architecture
 
-- Python 3.10
-- PySide6
+The music/transcription backend remains Python-based, while the polished desktop UI is being validated as a separate frontend architecture.
+
+### Desktop / UI
+
+- Tauri 2 / Rust shell
+- React + TypeScript
+- Fluent UI React v9 + HornScribe design tokens
+- Verovio WASM for interactive score rendering
+- wavesurfer.js for waveform/timeline interaction
+
+### Music / transcription backend
+
+- Python 3.10 initially
+- Spotify Basic Pitch baseline backend
 - FFmpeg
-- Spotify Basic Pitch
 - librosa
 - music21
 - MusicXML 4.0
 - MuseScore Studio CLI
 - pytest
 
-See the development plan for the rationale and alternatives.
+The desktop architecture is **proposed until the technical spikes in the GUI/UX plan pass**. Qt Quick/QML is the documented fallback.
+
+See the project plans for rationale, validation gates, and alternatives.
