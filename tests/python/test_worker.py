@@ -1,0 +1,615 @@
+"""Subprocess lifecycle tests for the engine sidecar (UI-002).
+
+Every test spawns a real ``python -m hornscribe.worker`` subprocess on
+anonymous pipes — exactly the supervision contract the Tauri shell
+(UI-001) will implement in Rust. The ``WorkerHandle`` class is the
+test-side stand-in for that shell: ID correlation, event collection,
+read timeouts, crash detection, and restart.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import queue
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PYTHONPATH_DIR = REPO_ROOT / "python"
+READ_TIMEOUT_S = 10.0
+
+_EOF = object()
+
+
+class WorkerTimeout(AssertionError):
+    """Supervisor-side read timeout — what a shell would treat as a hang."""
+
+
+class WorkerDied(AssertionError):
+    """stdout hit EOF — the worker process exited underneath us."""
+
+
+class WorkerHandle:
+    """Test-side supervisor for one sidecar subprocess.
+
+    Mirrors what the Tauri shell must do: correlate request IDs, collect
+    ``job.event`` frames interleaved with responses, apply read timeouts,
+    and detect process death. stderr is captured separately to prove the
+    protocol-clean-stdout / logs-on-stderr split.
+    """
+
+    def __init__(self) -> None:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = (
+            str(PYTHONPATH_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+        )
+        self.proc = subprocess.Popen(
+            [sys.executable, "-u", "-m", "hornscribe.worker"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            cwd=REPO_ROOT,
+            env=env,
+        )
+        self._out_q: queue.Queue[Any] = queue.Queue()
+        self._stderr_lines: list[str] = []
+        self.stdout_lines: list[str] = []
+        self._pending: list[dict[str, Any]] = []
+        self._seq = 0
+        assert self.proc.stdout is not None and self.proc.stderr is not None
+        threading.Thread(
+            target=self._pump,
+            args=(self.proc.stdout, self._out_q, self.stdout_lines),
+            daemon=True,
+        ).start()
+        threading.Thread(
+            target=self._pump,
+            args=(self.proc.stderr, None, self._stderr_lines),
+            daemon=True,
+        ).start()
+
+    @staticmethod
+    def _pump(stream: Any, q: queue.Queue[Any] | None, sink: list[str]) -> None:
+        try:
+            for line in iter(stream.readline, ""):
+                sink.append(line)
+                if q is not None:
+                    q.put(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            if q is not None:
+                q.put(_EOF)
+
+    # -- supervisor primitives ------------------------------------------
+
+    def _read_raw(self, timeout: float) -> dict[str, Any]:
+        try:
+            item = self._out_q.get(timeout=timeout)
+        except queue.Empty:
+            raise WorkerTimeout(
+                f"no stdout frame within {timeout}s; stderr so far: {self.stderr_text()!r}"
+            ) from None
+        if item is _EOF:
+            raise WorkerDied(f"worker stdout EOF, exit={self.proc.poll()}")
+        msg = json.loads(item)
+        assert isinstance(msg, dict), f"non-object frame on stdout: {item!r}"
+        return msg
+
+    def read_message(self, timeout: float = READ_TIMEOUT_S) -> dict[str, Any]:
+        """Next frame, draining stashed frames first (FIFO preserved)."""
+        if self._pending:
+            return self._pending.pop(0)
+        return self._read_raw(timeout)
+
+    def send_frame(self, frame: dict[str, Any]) -> None:
+        self.send_raw(json.dumps(frame))
+
+    def send_raw(self, text: str) -> None:
+        assert self.proc.stdin is not None
+        self.proc.stdin.write(text + "\n")
+        self.proc.stdin.flush()
+
+    def request(
+        self, method: str, payload: Any = None, timeout: float = READ_TIMEOUT_S
+    ) -> dict[str, Any]:
+        """Send a request; return its response, stashing other frames.
+
+        Response correlation is by exact ``id`` echo — the property the
+        shell relies on when events interleave with replies.
+        """
+        self._seq += 1
+        rid = f"req-{self._seq:04d}"
+        self.send_frame(
+            {
+                "v": 1,
+                "id": rid,
+                "kind": "request",
+                "method": method,
+                "payload": payload if payload is not None else {},
+            }
+        )
+        deadline = time.monotonic() + timeout
+        while True:
+            msg = self._read_raw(max(deadline - time.monotonic(), 0.01))
+            if msg.get("kind") == "response" and msg.get("id") == rid:
+                return msg
+            self._pending.append(msg)
+
+    def next_event(self, timeout: float = READ_TIMEOUT_S) -> dict[str, Any]:
+        """Next ``kind=event`` frame (stashed frames first)."""
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = max(deadline - time.monotonic(), 0.01)
+            msg = self._pending.pop(0) if self._pending else self._read_raw(remaining)
+            if msg.get("kind") == "event":
+                return msg
+            if time.monotonic() > deadline:
+                raise WorkerTimeout("timed out waiting for an event frame")
+
+    def wait_for_phase(self, phase: str, timeout: float = READ_TIMEOUT_S) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        while True:
+            ev = self.next_event(timeout=max(deadline - time.monotonic(), 0.01))
+            if ev["payload"]["phase"] == phase:
+                return ev
+
+    def handshake(self, protocol_version: int = 1) -> dict[str, Any]:
+        return self.request(
+            "engine.handshake", {"protocolVersion": protocol_version}
+        )
+
+    # -- process control -------------------------------------------------
+
+    def close_stdin(self) -> None:
+        assert self.proc.stdin is not None
+        self.proc.stdin.close()
+
+    def wait_exit(self, timeout: float = READ_TIMEOUT_S) -> int:
+        return self.proc.wait(timeout=timeout)
+
+    def kill(self) -> None:
+        """TerminateProcess on Windows — the practical SIGKILL equivalent."""
+        self.proc.kill()
+
+    def stderr_text(self) -> str:
+        return "".join(self._stderr_lines)
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            self.kill()
+        self.proc.wait(timeout=READ_TIMEOUT_S)
+
+
+@pytest.fixture
+def spawn() -> Any:
+    """Factory fixture: every spawned worker is reaped at test end."""
+    handles: list[WorkerHandle] = []
+
+    def _spawn() -> WorkerHandle:
+        handle = WorkerHandle()
+        handles.append(handle)
+        return handle
+
+    yield _spawn
+    for handle in handles:
+        handle.close()
+
+
+def _assert_ok(resp: dict[str, Any]) -> dict[str, Any]:
+    assert resp["kind"] == "response"
+    assert resp["error"] is None, resp
+    return resp["payload"]
+
+
+# -----------------------------------------------------------------------
+# handshake / ping / unknown methods
+# -----------------------------------------------------------------------
+
+
+def test_handshake_reports_version_engine_and_capabilities(spawn: Any) -> None:
+    w = spawn()
+    payload = _assert_ok(w.handshake())
+    assert payload["protocolVersion"] == 1
+    info = payload["engineInfo"]
+    assert info["name"] == "hornscribe-engine"
+    assert isinstance(info["version"], str) and info["version"]
+    assert info["python"].startswith("3.")
+    caps = payload["capabilities"]
+    assert "demoLongTask" in caps["jobKinds"]
+    assert caps["cooperativeCancel"] is True
+    assert caps["cancellationFallback"] == "terminate+restart"
+
+
+def test_ping_echoes_and_correlates_ids(spawn: Any) -> None:
+    w = spawn()
+    r1 = w.request("engine.ping", {"echo": "alpha"})
+    r2 = w.request("engine.ping", {"echo": {"nested": [1, 2]}})
+    assert _assert_ok(r1)["echo"] == "alpha"
+    assert _assert_ok(r2)["echo"] == {"nested": [1, 2]}
+    assert r1["id"] != r2["id"]  # each response carried its own request id
+
+
+def test_unknown_method_returns_structured_error(spawn: Any) -> None:
+    w = spawn()
+    resp = w.request("engine.teleport", {})
+    assert resp["kind"] == "response"
+    assert resp["error"]["code"] == "UNKNOWN_METHOD"
+    assert resp["payload"] is None
+    _assert_ok(w.request("engine.ping"))  # worker unaffected
+
+
+# -----------------------------------------------------------------------
+# malformed input containment
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw", ["{not json", "[1, 2, 3]", "42", '"text"', ""])
+def test_malformed_json_is_contained(spawn: Any, raw: str) -> None:
+    w = spawn()
+    w.send_raw(raw)
+    msg = w.read_message()
+    assert msg["kind"] == "response"
+    assert msg["error"]["code"] == "MALFORMED_MESSAGE"
+    # Unrecoverable frame → the documented id:null error response.
+    assert msg["id"] is None
+    _assert_ok(w.request("engine.ping"))  # worker survives
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        {"id": "r1", "kind": "request", "method": "engine.ping"},  # missing v
+        {"v": "1", "id": "r1", "kind": "request", "method": "engine.ping"},  # v type
+        {"v": 1, "kind": "request", "method": "engine.ping"},  # missing id
+        {"v": 1, "id": "r1", "kind": "request"},  # missing method
+        {"v": 1, "id": "r1", "kind": "wat", "method": "engine.ping"},  # bad kind
+        {"v": 1, "id": 7, "kind": "request", "method": "engine.ping"},  # id type
+    ],
+    ids=["missing-v", "v-wrong-type", "missing-id", "missing-method", "bad-kind", "id-int"],
+)
+def test_malformed_envelopes_are_contained(spawn: Any, frame: dict[str, Any]) -> None:
+    w = spawn()
+    w.send_frame(frame)
+    msg = w.read_message()
+    assert msg["error"]["code"] == "MALFORMED_MESSAGE"
+    if isinstance(frame.get("id"), str):
+        assert msg["id"] == frame["id"]  # id recovered for correlation
+    _assert_ok(w.request("engine.ping"))
+
+
+def test_unknown_fields_are_ignored(spawn: Any) -> None:
+    w = spawn()
+    w.send_frame(
+        {
+            "v": 1,
+            "id": "req-x1",
+            "kind": "request",
+            "method": "engine.ping",
+            "payload": {"echo": 7, "futureField": {"x": 1}},
+            "newTopLevelField": "ignored",
+        }
+    )
+    msg = w.read_message()
+    assert _assert_ok(msg)["echo"] == 7
+
+
+# -----------------------------------------------------------------------
+# protocol version handling
+# -----------------------------------------------------------------------
+
+
+def test_envelope_version_mismatch_fails_clearly(spawn: Any) -> None:
+    w = spawn()
+    w.send_frame({"v": 2, "id": "req-v2", "kind": "request", "method": "engine.ping"})
+    msg = w.read_message()
+    assert msg["kind"] == "response"
+    assert msg["id"] == "req-v2"
+    assert msg["error"]["code"] == "PROTOCOL_VERSION_MISMATCH"
+    assert msg["error"]["details"]["expected"] == 1
+
+
+def test_handshake_rejects_incompatible_version_and_exits(spawn: Any) -> None:
+    w = spawn()
+    resp = w.request("engine.handshake", {"protocolVersion": 99})
+    assert resp["error"]["code"] == "PROTOCOL_VERSION_MISMATCH"
+    assert resp["error"]["details"]["supported"] == [1]
+    # Refusal is explicit AND final: the worker exits rather than serve a
+    # peer it cannot talk to. Exit is graceful (0) — refusal, not crash.
+    assert w.wait_exit(timeout=READ_TIMEOUT_S) == 0
+
+
+# -----------------------------------------------------------------------
+# jobs: progress, cancel, failure, concurrency guard
+# -----------------------------------------------------------------------
+
+
+def test_demo_long_task_streams_progress_to_completion(spawn: Any) -> None:
+    w = spawn()
+    w.handshake()
+    resp = _assert_ok(
+        w.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 5, "stepDurationMs": 15}},
+        )
+    )
+    job_id = resp["jobId"]
+    phases: list[str] = []
+    progresses: list[float] = []
+    while True:
+        ev = w.next_event()
+        assert ev["id"] is None
+        assert ev["kind"] == "event"
+        assert ev["method"] == "job.event"
+        p = ev["payload"]
+        assert p["jobId"] == job_id and p["jobKind"] == "demoLongTask"
+        phases.append(p["phase"])
+        if p["phase"] == "progress":
+            progresses.append(p["progress"])
+        if p["phase"] in {"completed", "cancelled", "failed"}:
+            break
+    assert phases[0] == "started"
+    assert phases[-1] == "completed"
+    assert progresses == sorted(progresses)
+    assert progresses[-1] == 1.0
+
+
+def test_requests_are_answered_while_job_runs(spawn: Any) -> None:
+    """Progress streaming must not block the request loop (UI stays live)."""
+    w = spawn()
+    w.handshake()
+    _assert_ok(
+        w.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 60, "stepDurationMs": 25}},
+        )
+    )
+    t0 = time.monotonic()
+    resp = _assert_ok(w.request("engine.ping", {"echo": "during-job"}))
+    assert resp["echo"] == "during-job"
+    assert time.monotonic() - t0 < 1.0  # ≪ the ~1.5s job runtime
+    w.wait_for_phase("completed")
+
+
+def test_job_cancel_is_cooperative_and_prompt(spawn: Any) -> None:
+    w = spawn()
+    w.handshake()
+    job = _assert_ok(
+        w.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 100, "stepDurationMs": 20}},
+        )
+    )
+    job_id = job["jobId"]
+    w.wait_for_phase("progress")
+    t0 = time.monotonic()
+    resp = _assert_ok(w.request("job.cancel", {"jobId": job_id}))
+    assert resp["cancellation"] == "requested"
+    term = w.wait_for_phase("cancelled")
+    latency = time.monotonic() - t0
+    assert term["payload"]["jobId"] == job_id
+    # Cooperative cancel lands at the next step boundary (~20ms); 2s is a
+    # generous bound that still proves promptness.
+    assert latency < 2.0
+    assert term["payload"]["progress"] < 1.0
+    _assert_ok(w.request("engine.ping"))  # worker keeps serving
+
+
+def test_cancel_unknown_or_finished_job(spawn: Any) -> None:
+    w = spawn()
+    resp = w.request("job.cancel", {"jobId": "job-9999"})
+    assert resp["error"]["code"] == "JOB_NOT_FOUND"
+    job = _assert_ok(
+        w.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 2, "stepDurationMs": 5}},
+        )
+    )
+    w.wait_for_phase("completed")
+    resp = w.request("job.cancel", {"jobId": job["jobId"]})
+    assert resp["error"]["code"] == "JOB_NOT_FOUND"  # already terminal
+
+
+def test_second_job_is_rejected_while_one_runs(spawn: Any) -> None:
+    w = spawn()
+    first = _assert_ok(
+        w.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 100, "stepDurationMs": 20}},
+        )
+    )
+    resp = w.request("job.start", {"jobKind": "demoLongTask"})
+    assert resp["error"]["code"] == "JOB_ALREADY_RUNNING"
+    assert resp["error"]["details"]["activeJobId"] == first["jobId"]
+    _assert_ok(w.request("job.cancel", {"jobId": first["jobId"]}))
+    w.wait_for_phase("cancelled")
+
+
+def test_unknown_job_kind_is_rejected(spawn: Any) -> None:
+    w = spawn()
+    resp = w.request("job.start", {"jobKind": "nonsense"})
+    assert resp["error"]["code"] == "UNKNOWN_JOB_KIND"
+
+
+def test_invalid_job_params_are_rejected(spawn: Any) -> None:
+    w = spawn()
+    resp = w.request(
+        "job.start",
+        {"jobKind": "demoLongTask", "params": {"steps": "many"}},
+    )
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+
+
+def test_engine_side_job_deadline_times_out(spawn: Any) -> None:
+    """deadlineMs proves timeout handling inside the engine, not just the shell."""
+    w = spawn()
+    job = _assert_ok(
+        w.request(
+            "job.start",
+            {
+                "jobKind": "demoLongTask",
+                "params": {"steps": 1000, "stepDurationMs": 50, "deadlineMs": 80},
+            },
+        )
+    )
+    term = w.wait_for_phase("failed")
+    assert term["payload"]["jobId"] == job["jobId"]
+    assert term["payload"]["error"]["code"] == "JOB_TIMEOUT"
+
+
+def test_job_failure_emits_failed_event_not_worker_death(spawn: Any) -> None:
+    w = spawn()
+    job = _assert_ok(
+        w.request(
+            "job.start",
+            {
+                "jobKind": "demoLongTask",
+                "params": {"steps": 5, "stepDurationMs": 10, "failAtStep": 3},
+            },
+        )
+    )
+    term = w.wait_for_phase("failed")
+    assert term["payload"]["error"]["code"] == "JOB_FAILED"
+    assert term["payload"]["jobId"] == job["jobId"]
+    _assert_ok(w.request("engine.ping"))  # job failure ≠ worker failure
+
+
+# -----------------------------------------------------------------------
+# timeouts, crash detection, restart
+# -----------------------------------------------------------------------
+
+
+def test_unresponsive_worker_is_caught_by_supervisor_timeout(spawn: Any) -> None:
+    """A wedged worker produces no frame; the supervisor-side read timeout
+    is what detects it (the same thing a Tauri shell would enforce)."""
+    w = spawn()
+    w.handshake()
+    w.send_frame(
+        {
+            "v": 1,
+            "id": "req-hang",
+            "kind": "request",
+            "method": "debug.hang",
+            "payload": {"seconds": 30},
+        }
+    )
+    with pytest.raises(WorkerTimeout):
+        w.read_message(timeout=0.75)
+    assert w.proc.poll() is None  # alive but unresponsive → kill is the fix
+    w.kill()
+    assert w.wait_exit(timeout=READ_TIMEOUT_S) != 0
+
+
+def test_crash_is_detected_and_restart_restores_service(spawn: Any) -> None:
+    w1 = spawn()
+    p1 = _assert_ok(w1.handshake())
+    _assert_ok(
+        w1.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 200, "stepDurationMs": 20}},
+        )
+    )
+    w1.wait_for_phase("progress")  # mid-flight…
+    w1.kill()  # TerminateProcess — Windows kill -9 equivalent
+    rc = w1.wait_exit(timeout=READ_TIMEOUT_S)
+    assert rc != 0  # crash detected via nonzero exit + stdout EOF
+
+    # The in-flight job never reached a terminal event; per ADR-0002 the
+    # supervisor marks it failed and never silently resubmits it.
+    received = list(w1._pending)
+    assert all(
+        ev["payload"].get("phase") != "completed"
+        for ev in received
+        if ev.get("kind") == "event"
+    )
+
+    # Restart works without restarting the "UI" (this test process).
+    w2 = spawn()
+    p2 = _assert_ok(w2.handshake())
+    assert p2["protocolVersion"] == p1["protocolVersion"]
+    assert p2["engineInfo"]["name"] == p1["engineInfo"]["name"]
+    # Engine workers are stateless: project state lives in the shell-side
+    # store (FND-001), so nothing is lost by the restart. A fresh job on
+    # the new worker completes normally.
+    job2 = _assert_ok(
+        w2.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 3, "stepDurationMs": 10}},
+        )
+    )
+    done = w2.wait_for_phase("completed")
+    assert done["payload"]["jobId"] == job2["jobId"]
+
+
+# -----------------------------------------------------------------------
+# shutdown paths
+# -----------------------------------------------------------------------
+
+
+def test_engine_shutdown_is_graceful(spawn: Any) -> None:
+    w = spawn()
+    w.handshake()
+    resp = _assert_ok(w.request("engine.shutdown"))
+    assert resp["ok"] is True
+    assert w.wait_exit(timeout=READ_TIMEOUT_S) == 0
+
+
+def test_stdin_eof_is_a_clean_shutdown(spawn: Any) -> None:
+    w = spawn()
+    w.handshake()
+    w.close_stdin()
+    assert w.wait_exit(timeout=READ_TIMEOUT_S) == 0
+
+
+def test_shutdown_cancels_active_job(spawn: Any) -> None:
+    w = spawn()
+    w.handshake()
+    job = _assert_ok(
+        w.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 100, "stepDurationMs": 20}},
+        )
+    )
+    resp = _assert_ok(w.request("engine.shutdown"))
+    assert resp["activeJob"] == job["jobId"]
+    assert w.wait_exit(timeout=READ_TIMEOUT_S) == 0
+
+
+# -----------------------------------------------------------------------
+# stream hygiene
+# -----------------------------------------------------------------------
+
+
+def test_stdout_carries_only_protocol_frames_and_stderr_gets_logs(spawn: Any) -> None:
+    w = spawn()
+    w.handshake()
+    _assert_ok(
+        w.request(
+            "job.start",
+            {"jobKind": "demoLongTask", "params": {"steps": 3, "stepDurationMs": 10}},
+        )
+    )
+    w.wait_for_phase("completed")
+    _assert_ok(w.request("engine.shutdown"))
+    w.wait_exit(timeout=READ_TIMEOUT_S)
+    time.sleep(0.3)  # let reader threads drain
+
+    assert w.stdout_lines, "expected protocol frames on stdout"
+    for line in w.stdout_lines:
+        obj = json.loads(line)  # every stdout line must be a valid frame
+        assert obj["v"] == 1
+        assert obj["kind"] in {"response", "event"}
+        assert set(obj) >= {"v", "id", "kind", "method", "payload", "error"}
+
+    # Diagnostics live on stderr, separately capturable by the shell.
+    assert "sidecar started" in w.stderr_text()
+    assert "sidecar stopped" in w.stderr_text()

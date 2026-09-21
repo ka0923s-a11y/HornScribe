@@ -1,6 +1,7 @@
 # HornScribe IPC protocol draft
 
-> Status: Draft contract for the UI-002 spike.
+> Status: Draft contract for the UI-002 spike; extensions found during
+> the spike are marked **[UI-002]** below.
 > Transport: NDJSON over stdin/stdout between the Tauri shell and the Python
 > engine sidecar. stderr is reserved for human-readable logs.
 
@@ -27,6 +28,17 @@ Rules:
   and carries either `payload` or `error`, never both.
 - `kind=event` carries progress/cancellation notifications.
 - `error` is `{code, message, details?}`; codes are UPPER_SNAKE.
+- Unknown additive fields are ignored safely (ADR-0002).
+- **[UI-002]** `id` must be a non-empty string on requests and responses;
+  on events `id` must be exactly `null`.
+- **[UI-002]** If an inbound frame is too malformed to recover an `id`
+  (unparseable JSON, non-object, missing id), the worker still replies
+  with a `kind=response` carrying `id: null` and
+  `error.code = "MALFORMED_MESSAGE"`. This is the only case where a
+  response may carry a null id.
+- **[UI-002]** The worker only ever receives `kind=request`. Inbound
+  `response`/`event` frames are logged to stderr and dropped — never
+  answered — so a reply loop is impossible.
 
 ## Initial methods (UI-002 spike)
 
@@ -41,3 +53,77 @@ Rules:
 
 Cancellation semantics are validated against real inference in M3; the
 envelope stays the same regardless of cooperative vs. kill-based cancel.
+
+## Method details [UI-002]
+
+### `engine.handshake`
+
+Request payload: `{protocolVersion: int, clientInfo?: any}`.
+Response payload:
+
+```json
+{
+  "protocolVersion": 1,
+  "engineInfo": {"name", "version", "python", "platform", "pid"},
+  "capabilities": {
+    "methods": [...],
+    "jobKinds": ["demoLongTask"],
+    "maxConcurrentJobs": 1,
+    "cooperativeCancel": true,
+    "cancellationFallback": "terminate+restart",
+    "progressEvents": true,
+    "basicPitchAvailable": false
+  }
+}
+```
+
+If the requested `protocolVersion` is unsupported the worker replies
+`PROTOCOL_VERSION_MISMATCH` (with `details.supported`) **and then exits
+0** — a worker must not serve a peer it cannot talk to. A `v` mismatch
+on any *other* frame is answered with `PROTOCOL_VERSION_MISMATCH` and
+the worker stays up; supervision (kill/restart) is the shell's job.
+
+### `engine.ping`
+
+Echoes `payload.echo` back verbatim, plus `workerPid`/`uptimeMs`.
+
+### `engine.shutdown`
+
+Replies `{ok: true, activeJob}` and then exits 0. Any in-flight job is
+cooperatively cancelled first (bounded join). stdin EOF is an implicit
+`engine.shutdown`.
+
+### `job.start`
+
+`{jobKind: "demoLongTask", params: {steps?, stepDurationMs?, deadlineMs?, failAtStep?}}`
+→ `{jobId, jobKind, state: "accepted"}`. One job in flight max; a second
+`job.start` fails `JOB_ALREADY_RUNNING`. `deadlineMs` is an engine-side
+timeout (terminal `failed` event, `JOB_TIMEOUT`). `failAtStep` is a
+spike test hook (`JOB_FAILED`).
+
+### `job.cancel`
+
+`{jobId}` → `{jobId, cancellation: "requested"}`; `JOB_NOT_FOUND` when
+no such active job. Cooperative: the job checks the flag **between
+steps**, so latency ≤ one step duration. Blocking single-call work
+(Basic Pitch ONNX inference) cannot honor it mid-call — the documented
+MVP fallback is worker terminate/restart (ENGINE_RUNTIME_MATRIX.md).
+
+### `job.event` (event, `id: null`)
+
+`{jobId, jobKind, phase, progress, step?, totalSteps?, ...}`.
+Phases: `started` → `progress`* → exactly one terminal phase:
+`completed` | `cancelled` | `failed`. `failed` events carry
+`payload.error = {code, message}` (envelope `error` stays `null` — the
+frame itself is well-formed; the *job* failed).
+
+### `debug.hang` [UI-002 — spike test hook, NOT a stable API]
+
+`{seconds}` wedges the dispatch loop so a supervisor can exercise its
+own read-timeout/kill path. Subject to removal without notice.
+
+## Error codes [UI-002]
+
+`PROTOCOL_VERSION_MISMATCH`, `MALFORMED_MESSAGE`, `UNKNOWN_METHOD`,
+`INVALID_PARAMS`, `JOB_NOT_FOUND`, `JOB_ALREADY_RUNNING`,
+`UNKNOWN_JOB_KIND`, `JOB_TIMEOUT`, `JOB_FAILED`, `INTERNAL_ERROR`.
