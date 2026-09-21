@@ -5,6 +5,7 @@
 > Product: HornScribe  
 > Primary platform: Windows 11  
 > Operating model: Personal use, local-first, offline-capable, zero recurring cost  
+> Roadmap authority: [Master Plan](MASTER_PLAN.md)  
 > Related: [Development Plan](DEVELOPMENT_PLAN.md)
 
 ---
@@ -621,11 +622,38 @@ waveform / spectrogram / piano-roll / score を常時全部表示してはいけ
 
 ---
 
-# 7. Audio playback
+# 7. Audio playback / transport
 
-WebView上ではHTMLMediaElementを基本transportとする。
+HTMLMediaElement + wavesurfer.js は **Architecture Spikeで検証する実装候補**であり、HornScribeの永続的なdomain interfaceではない。
 
-`playbackRate` と `preservesPitch` を利用し、
+Frontendには独立した `TransportController` を定義する。
+
+```ts
+interface TransportController {
+  play(): Promise<void>
+  pause(): void
+  seek(seconds: number): Promise<void>
+  setRate(rate: number): void
+  setLoop(range: { start: number; end: number } | null): void
+  getCurrentTime(): number
+  subscribe(listener: (state: TransportSnapshot) => void): () => void
+}
+```
+
+wavesurfer / HTMLMediaElementはadapterとして実装する。
+
+Spikeで測定する:
+
+- seek latency
+- playback cursor jitter
+- loop drift
+- 3分/10分音源でのmemory
+- playback-rate behavior
+- `preservesPitch` behavior
+- pause/resume後のtime mapping
+- WebView2 codec support
+
+`playbackRate`候補:
 
 - 0.5x
 - 0.75x
@@ -633,12 +661,33 @@ WebView上ではHTMLMediaElementを基本transportとする。
 - 1.25x
 - 1.5x
 
-等を提供する。
-
 参考:
 - https://developer.mozilla.org/docs/Web/API/HTMLMediaElement/preservesPitch
 
 高度なtime stretch品質が必要になった段階でnative DSPを評価する。
+
+## 7.1 Local playback cache
+
+元音源をWebViewへ無制限に公開しない。
+
+推奨データフロー:
+
+```text
+User-selected original audio
+→ Rust/Python backend only
+→ normalized playback cache
+→ narrowly scoped Tauri asset protocol
+→ waveform / transport
+```
+
+利点:
+
+- WebView filesystem exposureを最小化
+- unsupported codec差を吸収
+- waveform peak生成と同じcache identityを使える
+- source audioを変更しない
+
+再生cache formatはSpikeで、WAV等のtiming安定性とfile sizeを比較して決定する。
 
 ---
 
@@ -703,6 +752,30 @@ concert→Horn移調の計算をReactで実装してはいけない。
 - project persistence
 
 **Canonical concert pitch は引き続きPython domain layerのsource of truth。**
+
+---
+
+# 8.4 Security / local-file boundary
+
+Tauriの権限は最小化する。
+
+必須:
+
+- remote CDN/scriptをruntimeで読み込まない
+- restrictive CSPを設定
+- Verovio WASMに必要な場合だけ `wasm-unsafe-eval` を許可
+- frontendへhome directory全体のfilesystem権限を与えない
+- asset protocolを使う場合はapp cacheと明示的に許可したpathだけをscopeへ追加
+- user-selected original audioは原則backend ownershipとし、frontendにはnormalized playback cacheを渡す
+- shell command stringを組み立てず、FFmpeg/MuseScoreはargument arrayでspawn
+- diagnostics/logには不要なsource pathや音源内容を複製しない
+
+Tauriではasset protocol scopeとCSPの設定がlocal file accessのsecurity boundaryになるため、Architecture Spikeのacceptance criteriaに含める。
+
+参考:
+- https://v2.tauri.app/security/asset-protocol/
+- https://v2.tauri.app/security/csp/
+- https://v2.tauri.app/reference/acl/scope/
 
 ---
 
@@ -780,6 +853,9 @@ response:
 - incompatible major versionは接続拒否
 - requestには必ずid
 - cancelは `jobs.cancel`
+- ML libraryがstdoutへ書き込む場合はworker wrapperでstderrへ隔離する
+- cancellationは「messageを受け取れる」だけで合格にしない。実際のBasic Pitch inferenceを停止できるか測定する
+- blocking inferenceをpromptに止められない場合、sidecar restartまたはper-job child processをfallbackにする
 
 worker crash時:
 
@@ -2118,10 +2194,13 @@ No timestamps/random IDs in golden screenshots.
 
 ## End-to-end
 
-Tauri supports WebDriver/E2E and mock/runtime testing.
+Frontend behaviorは可能な限りbrowser-level component/E2Eで高速に検証し、実Tauri E2EはWindows smoke/integrationへ絞る。
 
-Reference:
+Tauriのdesktop WebDriverはWindows/Linuxで利用できるが、WindowsではEdge WebDriverとEdge/WebView環境のversion整合が必要なため、全UI回帰をこれだけに依存しない。
+
+References:
 - https://v2.tauri.app/develop/tests/
+- https://v2.tauri.app/develop/tests/webdriver/
 
 Scenarios:
 
