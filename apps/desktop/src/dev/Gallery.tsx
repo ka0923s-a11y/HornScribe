@@ -32,6 +32,11 @@ import {
   StatusBadge,
   type HsButtonVariant,
 } from "../components/primitives";
+import { ImportScreenBody, type ImportView } from "../import/ImportStates";
+import {
+  DEFAULT_TRANSCRIPTION_OPTIONS,
+  type LoadedAudio,
+} from "../import/types";
 import "./gallery.css";
 
 /**
@@ -775,6 +780,123 @@ function ScreenFixtures() {
   );
 }
 
+/* -------------------- import-state fixtures (UI-020) --------------------
+ * The real ImportScreenBody driven by static ImportView fixtures — the
+ * same component the workspace renders, so these cells are the visual
+ * regression surface for EMPTY / OPENING_AUDIO / AUDIO_READY /
+ * AUDIO_ERROR / SOURCE_MISSING (§3/§4/§20). */
+
+const NOOP = () => undefined;
+
+const FIXTURE_AUDIO: LoadedAudio = {
+  ref: { kind: "path", path: "C:\\audio\\take-03.wav", name: "take-03.wav" },
+  fileName: "take-03.wav",
+  format: "wav",
+  sizeBytes: 14_680_064,
+  durationSeconds: 197.8,
+  sampleRate: 44_100,
+  peaks: [0.2, 0.5, 0.8, 0.4],
+  mediaSource: { kind: "blob", blob: new Blob() },
+};
+
+const FIXTURE_PROJECT = {
+  path: "C:\\music\\etude.hornscribe.json",
+  projectId: "fixture-project",
+  name: "etude",
+  sourcePath: "C:\\audio\\etude-source.flac",
+  sourceHash: "a1b2c3",
+};
+
+function importFixtureView(overrides: Partial<ImportView>): ImportView {
+  return {
+    audio: null,
+    openingLabel: null,
+    openingKind: null,
+    issue: null,
+    sourceMissing: null,
+    recentProjects: [],
+    options: DEFAULT_TRANSCRIPTION_OPTIONS,
+    onOpenAudio: NOOP,
+    onOpenProject: NOOP,
+    onPickRelink: NOOP,
+    onDismissError: NOOP,
+    onOptionsChange: NOOP,
+    ...overrides,
+  };
+}
+
+function ImportStateFixtures() {
+  return (
+    <Section title={ja.gallery.sections.importStates} wide>
+      <Fixture id="import-empty" caption={ja.gallery.samples.fixtureEmpty} stageClass="hs-fixture__stage--stretch">
+        <div className="hs-score hs-fixture-score">
+          <ImportScreenBody
+            screen="empty"
+            view={importFixtureView({
+              recentProjects: [
+                { name: "etude", path: FIXTURE_PROJECT.path, openedAt: 0 },
+                {
+                  name: "scale-practice",
+                  path: "C:\\music\\scale.hornscribe.json",
+                  openedAt: 0,
+                },
+              ],
+            })}
+            onTranscribe={NOOP}
+          />
+        </div>
+      </Fixture>
+
+      <Fixture id="import-opening" caption={ja.gallery.samples.fixtureOpening} stageClass="hs-fixture__stage--stretch">
+        <div className="hs-score hs-fixture-score">
+          <ImportScreenBody
+            screen="openingAudio"
+            view={importFixtureView({
+              openingKind: "audio",
+              openingLabel: "take-03.wav",
+            })}
+            onTranscribe={NOOP}
+          />
+        </div>
+      </Fixture>
+
+      <Fixture id="import-audio-ready" caption={ja.gallery.samples.fixtureAudioReady} stageClass="hs-fixture__stage--stretch">
+        <div className="hs-score hs-fixture-score">
+          <ImportScreenBody
+            screen="audioReady"
+            view={importFixtureView({ audio: FIXTURE_AUDIO })}
+            onTranscribe={NOOP}
+          />
+        </div>
+      </Fixture>
+
+      <Fixture id="import-audio-error" caption={ja.gallery.samples.fixtureError} stageClass="hs-fixture__stage--stretch">
+        <div className="hs-score hs-fixture-score">
+          <ImportScreenBody
+            screen="audioError"
+            view={importFixtureView({
+              issue: { kind: "unsupported", fileName: "memo.txt" },
+            })}
+            onTranscribe={NOOP}
+          />
+        </div>
+      </Fixture>
+
+      <Fixture id="import-source-missing" caption={ja.gallery.samples.fixtureSourceMissing} stageClass="hs-fixture__stage--stretch">
+        <div className="hs-score hs-fixture-score">
+          <ImportScreenBody
+            screen="sourceMissing"
+            view={importFixtureView({
+              sourceMissing: { project: FIXTURE_PROJECT, mismatch: false },
+            })}
+            onTranscribe={NOOP}
+          />
+        </div>
+      </Fixture>
+    </Section>
+  );
+}
+
 /* ------------------------------ gallery page ------------------------------ */
 
 const THEME_OPTIONS = [
@@ -795,6 +917,7 @@ function PrimitiveSections() {
       <PanelSection />
       <OverlaySection />
       <ScreenFixtures />
+      <ImportStateFixtures />
     </>
   );
 }

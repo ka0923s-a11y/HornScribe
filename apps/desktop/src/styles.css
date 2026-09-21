@@ -201,6 +201,45 @@ body {
   z-index: 6;
 }
 
+/* Decoded peaks (UI-020): one stroked <path> keeps the strip cheap to
+   repaint — bars are 1px columns centred on the midline (§8). */
+.hs-waveform__peaks {
+  position: absolute;
+  inset: 4px 0 6px;
+  width: 100%;
+  height: calc(100% - 10px);
+  color: var(--hs-accent);
+  pointer-events: none;
+}
+.hs-waveform__peaks path {
+  stroke: currentColor;
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+.hs-waveform__playhead {
+  position: absolute;
+  top: 0;
+  bottom: 6px;
+  width: 1px;
+  background: var(--hs-status-error);
+  pointer-events: none;
+}
+.hs-waveform__name {
+  position: absolute;
+  right: var(--hs-space-sm);
+  top: var(--hs-space-xs);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+  pointer-events: none;
+}
+.hs-waveform__placeholder {
+  pointer-events: none;
+}
+
 /* Shared separator affordance: quiet until hover/focus (§8 elevation —
    workspace stays flat, so the grip uses a translucent accent wash). */
 .hs-waveform__resizer:hover,
@@ -372,6 +411,151 @@ body {
   margin: 0;
   color: var(--hs-text-muted);
   font-size: var(--hs-font-size-caption);
+}
+
+/* 最近使ったプロジェクト (§3: rendered only when history exists) — a quiet
+   list under the CTA, never competing with the primary action. */
+.hs-recent {
+  margin-top: var(--hs-space-lg);
+  padding-top: var(--hs-space-md);
+  border-top: 1px solid var(--hs-border-subtle);
+  width: 100%;
+  max-width: 320px;
+}
+.hs-recent__title {
+  margin: 0 0 var(--hs-space-xs);
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+  font-weight: var(--hs-font-weight-emphasis);
+}
+.hs-recent__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-micro);
+}
+.hs-recent__item {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  width: 100%;
+  padding: var(--hs-space-xs) var(--hs-space-sm);
+  border: 0;
+  border-radius: var(--hs-radius-input);
+  background: transparent;
+  color: var(--hs-text-secondary);
+  font: inherit;
+  font-size: var(--hs-font-size-compact);
+  cursor: pointer;
+  text-align: left;
+}
+.hs-recent__item:hover {
+  background: var(--hs-control-hover);
+}
+.hs-recent__item:active {
+  background: var(--hs-control-pressed);
+}
+.hs-recent__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* OPENING_AUDIO (§5): the indeterminate bar + filename sit in the same
+   centered column as the empty state so the transition is a text swap. */
+.hs-opening {
+  gap: var(--hs-space-md);
+}
+.hs-opening__title {
+  margin: 0;
+  font-size: var(--hs-font-size-subtitle);
+  color: var(--hs-text-primary);
+}
+.hs-opening__progress {
+  width: 100%;
+  max-width: 320px;
+}
+.hs-opening__name {
+  margin: 0;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* AUDIO_READY (§4): metadata line + primary 採譜を開始 with the options
+   popover beside it — advanced settings stay hidden by default. */
+.hs-audio-ready__meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--hs-space-xs);
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-audio-ready__name {
+  font-weight: var(--hs-font-weight-emphasis);
+  color: var(--hs-text-primary);
+}
+.hs-audio-ready__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  margin-top: var(--hs-space-sm);
+}
+.hs-audio-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-sm);
+  min-width: 240px;
+  padding: var(--hs-space-sm);
+}
+.hs-audio-options__title {
+  margin: 0;
+  font-size: var(--hs-font-size-subtitle);
+  font-weight: var(--hs-font-weight-title);
+}
+
+/* Error cards (§20 AUDIO_ERROR / SOURCE_MISSING): what failed, what is
+   kept, the next action — always a recovery path, never a dead end. */
+.hs-error {
+  gap: var(--hs-space-sm);
+  max-width: 40em;
+}
+.hs-error__icon {
+  font-size: 28px;
+  color: var(--hs-status-error);
+}
+.hs-error__title {
+  margin: 0;
+  font-size: var(--hs-font-size-subtitle);
+  font-weight: var(--hs-font-weight-title);
+}
+.hs-error__file {
+  margin: 0;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+  font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hs-error__body {
+  margin: 0;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+  line-height: var(--hs-line-height-body);
+}
+.hs-error__actions {
+  display: flex;
+  gap: var(--hs-space-sm);
+  margin-top: var(--hs-space-sm);
 }
 
 /* ---- Transport (GUI_UX_SPEC §9) ---- */

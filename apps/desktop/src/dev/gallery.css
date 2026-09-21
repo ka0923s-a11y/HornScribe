@@ -218,6 +218,15 @@
   margin-top: var(--hs-space-xs);
 }
 
+/* Import-state fixtures (UI-020): the score-region shell shrunk into a
+   fixture cell — the body renders exactly as in the workspace. */
+.hs-fixture-score {
+  min-height: 320px;
+  flex: 1 1 auto;
+  padding: var(--hs-space-md);
+  border-radius: var(--hs-radius-panel);
+}
+
 /* Transcribing stage list (GUI_UX_SPEC §5 shape: ✓ done ● active ○ pending) */
 .hs-stage-list {
   margin: 0;

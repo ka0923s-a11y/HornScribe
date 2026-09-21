@@ -3,6 +3,7 @@ import {
   Previous24Regular,
   Rewind24Regular,
   Play24Regular,
+  Pause24Regular,
   Stop24Regular,
   FastForward24Regular,
   Next24Regular,
@@ -11,6 +12,7 @@ import {
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
+import { formatTimecode } from "../import/format";
 
 function withShortcut(title: string, shortcut?: string): string {
   return shortcut ? `${title}（${shortcut}）` : title;
@@ -23,10 +25,32 @@ function withShortcut(title: string, shortcut?: string): string {
  * All actions dispatch through the command surface (§23) — the Space key,
  * this button and a future menu item are the same command, so enabled
  * state and Japanese labels can never disagree across surfaces.
+ *
+ * `live` mirrors the transport adapter's low-frequency snapshot (UI-020):
+ * play/pause icon, the MM:SS.t position/duration readout and the rate
+ * button reflect the real audio clock — omit it and the bar renders its
+ * original static placeholder.
  */
-export function TransportBar({ commands }: { commands: CommandSurface }) {
+export function TransportBar({
+  commands,
+  live,
+  onCycleRate,
+}: {
+  commands: CommandSurface;
+  live?: {
+    isPlaying: boolean;
+    positionSec: number;
+    durationSec: number;
+    rate: number;
+  };
+  /** 再生速度 button — cycles SUPPORTED_RATES when the transport is live. */
+  onCycleRate?(): void;
+}) {
   // All transport commands share the hasAudio gate (see definitions).
   const enabled = commands.isEnabled("transport.playPause");
+  const position = live ? formatTimecode(live.positionSec) : ja.time.zero;
+  const duration = live ? formatTimecode(live.durationSec) : ja.time.zeroTotal;
+  const rateLabel = live ? `${live.rate}×` : "1.0×";
   return (
     <Toolbar
       className="hs-transport"
@@ -72,8 +96,10 @@ export function TransportBar({ commands }: { commands: CommandSurface }) {
         relationship="label"
       >
         <ToolbarButton
-          icon={<Play24Regular />}
-          aria-label={commands.title("transport.playPause")}
+          icon={live?.isPlaying ? <Pause24Regular /> : <Play24Regular />}
+          aria-label={
+            live?.isPlaying ? ja.transport.pause : ja.transport.play
+          }
           aria-keyshortcuts="Space K"
           disabled={!commands.isEnabled("transport.playPause")}
           appearance="primary"
@@ -126,13 +152,22 @@ export function TransportBar({ commands }: { commands: CommandSurface }) {
         />
       </Tooltip>
       <span className="hs-transport__time" aria-label={ja.transport.position}>
-        {ja.time.zero} / {ja.time.zeroTotal}
+        {position} / {duration}
       </span>
 
       <span className="hs-transport__spacer" />
 
-      <Tooltip content={`${ja.transport.rate} 1.0×`} relationship="label">
-        <ToolbarButton disabled={!enabled}>1.0×</ToolbarButton>
+      <Tooltip
+        content={`${ja.transport.rate} ${rateLabel}`}
+        relationship="label"
+      >
+        <ToolbarButton
+          aria-label={`${ja.transport.rate} ${rateLabel}`}
+          disabled={!enabled}
+          onClick={onCycleRate}
+        >
+          {rateLabel}
+        </ToolbarButton>
       </Tooltip>
       <Tooltip
         content={withShortcut(

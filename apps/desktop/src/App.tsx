@@ -33,6 +33,26 @@ import { KeyboardDispatcher } from "./keyboard/dispatcher";
 import { useCommandKeyboard } from "./keyboard/useCommandKeyboard";
 import { cycleFocusZone, focusZone } from "./focus/zones";
 import { getShellInfo } from "./tauri/bridge";
+import { ImportController, type ImportState } from "./import/controller";
+import { INITIAL_IMPORT_STATE } from "./import/controller";
+import { loadRecentProjects } from "./import/recentProjects";
+import { createImportPorts } from "./import/runtimePorts";
+import { issueCopy, type ImportView } from "./import/ImportStates";
+import { listenNativeDrop } from "./import/nativeDrop";
+import { baseName } from "./import/formats";
+import {
+  MediaElementTransport,
+  SUPPORTED_RATES,
+  type TransportSnapshot,
+} from "./import/mediaTransport";
+import {
+  DEFAULT_TRANSCRIPTION_OPTIONS,
+  type AudioFileRef,
+  type TranscriptionOptions,
+} from "./import/types";
+import { formatTimecode } from "./import/format";
+import { HsButton } from "./components/primitives/Button";
+import { HsDialog } from "./components/primitives/Dialog";
 import {
   regionVisibility,
   commandStateFor,
@@ -120,8 +140,11 @@ export default function App() {
     ja.status.shellInfoLoading,
   );
   const [hash, setHash] = useState(() => window.location.hash);
-  // Screen state machine (§27). The live app is EMPTY until file/engine
-  // plumbing lands; dev builds can override via "#/dev/state/<name>".
+  // Screen state machine (§27). The import flow (UI-020) drives
+  // empty/openingAudio/audioReady/audioError/sourceMissing; the sidecar
+  // session (UI-040) drives transcribing/transcriptionError/scoreReady.
+  // Dev builds can override via "#/dev/state/<name>" or auto-start a real
+  // job via "#/dev/transcribing".
   const [screen, setScreen] = useState<ScreenState>(() =>
     import.meta.env.DEV && window.location.hash === DEV_TRANSCRIBING_HASH
       ? "audioReady"
@@ -177,6 +200,42 @@ export default function App() {
     if (sessionSnap.failure) setScreen("transcriptionError");
   }, [sessionSnap.failure]);
 
+  /* ---- UI-020 import flow ---- */
+  // The transport adapter (UI-004 contract) is created once per app; the
+  // import controller feeds it decoded media sources on AUDIO_READY.
+  const transport = useMemo(() => new MediaElementTransport(), []);
+  const [transportSnap, setTransportSnap] =
+    useState<TransportSnapshot | null>(null);
+  const [importState, setImportState] =
+    useState<ImportState>(INITIAL_IMPORT_STATE);
+  const [recentProjects, setRecentProjects] = useState(() =>
+    loadRecentProjects(),
+  );
+  const [nativeDrag, setNativeDrag] = useState(false);
+  const [transcriptionOptions, setTranscriptionOptions] =
+    useState<TranscriptionOptions>(DEFAULT_TRANSCRIPTION_OPTIONS);
+
+  const importer = useMemo(
+    () =>
+      new ImportController(
+        createImportPorts(),
+        {
+          onScreenChange: (s) => setScreen(s),
+          onState: (s) => setImportState(s),
+          onRecentChange: (entries) => setRecentProjects([...entries]),
+          announce: setStatusMessage,
+          onAudioReady: (audio) => {
+            // Fire-and-forget: a media failure flips the transport snapshot
+            // to "error" — the status line already carries the outcome.
+            void transport.load(audio.mediaSource).catch(() => undefined);
+          },
+        },
+        // Recent-project MRU persists in localStorage (web + webview).
+        typeof window !== "undefined" ? window.localStorage : null,
+      ),
+    [transport],
+  );
+
   const regions = regionVisibility(screen);
   // Inspector contract: no selection model exists yet (UI-003+); the panel
   // renders the "none" body when opened manually.
@@ -194,14 +253,15 @@ export default function App() {
   // The registry is static: predicates read the snapshot, not React state.
   const registry = useMemo(() => createCommandRegistry(), []);
 
-  // Screen machine → command snapshot (§23). Playback/undo/selection stay
-  // false until their feature issues land; isTranscribing is the field that
-  // keeps score-writing commands disabled while a transcription runs (§5).
+  // Screen machine → command snapshot (§23). Playback fields mirror the
+  // transport adapter (UI-020); undo/selection stay false until their
+  // feature issues land; isTranscribing keeps score-writing commands
+  // disabled while a transcription runs (§5).
   const snapshot = useMemo<CommandSnapshot>(
     () => ({
       ...commandStateFor(screen),
-      isPlaying: false,
-      loopEnabled: false,
+      isPlaying: transportSnap?.status === "playing",
+      loopEnabled: transportSnap?.loop != null,
       pitch,
       canUndo: false,
       canRedo: false,
@@ -209,12 +269,27 @@ export default function App() {
       reviewCount,
       view,
     }),
-    [screen, pitch, reviewCount, view],
+    [screen, transportSnap, pitch, reviewCount, view],
+  );
+
+  // §8 §-seek transport step (GUI_UX_SPEC §9: ←/→ 5 seconds).
+  const seekBy = useCallback(
+    (delta: number) => {
+      void transport
+        .seek(transport.getCurrentTime() + delta)
+        .catch(() => undefined);
+      setStatusMessage(
+        ja.import.feedback.position(
+          formatTimecode(transport.getCurrentTime()),
+        ),
+      );
+    },
+    [transport],
   );
 
   const ctx = useMemo<CommandContext>(
     () => ({
-      openAudio: () => setStatusMessage(ja.status.spikeNoFileOpen),
+      openAudio: () => void importer.openViaDialog(),
       transcribe: () => {
         // §27 AUDIO_READY → TRANSCRIBING. The job lifecycle effects own
         // every later transition; a failed start lands on the §20 surface.
@@ -232,13 +307,39 @@ export default function App() {
              failures surface through snap.failure/engine state */
         });
       },
-      togglePlayPause: () =>
-        setStatusMessage(ja.commandFeedback.notImplemented),
-      stop: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      jumpBack: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      jumpForward: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      seekToStart: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      seekToEnd: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      togglePlayPause: () => {
+        if (transport.getSnapshot().status === "playing") {
+          transport.pause();
+          setStatusMessage(ja.import.feedback.paused);
+        } else {
+          void transport.play().catch(() => undefined);
+          setStatusMessage(ja.import.feedback.playing);
+        }
+      },
+      stop: () => {
+        transport.stop();
+        setStatusMessage(ja.import.feedback.stopped);
+      },
+      jumpBack: () => seekBy(-5),
+      jumpForward: () => seekBy(5),
+      seekToStart: () => {
+        void transport.seek(0).catch(() => undefined);
+        setStatusMessage(
+          ja.import.feedback.position(formatTimecode(0)),
+        );
+      },
+      seekToEnd: () => {
+        void transport
+          .seek(transport.getDuration())
+          .catch(() => undefined);
+        setStatusMessage(
+          ja.import.feedback.position(
+            formatTimecode(transport.getDuration()),
+          ),
+        );
+      },
+      // Loop arming needs a selection range (UI-030 owns that contract);
+      // keep the honest stub instead of a fake toggle.
       toggleLoop: () => setStatusMessage(ja.commandFeedback.notImplemented),
       setPitchView: (v) => {
         setPitch(v);
@@ -277,7 +378,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [session],
+    [importer, transport, seekBy, session],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -316,9 +417,9 @@ export default function App() {
     }
   }, [layout]);
 
-  // 採譜 / キャンセル share one callback: the command is disabled while a
-  // transcription runs (§5), so the cancel affordance falls through to an
-  // honest "not implemented yet" announcement instead of silently no-oping.
+  // 採譜 start routes through the command surface — the registry decides
+  // (disabled → honest announcement, never a silent no-op). Cancellation
+  // is owned by TranscriptionView via score.cancelTranscription (§5).
   const transcribeClicked = useCallback(() => {
     if (!commands.invoke("score.transcribe")) {
       setStatusMessage(ja.commandFeedback.notImplemented);
@@ -386,6 +487,67 @@ export default function App() {
     };
   }, []);
 
+  // Transport adapter → low-frequency snapshot for playhead + transport
+  // bar (media timeupdate cadence, no rAF — see mediaTransport.ts header).
+  useEffect(() => {
+    const unsubscribe = transport.subscribe(setTransportSnap);
+    setTransportSnap(transport.getSnapshot());
+    return () => {
+      unsubscribe();
+      transport.dispose();
+    };
+  }, [transport]);
+
+  // Native file drop (Tauri `dragDropEnabled`): enter/over light the drop
+  // affordance on the score region, drop imports the first supported path.
+  // Outside the webview this resolves to a no-op (HTML5 drop covers dev).
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    void listenNativeDrop((payload) => {
+      if (payload.type === "enter" || payload.type === "over") {
+        setNativeDrag(true);
+      } else if (payload.type === "leave") {
+        setNativeDrag(false);
+      } else {
+        setNativeDrag(false);
+        const refs: AudioFileRef[] = payload.paths.map((path) => ({
+          kind: "path",
+          path,
+          name: baseName(path),
+        }));
+        void importer.importRefs(refs);
+      }
+    }).then((u) => {
+      if (alive) unlisten = u;
+      else u();
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, [importer]);
+
+  // Assembled once per render for the import-owned score bodies
+  // (ImportStates.tsx) — keeps ScoreWorkspace's prop surface small.
+  const importView = useMemo<ImportView>(
+    () => ({
+      audio: importState.audio,
+      openingLabel: importState.openingLabel,
+      openingKind: importState.openingKind,
+      issue: importState.issue,
+      sourceMissing: importState.sourceMissing,
+      recentProjects,
+      options: transcriptionOptions,
+      onOpenAudio: () => void importer.openViaDialog(),
+      onOpenProject: (entry) => void importer.openProject(entry),
+      onPickRelink: () => void importer.pickRelinkSource(),
+      onDismissError: () => importer.dismiss(),
+      onOptionsChange: setTranscriptionOptions,
+    }),
+    [importState, recentProjects, transcriptionOptions, importer],
+  );
+
   const theme = resolved === "dark" ? hsDarkTheme : hsLightTheme;
   // Dev-only route: the gallery renders in place of the shell and never
   // appears in product navigation.
@@ -402,7 +564,8 @@ export default function App() {
         </Suspense>
       ) : (
         <AppShell>
-          <TitleBar />
+          {/* Document identity follows the loaded source audio (§2). */}
+          <TitleBar documentTitle={importState.audio?.fileName} />
           {view === "settings" ? (
             <div className="hs-settings-wrap">
               <SettingsView
@@ -431,12 +594,28 @@ export default function App() {
                   max={layout.waveformMax}
                   onResize={layout.requestWaveformHeight}
                   onReset={layout.resetWaveformHeight}
+                  audio={importState.audio}
+                  loading={screen === "openingAudio"}
+                  positionSec={transportSnap?.time}
+                  onSeek={(s) => {
+                    void transport.seek(s).catch(() => undefined);
+                  }}
                 />
               ) : null}
               <div className="hs-main">
                 <ScoreWorkspace
                   screen={screen}
-                  onOpenAudio={() => commands.invoke("file.openAudio")}
+                  importView={importView}
+                  externalDragActive={nativeDrag}
+                  onDropFiles={(files) =>
+                    void importer.importRefs(
+                      files.map<AudioFileRef>((file) => ({
+                        kind: "file",
+                        file,
+                        name: file.name,
+                      })),
+                    )
+                  }
                   onTranscribe={transcribeClicked}
                   transcribingBody={
                     <TranscriptionView job={job} commands={commands} />
@@ -491,7 +670,29 @@ export default function App() {
                   />
                 ) : null}
               </div>
-              {regions.transport ? <TransportBar commands={commands} /> : null}
+              {regions.transport ? (
+                <TransportBar
+                  commands={commands}
+                  live={
+                    transportSnap && transportSnap.status !== "empty"
+                      ? {
+                          isPlaying: transportSnap.status === "playing",
+                          positionSec: transportSnap.time,
+                          durationSec: transportSnap.duration,
+                          rate: transportSnap.rate,
+                        }
+                      : undefined
+                  }
+                  onCycleRate={() => {
+                    const idx = SUPPORTED_RATES.findIndex(
+                      (r) => r === transportSnap?.rate,
+                    );
+                    const next =
+                      SUPPORTED_RATES[(idx + 1) % SUPPORTED_RATES.length] ?? 1;
+                    transport.setRate(next);
+                  }}
+                />
+              ) : null}
             </>
           )}
           <StatusBar
@@ -499,6 +700,46 @@ export default function App() {
             detail={shellDetail}
             engineStatus={engineStatusText(sessionSnap.engine)}
           />
+          {/* Re-import failure over a live workspace (§20): the audio session
+              is kept, the failure surfaces as a dialog — never a dead end. */}
+          {importState.audio && importState.issue
+            ? (() => {
+                const copy = issueCopy(importState.issue);
+                return (
+                  <HsDialog
+                    open
+                    title={copy.title}
+                    onOpenChange={(open) => {
+                      if (!open) importer.dismiss();
+                    }}
+                    actions={
+                      <>
+                        <HsButton
+                          variant="primary"
+                          onClick={() => {
+                            importer.dismiss();
+                            void importer.openViaDialog();
+                          }}
+                        >
+                          {ja.import.errors.chooseAnother}
+                        </HsButton>
+                        <HsButton
+                          variant="secondary"
+                          onClick={() => importer.dismiss()}
+                        >
+                          {ja.import.errors.close}
+                        </HsButton>
+                      </>
+                    }
+                  >
+                    <p style={{ margin: 0 }}>
+                      {copy.fileName ? `${copy.fileName} — ` : ""}
+                      {copy.body}
+                    </p>
+                  </HsDialog>
+                );
+              })()
+            : null}
         </AppShell>
       )}
     </FluentProvider>

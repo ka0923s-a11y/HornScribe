@@ -239,6 +239,7 @@ export const ja = {
       sheet: "シート",
       overlays: "オーバーレイ",
       fixtures: "画面状態フィクスチャ",
+      importStates: "取り込み画面状態（UI-020）",
     },
     samples: {
       primaryAction: "採譜を開始",
@@ -283,6 +284,10 @@ export const ja = {
       fixtureReview: "要確認",
       fixtureError: "エラー状態",
       fixtureExport: "書き出し",
+      fixtureAudioReady: "音声準備完了",
+      fixtureSourceMissing: "元音源なし",
+      fixtureOpening: "読み込み中",
+      fixtureRecentProject: "最近のプロジェクト例",
       reviewBanner: "12か所を確認すると、より確かな楽譜になります",
       reviewCta: "要確認箇所を見る",
       reviewReason: "リズムの解釈を確認してください",
@@ -671,6 +676,91 @@ export const ja = {
       engineRestarted: "採譜エンジンを再起動しました",
       sourceSpecified: "元音源を関連付け直しました",
       simulatedSeek: "元音源の該当位置へ移動しました",
+    },
+  },
+
+  /* ============================ import (UI-020) ============================
+   * 取り込みフロー専用の文言。正準は protocol/copy/ja-JP.json の
+   * emptyStates / loading / errors / transcription.options / notifications。
+   */
+  import: {
+    /** OPENING_AUDIO — indeterminate loading line (loading.openingAudio /
+        loading.openingProject)。 */
+    opening: {
+      audio: "音声ファイルを読み込んでいます",
+      project: "プロジェクトを読み込んでいます",
+    },
+    /** ファイルダイアログのフィルタ名（OSのダイアログ内の表示）。 */
+    dialog: {
+      audioFilter: "音声ファイル",
+      allFiles: "すべてのファイル",
+    },
+    /** 最近使ったプロジェクト (emptyStates.launch.recentProjects)。 */
+    recent: {
+      title: "最近使ったプロジェクト",
+      openAria: (name: string) => `最近のプロジェクト ${name} を開く`,
+    },
+    /** AUDIO_READY の採譜オプション popover (transcription.options)。 */
+    audioOptions: {
+      label: "採譜オプション",
+      tempo: "テンポ",
+      tempoAuto: "自動",
+      tempoManual: "手動",
+      tempoBpm: "テンポ（手動）",
+      meter: "拍子",
+      minDuration: "最小音価",
+      minDuration8: "8分音符",
+      minDuration16: "16分音符",
+      minDuration32: "32分音符",
+      triplets: "三連符",
+      tripletsAuto: "自動",
+      tripletsAllow: "許可",
+      tripletsNone: "なし",
+      simplicity: "楽譜の簡潔さ",
+      simplicityStandard: "標準",
+      simplicitySimple: "簡潔",
+      simplicityDetailed: "詳細",
+      range: "採譜範囲",
+      rangeAll: "全体",
+      rangeSelection: "選択範囲",
+    },
+    /** エラーカード (errors.* — title/body/actions の3点構成)。 */
+    errors: {
+      unsupportedTitle: "対応していないファイル形式です",
+      unsupportedBody:
+        "このファイル形式は読み込めません。対応している形式は WAV・MP3・FLAC・M4A・OGG です。元のファイルは変更されていません。",
+      openFailedTitle: "音声ファイルを開けません",
+      openFailedBody:
+        "このファイル形式を読み込めないか、ファイルが破損している可能性があります。元のファイルは変更されていません。",
+      projectOpenFailedTitle: "プロジェクトを開けません",
+      projectOpenFailedBody:
+        "ファイルが破損しているか、対応していない形式の可能性があります。",
+      chooseAnother: "別のファイルを選ぶ",
+      close: "閉じる",
+      sourceMissingTitle: "元音源が見つかりません",
+      sourceMissingBody:
+        "前回の場所から音声ファイルが移動した可能性があります。採譜結果と楽譜は保持されています。",
+      lastLocation: "前回の場所: ",
+      specifySource: "音源を指定",
+      specifyAnother: "別の音源を指定",
+      hashMismatchTitle: "指定されたファイルは元音源と一致しません",
+      hashMismatchBody:
+        "内容が異なるため、このファイルは元音源として関連付けられません。別のファイルを指定してください。",
+    },
+    /** 波形領域 (waveform.*) — 読込中と読込済みの注記。 */
+    waveform: {
+      loading: "波形を読み込んでいます",
+      seekAria: "波形上の再生位置",
+    },
+    /** 状態表示へのアナウンス (notifications / aria-live feedback)。 */
+    feedback: {
+      loaded: (name: string) => `${name} を読み込みました`,
+      sourceRelinked: "元音源を関連付け直しました",
+      transcribeCancelled: "採譜をキャンセルしました",
+      playing: "再生中",
+      paused: "一時停止中",
+      stopped: "停止",
+      position: (time: string) => `位置: ${time}`,
     },
   },
 

@@ -4,13 +4,16 @@ import type { CommandSnapshot } from "../commands/types";
  * Workspace screen state machine (docs/GUI_UX_SPEC.md §27).
  *
  * The shell owns *which regions exist* for each state; feature code owns the
- * transitions (open audio → audioReady, transcribe → transcribing, …). For
- * UI-011 the live app still sits in `empty` (no file/engine plumbing yet),
- * but every state renders a correct layout so feature teams never invent
- * their own.
+ * transitions (open audio → audioReady, transcribe → transcribing, …).
+ * UI-020 added the import-side states (issue #25: EMPTY / OPENING_AUDIO /
+ * AUDIO_READY / AUDIO_ERROR / SOURCE_MISSING).
  *
- *   EMPTY ─open→ AUDIO_READY ─transcribe→ TRANSCRIBING
- *                                          ├ cancel → AUDIO_READY
+ *   EMPTY ─open→ OPENING_AUDIO ─ok→ AUDIO_READY ─transcribe→ TRANSCRIBING
+ *                     │                                     ├ cancel → AUDIO_READY
+ *                     ├ bad format/read → AUDIO_ERROR ─閉じる→ EMPTY
+ *                     └ source moved → SOURCE_MISSING ─relink ok→ AUDIO_READY
+ *                                            └ hash mismatch → SOURCE_MISSING
+ *                                                       TRANSCRIBING
  *                                          ├ fail   → TRANSCRIPTION_ERROR
  *                                          └ done   → SCORE_READY
  *   TRANSCRIPTION_ERROR ─dismiss/retry→ last valid state (audioReady or
@@ -19,7 +22,10 @@ import type { CommandSnapshot } from "../commands/types";
  */
 export type ScreenState =
   | "empty"
+  | "openingAudio"
   | "audioReady"
+  | "audioError"
+  | "sourceMissing"
   | "transcribing"
   // [UI-040] §27 TRANSCRIPTION_ERROR — job failed / worker crash or
   // unresponsive mid-job. A loaded state (audio/score state is kept).
@@ -30,7 +36,10 @@ export type ScreenState =
 
 export const SCREEN_STATES: readonly ScreenState[] = [
   "empty",
+  "openingAudio",
   "audioReady",
+  "audioError",
+  "sourceMissing",
   "transcribing",
   "transcriptionError",
   "scoreReady",
@@ -53,12 +62,27 @@ export interface RegionVisibility {
   transport: boolean;
 }
 
+/**
+ * Whether the workspace chrome exists for this state (waveform strip and,
+ * once loaded, transport/properties). EMPTY and the two import error
+ * states show only the centered score-region surface (§3, §20);
+ * OPENING_AUDIO already mounts the waveform strip so the loading line has
+ * its final home (loading.openingAudio → waveform.loading).
+ */
+export function hasWorkspaceRegions(screen: ScreenState): boolean {
+  return (
+    screen !== "empty" && screen !== "audioError" && screen !== "sourceMissing"
+  );
+}
+
 export function regionVisibility(screen: ScreenState): RegionVisibility {
-  const loaded = screen !== "empty";
+  const context = hasWorkspaceRegions(screen);
+  const loaded = context && screen !== "openingAudio";
   return {
-    waveform: loaded,
+    waveform: context,
     score: true,
-    // The panel itself decides open/closed; EMPTY never mounts it (§3).
+    // The panel itself decides open/closed; EMPTY never mounts it (§3), and
+    // it stays hidden while the file is still opening.
     properties: loaded,
     transport: loaded,
   };
@@ -80,7 +104,9 @@ export function commandStateFor(
   const hasScore =
     screen === "scoreReady" || screen === "reviewing" || screen === "exporting";
   return {
-    hasAudio: screen !== "empty",
+    // Audio-gated commands stay off while the file is still opening and in
+    // the error states — nothing playable exists yet.
+    hasAudio: hasWorkspaceRegions(screen) && screen !== "openingAudio",
     hasScore,
     isTranscribing: screen === "transcribing",
     reviewOpen: screen === "reviewing",

@@ -12,7 +12,10 @@ import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
 import { HsMenu, type HsMenuItem } from "./primitives/Menu";
 import { PitchSegmented, type PitchView } from "./PitchSegmented";
-import type { ScreenState } from "../workspace/screen";
+import {
+  hasWorkspaceRegions,
+  type ScreenState,
+} from "../workspace/screen";
 
 /** Tooltip text: Japanese title plus its canonical shortcut, e.g.
  *  「書き出し（Ctrl+E）」 — shortcut hinting is spec'd on §9 controls. */
@@ -63,7 +66,9 @@ export function CommandBar({
   const onPitch = (v: PitchView) =>
     commands.invoke(v === "concert" ? "view.concertPitch" : "view.hornF");
 
-  const loaded = screen !== "empty";
+  // EMPTY and the import error states (§3/§20) keep the command bar to
+  // shell actions only — no score/audio commands without a live context.
+  const loaded = hasWorkspaceRegions(screen);
   const hasScore =
     screen === "scoreReady" || screen === "reviewing" || screen === "exporting";
   const transcribeTooltip = hasScore

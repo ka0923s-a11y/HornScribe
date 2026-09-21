@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "メインウィンドウの最小権限セット。fs / dialog / asset protocol / shell / http などのプラグイン権限は一切付与しない。core:default に含まれない core:menu / core:tray / core:image はこのスパイクでは不要なため列挙からも除外する。",
+  "description": "メインウィンドウの最小権限セット。fs / asset protocol / shell / http などの権限は一切付与しない。UI-020 の音声ファイルを開く UX のため dialog プラグインの open のみ許可する（message/save/ask は不許可）。core:default に含まれない core:menu / core:tray / core:image は列挙からも除外する。",
   "windows": ["main"],
   "permissions": [
     "core:app:default",
@@ -11,6 +11,7 @@
     "core:webview:default",
     "core:window:default",
     "core:window:allow-set-size",
-    "core:window:allow-set-position"
+    "core:window:allow-set-position",
+    "dialog:allow-open"
   ]
 }
