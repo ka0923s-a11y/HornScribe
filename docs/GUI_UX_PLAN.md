@@ -1113,29 +1113,58 @@ Dismiss
 
 ---
 
-# 16. AI uncertainty UX
+# 16. AI uncertainty / ReviewIssue UX
 
-Confidenceは「正しい確率」と断定しない。
+FrontendはBasic Pitch等のraw confidenceを直接product stateとして扱わない。
+
+Python engineはbackend固有のconfidence・cleanup警告・quantization ambiguity等を、共通の `ReviewIssue` へ変換する。
+
+例:
+
+```text
+ReviewIssue
+  id
+  canonicalNoteIds[]
+  timeRange
+  reason
+  severity
+  evidence
+  status
+```
+
+`reason` の例:
+
+- low_model_confidence
+- very_short_detection
+- overlapping_candidates
+- quantization_ambiguous
+- pitch_spelling_ambiguous
+- outside_preferred_horn_range
+- structural_measure_conflict
+
+Raw confidenceはInspector内のevidenceとして表示してよいが、「この音が間違っている確率」と断定しない。
 
 表示名:
 
-- Confidence
 - Needs review
-- Suspect detection
+- Review reason
+- Model confidence（利用可能な場合のみ）
 
 ## Do not
 
 - 低confidenceをすべて赤にする
+- backendごとに意味の違うconfidence thresholdをUI共通ロジックとして直接比較する
 - 低confidence noteを自動削除する
 - confidenceを精度保証のように表示する
 
 ## Visual encoding
 
-低confidence:
+Review item:
 
 - subtle tinted background
 - dotted/segmented outline
 - review glyph
+- reason text in Inspector
 
 **色だけに依存しない。**
 
@@ -1145,11 +1174,14 @@ Confidenceは「正しい確率」と断定しない。
 Normal       no decoration
 Review       dotted outline + review icon
 Edited       small edit marker
-Dismissed    no warning, history retains decision
+Resolved     warning removed, decision retained
+Dismissed    warning hidden, history retains decision
 Conflict     warning icon + explanation
 ```
 
 Redは処理失敗・破損等のerror専用にする。
+
+Review decisionはscore revision / canonical note IDへ紐づけてprojectに保存する。
 
 ---
 
