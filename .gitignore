@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / desktop app
+node_modules/
+apps/*/dist/
+apps/*/src-tauri/target/
+apps/*/src-tauri/gen/
+
+# HornScribe runtime artifacts
+cache/
+benchmarks/local/
+*.tmp
+*.recovery

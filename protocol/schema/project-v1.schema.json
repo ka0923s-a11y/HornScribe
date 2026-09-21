@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hornscribe.local/schema/project-v1.schema.json",
+  "title": "HornScribe Project v1",
+  "type": "object",
+  "required": ["schemaVersion", "projectId"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "projectId": {"type": "string", "pattern": "^prj-[0-9a-f]{16}$"},
+    "sourceAudio": {
+      "type": ["object", "null"],
+      "required": ["originalPath", "contentHash"],
+      "additionalProperties": false,
+      "properties": {
+        "originalPath": {"type": "string"},
+        "contentHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "transcription": {
+      "type": ["object", "null"],
+      "required": ["backend", "backendVersion", "revision", "rawResultRef"],
+      "additionalProperties": false,
+      "properties": {
+        "backend": {"type": "string"},
+        "backendVersion": {"type": "string"},
+        "settings": {"type": "object"},
+        "revision": {"type": "string", "pattern": "^tr-[0-9a-f]{16}$"},
+        "rawResultRef": {"type": "string"}
+      }
+    },
+    "score": {
+      "type": ["object", "null"],
+      "required": ["revision", "scoreRef"],
+      "additionalProperties": false,
+      "properties": {
+        "revision": {"type": "string", "pattern": "^rev-[0-9a-f]{16}$"},
+        "scoreRef": {"type": "string"},
+        "quantizationSettings": {"type": "object"}
+      }
+    },
+    "userEdits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "scoreRevision", "kind", "targetNoteIds"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "scoreRevision": {"type": "string", "pattern": "^rev-[0-9a-f]{16}$"},
+          "kind": {"type": "string"},
+          "targetNoteIds": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^sn-\\d{6}$"}
+          },
+          "payload": {"type": "object"}
+        }
+      }
+    },
+    "reviewDecisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issueId", "scoreRevision", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "issueId": {"type": "string"},
+          "scoreRevision": {"type": "string", "pattern": "^rev-[0-9a-f]{16}$"},
+          "status": {"type": "string", "enum": ["accepted", "dismissed", "fixed"]},
+          "note": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "uiSession": {"type": ["object", "null"]}
+  }
+}

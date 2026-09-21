@@ -1,0 +1,26 @@
+{
+  "projectId": "prj-0355f65f8d9170de",
+  "reviewDecisions": [],
+  "schemaVersion": 1,
+  "score": {
+    "quantizationSettings": {
+      "grid": "1/16",
+      "triplets": false
+    },
+    "revision": "rev-77eb4a23d731b531",
+    "scoreRef": "cache/fixture/score.json"
+  },
+  "sourceAudio": {
+    "contentHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "originalPath": "fixtures/audio/c4.wav"
+  },
+  "transcription": {
+    "backend": "fixture",
+    "backendVersion": "0.0.0",
+    "rawResultRef": "cache/fixture/transcription.json",
+    "revision": "tr-db772ff14b573f56",
+    "settings": {}
+  },
+  "uiSession": null,
+  "userEdits": []
+}
