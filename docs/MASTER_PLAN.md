@@ -68,6 +68,7 @@ The core value is:
 - The GUI never independently implements musical transposition logic.
 - Uncertain AI output is reviewable and reversible.
 - MVP remains a transcription/review tool, not a DAW or full notation editor.
+- **ユーザー向けUIは完全日本語とする。英語UI・言語切替は実装しない。**
 
 ---
 
@@ -554,7 +555,7 @@ make the application feel finished.
 Implement/verify:
 
 - design tokens and component consistency
-- ja-JP / en-US
+- ja-JPのみ。英語UI・言語切替は対象外
 - dark/light/system
 - high contrast
 - Narrator smoke test
@@ -655,7 +656,69 @@ Every benchmark result records:
 
 ---
 
-# 8. Review / uncertainty contract
+# 8. Japanese-only UI contract
+
+HornScribeのユーザー向けインターフェースは **日本語のみ** とする。
+
+対象:
+
+- ボタン
+- メニュー
+- タブ/セグメント
+- 設定画面
+- Inspector
+- 進捗表示
+- Review理由
+- エラー/警告
+- 通知
+- ツールチップ
+- 空状態
+- アクセシビリティ名/説明
+- 初回案内
+- 依存関係不足時の案内
+
+英語UI、言語選択、英語ロケールはMVP/v1の要件に含めない。
+
+例外:
+
+- `MusicXML`, `MIDI`, `FFmpeg`, `MuseScore`, `Basic Pitch` などの固有名詞・標準規格名
+- ファイル名、パス、バージョン番号
+- キー表記（Ctrl、Shift、Space等）
+- 通常画面に露出しないraw developer log / stack trace
+
+ただし例外項目も、通常ユーザーに説明するときの**周辺文言は日本語**にする。
+
+UIの基本用語:
+
+```text
+Concert Pitch       → コンサートピッチ
+Horn in F           → F管ホルン
+Transcribe          → 採譜
+Review              → 要確認
+Export              → 書き出し
+Settings            → 設定
+Inspector           → プロパティ
+Follow Playback     → 再生位置を追従
+Quantization        → 量子化
+Confidence          → モデル確信度（証拠として必要な場合のみ）
+Needs Review        → 要確認
+Cancel              → キャンセル
+Retry               → 再試行
+Diagnostics         → 診断情報
+```
+
+実装原則:
+
+- runtime locale switchは作らない
+- 翻訳フレームワーク導入を必須にしない
+- ただし頻出用語・エラー文・ステータス文は共通定義して表記ゆれを防ぐ
+- 日本語ラベルの実幅を基準にレイアウトする
+- Windows日本語IMEを破壊しない
+- UIテスト/golden screenshotは日本語を正準とする
+
+---
+
+# 10. Review / uncertainty contract
 
 The UI must not interpret one transcription backend's raw confidence value as a universal probability.
 
@@ -740,7 +803,7 @@ wavesurfer is an adapter/view, not the application model.
 
 ---
 
-# 10. Export contract
+# 11. Export contract
 
 ## MusicXML
 
@@ -776,7 +839,7 @@ Written Horn MIDI is not a default export because generic MIDI playback does not
 
 ---
 
-# 11. Security and privacy gates
+# 12. Security and privacy gates
 
 Even for personal use, local-first does not mean “grant the WebView the whole filesystem.”
 
@@ -795,7 +858,7 @@ Required:
 
 ---
 
-# 12. Dependency policy
+# 13. Dependency policy
 
 For every runtime dependency record:
 
@@ -821,7 +884,7 @@ Do not reimplement a mature notation/audio primitive solely to reduce dependency
 
 ---
 
-# 13. Risk register
+# 14. Risk register
 
 | Risk | Impact | Current mitigation |
 |---|---|---|
@@ -842,7 +905,7 @@ Do not reimplement a mature notation/audio primitive solely to reduce dependency
 
 ---
 
-# 14. Quality gates
+# 15. Quality gates
 
 A milestone is not done because code compiles.
 
@@ -858,7 +921,7 @@ A milestone is not done because code compiles.
 
 - keyboard
 - light/dark
-- Japanese/English
+- 日本語UI
 - 1366×768
 - 150/200% scaling
 - loading/empty/error states
@@ -901,7 +964,7 @@ Fix repeated friction before adding advanced features.
 
 ---
 
-# 15. Codex execution rules
+# 16. Codex execution rules
 
 Every implementation issue must contain:
 
@@ -937,7 +1000,7 @@ Rules:
 
 ---
 
-# 16. Immediate next work
+# 17. Immediate next work
 
 Do these in order:
 
@@ -955,7 +1018,7 @@ This order prevents two expensive failure modes:
 
 ---
 
-# 17. MVP definition
+# 18. MVP definition
 
 HornScribe is **MVP complete** when all of the following are true:
 
@@ -985,7 +1048,7 @@ Everything beyond this is v1 polish or advanced transcription work.
 
 ---
 
-# 18. Reference facts checked during this review
+# 19. Reference facts checked during this review
 
 - Python 3.10 support ends in October 2026: https://www.python.org/downloads/
 - Basic Pitch 0.4.0 currently declares Python through 3.11 and has open 3.12-related work: https://github.com/spotify/basic-pitch/blob/main/pyproject.toml
