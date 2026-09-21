@@ -314,6 +314,10 @@ class SpanRealizer:
     """
 
     def __init__(self, meter_map: MeterMap, profile: QuantizationProfile) -> None:
+        # The realizer can only tile measures whose metrical structure sits
+        # on the notation grid — reject off-grid starts/phases up front with
+        # a MeterMapError instead of failing deep inside the search.
+        meter_map.validate_notation_grid(profile.min_note_value_ql)
         self._meter_map = meter_map
         self._profile = profile
         self._weights = profile.weights

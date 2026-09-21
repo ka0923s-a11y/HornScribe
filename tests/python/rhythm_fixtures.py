@@ -77,6 +77,8 @@ def straight_fixture(
     seed: int | None = None,
     jitter_range_ms: float = 0.0,
     expected_ql: Sequence[int | Fraction] | None = None,
+    meter_map: MeterMap | None = None,
+    duration_ql: Fraction | None = None,
 ) -> RhythmFixture:
     """Fixed-BPM fixture: notes at ``onsets_ql`` (+ optional jitter/latency).
 
@@ -86,6 +88,10 @@ def straight_fixture(
     ``jitter_ms`` is a per-note millisecond offset list; ``seed`` +
     ``jitter_range_ms`` instead draw symmetric uniform jitter from a fixed
     RNG seed. Both are deterministic.
+
+    ``meter_map`` overrides the default 4/4 map (QNT-004 meter fixtures);
+    ``duration_ql`` overrides the default 0.9-beat raw duration — sub-beat
+    fixtures pass a shorter value so consecutive notes do not overlap.
     """
     warp = TimeWarp.fixed_bpm(bpm)
     onsets = [float(q) * 60.0 / bpm + latency_sec for q in onsets_ql]
@@ -96,7 +102,10 @@ def straight_fixture(
         onsets = [
             t + rng.uniform(-jitter_range_ms, jitter_range_ms) / 1000.0 for t in onsets
         ]
-    duration = 0.9 * (60.0 / bpm)  # 90% of one beat — sustained but not overlapping
+    duration_ql = (
+        duration_ql if duration_ql is not None else Fraction(9, 10)
+    )  # default: sustained but not overlapping at beat spacing
+    duration = float(duration_ql) * 60.0 / bpm
     return RhythmFixture(
         name=name,
         events=make_events(onsets, duration_sec=duration),
@@ -104,7 +113,7 @@ def straight_fixture(
         expected_onsets_ql=tuple(
             Fraction(q) for q in (expected_ql if expected_ql is not None else onsets_ql)
         ),
-        meter_map=_meter_44(),
+        meter_map=meter_map if meter_map is not None else _meter_44(),
         bpm=bpm,
     )
 
@@ -222,6 +231,76 @@ def ioi_pair_fixture() -> RhythmFixture:
     )
 
 
+# --- meter fixtures (issue #18 / QNT-004) ----------------------------------------
+
+
+def meter_34_quarters() -> RhythmFixture:
+    """3/4: nine quarter onsets over exactly three bars (measure closure)."""
+    return straight_fixture(
+        "meter_34_quarters",
+        [Fraction(i) for i in range(9)],
+        meter_map=MeterMap((MeterSegment(Fraction(0), 3, 4),)),
+    )
+
+
+def meter_24_eighths() -> RhythmFixture:
+    """2/4: eighth-note stream over exactly two bars."""
+    return straight_fixture(
+        "meter_24_eighths",
+        [Fraction(i, 2) for i in range(8)],
+        meter_map=MeterMap((MeterSegment(Fraction(0), 2, 4),)),
+        duration_ql=Fraction(2, 5),
+    )
+
+
+def meter_68_eighths() -> RhythmFixture:
+    """6/8: native eighth stream over two bars — must not become tuplets."""
+    return straight_fixture(
+        "meter_68_eighths",
+        [Fraction(i, 2) for i in range(12)],
+        meter_map=MeterMap((MeterSegment(Fraction(0), 6, 8),)),
+        duration_ql=Fraction(2, 5),
+    )
+
+
+def meter_68_dotted_beats() -> RhythmFixture:
+    """6/8: dotted-quarter compound beats — low notation complexity."""
+    return straight_fixture(
+        "meter_68_dotted_beats",
+        [Fraction(0), Fraction(3, 2), Fraction(3), Fraction(9, 2)],
+        meter_map=MeterMap((MeterSegment(Fraction(0), 6, 8),)),
+        duration_ql=Fraction(3, 2),
+    )
+
+
+def pickup_44_quarter() -> RhythmFixture:
+    """4/4 with a one-quarter anacrusis (``measure_phase_ql = 3``).
+
+    Onsets 0..5: position 0 sits in the implicit pickup measure (measure 0),
+    1..4 fill the first full measure, 5 begins the second.
+    """
+    return straight_fixture(
+        "pickup_44_quarter",
+        [Fraction(i) for i in range(6)],
+        meter_map=MeterMap(
+            (MeterSegment(Fraction(0), 4, 4, measure_phase_ql=Fraction(3)),)
+        ),
+    )
+
+
+def meter_change_44_68() -> RhythmFixture:
+    """Mid-piece meter change: two 4/4 bars, then 6/8 at ql 8."""
+    return straight_fixture(
+        "meter_change_44_68",
+        [Fraction(i) for i in range(8)]
+        + [Fraction(8) + Fraction(i, 2) for i in range(6)],
+        meter_map=MeterMap(
+            (MeterSegment(Fraction(0), 4, 4), MeterSegment(Fraction(8), 6, 8))
+        ),
+        duration_ql=Fraction(2, 5),
+    )
+
+
 ALL_FIXTURES: tuple[Callable[[], RhythmFixture], ...] = (
     quarters_exact,
     quarters_jitter20,
@@ -233,5 +312,21 @@ ALL_FIXTURES: tuple[Callable[[], RhythmFixture], ...] = (
     quarters_latency40_slow,
     tempo_change_beatmap,
     ioi_pair_fixture,
+    meter_34_quarters,
+    meter_24_eighths,
+    meter_68_eighths,
+    meter_68_dotted_beats,
+    pickup_44_quarter,
+    meter_change_44_68,
 )
 """Every required fixture, for parametrized acceptance tests."""
+
+
+METER_GOLDEN_FACTORIES: tuple[Callable[[], RhythmFixture], ...] = (
+    meter_34_quarters,
+    meter_68_eighths,
+    pickup_44_quarter,
+)
+"""Fixtures whose quantized output is committed as MusicXML golden files
+(``fixtures/musicxml/<name>_concert.musicxml`` / ``_horn_in_f.musicxml``) —
+regenerate via ``scripts/generate_fixtures.py``."""

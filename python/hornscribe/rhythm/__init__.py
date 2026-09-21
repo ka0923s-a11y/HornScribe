@@ -5,10 +5,14 @@ the QNT-002 onset search (binary candidate lattice, Huber onset/IOI costs,
 deterministic top-K DP, global alignment-shift search, naive baselines, and
 onset-metric benchmarks) and the QNT-003 joint duration/rest realization
 (span decomposition into notation atoms, rest generation, tie splitting,
-notation-complexity costs). No audio, GUI, or notation-backend logic — see
+notation-complexity costs), and the QNT-004 meter expansion (3/4, 2/4
+and compound 6/8 measures, manual ``measure_phase_ql`` anacrusis,
+meter-aware rest grouping, and the ``assemble_score_document`` MusicXML
+bridge). No audio, GUI, or notation-backend logic — see
 ``docs/QUANTIZER_DESIGN.md``.
 """
 
+from hornscribe.rhythm._output import assemble_score_document
 from hornscribe.rhythm.baselines import (
     BASELINE_B0_GRID_QL,
     snap_candidate_lattice,
@@ -114,6 +118,7 @@ __all__ = [
     "TimeWarpMode",
     "TripletPolicy",
     "UnsupportedMeterError",
+    "assemble_score_document",
     "benchmark_onsets",
     "confidence_weight",
     "estimate_alignment_shift",

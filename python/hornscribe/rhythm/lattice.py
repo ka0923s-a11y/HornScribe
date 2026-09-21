@@ -13,8 +13,8 @@ Candidate selection rule (design 8.3):
   the window is in musical time so it does not depend on tempo;
 * keep at most ``max_candidates_per_grid`` of them, nearest first (the
   "nearest 2-3 points per enabled grid family" starting heuristic);
-* positions are clamped to ``>= 0`` — a score note cannot start before the
-  origin;
+* positions are clamped to ``>= min_position_ql`` — a score note cannot
+  start before the score origin (or the meter map's covered origin);
 * if the window filter left nothing (an onset far before position ``0``),
   the single nearest grid point is kept so every note always has at least
   one candidate.
@@ -123,34 +123,47 @@ def generate_onset_candidates(
     profile: QuantizationProfile,
     *,
     max_candidates_per_grid: int = DEFAULT_MAX_CANDIDATES_PER_GRID,
+    min_position_ql: Fraction = Fraction(0),
 ) -> tuple[OnsetCandidate, ...]:
     """Binary-lattice onset candidates for one normalized note (design 8).
 
     Positions are the exact multiples of ``profile.min_note_value_ql`` inside
-    ``[x - window, x + window]`` (clamped to ``>= 0``), ranked by
-    ``(distance, position)`` and capped at ``max_candidates_per_grid``. The
-    result is sorted by position — the canonical iteration order for the DP.
+    ``[x - window, x + window]`` (clamped to ``>= min_position_ql``), ranked
+    by ``(distance, position)`` and capped at ``max_candidates_per_grid``.
+    The result is sorted by position — the canonical iteration order for
+    the DP.
+
+    ``min_position_ql`` defaults to the score origin ``0``; the quantizer
+    passes the meter map's first segment start so no candidate can land
+    before the covered timeline (design 8.3's ``>= 0`` clamp, extended in
+    QNT-004 to meter-map coverage).
     """
     if max_candidates_per_grid < 1:
         raise ValueError(
             f"max_candidates_per_grid must be >= 1, got {max_candidates_per_grid!r}"
         )
+    floor = as_exact_fraction(min_position_ql, name="min_position_ql")
+    if floor < 0:
+        raise ValueError(f"min_position_ql must be >= 0, got {floor}")
     step = profile.min_note_value_ql
     step_f = float(step)
     window = float(profile.candidate_window_ql)
     x = note.onset_ql
 
-    k_lo = max(0, math.floor((x - window) / step_f))
-    k_hi = max(0, math.ceil((x + window) / step_f))
+    # First grid index at/above the floor (the floor need not be a grid
+    # multiple itself): k_floor * step >= floor.
+    k_floor = int(-((-floor) // step))
+    k_lo = max(k_floor, math.floor((x - window) / step_f))
+    k_hi = max(k_floor, math.ceil((x + window) / step_f))
     points = [
         Fraction(k) * step
         for k in range(k_lo, k_hi + 1)
         if abs(k * step_f - x) <= window + _WINDOW_EPSILON
     ]
     if not points:
-        # Degenerate case (e.g. onset far below 0): always keep the nearest
-        # valid grid point so every note has at least one candidate.
-        points = [snap_to_grid_ql(x, step)]
+        # Degenerate case (e.g. onset far below the floor): always keep the
+        # nearest valid grid point so every note has at least one candidate.
+        points = [snap_to_grid_ql(x, step, minimum=Fraction(k_floor) * step)]
 
     candidates = [
         OnsetCandidate(

@@ -31,14 +31,26 @@ from __future__ import annotations
 from collections.abc import Sequence
 from fractions import Fraction
 
-from hornscribe.domain.ids import IdAllocator
+from hornscribe.domain.ids import IdAllocator, derive_project_id
+from hornscribe.domain.score import (
+    KeySignature,
+    Part,
+    QuantizedNote,
+    ScoreDocument,
+    ScoreRevisionPayload,
+    TempoSegment,
+)
 from hornscribe.rhythm._util import as_exact_fraction
 from hornscribe.rhythm.contracts import (
+    QUANTIZER_ID,
+    QUANTIZER_VERSION,
     NormalizedNote,
+    QuantizationAlternative,
     QuantizedRhythmNote,
     RealizedRest,
 )
 from hornscribe.rhythm.lattice import snap_to_grid_ql
+from hornscribe.rhythm.meter import MeterMap
 from hornscribe.rhythm.realize import IntervalRealization, SpanRealizer
 
 
@@ -197,3 +209,94 @@ def assemble_path_rests(
 
     rests.sort(key=lambda r: r.onset_ql)
     return tuple(rests), extra_strong
+
+
+def assemble_score_document(
+    alternative: QuantizationAlternative,
+    notes: Sequence[NormalizedNote],
+    meter_map: MeterMap,
+    *,
+    bpm: float = 120.0,
+    fifths: int = 0,
+    mode: str = "major",
+    part_name: str = "Horn in F",
+    title: str = "",
+) -> ScoreDocument:
+    """Lift a quantization alternative into a canonical :class:`ScoreDocument`.
+
+    QNT-004 bridge so meter-specific output round-trips through the MusicXML
+    export path (issue #18 acceptance). The alternative's committed
+    :class:`QuantizedRhythmNote` records become canonical
+    :class:`QuantizedNote` records — canonical note IDs and
+    ``source_event_ids`` are preserved so review linkage survives —
+    positioned on the beat axis implied by the meter's ``beat_unit``
+    (``beat_ql = 4/denominator``: eighth-note beats in 6/8). The first
+    segment's ``start_ql`` is normalized to beat ``0`` and
+    ``payload.pickup_beats`` is set from ``measure_phase_ql``, so a declared
+    anacrusis exports as measure ``0`` with ``implicit="yes"`` (the notation
+    layer's existing convention, design section 22).
+
+    Pitches come from the ``notes`` evidence via ``source_event_ids``.
+    Rests are not canonical notes — the exporter fills gaps between notes
+    measure-by-measure — and atom-level regrouping (interior ties) flattens
+    to canonical durations which the exporter re-splits at barlines; both
+    refinements belong to QNT-006's full realization->score bridge.
+
+    Single-segment meter maps only: the canonical payload carries one
+    ``time_signature``, so a mid-piece meter change raises ``ValueError``.
+    """
+    if len(meter_map.segments) != 1:
+        raise ValueError(
+            "assemble_score_document supports a single meter segment "
+            f"(got {len(meter_map.segments)}); mid-piece meter changes need "
+            "the richer QNT-006 score bridge"
+        )
+    segment = meter_map.segments[0]
+    beat_ql = Fraction(4, segment.denominator)
+    pitch_by_event = {str(n.source_id): n.pitch_midi for n in notes}
+
+    ordered = sorted(
+        alternative.notes, key=lambda n: (n.onset_ql, str(n.canonical_note_id))
+    )
+    qnotes: list[QuantizedNote] = []
+    for n in ordered:
+        if not n.source_event_ids:
+            raise ValueError(
+                f"quantized note {n.canonical_note_id} has no source events"
+            )
+        src = str(n.source_event_ids[0])
+        if src not in pitch_by_event:
+            raise ValueError(
+                f"quantized note {n.canonical_note_id} source event {src} is "
+                "not in the supplied notes"
+            )
+        qnotes.append(
+            QuantizedNote(
+                id=n.canonical_note_id,
+                source_event_ids=n.source_event_ids,
+                pitch_midi=int(pitch_by_event[src]),
+                start_beat=(n.onset_ql - segment.start_ql) / beat_ql,
+                duration_beats=n.duration_ql / beat_ql,
+            )
+        )
+
+    step = alternative.diagnostics.min_note_value_ql or Fraction(1, 4)
+    denom = Fraction(4) / step  # ql step -> note-value denominator ("1/16")
+    grid_name = f"1/{denom.numerator}" if denom.denominator == 1 else f"{step}ql"
+    payload = ScoreRevisionPayload(
+        tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=bpm),),
+        time_signature=segment.time_signature,
+        key_signature=KeySignature(fifths, mode),
+        pickup_beats=segment.pickup_length_ql / beat_ql,
+        parts=(Part(id="part-1", name=part_name, notes=tuple(qnotes)),),
+        quantization_settings={
+            "grid": grid_name,
+            "quantizer": QUANTIZER_ID,
+            "quantizerVersion": QUANTIZER_VERSION,
+        },
+    )
+    return ScoreDocument(
+        project_id=derive_project_id({"score": payload.to_dict()}),
+        payload=payload,
+        title=title,
+    )

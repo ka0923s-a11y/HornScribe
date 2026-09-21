@@ -186,6 +186,39 @@ def _review_reasons(
     return tuple(reasons)
 
 
+def _phase_review_reasons(
+    meter_map: MeterMap, ordered: tuple[NormalizedNote, ...]
+) -> tuple[str, ...]:
+    """Internal review reasons for ambiguous upstream-supplied phase.
+
+    ``measure_phase_ql`` is strictly manual input per design section 22
+    (automatic pickup inference is a non-goal), so a phase supplied by an
+    upstream caller is *declared* structure. Two deterministic signals flag
+    it for review instead of silently engraving it:
+
+    * a nonzero phase on a non-initial segment declares a partial measure
+      at a mid-piece meter change — legal, but semantically ambiguous (did
+      the previous measure run short, or does a new anacrusis begin?);
+    * a declared pickup measure (first segment, phase > 0) that contains
+      no onset is unverifiable from the content — the phase may be an
+      upstream mis-estimate rather than a real anacrusis.
+
+    Both surface ``"pickup_ambiguous"`` (design section 40 vocabulary; the
+    ReviewIssue mapper consumes these strings).
+    """
+    segments = meter_map.segments
+    reasons: list[str] = []
+    if any(seg.measure_phase_ql > 0 for seg in segments[1:]):
+        reasons.append("pickup_ambiguous")
+    first = segments[0]
+    if first.measure_phase_ql > 0:
+        lo = float(first.start_ql)
+        hi = float(first.first_downbeat_ql)
+        if not any(lo <= n.onset_ql < hi for n in ordered):
+            reasons.append("pickup_ambiguous")
+    return tuple(reasons)
+
+
 @dataclass(frozen=True)
 class _RealizationCounts:
     """Typed notation-complexity counters for one realized path."""
@@ -259,9 +292,15 @@ def _quantize(
     """
     if not notes:
         return ()
+    # Reject meter maps whose structure cannot tile onto the notation grid
+    # before any search work — the same contract in realization ablations
+    # (SpanRealizer validates again for its own direct callers).
+    meter_map.validate_notation_grid(profile.min_note_value_ql)
     ordered = onset_sorted(notes)
+    score_start = meter_map.segments[0].start_ql
     candidates = tuple(
-        generate_onset_candidates(note, profile) for note in ordered
+        generate_onset_candidates(note, profile, min_position_ql=score_start)
+        for note in ordered
     )
     realizer = SpanRealizer(meter_map, profile) if realize_durations else None
     paths = kbest_onset_paths(ordered, candidates, profile, realizer)
@@ -273,7 +312,10 @@ def _quantize(
         # back to the repaired nearest-grid snap so output stays monotonic
         # and flag it for review (design 27 vocabulary).
         snapped = tuple(
-            snap_to_grid_ql(note.onset_ql, profile.min_note_value_ql) for note in ordered
+            snap_to_grid_ql(
+                note.onset_ql, profile.min_note_value_ql, minimum=score_start
+            )
+            for note in ordered
         )
         repaired = monotonic_positions(snapped, profile.min_note_value_ql)
         realizations = (
@@ -291,7 +333,9 @@ def _quantize(
 
     segment = meter_map.segments[0]
     reasons = (
-        _review_reasons(paths, len(ordered), alignment_uncertain) + reasons_extra
+        _review_reasons(paths, len(ordered), alignment_uncertain)
+        + _phase_review_reasons(meter_map, ordered)
+        + reasons_extra
     )
     ambiguous = 1 if "quantization_ambiguous" in reasons else 0
 

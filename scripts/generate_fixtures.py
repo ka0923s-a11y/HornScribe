@@ -8,7 +8,9 @@ from fractions import Fraction
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests" / "python"))
 
+import rhythm_fixtures  # noqa: E402
 from hornscribe.domain.ids import (  # noqa: E402
     IdAllocator,
     RawNoteEventId,
@@ -37,6 +39,11 @@ from hornscribe.project.model import (  # noqa: E402
     ScoreRef,
     SourceAudioRef,
     TranscriptionRecord,
+)
+from hornscribe.rhythm import (  # noqa: E402
+    assemble_score_document,
+    normalize_to_score_time,
+    quantize_events,
 )
 
 OUT = Path(__file__).resolve().parent.parent / "fixtures"
@@ -111,6 +118,22 @@ def main() -> None:
 
     _write_musicxml_fixtures("minimal_v1", score)
     _write_musicxml_fixtures("golden_v1", golden)
+
+    # QNT-004 meter goldens: quantized fixture output lifted to canonical
+    # scores, then exported (issue #18 MusicXML round-trip acceptance).
+    for make in rhythm_fixtures.METER_GOLDEN_FACTORIES:
+        fixture = make()
+        assert fixture.meter_map is not None
+        alt = quantize_events(fixture.events, fixture.warp, fixture.meter_map)[0]
+        notes = normalize_to_score_time(fixture.events, fixture.warp)
+        doc = assemble_score_document(
+            alt,
+            notes,
+            fixture.meter_map,
+            bpm=fixture.bpm or 120.0,
+            title=fixture.name,
+        )
+        _write_musicxml_fixtures(fixture.name, doc)
 
 
 def _golden_score(project_id) -> ScoreDocument:

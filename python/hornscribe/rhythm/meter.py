@@ -136,6 +136,29 @@ class MeterSegment:
         pos = as_exact_fraction(pos_ql, name="pos_ql")
         return (pos - self.start_ql + self.measure_phase_ql) // self.measure_length_ql
 
+    @property
+    def pickup_length_ql(self) -> Fraction:
+        """Length of the incomplete first measure (anacrusis), in ql.
+
+        ``0`` when ``measure_phase_ql == 0`` — ``start_ql`` is itself a
+        downbeat. With ``measure_phase_ql = 3`` in 4/4 the pickup measure
+        spans ``[start_ql, start_ql + 1)``, one quarter before the first
+        full-measure downbeat (design section 22).
+        """
+        if not self.measure_phase_ql:
+            return Fraction(0)
+        return self.measure_length_ql - self.measure_phase_ql
+
+    @property
+    def first_downbeat_ql(self) -> Fraction:
+        """Position of the first full-measure downbeat at/after ``start_ql``.
+
+        Equals ``start_ql`` when the segment begins on a downbeat; with a
+        pickup it is ``start_ql + pickup_length_ql`` — the boundary where
+        measure ``1`` begins.
+        """
+        return self.start_ql + self.pickup_length_ql
+
 
 @dataclass(frozen=True)
 class MeterMap:
@@ -215,6 +238,38 @@ class MeterMap:
                 out.append(pos)
                 pos += length
         return tuple(out)
+
+    def validate_notation_grid(self, step_ql: Fraction) -> None:
+        """Fail loudly unless the map tiles onto the ``step_ql`` grid.
+
+        The realizer decomposes every measure into grid-aligned atoms, so a
+        meter map whose metrical structure is not grid-aligned — a
+        ``measure_phase_ql``, segment start, or measure length that lands
+        between grid points — cannot be realized. An upstream-supplied
+        phase that fails this check is *invalid* input, not notation to
+        repair: raise :class:`MeterMapError` instead of producing corrupt
+        output (design section 22 keeps phase strictly manual).
+        """
+        step = as_exact_fraction(step_ql, name="step_ql")
+        if step <= 0:
+            raise MeterMapError(f"notation grid step must be > 0, got {step}")
+        for seg in self.segments:
+            misaligned = [
+                name
+                for name, value in (
+                    ("start_ql", seg.start_ql),
+                    ("measure_phase_ql", seg.measure_phase_ql),
+                    ("measure_length_ql", seg.measure_length_ql),
+                )
+                if value % step
+            ]
+            if misaligned:
+                raise MeterMapError(
+                    f"meter segment {seg.numerator}/{seg.denominator} at "
+                    f"{seg.start_ql} is not aligned to the notation grid "
+                    f"{step}: {', '.join(misaligned)} off grid "
+                    f"(measure_phase_ql={seg.measure_phase_ql})"
+                )
 
 
 class MetricalLevel(Enum):
