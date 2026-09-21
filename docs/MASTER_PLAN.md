@@ -655,7 +655,57 @@ Every benchmark result records:
 
 ---
 
-# 8. Transport and timing model
+# 8. Review / uncertainty contract
+
+The UI must not interpret one transcription backend's raw confidence value as a universal probability.
+
+Different backends may provide:
+
+- calibrated or uncalibrated confidence
+- frame probabilities
+- note probabilities
+- no confidence value at all
+- multiple competing hypotheses
+
+The engine converts backend-specific evidence into product-level review items.
+
+Suggested contract:
+
+```text
+ReviewIssue
+  id
+  scoreRevision
+  canonicalNoteIds[]
+  timeRange
+  reason
+  severity
+  evidence
+  status
+```
+
+Example `reason` values:
+
+- low_model_confidence
+- very_short_detection
+- overlapping_candidates
+- quantization_ambiguous
+- pitch_spelling_ambiguous
+- outside_preferred_horn_range
+- structural_measure_conflict
+
+Rules:
+
+- raw backend confidence may be shown as evidence, not as “probability this note is wrong”
+- review severity must not be encoded by color alone
+- accepting/dismissing a review issue does not delete raw evidence
+- review decisions are persisted against score revision/canonical IDs
+- changing transcription/quantization revision may invalidate or remap review issues explicitly
+
+This keeps the Review workspace independent from Basic Pitch and future AMT models.
+
+---
+
+# 9. Transport and timing model
 
 Do not use UI scroll position as time.
 
@@ -690,7 +740,7 @@ wavesurfer is an adapter/view, not the application model.
 
 ---
 
-# 9. Export contract
+# 10. Export contract
 
 ## MusicXML
 
@@ -726,7 +776,7 @@ Written Horn MIDI is not a default export because generic MIDI playback does not
 
 ---
 
-# 10. Security and privacy gates
+# 11. Security and privacy gates
 
 Even for personal use, local-first does not mean “grant the WebView the whole filesystem.”
 
@@ -745,7 +795,7 @@ Required:
 
 ---
 
-# 11. Dependency policy
+# 12. Dependency policy
 
 For every runtime dependency record:
 
@@ -771,7 +821,7 @@ Do not reimplement a mature notation/audio primitive solely to reduce dependency
 
 ---
 
-# 12. Risk register
+# 13. Risk register
 
 | Risk | Impact | Current mitigation |
 |---|---|---|
@@ -792,7 +842,7 @@ Do not reimplement a mature notation/audio primitive solely to reduce dependency
 
 ---
 
-# 13. Quality gates
+# 14. Quality gates
 
 A milestone is not done because code compiles.
 
@@ -826,9 +876,32 @@ A milestone is not done because code compiles.
 - source audio moved
 - malformed MusicXML/render failure
 
+## Personal usability gate
+
+Because HornScribe is primarily a personal tool, formal large-sample UX research is unnecessary, but every polished milestone should be dogfooded on repeatable tasks.
+
+Record friction for at least:
+
+1. open audio → first transcription
+2. locate one known wrong note
+3. loop and compare the source
+4. correct/dismiss the review item
+5. switch Concert ↔ Horn without losing position
+6. export Horn MusicXML/PDF
+
+For each task record:
+
+- completion success
+- number of avoidable clicks/keystrokes
+- moments of ambiguity
+- keyboard-only path
+- visual/focus problems
+
+Fix repeated friction before adding advanced features.
+
 ---
 
-# 14. Codex execution rules
+# 15. Codex execution rules
 
 Every implementation issue must contain:
 
@@ -864,7 +937,7 @@ Rules:
 
 ---
 
-# 15. Immediate next work
+# 16. Immediate next work
 
 Do these in order:
 
@@ -882,7 +955,7 @@ This order prevents two expensive failure modes:
 
 ---
 
-# 16. MVP definition
+# 17. MVP definition
 
 HornScribe is **MVP complete** when all of the following are true:
 
@@ -912,7 +985,7 @@ Everything beyond this is v1 polish or advanced transcription work.
 
 ---
 
-# 17. Reference facts checked during this review
+# 18. Reference facts checked during this review
 
 - Python 3.10 support ends in October 2026: https://www.python.org/downloads/
 - Basic Pitch 0.4.0 currently declares Python through 3.11 and has open 3.12-related work: https://github.com/spotify/basic-pitch/blob/main/pyproject.toml
