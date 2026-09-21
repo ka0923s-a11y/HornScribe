@@ -19,6 +19,18 @@ export interface ShellInfo {
 }
 
 /**
+ * True when the frontend runs inside the Tauri webview. The marker is the
+ * injected `__TAURI_INTERNALS__` global — the canonical detection used by
+ * @tauri-apps/api itself. In a plain browser (`vite dev`) this is false.
+ */
+export function isTauriRuntime(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>)
+  );
+}
+
+/**
  * Returns null instead of throwing when the app runs outside the Tauri
  * webview (e.g. plain `vite dev` in a browser) so the shell still renders.
  */

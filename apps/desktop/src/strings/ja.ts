@@ -95,6 +95,11 @@ export const ja = {
     spikeNoFileOpen: "このスパイク版ではファイルを開く機能は未実装です",
     engineNotConnected: "解析エンジン: 未接続",
     spikeNoTranscribe: "このスパイク版では採譜エンジンは未接続です",
+    engineStarting: "解析エンジン: 起動しています",
+    engineReady: "解析エンジン: 接続中",
+    engineCrashed: "解析エンジン: 停止しました",
+    engineUnresponsive: "解析エンジン: 応答なし",
+    engineRestarted: "採譜エンジンを再起動しました",
   },
 
   emptyState: {
@@ -135,15 +140,59 @@ export const ja = {
     zeroTotal: "00:00.0",
   },
 
-  /** 採譜中のステージ表示 (GUI_UX_SPEC §5) */
+  /* ============================ UI-040 ============================
+   * 採譜ジョブの進捗・キャンセル (issue #27, GUI_UX_SPEC §5)。
+   * 正準コピーは protocol/copy/ja-JP.json の transcription.* —
+   * ここでは同じ文面をミラーする（デッキ直結はアプリ配線時に
+   * 一本化する TODO があるため、現行の ja.ts ミラー方針に従う）。
+   */
   transcription: {
-    title: "採譜中",
-    stageDone: "音声を準備しました",
-    stageActive: "音を解析しています",
-    stageRhythm: "リズムを解析",
-    stageScore: "楽譜を作成",
-    stagePrepare: "表示を準備",
+    running: "採譜中",
+    start: "採譜を開始",
     cancel: "キャンセル",
+    cancelling: "キャンセルしています…",
+    cancelled: "採譜をキャンセルしました",
+    completed: "採譜が完了しました",
+    progressAria: "採譜の進捗",
+    elapsedLabel: "経過時間",
+    note: "採譜中も再生・一時停止・波形の移動ができます。",
+    stages: {
+      preparing_audio: {
+        pending: "音声を準備",
+        active: "音声を準備しています",
+        done: "音声を準備しました",
+      },
+      transcribing: {
+        pending: "音を解析",
+        active: "音を解析しています",
+        done: "音を解析しました",
+      },
+      cleaning: {
+        pending: "検出結果を整理",
+        active: "検出結果を整理しています",
+        done: "検出結果を整理しました",
+      },
+      analyzing_rhythm: {
+        pending: "リズムを解析",
+        active: "リズムを解析しています",
+        done: "リズムを解析しました",
+      },
+      quantizing: {
+        pending: "音符の長さと位置を整える",
+        active: "音符の長さと位置を整えています",
+        done: "音符の長さと位置を整えました",
+      },
+      building_score: {
+        pending: "楽譜を作成",
+        active: "楽譜を作成しています",
+        done: "楽譜を作成しました",
+      },
+      rendering: {
+        pending: "表示を準備",
+        active: "楽譜を表示しています",
+        done: "表示を準備しました",
+      },
+    },
   },
 
   /**
@@ -265,6 +314,7 @@ export const ja = {
     openAudio: "音声ファイルを開く",
     transcribe: "採譜",
     retranscribe: "採譜し直す",
+    cancelTranscription: "採譜をキャンセル",
     playPause: "再生 / 一時停止",
     stop: "停止",
     jumpBack: "戻る",
@@ -622,6 +672,42 @@ export const ja = {
       sourceSpecified: "元音源を関連付け直しました",
       simulatedSeek: "元音源の該当位置へ移動しました",
     },
+  },
+
+  /* ============================ UI-040 ============================
+   * 採譜失敗・診断 (issue #27, GUI_UX_SPEC §20/§19) —
+   * errors.* / diagnostics.* のミラー。
+   */
+
+  /** §20 エラー面 — 何が失敗したか / 何が保持されているか / 次にできること */
+  errors: {
+    transcriptionFailed: {
+      title: "採譜を完了できませんでした",
+      body: "元音源とプロジェクトは保持されています。",
+      retry: "再試行",
+      diagnostics: "診断情報",
+    },
+    workerCrashed: {
+      title: "採譜エンジンが停止しました",
+      body: "現在のプロジェクトと保存済みの採譜結果は失われていません。",
+      restartEngine: "エンジンを再起動",
+      diagnostics: "診断情報",
+    },
+    workerNotResponding: {
+      title: "採譜エンジンが応答していません",
+      body: "現在のプロジェクトと保存済みの採譜結果は失われていません。エンジンを再起動できます。",
+      restartEngine: "エンジンを再起動",
+      diagnostics: "診断情報",
+    },
+    close: "閉じる",
+  },
+
+  /** 診断情報 (GUI_UX_SPEC §19) — セッションが正直に報告できる範囲のみ */
+  diagnostics: {
+    title: "診断情報",
+    copy: "診断情報をコピー",
+    copied: "診断情報をコピーしました",
+    close: "閉じる",
   },
 
 } as const;

@@ -62,6 +62,13 @@ export interface CommandSnapshot {
 export interface CommandContext {
   openAudio(): void;
   transcribe(): void;
+  /**
+   * Cooperative `job.cancel` (UI-040): requests cancellation of the
+   * in-flight transcription; the job still ends in a terminal `cancelled`
+   * event, so callers must not assume an instant stop. Optional so older
+   * test contexts keep compiling — an absent implementation is a no-op.
+   */
+  cancelTranscription?(): void;
   togglePlayPause(): void;
   stop(): void;
   jumpBack(): void;

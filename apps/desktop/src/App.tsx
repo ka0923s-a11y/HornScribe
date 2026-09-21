@@ -20,6 +20,8 @@ import { PropertiesPanel } from "./components/PropertiesPanel";
 import { TransportBar } from "./components/TransportBar";
 import { StatusBar } from "./components/StatusBar";
 import { SettingsView } from "./components/SettingsView";
+import { TranscriptionView } from "./components/TranscriptionView";
+import { TranscriptionErrorView } from "./components/TranscriptionErrorView";
 import type { PitchView } from "./components/PitchSegmented";
 import {
   createCommandRegistry,
@@ -37,6 +39,11 @@ import {
   SCREEN_STATES,
   type ScreenState,
 } from "./workspace/screen";
+import {
+  TranscriptionSession,
+  createDefaultSidecarPort,
+  type EngineStatus,
+} from "./sidecar";
 import { NO_SELECTION } from "./workspace/inspector";
 import { useWorkspaceLayout } from "./workspace/layout";
 import { initWindowGeometryPersistence } from "./workspace/windowGeometry";
@@ -49,6 +56,14 @@ const GALLERY_HASH = "#/dev/gallery";
  *  responsive layout can be verified in every machine state (§27) before
  *  the real audio/score features land. No-op in packaged builds. */
 const STATE_HASH_PREFIX = "#/dev/state/";
+/**
+ * "#/dev/transcribing" — dev-only entry that starts the shell in
+ * AUDIO_READY and auto-invokes `score.transcribe` once mounted, so the
+ * real UI-040 job flow (mock engine) runs end to end before UI-020's
+ * file-open wiring lands. Unlike "#/dev/state/transcribing" (a static
+ * layout preview) this runs an actual job.
+ */
+const DEV_TRANSCRIBING_HASH = "#/dev/transcribing";
 // Lazy so the gallery (and its Fluent imports) stay out of the prod bundle.
 const DevGallery = import.meta.env.DEV
   ? lazy(() => import("./dev/Gallery"))
@@ -66,6 +81,22 @@ function screenFromHash(hash: string): ScreenState | null {
 function zoneName(id: string): string {
   const names: Record<string, string> = ja.commandFeedback.zoneNames;
   return names[id] ?? id;
+}
+
+/** Engine connection line for the status bar (解析エンジン: …). */
+function engineStatusText(engine: EngineStatus): string {
+  switch (engine) {
+    case "ready":
+      return ja.status.engineReady;
+    case "starting":
+      return ja.status.engineStarting;
+    case "crashed":
+      return ja.status.engineCrashed;
+    case "unresponsive":
+      return ja.status.engineUnresponsive;
+    default:
+      return ja.status.engineNotConnected;
+  }
 }
 
 /**
@@ -91,17 +122,74 @@ export default function App() {
   const [hash, setHash] = useState(() => window.location.hash);
   // Screen state machine (§27). The live app is EMPTY until file/engine
   // plumbing lands; dev builds can override via "#/dev/state/<name>".
-  const [screen, setScreen] = useState<ScreenState>("empty");
+  const [screen, setScreen] = useState<ScreenState>(() =>
+    import.meta.env.DEV && window.location.hash === DEV_TRANSCRIBING_HASH
+      ? "audioReady"
+      : "empty",
+  );
+  // A canonical score exists — survives failed/cancelled retranscription
+  // (issue rule: partial failure never destroys valid state).
+  const [hasScore, setHasScore] = useState(false);
+  const [engineRestarting, setEngineRestarting] = useState(false);
   const layout = useWorkspaceLayout();
+
+  // The session is created once per App mount; the default port is the
+  // mock outside Tauri and the gated port inside (src/sidecar/README.md).
+  const session = useMemo(
+    () => new TranscriptionSession({ portFactory: createDefaultSidecarPort }),
+    [],
+  );
+  const [sessionSnap, setSessionSnap] = useState(() => session.getSnapshot());
+
+  useEffect(() => {
+    const unsub = session.subscribe(setSessionSnap);
+    return () => {
+      unsub();
+      // App shutdown → graceful engine.shutdown (bounded, never throws).
+      void session.dispose();
+    };
+  }, [session]);
+
+  const job = sessionSnap.job;
+  const jobPhase = job?.phase;
+
+  // §27 transitions driven by the job lifecycle. Terminal phases are
+  // consumed once (session.clearJob) — retry is never silent.
+  useEffect(() => {
+    if (!jobPhase) return;
+    if (jobPhase === "completed") {
+      setHasScore(true);
+      setScreen("scoreReady");
+      setStatusMessage(ja.transcription.completed);
+      session.clearJob();
+    } else if (jobPhase === "cancelled") {
+      setScreen(hasScore ? "scoreReady" : "audioReady");
+      setStatusMessage(ja.transcription.cancelled);
+      session.clearJob();
+    }
+    // `failed` also sets snap.failure — the screen mapping lives on the
+    // failure flag below so crash/unresponsive land identically.
+  }, [jobPhase, hasScore, session]);
+
+  // §27: fail → TRANSCRIPTION_ERROR. Set by a terminal `failed` event
+  // (job error) or by crash/unresponsive supervision while a job ran.
+  useEffect(() => {
+    if (sessionSnap.failure) setScreen("transcriptionError");
+  }, [sessionSnap.failure]);
 
   const regions = regionVisibility(screen);
   // Inspector contract: no selection model exists yet (UI-003+); the panel
   // renders the "none" body when opened manually.
   const inspector = NO_SELECTION;
   const propertiesVisible = regions.properties && layout.propertiesOpen;
-  // Dev-state placeholder: REVIEWING pretends a score with open issues so
-  // the 要確認 surfaces exercise their populated rendering.
-  const reviewCount = screen === "reviewing" ? 12 : 0;
+  // Real open-issue count from the last completed job (UI-040); the
+  // dev-state REVIEWING placeholder stays so its surfaces can be reviewed.
+  const reviewCount =
+    sessionSnap.reviewIssueCount > 0
+      ? sessionSnap.reviewIssueCount
+      : screen === "reviewing"
+        ? 12
+        : 0;
 
   // The registry is static: predicates read the snapshot, not React state.
   const registry = useMemo(() => createCommandRegistry(), []);
@@ -127,7 +215,23 @@ export default function App() {
   const ctx = useMemo<CommandContext>(
     () => ({
       openAudio: () => setStatusMessage(ja.status.spikeNoFileOpen),
-      transcribe: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      transcribe: () => {
+        // §27 AUDIO_READY → TRANSCRIBING. The job lifecycle effects own
+        // every later transition; a failed start lands on the §20 surface.
+        setScreen("transcribing");
+        setStatusMessage(ja.transcription.start);
+        session.startTranscription().catch(() => {
+          /* failure flag drives the error surface */
+        });
+      },
+      cancelTranscription: () => {
+        // Cooperative job.cancel — the terminal `cancelled` event is the
+        // real transition; the button shows キャンセルしています… until then.
+        session.cancelTranscription().catch(() => {
+          /* JOB_NOT_FOUND races are ignored in the session; other
+             failures surface through snap.failure/engine state */
+        });
+      },
       togglePlayPause: () =>
         setStatusMessage(ja.commandFeedback.notImplemented),
       stop: () => setStatusMessage(ja.commandFeedback.notImplemented),
@@ -173,7 +277,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [],
+    [session],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -237,6 +341,20 @@ export default function App() {
     onHashChange();
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  // Dev-only entry: "#/dev/transcribing" auto-starts a real job once the
+  // shell is up so the whole TRANSCRIBING flow can be reviewed directly.
+  const devAutoStarted = useRef(false);
+  useEffect(() => {
+    if (
+      import.meta.env.DEV &&
+      hash === DEV_TRANSCRIBING_HASH &&
+      !devAutoStarted.current
+    ) {
+      devAutoStarted.current = true;
+      commands.invoke("score.transcribe");
+    }
+  }, [hash, commands]);
 
   // §26 session restore: window geometry (size/position) persists across
   // restarts; panel sizes/visibility persist via useWorkspaceLayout.
@@ -320,6 +438,45 @@ export default function App() {
                   screen={screen}
                   onOpenAudio={() => commands.invoke("file.openAudio")}
                   onTranscribe={transcribeClicked}
+                  transcribingBody={
+                    <TranscriptionView job={job} commands={commands} />
+                  }
+                  transcriptionErrorBody={
+                    <TranscriptionErrorView
+                      kind={sessionSnap.failure?.kind ?? "transcriptionFailed"}
+                      restarting={engineRestarting}
+                      diagnostics={() => session.buildDiagnostics()}
+                      onPrimary={() => {
+                        const failure = sessionSnap.failure;
+                        if (!failure || failure.kind === "transcriptionFailed") {
+                          // 再試行 is explicit — never a silent resubmit.
+                          setScreen("transcribing");
+                          setStatusMessage(ja.transcription.start);
+                          session.clearFailure();
+                          session.startTranscription().catch(() => undefined);
+                        } else {
+                          // エンジンを再起動 — the §20 crash recovery action.
+                          setEngineRestarting(true);
+                          session
+                            .restartEngine()
+                            .then(() => {
+                              session.clearFailure();
+                              setScreen(hasScore ? "scoreReady" : "audioReady");
+                              setStatusMessage(ja.status.engineRestarted);
+                            })
+                            .catch(() => {
+                              /* failure stays set — surface remains */
+                            })
+                            .finally(() => setEngineRestarting(false));
+                        }
+                      }}
+                      onClose={() => {
+                        session.clearFailure();
+                        session.clearJob();
+                        setScreen(hasScore ? "scoreReady" : "audioReady");
+                      }}
+                    />
+                  }
                 />
                 {propertiesVisible ? (
                   <PropertiesPanel
@@ -337,7 +494,11 @@ export default function App() {
               {regions.transport ? <TransportBar commands={commands} /> : null}
             </>
           )}
-          <StatusBar message={statusMessage} detail={shellDetail} />
+          <StatusBar
+            message={statusMessage}
+            detail={shellDetail}
+            engineStatus={engineStatusText(sessionSnap.engine)}
+          />
         </AppShell>
       )}
     </FluentProvider>

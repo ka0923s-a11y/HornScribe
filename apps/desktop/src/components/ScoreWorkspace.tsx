@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { mergeClasses } from "@fluentui/react-components";
 import { FolderOpen24Regular, Play24Regular } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import { HsButton } from "./primitives/Button";
-import { HsProgress } from "./primitives/Progress";
 import type { ScreenState } from "../workspace/screen";
 
 /**
@@ -12,17 +11,26 @@ import type { ScreenState } from "../workspace/screen";
  * narrows (§21). Content is state-driven:
  *   empty        → drop target + single open CTA, nothing else (§3)
  *   audioReady   → "まだ楽譜はありません" + 採譜を開始 (§4)
- *   transcribing → stage list + honest indeterminate progress (§5)
+ *   transcribing → the job-driven body injected via `transcribingBody`
+ *                  (UI-040 renders the real stage/progress/cancel view)
+ *   transcriptionError → §20 surface injected via `transcriptionErrorBody`
  *   scoreReady+  → score paper placeholder (real rendering is UI-003)
  */
 export function ScoreWorkspace({
   screen,
   onOpenAudio,
   onTranscribe,
+  transcribingBody,
+  transcriptionErrorBody,
 }: {
   screen: ScreenState;
   onOpenAudio(): void;
   onTranscribe(): void;
+  /** [UI-040] live transcription job view — provided by the shell while a
+   *  job runs; when absent a minimal honest placeholder renders. */
+  transcribingBody?: ReactNode;
+  /** [UI-040] §20 failure/recovery surface for TRANSCRIPTION_ERROR. */
+  transcriptionErrorBody?: ReactNode;
 }) {
   const [dragOver, setDragOver] = useState(false);
   return (
@@ -73,46 +81,24 @@ export function ScoreWorkspace({
           </HsButton>
         </div>
       ) : screen === "transcribing" ? (
-        <div className="hs-transcribing" role="status">
-          <p className="hs-transcribing__title">{ja.transcription.title}</p>
-          <ul className="hs-stage-list">
-            <li className="hs-stage hs-stage--done">
-              <span className="hs-stage__icon" aria-hidden="true">
-                ✓
-              </span>
-              {ja.transcription.stageDone}
-            </li>
-            <li className="hs-stage hs-stage--active">
-              <span className="hs-stage__icon" aria-hidden="true">
-                ●
-              </span>
-              {ja.transcription.stageActive}
-            </li>
-            <li className="hs-stage">
-              <span className="hs-stage__icon" aria-hidden="true">
-                ○
-              </span>
-              {ja.transcription.stageRhythm}
-            </li>
-            <li className="hs-stage">
-              <span className="hs-stage__icon" aria-hidden="true">
-                ○
-              </span>
-              {ja.transcription.stageScore}
-            </li>
-            <li className="hs-stage">
-              <span className="hs-stage__icon" aria-hidden="true">
-                ○
-              </span>
-              {ja.transcription.stagePrepare}
-            </li>
-          </ul>
-          {/* §5: indeterminate while no honest percentage exists. */}
-          <HsProgress label={ja.transcription.title} />
-          <HsButton variant="secondary" onClick={onTranscribe}>
-            {ja.transcription.cancel}
-          </HsButton>
-        </div>
+        // UI-040 owns this body (real job-driven stage/progress/cancel).
+        // The fallback is honest too: no stages claimed, indeterminate bar.
+        (transcribingBody ?? (
+          <div className="hs-transcribing" role="status">
+            <p className="hs-transcribing__title">{ja.transcription.running}</p>
+          </div>
+        ))
+      ) : screen === "transcriptionError" ? (
+        transcriptionErrorBody ?? (
+          <div className="hs-error-surface" role="alert">
+            <h2 className="hs-error-surface__title">
+              {ja.errors.transcriptionFailed.title}
+            </h2>
+            <p className="hs-error-surface__body">
+              {ja.errors.transcriptionFailed.body}
+            </p>
+          </div>
+        )
       ) : (
         <div className="hs-score-paper" aria-hidden="true">
           <span className="hs-score-paper__placeholder">

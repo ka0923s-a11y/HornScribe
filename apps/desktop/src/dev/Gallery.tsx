@@ -684,25 +684,27 @@ function ScreenFixtures() {
 
       <Fixture id="screen-transcribing" caption={ja.gallery.samples.fixtureTranscribing} stageClass="hs-fixture__stage--stretch">
         <HsPanel className="hs-fixture-card" title={ja.gallery.samples.fixtureTranscribing}>
+          {/* Real production classes (UI-040 TranscriptionView):
+              hs-stage-list__item + data-state drive glyph/weight/color. */}
           <ul className="hs-stage-list">
-            <li className="hs-stage hs-stage--done">
-              <span className="hs-stage__icon" aria-hidden="true">✓</span>
+            <li className="hs-stage-list__item" data-state="done">
+              <span className="hs-stage-list__icon" aria-hidden="true">✓</span>
               {ja.gallery.samples.stageDone}
             </li>
-            <li className="hs-stage hs-stage--active">
-              <span className="hs-stage__icon" aria-hidden="true">●</span>
+            <li className="hs-stage-list__item" data-state="active" aria-current="step">
+              <span className="hs-stage-list__icon" aria-hidden="true">●</span>
               {ja.gallery.samples.stageActive}
             </li>
-            <li className="hs-stage">
-              <span className="hs-stage__icon" aria-hidden="true">○</span>
+            <li className="hs-stage-list__item" data-state="pending">
+              <span className="hs-stage-list__icon" aria-hidden="true">○</span>
               {ja.gallery.samples.stagePending1}
             </li>
-            <li className="hs-stage">
-              <span className="hs-stage__icon" aria-hidden="true">○</span>
+            <li className="hs-stage-list__item" data-state="pending">
+              <span className="hs-stage-list__icon" aria-hidden="true">○</span>
               {ja.gallery.samples.stagePending2}
             </li>
-            <li className="hs-stage">
-              <span className="hs-stage__icon" aria-hidden="true">○</span>
+            <li className="hs-stage-list__item" data-state="pending">
+              <span className="hs-stage-list__icon" aria-hidden="true">○</span>
               {ja.gallery.samples.stagePending3}
             </li>
           </ul>

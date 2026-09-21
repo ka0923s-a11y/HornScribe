@@ -13,12 +13,17 @@ import type { CommandSnapshot } from "../commands/types";
  *                                          ├ cancel → AUDIO_READY
  *                                          ├ fail   → TRANSCRIPTION_ERROR
  *                                          └ done   → SCORE_READY
+ *   TRANSCRIPTION_ERROR ─dismiss/retry→ last valid state (audioReady or
+ *   scoreReady — a prior score is never destroyed by a failed job).
  *   SCORE_READY ├ review → REVIEWING ├ export → EXPORTING └ retranscribe
  */
 export type ScreenState =
   | "empty"
   | "audioReady"
   | "transcribing"
+  // [UI-040] §27 TRANSCRIPTION_ERROR — job failed / worker crash or
+  // unresponsive mid-job. A loaded state (audio/score state is kept).
+  | "transcriptionError"
   | "scoreReady"
   | "reviewing"
   | "exporting";
@@ -27,6 +32,7 @@ export const SCREEN_STATES: readonly ScreenState[] = [
   "empty",
   "audioReady",
   "transcribing",
+  "transcriptionError",
   "scoreReady",
   "reviewing",
   "exporting",
@@ -79,4 +85,7 @@ export function commandStateFor(
     isTranscribing: screen === "transcribing",
     reviewOpen: screen === "reviewing",
   };
+  // [UI-040] transcriptionError: hasAudio=true (loaded), isTranscribing
+  // =false → 採譜 stays reachable as the retry path; hasScore=false keeps
+  // score/export commands off while the §20 error surface is up.
 }

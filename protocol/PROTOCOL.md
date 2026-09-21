@@ -127,3 +127,54 @@ own read-timeout/kill path. Subject to removal without notice.
 `PROTOCOL_VERSION_MISMATCH`, `MALFORMED_MESSAGE`, `UNKNOWN_METHOD`,
 `INVALID_PARAMS`, `JOB_NOT_FOUND`, `JOB_ALREADY_RUNNING`,
 `UNKNOWN_JOB_KIND`, `JOB_TIMEOUT`, `JOB_FAILED`, `INTERNAL_ERROR`.
+
+## Shell-side extensions [UI-040]
+
+Additive fields and shell-side supervision codes introduced by the
+desktop client (`apps/desktop/src/sidecar/`). Wire format is unchanged —
+all additions are optional payload fields or codes that never leave the
+shell.
+
+### `job.event` `stage` field
+
+Jobs that can honestly name their pipeline position emit
+`payload.stage` — one of the GUI_UX_SPEC §5 stage ids
+(`preparing_audio`, `transcribing`, `cleaning`, `analyzing_rhythm`,
+`quantizing`, `building_score`, `rendering`, which are also the
+`transcription.stages.*` keys in `protocol/copy/ja-JP.json`). Stage-less
+jobs (e.g. `demoLongTask`) simply omit it; the UI must not infer a stage
+from `progress` or elapsed time — an omitted stage is an honest
+"unknown".
+
+### `transcription` job kind
+
+The real transcription job kind (`job.start {jobKind: "transcription"}`)
+is not yet implemented in the spike worker — `SUPPORTED_JOB_KINDS` is
+still `("demoLongTask",)`. The shell picks `transcription` when
+`capabilities.jobKinds` advertises it and falls back to `demoLongTask`
+otherwise (the documented UI-002→UI-040 bridge). `MockSidecarPort`
+implements `transcription` with the demoLongTask step engine plus
+`stage` fields and the result payload below.
+
+### `job.event` `completed` → `result.reviewIssues`
+
+A completed transcription carries `payload.result`, an object that may
+include `reviewIssues`: an array of `ReviewIssue.to_dict()` payloads
+(`python/hornscribe/domain/review.py`) with `reason` values mapping onto
+`review.reasons.*` in the copy deck (`other` fallback for unknown
+codes). The shell surfaces only the count in UI-040; UI-030's score
+adapter consumes the full result.
+
+### Shell-side supervision codes (never on the wire)
+
+The client marks failures it detected itself with codes that are
+deliberately NOT worker error codes:
+
+- `WORKER_CRASHED` — the process exited mid-job without a terminal event
+  (the supervisor marks the job failed per ADR-0002; never silently
+  resubmitted).
+- `WORKER_UNRESPONSIVE` — the in-flight-job watchdog's `engine.ping`
+  probe timed out (same handling as `debug.hang` engine-side).
+- `REQUEST_TIMEOUT` — a request exceeded its response timeout.
+- `ENGINE_UNAVAILABLE` / `ENGINE_NOT_READY` — the port could not spawn
+  or the client is not in `ready` state.

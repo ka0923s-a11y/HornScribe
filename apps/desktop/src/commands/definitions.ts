@@ -56,6 +56,17 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.transcribe(),
     },
     {
+      id: "score.cancelTranscription",
+      title: ja.commands.cancelTranscription,
+      section: "score",
+      // §5/§27: cooperative job.cancel — only meaningful while a job is
+      // in flight. Deliberately no shortcut: Esc must never silently
+      // cancel a running transcription.
+      isEnabled: (s) => s.isTranscribing,
+      isVisible: (s) => s.isTranscribing,
+      run: (ctx) => ctx.cancelTranscription?.(),
+    },
+    {
       id: "score.zoomIn",
       title: ja.commands.zoomScoreIn,
       section: "score",

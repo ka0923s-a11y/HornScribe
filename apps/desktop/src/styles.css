@@ -263,53 +263,6 @@ body {
   font-size: var(--hs-font-size-compact);
 }
 
-/* ---- Transcribing state (§5): stage list + honest progress ---- */
-.hs-transcribing {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--hs-space-md);
-  width: 100%;
-  max-width: 360px;
-}
-.hs-transcribing__title {
-  margin: 0;
-  font-size: var(--hs-font-size-subtitle);
-  font-weight: var(--hs-font-weight-title);
-}
-.hs-transcribing .hs-field {
-  width: 100%;
-}
-.hs-stage-list {
-  align-self: stretch;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--hs-space-xs);
-}
-.hs-stage {
-  display: flex;
-  align-items: center;
-  gap: var(--hs-space-sm);
-  font-size: var(--hs-font-size-compact);
-  line-height: var(--hs-line-height-compact);
-  color: var(--hs-text-secondary);
-}
-.hs-stage--done {
-  color: var(--hs-status-success);
-}
-.hs-stage--active {
-  color: var(--hs-status-info);
-  font-weight: var(--hs-font-weight-emphasis);
-}
-.hs-stage__icon {
-  display: inline-flex;
-  width: 16px;
-  justify-content: center;
-}
-
 /* Properties inspector (§6, §21): docked at ≥1200px with an inline width
    inside the breakpoint clamp; <1200px it becomes a non-modal overlay
    drawer so the score keeps the workspace. */
@@ -636,4 +589,146 @@ body {
   margin: 0;
   color: var(--hs-text-muted);
   font-size: var(--hs-font-size-compact);
+}
+
+/* ============================ UI-040: 採譜中 ============================
+   Transcribing body (GUI_UX_SPEC §5) — lives inside the score region;
+   not a modal, so the rest of the shell stays usable. */
+
+/* Screen-reader-only text (aria-live announcements, a11y §24). */
+.hs-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.hs-transcribing {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--hs-space-md);
+  width: min(420px, 100%);
+  text-align: left;
+}
+.hs-transcribing__title {
+  margin: 0;
+  font-size: var(--hs-font-size-title);
+  font-weight: var(--hs-font-weight-title);
+  text-align: center;
+}
+.hs-transcribing__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--hs-space-md);
+  margin-top: calc(-1 * var(--hs-space-sm));
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-transcribing__percent {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--hs-font-weight-emphasis);
+}
+.hs-transcribing__elapsed {
+  font-variant-numeric: tabular-nums;
+}
+.hs-transcribing__note {
+  margin: 0;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+}
+/* The HsProgress field stretches inside the transcribing column. */
+.hs-transcribing .hs-field {
+  width: 100%;
+}
+.hs-transcribing > .hs-button {
+  align-self: center;
+}
+
+/* Stage list — pending ○ / active ● / done ✓. The glyph is one cue of
+   three (also weight + color), never color alone (§24). */
+.hs-stage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+  font-size: var(--hs-font-size-body);
+}
+.hs-stage-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  color: var(--hs-text-muted);
+  line-height: var(--hs-line-height-body);
+}
+.hs-stage-list__icon {
+  display: inline-flex;
+  width: 1.2em;
+  justify-content: center;
+  color: var(--hs-text-muted);
+}
+.hs-stage-list__item[data-state="done"] {
+  color: var(--hs-text-secondary);
+}
+.hs-stage-list__item[data-state="done"] .hs-stage-list__icon {
+  color: var(--hs-status-success);
+}
+.hs-stage-list__item[data-state="active"] {
+  color: var(--hs-text-primary);
+  font-weight: var(--hs-font-weight-emphasis);
+}
+.hs-stage-list__item[data-state="active"] .hs-stage-list__icon {
+  color: var(--hs-accent);
+}
+
+/* ---- §20 error surface (TRANSCRIPTION_ERROR) ---- */
+.hs-error-surface {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hs-space-sm);
+  max-width: 46em;
+  padding: var(--hs-space-lg);
+  background: var(--hs-surface-elevated);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-panel);
+}
+.hs-error-surface__title {
+  margin: 0;
+  font-size: var(--hs-font-size-title);
+  font-weight: var(--hs-font-weight-title);
+  color: var(--hs-text-primary);
+}
+.hs-error-surface__body {
+  margin: 0;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-body);
+  line-height: var(--hs-line-height-body);
+}
+.hs-error-surface__actions {
+  display: flex;
+  gap: var(--hs-space-sm);
+  margin-top: var(--hs-space-sm);
+  flex-wrap: wrap;
+}
+
+/* 診断情報 dialog body — machine detail lives here, never in the surface. */
+.hs-diagnostics {
+  margin: 0;
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--hs-font-size-caption);
+  color: var(--hs-text-secondary);
+  user-select: text;
 }
