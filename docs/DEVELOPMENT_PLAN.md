@@ -4,7 +4,7 @@
 > Updated: 2026-09-21  
 > Scope: 個人利用、完全無料、ローカル完結、Windowsを第一対象とする
 
-> **GUI architecture update:** 高品質なdesktop UIについては [GUI / UX Design & Implementation Plan](GUI_UX_PLAN.md) と [ADR-0001](adr/ADR-0001-desktop-ui-architecture.md) を優先する。既存のPySide6記述は初期案であり、Tauri 2 + React/TypeScript + Python worker構成を技術spikeで検証後に正式固定する。
+> **GUI architecture update:** 高品質なdesktop UIについては [GUI / UX Design & Implementation Plan](GUI_UX_PLAN.md) と [ADR-0001](adr/ADR-0001-desktop-ui-stack.md) を優先する。既存のPySide6記述は初期案であり、Tauri 2 + React/TypeScript + Python worker構成を技術spikeで検証後に正式固定する。
 
 ## 0. この文書の位置づけ
 
