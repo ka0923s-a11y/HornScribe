@@ -11,6 +11,7 @@ HornScribe is a personal, local-first application for transcribing audio into re
 - Export MusicXML and PDF; provide clearly defined MIDI playback/export semantics.
 - Keep transcription, rhythm quantization, notation, instrument transposition, and presentation as separate stages.
 - Allow future transcription backends without rewriting the application.
+- **The user-facing application UI is Japanese-only.** English UI and a language switcher are intentionally out of scope.
 
 ## Current status
 
