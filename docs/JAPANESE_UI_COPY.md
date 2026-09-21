@@ -379,3 +379,34 @@ Visual regressionの正準は日本語UIのみ。
 - 用語集に従っている
 - 文字切れがない
 - 日本語IMEを使う入力欄でcompositionが正常
+
+
+---
+
+# 14. 量子化・リズム確認用語
+
+HSQ-v1のReviewIssueは次の日本語を標準とする。
+
+| internal reason | UI表記 |
+|---|---|
+| quantization_ambiguous | リズムの解釈を確認してください |
+| beat_alignment_uncertain | 拍位置を確認してください |
+| beat_map_uncertain | テンポと拍位置を確認してください |
+| possible_triplet | 三連符の可能性があります |
+| possible_grace_note | 装飾音の可能性があります |
+| offset_ambiguous | 音の長さを確認してください |
+| pickup_ambiguous | 弱起を確認してください |
+| meter_conflict | 拍子を確認してください |
+| overlapping_candidates | 音の重なりを確認してください |
+
+通常UIでは次の内部語を表示しない。
+
+- HSQ
+- dynamic programming
+- path cost
+- Huber loss
+- metrical tree
+- candidate lattice
+- mode-switch penalty
+
+これらは「診断情報」でのみ表示可能。
