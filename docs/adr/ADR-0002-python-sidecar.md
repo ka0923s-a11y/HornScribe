@@ -2,81 +2,117 @@
 
 - Status: Proposed
 - Date: 2026-09-21
-- Related: ADR-0001, ../DEVELOPMENT_PLAN.md, ../GUI_UX_PLAN.md
+- Roadmap authority: ../MASTER_PLAN.md
+- Related: ADR-0001-desktop-ui-architecture.md, ../DEVELOPMENT_PLAN.md, ../GUI_UX_PLAN.md
 
 ## Context
 
-HornScribe's transcription and notation stack depends heavily on Python libraries and models:
+HornScribe depends on Python-oriented music and ML tooling:
 
-- Basic Pitch
-- librosa
-- music21
-- MIDI/MusicXML processing
+- Basic Pitch baseline backend
+- librosa / music analysis
+- music21 / notation support
 - future AMT backends
-- FFmpeg/MuseScore orchestration
+- FFmpeg and MuseScore orchestration
 
-Keeping these packages in the same process as the desktop UI would couple GUI startup, crash behavior, dependency resolution and Python runtime constraints to the ML stack.
+Keeping this runtime inside the GUI process would couple UI startup, dependency conflicts, crash behavior and Python lifecycle to the desktop interface.
 
-## Decision
+Python runtime selection is itself under review because Python 3.10 reaches EOL in October 2026 while Basic Pitch 0.4.0 currently declares support through Python 3.11 and has active Python 3.12 work upstream.
+
+## Proposed decision
 
 Run the HornScribe music/transcription engine as an isolated Python worker process launched and supervised by Tauri.
 
-The desktop frontend never imports or reimplements musical-domain logic.
+The canonical concert-pitch score and project-domain transforms remain owned by Python.
 
-The canonical concert-pitch score remains owned by the Python domain layer.
+The frontend consumes typed/versioned product-level messages rather than Python objects.
 
 ## Initial IPC
 
-Use newline-delimited JSON messages over stdin/stdout.
+Use newline-delimited JSON over stdin/stdout.
 
 Protocol rules:
 
-- stdout contains protocol messages only
-- logs use stderr
+- stdout = protocol frames only
+- stderr/file = diagnostics/logging
 - every request has an ID
-- messages include a protocol version
+- messages carry protocol version context
 - long jobs emit structured progress events
-- jobs can be cancelled
-- binary audio is referenced by local path/cache ID rather than encoded into JSON
-- user-visible errors are structured data, not raw Python tracebacks
+- binary audio is referenced by local path/cache ID, not base64 JSON
+- errors are structured data, not raw tracebacks
+- unknown additive fields are ignored where safe
+- incompatible major versions fail explicitly
 
-## Rationale
+## Why not local HTTP/gRPC initially
 
-This approach is preferred initially over local HTTP/gRPC because it:
+stdin/stdout requires no port, avoids firewall/network configuration, has a simple lifecycle, and is sufficient for control/progress traffic.
 
-- requires no port
-- avoids firewall prompts
-- has simple one-parent/one-worker lifecycle
-- is easy to inspect in tests
-- is sufficient for request/response/progress traffic
-- keeps audio and model data on local storage
+Re-evaluate only if later workloads require multiple clients or structured binary streaming.
+
+## Cancellation model
+
+A `jobs.cancel` protocol request does not prove that blocking ML inference is interruptible.
+
+Validation order:
+
+1. test cooperative cancellation with the real baseline backend
+2. if inference cannot stop promptly, terminate/restart the worker as the MVP fallback
+3. only if restart cost becomes unacceptable, introduce a persistent engine host with per-job child processes
+
+Do not add a process hierarchy before measurements justify it.
+
+## Runtime selection
+
+Runtime choice is governed by FND-002.
+
+The selected combination records:
+
+- Python version
+- dependency lock
+- freeze/package method
+- bundle size
+- cold start
+- model init
+- inference time
+- peak RAM
+- offline execution
+- cancellation behavior
 
 ## Failure model
 
 If the worker crashes:
 
-1. the UI remains open
-2. the active job becomes failed
-3. existing project/autosave state is preserved
-4. diagnostics expose the worker log
-5. the shell can restart the worker
-6. retranscription is explicit, not silently repeated
+1. UI remains open
+2. active job becomes failed/cancelled explicitly
+3. autosaved project remains valid
+4. diagnostics remain available
+5. shell may restart worker
+6. retranscription is never silently repeated
+
+## High-frequency data rule
+
+Playback/playhead updates do not pass through Python IPC at frame rate.
+
+Transport timing belongs to the frontend/native playback subsystem. Python supplies stable mappings between seconds, beats and canonical note IDs.
+
+## Acceptance criteria before Accepted
+
+- handshake works in development and packaged build
+- sidecar runtime is selected by FND-002 evidence
+- clean shutdown and timeout handling work
+- progress events stream reliably
+- malformed protocol messages fail safely
+- stdout stays protocol-clean even if dependencies emit logs
+- worker crash is detected
+- restart works without restarting GUI
+- packaged app locates sidecar offline
+- incompatible protocol major version fails clearly
+- real backend cancellation behavior is documented
+- project state survives worker failure
 
 ## Consequences
 
-- frontend and backend schemas must be versioned
-- code generation from a shared JSON Schema may be useful later
-- progress/cancellation semantics must be consistent across transcription backends
-- high-frequency playback state must not flow through this IPC; playback is a frontend/native transport concern
-
-## Acceptance criteria before status becomes Accepted
-
-- handshake works in development and packaged build
-- process shutdown is clean
-- timeout is handled
-- progress events stream reliably
-- cancellation is deterministic
-- worker crash is detected
-- restart works without restarting the GUI
-- stderr is not mixed with protocol output
-- incompatible protocol versions fail with a clear diagnostic
+- schemas must be versioned
+- frontend/backend types may later be generated from shared schema
+- packaging is more complex than one Python process
+- backend swap remains independent from GUI architecture
