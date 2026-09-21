@@ -1,4 +1,12 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { FluentProvider } from "@fluentui/react-components";
 import { ja } from "./strings/ja";
 import { hsLightTheme, hsDarkTheme } from "./theme/fluentTheme";
@@ -21,17 +29,38 @@ import {
 } from "./commands/registry";
 import { KeyboardDispatcher } from "./keyboard/dispatcher";
 import { useCommandKeyboard } from "./keyboard/useCommandKeyboard";
-import { cycleFocusZone } from "./focus/zones";
+import { cycleFocusZone, focusZone } from "./focus/zones";
 import { getShellInfo } from "./tauri/bridge";
+import {
+  regionVisibility,
+  commandStateFor,
+  SCREEN_STATES,
+  type ScreenState,
+} from "./workspace/screen";
+import { NO_SELECTION } from "./workspace/inspector";
+import { useWorkspaceLayout } from "./workspace/layout";
+import { initWindowGeometryPersistence } from "./workspace/windowGeometry";
 
 type View = "workspace" | "settings";
 
 /** "#/dev/gallery" — dev-only internal component gallery (UI-010). */
 const GALLERY_HASH = "#/dev/gallery";
+/** "#/dev/state/<screen>" — dev-only screen-state override so the
+ *  responsive layout can be verified in every machine state (§27) before
+ *  the real audio/score features land. No-op in packaged builds. */
+const STATE_HASH_PREFIX = "#/dev/state/";
 // Lazy so the gallery (and its Fluent imports) stay out of the prod bundle.
 const DevGallery = import.meta.env.DEV
   ? lazy(() => import("./dev/Gallery"))
   : null;
+
+function screenFromHash(hash: string): ScreenState | null {
+  if (!import.meta.env.DEV || !hash.startsWith(STATE_HASH_PREFIX)) return null;
+  const name = hash.slice(STATE_HASH_PREFIX.length);
+  return (SCREEN_STATES as readonly string[]).includes(name)
+    ? (name as ScreenState)
+    : null;
+}
 
 /** Japanese display name for a focus zone (for status announcements). */
 function zoneName(id: string): string {
@@ -40,11 +69,16 @@ function zoneName(id: string): string {
 }
 
 /**
- * UI-001 spike shell driven by the UI-012 command architecture
- * (GUI_UX_SPEC §22/§23). Screen state is fixed to EMPTY (§27): no audio, no
- * score, no engine. The shell proves layout, theming, Japanese copy,
- * keyboard/focus behavior, IPC plumbing and the CSP/capability baseline
- * before real features are wired in.
+ * HornScribe workspace shell (UI-011) driven by the UI-012 command
+ * architecture (GUI_UX_SPEC §2/§21/§22/§23/§27). Information architecture:
+ * single workspace, score is primary, properties collapse before the score
+ * narrows, command overflow instead of horizontal scrolling, layout state
+ * restored across restarts.
+ *
+ * The screen-state machine (§27) feeds the CommandSnapshot, so every
+ * surface — command bar, transport, keyboard — agrees on enablement:
+ * EMPTY mounts only 開く-level shell actions; 採譜 needs audio and is
+ * disabled while transcribing; 要確認/書き出し need a score.
  */
 export default function App() {
   const { mode, resolved, select } = useThemeMode();
@@ -55,28 +89,39 @@ export default function App() {
     ja.status.shellInfoLoading,
   );
   const [hash, setHash] = useState(() => window.location.hash);
+  // Screen state machine (§27). The live app is EMPTY until file/engine
+  // plumbing lands; dev builds can override via "#/dev/state/<name>".
+  const [screen, setScreen] = useState<ScreenState>("empty");
+  const layout = useWorkspaceLayout();
+
+  const regions = regionVisibility(screen);
+  // Inspector contract: no selection model exists yet (UI-003+); the panel
+  // renders the "none" body when opened manually.
+  const inspector = NO_SELECTION;
+  const propertiesVisible = regions.properties && layout.propertiesOpen;
+  // Dev-state placeholder: REVIEWING pretends a score with open issues so
+  // the 要確認 surfaces exercise their populated rendering.
+  const reviewCount = screen === "reviewing" ? 12 : 0;
 
   // The registry is static: predicates read the snapshot, not React state.
   const registry = useMemo(() => createCommandRegistry(), []);
 
-  // EMPTY state (§27): nothing loaded yet — transport/edit/export commands
-  // evaluate disabled from this snapshot on every surface at once.
+  // Screen machine → command snapshot (§23). Playback/undo/selection stay
+  // false until their feature issues land; isTranscribing is the field that
+  // keeps score-writing commands disabled while a transcription runs (§5).
   const snapshot = useMemo<CommandSnapshot>(
     () => ({
-      hasAudio: false,
-      hasScore: false,
-      isTranscribing: false,
+      ...commandStateFor(screen),
       isPlaying: false,
       loopEnabled: false,
       pitch,
       canUndo: false,
       canRedo: false,
       hasSelection: false,
-      reviewOpen: false,
-      reviewCount: 0,
+      reviewCount,
       view,
     }),
-    [pitch, view],
+    [screen, pitch, reviewCount, view],
   );
 
   const ctx = useMemo<CommandContext>(
@@ -112,8 +157,8 @@ export default function App() {
       clearSelection: () =>
         setStatusMessage(ja.commandFeedback.notImplemented),
       openSettings: () => setView("settings"),
-      // F6 / Shift+F6 region cycling (§22) — the only fully-working
-      // transport-independent commands in the spike.
+      // F6 / Shift+F6 region cycling (§22) — owned by focus/zones.ts; these
+      // are the only fully-working transport-independent commands so far.
       focusNextRegion: () => {
         const zone = cycleFocusZone(1);
         if (zone) {
@@ -153,12 +198,59 @@ export default function App() {
     [registry, ctx, snapshot],
   );
 
-  // Hash routing is only used for the internal dev gallery; the product
-  // shell is a single workspace (GUI_UX_SPEC §2), not a page router.
+  // Closing the panel returns focus to the score region when the focus was
+  // inside the panel (§22 focus discipline); if it was closed from the
+  // overflow menu, focus stays where it is.
+  const closeProperties = useCallback(() => {
+    const focusInside =
+      document
+        .querySelector('.hs-properties')
+        ?.contains(document.activeElement) ?? false;
+    layout.setPropertiesOpen(false);
+    if (focusInside) {
+      requestAnimationFrame(() => focusZone("score"));
+    }
+  }, [layout]);
+
+  // 採譜 / キャンセル share one callback: the command is disabled while a
+  // transcription runs (§5), so the cancel affordance falls through to an
+  // honest "not implemented yet" announcement instead of silently no-oping.
+  const transcribeClicked = useCallback(() => {
+    if (!commands.invoke("score.transcribe")) {
+      setStatusMessage(ja.commandFeedback.notImplemented);
+    }
+  }, [commands]);
+
+  // Hash routing: internal dev gallery + dev screen-state override. The
+  // product shell is a single workspace (§2), not a page router.
   useEffect(() => {
-    const onHashChange = () => setHash(window.location.hash);
+    const onHashChange = () => {
+      const h = window.location.hash;
+      setHash(h);
+      const forced = screenFromHash(h);
+      if (forced) {
+        setScreen(forced);
+        setView("workspace");
+      }
+    };
     window.addEventListener("hashchange", onHashChange);
+    onHashChange();
     return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  // §26 session restore: window geometry (size/position) persists across
+  // restarts; panel sizes/visibility persist via useWorkspaceLayout.
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    void initWindowGeometryPersistence().then((u) => {
+      if (alive) unlisten = u;
+      else u();
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
   }, []);
 
   // Prove the JS↔Rust IPC channel early; populates the status area.
@@ -182,7 +274,10 @@ export default function App() {
   const showGallery = DevGallery != null && hash === GALLERY_HASH;
 
   return (
-    <FluentProvider theme={theme}>
+    // .hs-provider fixes the UI-009 latent bug: the FluentProvider wrapper
+    // div had no definite height, so `height:100%` on .hs-shell collapsed
+    // to content height. The provider now owns the full viewport.
+    <FluentProvider theme={theme} className="hs-provider">
       {showGallery ? (
         <Suspense fallback={null}>
           <DevGallery themeMode={mode} onThemeMode={select} />
@@ -200,15 +295,46 @@ export default function App() {
             </div>
           ) : (
             <>
-              <CommandBar commands={commands} pitch={pitch} />
-              <WaveformView />
+              <CommandBar
+                commands={commands}
+                pitch={pitch}
+                screen={screen}
+                reviewCount={reviewCount}
+                compact={layout.breakpoint === "compact"}
+                propertiesOpen={layout.propertiesOpen}
+                onToggleProperties={() =>
+                  layout.setPropertiesOpen(!layout.propertiesOpen)
+                }
+              />
+              {regions.waveform ? (
+                <WaveformView
+                  height={layout.waveformHeight}
+                  min={layout.waveformMin}
+                  max={layout.waveformMax}
+                  onResize={layout.requestWaveformHeight}
+                  onReset={layout.resetWaveformHeight}
+                />
+              ) : null}
               <div className="hs-main">
                 <ScoreWorkspace
+                  screen={screen}
                   onOpenAudio={() => commands.invoke("file.openAudio")}
+                  onTranscribe={transcribeClicked}
                 />
-                <PropertiesPanel />
+                {propertiesVisible ? (
+                  <PropertiesPanel
+                    content={inspector}
+                    width={layout.propertiesWidth}
+                    min={layout.propertiesMin}
+                    max={layout.propertiesMax}
+                    overlay={layout.breakpoint === "compact"}
+                    onResize={layout.requestPropertiesWidth}
+                    onReset={layout.resetPropertiesWidth}
+                    onClose={closeProperties}
+                  />
+                ) : null}
               </div>
-              <TransportBar commands={commands} />
+              {regions.transport ? <TransportBar commands={commands} /> : null}
             </>
           )}
           <StatusBar message={statusMessage} detail={shellDetail} />

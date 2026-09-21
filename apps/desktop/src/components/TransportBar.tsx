@@ -1,7 +1,10 @@
 import { Toolbar, ToolbarButton, Tooltip } from "@fluentui/react-components";
 import {
   Previous24Regular,
+  Rewind24Regular,
   Play24Regular,
+  Stop24Regular,
+  FastForward24Regular,
   Next24Regular,
   ArrowRepeatAll24Regular,
   SlideTextSparkle24Regular,
@@ -14,12 +17,12 @@ function withShortcut(title: string, shortcut?: string): string {
 }
 
 /**
- * Transport bar (GUI_UX_SPEC §9). Always reachable once audio is loaded;
- * rendered disabled in the spike's EMPTY state to exercise disabled styling
- * (color + cursor, not opacity alone — DESIGN_SYSTEM §17).
+ * Transport bar (GUI_UX_SPEC §9). Mounted only once audio exists; every
+ * control stays disabled while a command's snapshot predicate is false.
  *
  * All actions dispatch through the command surface (§23) — the Space key,
- * this button and a future menu item are the same command.
+ * this button and a future menu item are the same command, so enabled
+ * state and Japanese labels can never disagree across surfaces.
  */
 export function TransportBar({ commands }: { commands: CommandSurface }) {
   // All transport commands share the hasAudio gate (see definitions).
@@ -48,6 +51,21 @@ export function TransportBar({ commands }: { commands: CommandSurface }) {
       </Tooltip>
       <Tooltip
         content={withShortcut(
+          commands.title("transport.jumpBack"),
+          commands.shortcutLabel("transport.jumpBack"),
+        )}
+        relationship="label"
+      >
+        <ToolbarButton
+          icon={<Rewind24Regular />}
+          aria-label={commands.title("transport.jumpBack")}
+          aria-keyshortcuts="J"
+          disabled={!commands.isEnabled("transport.jumpBack")}
+          onClick={() => commands.invoke("transport.jumpBack")}
+        />
+      </Tooltip>
+      <Tooltip
+        content={withShortcut(
           commands.title("transport.playPause"),
           commands.shortcutLabel("transport.playPause"),
         )}
@@ -60,6 +78,36 @@ export function TransportBar({ commands }: { commands: CommandSurface }) {
           disabled={!commands.isEnabled("transport.playPause")}
           appearance="primary"
           onClick={() => commands.invoke("transport.playPause")}
+        />
+      </Tooltip>
+      <Tooltip
+        content={withShortcut(
+          commands.title("transport.stop"),
+          commands.shortcutLabel("transport.stop"),
+        )}
+        relationship="label"
+      >
+        <ToolbarButton
+          icon={<Stop24Regular />}
+          aria-label={commands.title("transport.stop")}
+          aria-keyshortcuts="Shift+Space"
+          disabled={!commands.isEnabled("transport.stop")}
+          onClick={() => commands.invoke("transport.stop")}
+        />
+      </Tooltip>
+      <Tooltip
+        content={withShortcut(
+          commands.title("transport.jumpForward"),
+          commands.shortcutLabel("transport.jumpForward"),
+        )}
+        relationship="label"
+      >
+        <ToolbarButton
+          icon={<FastForward24Regular />}
+          aria-label={commands.title("transport.jumpForward")}
+          aria-keyshortcuts="L"
+          disabled={!commands.isEnabled("transport.jumpForward")}
+          onClick={() => commands.invoke("transport.jumpForward")}
         />
       </Tooltip>
       <Tooltip

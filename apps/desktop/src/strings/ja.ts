@@ -36,6 +36,12 @@ export const ja = {
     export: "書き出し",
     settings: "設定",
     overflow: "その他の操作",
+    openLabel: "開く",
+    openTooltip: "音声ファイルを開く（Ctrl+O）",
+    transcribeTooltip: "採譜を開始する",
+    retranscribeTooltip: "現在の設定でもう一度採譜する",
+    exportTooltip: "MusicXML・PDF・MIDIを書き出し",
+    reviewWithCount: "要確認（{count}）",
   },
 
   pitch: {
@@ -48,12 +54,14 @@ export const ja = {
   waveform: {
     regionLabel: "波形",
     placeholder: "音源を読み込むと、ここに波形が表示されます",
+    resizeHandle: "波形の高さを変更",
   },
 
   score: {
     regionLabel: "楽譜ワークスペース",
     empty: "まだ楽譜はありません",
     transcribeStart: "採譜を開始",
+    placeholder: "採譜結果の楽譜はここに表示されます",
   },
 
   properties: {
@@ -61,6 +69,8 @@ export const ja = {
     title: "プロパティ",
     placeholder: "音符を選択すると、ここに情報が表示されます",
     close: "プロパティを閉じる",
+    show: "プロパティを表示",
+    resizeHandle: "プロパティの幅を変更",
   },
 
   transport: {
@@ -84,6 +94,7 @@ export const ja = {
     shellInfoLoading: "シェル情報を取得しています…",
     spikeNoFileOpen: "このスパイク版ではファイルを開く機能は未実装です",
     engineNotConnected: "解析エンジン: 未接続",
+    spikeNoTranscribe: "このスパイク版では採譜エンジンは未接続です",
   },
 
   emptyState: {
@@ -122,6 +133,17 @@ export const ja = {
   time: {
     zero: "00:00.0",
     zeroTotal: "00:00.0",
+  },
+
+  /** 採譜中のステージ表示 (GUI_UX_SPEC §5) */
+  transcription: {
+    title: "採譜中",
+    stageDone: "音声を準備しました",
+    stageActive: "音を解析しています",
+    stageRhythm: "リズムを解析",
+    stageScore: "楽譜を作成",
+    stagePrepare: "表示を準備",
+    cancel: "キャンセル",
   },
 
   /**

@@ -23,6 +23,13 @@ body {
   overflow: hidden;
 }
 
+/* UI-009 latent bug, fixed for the real shell (UI-011): FluentProvider
+   renders a wrapper div between #root and the shell; without a definite
+   height the `height:100%` grid below collapsed to content height. */
+.hs-provider {
+  height: 100%;
+}
+
 /* ---- Visible keyboard focus (DESIGN_SYSTEM §16) ----
    2px+, distinct from adjacent surface; Fluent v9 components draw their own
    compatible focus ring, this guarantees the same contract for every other
@@ -61,6 +68,13 @@ body {
     "statusbar";
   height: 100%;
   min-width: 0;
+  /* §21: <1100px is unsupported — the native window minimum (1100×640 in
+     tauri.conf.json) stops resizing first; this floor mirrors it so a
+     browser dev viewport can never compress the layout below spec. With
+     body overflow:hidden the excess clips instead of scrolling — there is
+     deliberately no app-level horizontal scroll. */
+  min-width: 1100px;
+  min-height: 640px;
   background: var(--hs-surface-app);
   color: var(--hs-text-primary);
 }
@@ -101,6 +115,19 @@ body {
   border-bottom: 1px solid var(--hs-border-subtle);
   overflow: hidden;
   white-space: nowrap;
+}
+/* Buttons never shrink/clip — below 1600px secondary labels hide instead
+   (§21 icon化), below 1200px 設定 moves to the overflow menu. */
+.hs-commandbar .fui-ToolbarButton,
+.hs-commandbar .fui-Button {
+  flex-shrink: 0;
+}
+/* 1200–1599px: secondary commands render icon-only; their Tooltip carries
+   the full Japanese label (§24). Labels are hidden, never ellipsized. */
+@media (max-width: 1599px) {
+  .hs-commandbar__label {
+    display: none;
+  }
 }
 .hs-commandbar__spacer {
   flex: 1 1 auto;
@@ -147,13 +174,15 @@ body {
   outline-offset: -2px;
 }
 
-/* ---- Waveform region (GUI_UX_SPEC §8: 96–120px standard) ---- */
+/* ---- Waveform region (GUI_UX_SPEC §8: 96–120px standard) ----
+   Height is inline (user-resizable via the bottom-edge separator);
+   min/max here are the CSS backstop, JS clamps are authoritative. */
 .hs-waveform {
   grid-area: waveform;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 96px;
   min-height: 64px;
   max-height: 35vh;
   background: var(--hs-surface-panel);
@@ -161,10 +190,30 @@ body {
   color: var(--hs-text-muted);
   font-size: var(--hs-font-size-compact);
 }
+.hs-waveform__resizer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 8px;
+  cursor: row-resize;
+  touch-action: none;
+  z-index: 6;
+}
+
+/* Shared separator affordance: quiet until hover/focus (§8 elevation —
+   workspace stays flat, so the grip uses a translucent accent wash). */
+.hs-waveform__resizer:hover,
+.hs-waveform__resizer:focus-visible,
+.hs-properties__resizer:hover,
+.hs-properties__resizer:focus-visible {
+  background: color-mix(in srgb, var(--hs-accent) 30%, transparent);
+}
 
 /* ---- Score workspace + properties ---- */
 .hs-main {
   grid-area: main;
+  position: relative; /* anchor for the overlay properties drawer */
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   min-height: 0;
@@ -187,33 +236,159 @@ body {
   border-radius: var(--hs-radius-score-paper);
   overflow: auto;
 }
+.hs-score--dragover {
+  outline: 2px dashed var(--hs-accent);
+  outline-offset: -8px;
+}
+.hs-score__empty-title {
+  margin: 0;
+  font-size: var(--hs-font-size-title);
+  font-weight: 400;
+  color: var(--hs-text-primary);
+}
+/* Score-ready placeholder paper: bounded page shape inside the score
+   surface until UI-003 renders real notation. */
+.hs-score-paper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: var(--hs-space-xs);
+  border: 1px solid var(--hs-score-paper-border);
+  border-radius: var(--hs-radius-score-paper);
+  background: var(--hs-surface-score);
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-compact);
+}
 
+/* ---- Transcribing state (§5): stage list + honest progress ---- */
+.hs-transcribing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hs-space-md);
+  width: 100%;
+  max-width: 360px;
+}
+.hs-transcribing__title {
+  margin: 0;
+  font-size: var(--hs-font-size-subtitle);
+  font-weight: var(--hs-font-weight-title);
+}
+.hs-transcribing .hs-field {
+  width: 100%;
+}
+.hs-stage-list {
+  align-self: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+}
+.hs-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  font-size: var(--hs-font-size-compact);
+  line-height: var(--hs-line-height-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-stage--done {
+  color: var(--hs-status-success);
+}
+.hs-stage--active {
+  color: var(--hs-status-info);
+  font-weight: var(--hs-font-weight-emphasis);
+}
+.hs-stage__icon {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+}
+
+/* Properties inspector (§6, §21): docked at ≥1200px with an inline width
+   inside the breakpoint clamp; <1200px it becomes a non-modal overlay
+   drawer so the score keeps the workspace. */
 .hs-properties {
-  width: 264px;
-  min-width: 200px;
-  max-width: 320px;
-  padding: var(--hs-space-md);
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  min-height: 0;
   background: var(--hs-surface-panel);
   border-left: 1px solid var(--hs-border-subtle);
   color: var(--hs-text-secondary);
-  overflow: auto;
+}
+.hs-properties--overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  background: var(--hs-surface-elevated);
+  box-shadow: var(--hs-elevation-sheet);
+}
+.hs-properties__frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.hs-properties__header {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  min-height: 40px;
+  padding: var(--hs-space-xs) var(--hs-space-sm) var(--hs-space-xs)
+    var(--hs-space-md);
+  border-bottom: 1px solid var(--hs-border-subtle);
 }
 .hs-properties__title {
-  margin: 0 0 var(--hs-space-sm);
+  flex: 1 1 auto;
+  margin: 0;
   font-size: var(--hs-font-size-subtitle);
   font-weight: 600;
   color: var(--hs-text-primary);
 }
 .hs-properties__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--hs-space-md);
+  overflow: auto;
+}
+.hs-properties__placeholder {
+  margin: 0;
   font-size: var(--hs-font-size-compact);
   color: var(--hs-text-muted);
 }
-
-/* §21 responsive: below 1200px the panel collapses to a drawer candidate. */
-@media (max-width: 1199px) {
-  .hs-properties {
-    display: none;
+.hs-properties__resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 6;
+}
+/* Panel open/close motion (§25 panel tier; reduced-motion collapses it). */
+@keyframes hs-panel-in {
+  from {
+    transform: translateX(12px);
+    opacity: 0;
   }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.hs-properties {
+  animation: hs-panel-in var(--hs-motion-panel) var(--hs-ease-decelerate);
 }
 
 /* ---- Empty state (GUI_UX_SPEC §3, §19: compact, clear CTA) ---- */
