@@ -1,0 +1,521 @@
+/**
+ * UI-009 prototype styles (issue #31). Scoped to src/prototype only.
+ *
+ * Reuses the production layout classes (hs-shell, hs-commandbar, …) so the
+ * hierarchy under test is the real one. Score ink is a prototype-local token
+ * because tokens.css is frozen while the design-token layer is rebuilt on a
+ * sibling branch — the real score will be Verovio-rendered anyway.
+ */
+
+:root,
+[data-hs-theme="light"] {
+  --hs-proto-ink: #1a1a1a;
+}
+[data-hs-theme="dark"] {
+  /* score paper stays light in dark mode (DESIGN_SYSTEM §13 option A) */
+  --hs-proto-ink: #1a1a1a;
+}
+
+/* ------------------------- dev nav strip ------------------------- */
+.hs-proto-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  background: var(--hs-surface-elevated);
+  border-bottom: 1px dashed var(--hs-border-strong);
+  font-size: var(--hs-font-size-caption);
+  color: var(--hs-text-secondary);
+  flex-wrap: wrap;
+}
+.hs-proto-nav__badge {
+  font-weight: 600;
+  color: var(--hs-status-warning);
+  border: 1px solid var(--hs-status-warning);
+  border-radius: var(--hs-radius-input);
+  padding: 0 var(--hs-space-xs);
+  white-space: nowrap;
+}
+.hs-proto-nav a {
+  color: var(--hs-accent);
+  text-decoration: none;
+  padding: 2px var(--hs-space-xs);
+  border-radius: var(--hs-radius-input);
+  white-space: nowrap;
+}
+.hs-proto-nav a[aria-current="page"] {
+  font-weight: 600;
+  color: var(--hs-text-primary);
+  background: var(--hs-score-current-measure);
+}
+.hs-proto-nav__spacer {
+  flex: 1 1 auto;
+}
+.hs-proto-nav select {
+  font-family: var(--hs-font-family);
+  font-size: var(--hs-font-size-caption);
+  color: var(--hs-text-primary);
+  background: var(--hs-surface-panel);
+  border: 1px solid var(--hs-border-strong);
+  border-radius: var(--hs-radius-input);
+  padding: 2px var(--hs-space-xs);
+}
+
+/* ------------------------- dev control strip ------------------------- */
+/* Dashed border marks non-product UI in screenshots. */
+.hs-proto-dev {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  border: 1px dashed var(--hs-border-strong);
+  border-radius: var(--hs-radius-panel);
+  margin: var(--hs-space-sm) var(--hs-space-ms) 0;
+  font-size: var(--hs-font-size-caption);
+  color: var(--hs-text-secondary);
+  flex-wrap: wrap;
+}
+.hs-proto-dev__label {
+  font-weight: 600;
+  color: var(--hs-status-warning);
+  white-space: nowrap;
+}
+
+/* ----------------------------- pages ----------------------------- */
+.hs-proto-page {
+  display: flex;
+  flex-direction: column;
+  /* 100vh: the FluentProvider wrapper div has no definite height, so a
+     percentage height would collapse to content and clip the status bar. */
+  height: 100vh;
+  min-height: 0;
+  min-width: 0;
+}
+.hs-proto-page > .hs-shell {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+/* FluentProvider inside the density frame must fill it for the inner
+   shell's height:100% to resolve. */
+.hs-proto-frame .fui-FluentProvider {
+  display: block;
+  height: 100%;
+}
+
+/* Score column: banner strips sit above the score inside the main row. */
+.hs-proto-scorecol {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.hs-proto-scorecol > .hs-score,
+.hs-proto-scorecol > .hs-proto-score {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ------------------------- index / TOC page ------------------------- */
+.hs-proto-index {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--hs-space-lg);
+  background: var(--hs-surface-app);
+}
+.hs-proto-index__title {
+  margin: 0 0 var(--hs-space-xs);
+  font-size: var(--hs-font-size-title);
+  font-weight: 600;
+}
+.hs-proto-index__lead {
+  margin: 0 0 var(--hs-space-sm);
+}
+.hs-proto-index__note {
+  margin: 0 0 var(--hs-space-lg);
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-proto-index__list {
+  display: grid;
+  gap: var(--hs-space-ms);
+  max-width: 720px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hs-proto-index__item a {
+  display: block;
+  padding: var(--hs-space-md);
+  background: var(--hs-surface-panel);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-panel);
+  color: var(--hs-text-primary);
+  text-decoration: none;
+}
+.hs-proto-index__item a:hover {
+  border-color: var(--hs-accent);
+}
+.hs-proto-index__item-title {
+  font-size: var(--hs-font-size-subtitle);
+  font-weight: 600;
+}
+.hs-proto-index__item-desc {
+  margin: var(--hs-space-xs) 0 0;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+}
+
+/* ---------------------------- waveform ---------------------------- */
+.hs-proto-waveform {
+  padding: 0;
+}
+.hs-proto-waveform svg {
+  display: block;
+  cursor: crosshair;
+}
+
+/* ------------------------------ score ------------------------------ */
+.hs-proto-score {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--hs-surface-score);
+  border-radius: var(--hs-radius-score-paper);
+}
+.hs-proto-score__svg {
+  display: block;
+  margin: 0 auto;
+}
+.hs-proto-score__caption,
+.hs-proto-score__measureNo {
+  fill: var(--hs-proto-ink);
+  opacity: 0.75;
+}
+.hs-proto-note {
+  cursor: pointer;
+}
+.hs-proto-issue--focus circle {
+  stroke: var(--hs-accent);
+  stroke-width: 2;
+}
+
+/* follow-suspended notice: non-modal strip (GUI_UX_SPEC §11) */
+.hs-proto-follownote {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  background: var(--hs-surface-elevated);
+  border-bottom: 1px solid var(--hs-border-subtle);
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-primary);
+}
+
+/* --------------------------- review banner --------------------------- */
+.hs-proto-reviewbanner {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-sm) var(--hs-space-ms);
+  background: var(--hs-surface-panel);
+  border-bottom: 1px solid var(--hs-border-subtle);
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-primary);
+}
+
+/* ---------------------------- review bar ---------------------------- */
+.hs-proto-reviewbar {
+  padding: var(--hs-space-sm) var(--hs-space-ms);
+  background: var(--hs-surface-panel);
+  border-bottom: 1px solid var(--hs-border-subtle);
+  display: grid;
+  gap: var(--hs-space-sm);
+}
+.hs-proto-reviewbar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  flex-wrap: wrap;
+}
+.hs-proto-reviewbar__position {
+  font-size: var(--hs-font-size-subtitle);
+  font-weight: 600;
+}
+.hs-proto-reviewbar__reason {
+  font-weight: 600;
+}
+.hs-proto-reviewbar__detail {
+  color: var(--hs-text-secondary);
+}
+.hs-proto-reviewbar__confidence {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+}
+.hs-proto-reviewbar__status {
+  color: var(--hs-status-success);
+  font-size: var(--hs-font-size-caption);
+}
+.hs-proto-reviewbar__hint {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+}
+
+/* --------------------------- properties ---------------------------- */
+.hs-proto-props__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.hs-proto-props__section {
+  margin: var(--hs-space-sm) 0 var(--hs-space-xs);
+  font-size: var(--hs-font-size-compact);
+  font-weight: 600;
+  color: var(--hs-text-primary);
+}
+.hs-proto-props__fields {
+  margin: 0;
+  display: grid;
+  gap: var(--hs-space-xs);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-proto-props__fields > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--hs-space-sm);
+}
+.hs-proto-props__fields dt {
+  color: var(--hs-text-muted);
+}
+.hs-proto-props__fields dd {
+  margin: 0;
+  color: var(--hs-text-primary);
+  text-align: right;
+}
+.hs-proto-props__dim {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+}
+.hs-proto-props__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+  margin-top: var(--hs-space-md);
+}
+.hs-proto-props__actions .fui-Button {
+  justify-content: flex-start;
+}
+.hs-proto-props-collapsed {
+  width: 40px;
+  border-left: 1px solid var(--hs-border-subtle);
+  background: var(--hs-surface-panel);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--hs-space-sm);
+}
+.hs-proto-props-reopen {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--hs-text-secondary);
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  font-family: var(--hs-font-family);
+  font-size: var(--hs-font-size-compact);
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-xs);
+  padding: var(--hs-space-sm) var(--hs-space-xs);
+  border-radius: var(--hs-radius-input);
+}
+.hs-proto-props-reopen:hover {
+  background: var(--hs-score-current-measure);
+}
+
+/* ------------------------- transport toggle ------------------------- */
+.hs-proto-toggle--on {
+  color: var(--hs-accent) !important;
+  background: var(--hs-score-selection) !important;
+}
+
+/* --------------------- transcribing stage list --------------------- */
+.hs-proto-stages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hs-space-md);
+  text-align: left;
+}
+.hs-proto-stages__title {
+  margin: 0;
+  font-size: var(--hs-font-size-title);
+  font-weight: 600;
+}
+.hs-proto-stages__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--hs-space-sm);
+  min-width: 280px;
+}
+.hs-proto-stages__item {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-body);
+}
+.hs-proto-stages__item[data-state="done"] {
+  color: var(--hs-status-success);
+}
+.hs-proto-stages__item[data-state="active"] {
+  color: var(--hs-text-primary);
+  font-weight: 600;
+}
+.hs-proto-stages__icon {
+  width: 1.2em;
+  text-align: center;
+}
+.hs-proto-stages__note {
+  margin: 0;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+}
+
+/* ------------------------- dialogs / errors ------------------------- */
+.hs-proto-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--hs-space-lg);
+}
+.hs-proto-dialog {
+  background: var(--hs-surface-elevated);
+  color: var(--hs-text-primary);
+  border-radius: var(--hs-radius-modal);
+  border: 1px solid var(--hs-border-subtle);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
+  padding: var(--hs-space-lg);
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  display: grid;
+  gap: var(--hs-space-md);
+}
+.hs-proto-dialog__title {
+  margin: 0;
+  font-size: var(--hs-font-size-title);
+  font-weight: 600;
+}
+.hs-proto-dialog__section {
+  font-size: var(--hs-font-size-subtitle);
+  font-weight: 600;
+  margin: 0;
+}
+.hs-proto-dialog__group {
+  display: grid;
+  gap: var(--hs-space-xs);
+}
+.hs-proto-dialog__row {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  justify-content: space-between;
+}
+.hs-proto-dialog__path {
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hs-proto-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--hs-space-sm);
+}
+.hs-proto-note-inline {
+  display: flex;
+  gap: var(--hs-space-sm);
+  align-items: flex-start;
+  padding: var(--hs-space-sm);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-panel);
+  background: var(--hs-surface-panel);
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-proto-note-inline svg {
+  flex: 0 0 auto;
+  color: var(--hs-status-warning);
+  margin-top: 1px;
+}
+
+/* error surface: icon + title + body + recovery actions (§20) */
+.hs-proto-error__icon {
+  color: var(--hs-status-error);
+  font-size: 28px;
+}
+.hs-proto-error__body {
+  margin: 0;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-body);
+}
+
+/* --------------------------- density frame --------------------------- */
+.hs-proto-frame {
+  width: 1366px;
+  height: 768px;
+  border: 2px solid var(--hs-border-strong);
+  border-radius: var(--hs-radius-panel);
+  overflow: hidden;
+  position: relative;
+  margin: var(--hs-space-sm) var(--hs-space-ms);
+  flex: 0 0 auto;
+}
+.hs-proto-frame .hs-shell {
+  height: 100%;
+}
+.hs-proto-doc {
+  margin: var(--hs-space-sm) var(--hs-space-ms) var(--hs-space-md);
+  padding: var(--hs-space-md);
+  border: 1px dashed var(--hs-border-strong);
+  border-radius: var(--hs-radius-panel);
+  max-width: 960px;
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-proto-doc h2 {
+  margin: 0 0 var(--hs-space-xs);
+  font-size: var(--hs-font-size-subtitle);
+  color: var(--hs-text-primary);
+}
+.hs-proto-doc ol,
+.hs-proto-doc ul {
+  margin: var(--hs-space-xs) 0 0;
+  padding-left: var(--hs-space-lg);
+}
+.hs-proto-doc li {
+  margin-bottom: var(--hs-space-xs);
+}
+.hs-proto-scrollable {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* misc */
+.hs-proto-kbd {
+  font-family: inherit;
+  font-size: inherit;
+}
