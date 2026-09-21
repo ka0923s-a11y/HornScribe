@@ -301,6 +301,8 @@ concert以外のデータを canonical score として保存しない。
 ```python
 @dataclass(frozen=True)
 class RawNoteEvent:
+    id: str
+    transcription_revision: str
     pitch_midi: float
     onset_sec: float
     offset_sec: float
@@ -332,6 +334,8 @@ class TempoSegment:
 ```python
 @dataclass(frozen=True)
 class QuantizedNote:
+    id: str
+    source_event_ids: tuple[str, ...]
     pitch_midi: int
     start_beat: Fraction
     duration_beats: Fraction
@@ -344,8 +348,11 @@ class QuantizedNote:
 
 含める情報:
 
+- schema version
+- project ID
+- score revision ID
 - title
-- source audio path
+- source audio path + content hash
 - tempo map
 - time signature
 - key estimate
@@ -353,12 +360,19 @@ class QuantizedNote:
 - parts
 - notes/rests
 - pitch space
-- provenance
-- transcription backend
+- canonical note IDs
+- provenance / source RawNoteEvent IDs
+- transcription backend + version
 - transcription settings
 - quantization settings
 
-この中間モデルを JSON へ保存できるようにする。
+Concert / Horn in F のpresentationは同じcanonical note IDを参照する。
+
+MusicXML export時はcanonical note IDからdeterministicな `note/@id` を生成し、Verovio側のhit-testingからdomainへ戻れるようにする。
+
+再量子化は既存ScoreDocumentを暗黙に上書きするのではなく、新しいscore revisionとして扱う。可能な限りsource event provenanceを保持する。
+
+この中間モデルを versioned JSON として保存できるようにする。
 
 これにより、
 
@@ -846,17 +860,25 @@ Python music domain と desktop frontend をdirectory levelでも分離する。
 
 ---
 
-# 17. 実装フェーズ
+# 17. エンジン詳細フェーズ
 
-# Phase 0 — Repository bootstrap
+> このPhase番号は**プロジェクト全体の実装順ではない**。全体のcritical pathとGo/No-Go gateは [MASTER_PLAN.md](MASTER_PLAN.md) を優先する。ここではPython/music engine内部の実装内容を詳述する。
+
+# Phase 0 — Repository bootstrap + contracts
 
 目的:
-開発基盤を作る。
+開発基盤と、後工程が依存するdomain contractを作る。
 
 タスク:
 
 - [ ] `pyproject.toml`
 - [ ] Python / Basic Pitch compatibility・packaging matrixを測定し、engine runtimeを決定
+- [ ] canonical ID / provenance rule
+- [ ] project schema v1 + schemaVersion
+- [ ] score revision rule
+- [ ] deterministic MusicXML note ID rule
+- [ ] protocol envelope draft
+- [ ] synthetic audio / MusicXML fixture policy
 - [ ] src layout
 - [ ] pytest
 - [ ] ruff
@@ -869,10 +891,11 @@ Python music domain と desktop frontend をdirectory levelでも分離する。
 
 受け入れ条件:
 
-- Windowsローカルで仮想環境を作れる
+- Windowsローカルで選定engine runtimeを再現できる
 - `pytest` が成功
-- `python -m hornscribe` が起動
-- CIがモデルダウンロードなしで成功
+- domain/project fixtureをserialize→deserializeできる
+- canonical note IDとscore revisionの意味が文書化されている
+- CIがモデルダウンロードなしのdeterministic testsで成功
 
 ---
 
