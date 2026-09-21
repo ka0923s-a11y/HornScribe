@@ -956,7 +956,7 @@ Export
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ HornScribe · MySong                                      ─  □  ×            │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ Score  Review        ↶ ↷       [Concert ▾ / Horn in F]      Export          │
+│ Score  Review        ↶ ↷       [コンサートピッチ / F管ホルン]      Export          │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ 00:42.381     ◀  ▶/Ⅱ  ▶▶       Loop     0.75×     Follow     ───●── zoom   │
 ├──────────────────────────────────────────────────────────────────────────────┤
@@ -964,7 +964,7 @@ Export
 │ │───────▂▃▅▂▁─────▃▆██▅▂──────────████████──────────────────────│           │
 │ └─────────────────────────────▲ playhead─────────────────────────┘           │
 ├──────────────────────────────────────────────────────────┬───────────────────┤
-│                                                          │ INSPECTOR         │
+│                                                          │ プロパティ         │
 │                 SCORE                                    │                   │
 │                                                          │ Selection         │
 │      ♩   ♪ ♪   ♩     ♩                                   │ Pitch: G4         │
@@ -1034,7 +1034,7 @@ ConcertとHornは別documentではない。
 UIはtabsではなくsegmented selector:
 
 ```text
-[ Concert | Horn in F ]
+[ コンサートピッチ | F管ホルン ]
 ```
 
 切替時:
@@ -1572,7 +1572,7 @@ Folder
 C:\Users\...\Music\HornScribe
 [Choose…]
 
-                 [Cancel] [Export]
+                 [キャンセル] [書き出し]
 ```
 
 MuseScoreなし:
@@ -1582,8 +1582,8 @@ PDF checkbox disabled + reason tooltip/text。
 完了:
 
 ```text
-Export complete
-[Reveal in Explorer] [Open Horn score in MuseScore]
+書き出しが完了しました
+[エクスプローラーで表示] [Open Horn score in MuseScore]
 ```
 
 ---
@@ -1592,7 +1592,6 @@ Export complete
 
 ## General
 
-- Language
 - Theme
 - Open last project
 - Autosave
@@ -1945,35 +1944,93 @@ Review mode shortcutと衝突するためfocus contextで意味を分ける。
 
 ---
 
-# 41. Japanese / English
+# 41. 日本語UI — 固定要件
 
-Initial locales:
+HornScribeのユーザー向けUIは**完全日本語**とする。
 
-```text
-ja-JP
-en-US
-```
+英語UI、言語切替、`en-US` locale対応は実装しない。
 
-Rules:
+## 日本語化対象
 
-- hard-coded UI strings禁止
-- component widthを英語文字数で固定しない
-- 30–40%文字幅増加に耐える
-- Japanese fallback font確認
-- IME composition eventを壊さない
-- shortcut key notationはplatform standard
-- 音楽用語translation glossaryを作る
+- ボタン
+- メニュー
+- セグメント/タブ
+- 設定
+- プロパティ
+- 空状態
+- 採譜進捗
+- 要確認理由
+- エラー/警告
+- 通知
+- ツールチップ
+- アクセシビリティ名
+- 確認ダイアログ
+- 依存ツール不足時の案内
+
+## 例外
+
+次は固有名詞・技術識別子として英語表記を許可する。
+
+- MusicXML
+- MIDI
+- FFmpeg
+- MuseScore
+- Basic Pitch
+- Verovio
+- バージョン番号
+- ファイル名/パス
+- Ctrl / Shift / Alt / Space 等のキー名
+
+ただしユーザーに説明する周辺文章は日本語にする。
 
 例:
 
 ```text
-Concert Pitch      コンサートピッチ
-Horn in F          F管ホルン
-Quantization       量子化
-Pickup Measure     弱起 / アウフタクト
-Follow Playback    再生位置を追従
-Needs Review       要確認
+× MuseScore not found
+○ MuseScoreが見つかりません
+
+× Export MusicXML
+○ MusicXMLを書き出す
 ```
+
+## 標準用語
+
+```text
+Concert Pitch        コンサートピッチ
+Horn in F            F管ホルン
+Transcribe           採譜
+Score                楽譜
+Review               要確認
+Export               書き出し
+Settings             設定
+Properties/Inspector プロパティ
+Follow Playback      再生位置を追従
+Resume Follow        追従を再開
+Quantization         量子化
+Pickup Measure       弱起（アウフタクト）
+Loop                 ループ
+Playback Rate        再生速度
+Needs Review         要確認
+Model Confidence     モデル確信度
+Diagnostics          診断情報
+Retry                再試行
+Cancel               キャンセル
+Undo                 元に戻す
+Redo                 やり直す
+```
+
+## 実装規則
+
+- runtime language selectorを作らない
+- UI文字列を英語fallback前提にしない
+- 頻出文言・エラー・status・Review reasonは共通の日本語copy定義にまとめる
+- 英語の仮ラベルをproduction UIへ残さない
+- 日本語文字幅を基準にcomponentを設計する
+- 固定widthで文字を切り捨てない
+- Yu Gothic UI / Meiryo fallbackを確認する
+- IME composition eventを壊さない
+- Narratorのaccessible nameも日本語
+- golden screenshotの正準localeは日本語のみ
 
 ---
 
@@ -2161,8 +2218,7 @@ also:
 - light
 - dark
 - high contrast
-- ja-JP
-- en-US
+- ja-JPのみ
 
 ---
 
@@ -2627,8 +2683,7 @@ Acceptance:
 
 ### UI-070 Localization
 
-- ja-JP
-- en-US
+- ja-JPのみ
 
 ### UI-071 Keyboard completeness
 
@@ -2893,7 +2948,7 @@ HornScribeのGUIを「完成度が高い」と判断する条件:
 10. 4K/150%でも崩れない
 11. Light/Dark双方が意図的に設計されている
 12. keyboard-onlyで主要操作ができる
-13. 日本語/英語どちらでも崩れない
+13. 日本語UIで表記ゆれ・文字切れがない
 14. workerが落ちてもproject/UIが失われない
 15. 音源・採譜データを外部へ送信しない
 16. GUIが採譜モデルの交換に依存しない
