@@ -4,7 +4,10 @@
 > Updated: 2026-09-21  
 > Product scope: personal-use, Windows-first, local-first, zero recurring cost  
 > Detailed engine plan: [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)  
-> Detailed GUI/UX plan: [GUI_UX_PLAN.md](GUI_UX_PLAN.md)
+> GUI research / architecture background: [GUI_UX_PLAN.md](GUI_UX_PLAN.md)  
+> Authoritative interaction specification: [GUI_UX_SPEC.md](GUI_UX_SPEC.md)  
+> Visual/component specification: [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)  
+> UX quality gates: [UX_VALIDATION.md](UX_VALIDATION.md)
 
 ---
 
@@ -15,7 +18,10 @@ This is the **single roadmap and priority source of truth** for HornScribe.
 The other planning documents intentionally contain more implementation detail:
 
 - `DEVELOPMENT_PLAN.md` — transcription, music domain, quantization, notation, Horn in F, export.
-- `GUI_UX_PLAN.md` — desktop architecture, visual system, interaction, accessibility.
+- `GUI_UX_PLAN.md` — desktop architecture research and rationale.
+- `GUI_UX_SPEC.md` — authoritative screens, states, interactions, keyboard behavior.
+- `DESIGN_SYSTEM.md` — authoritative visual/component rules.
+- `UX_VALIDATION.md` — authoritative UX/accessibility/performance gates.
 - `docs/adr/` — architectural decisions and their evidence.
 - GitHub Issues — executable work units.
 
@@ -398,8 +404,14 @@ Gate:
 Goal:
 decide whether the proposed Tauri architecture is genuinely suitable.
 
-Issues:
+Issues / gates:
 
+- UI-001 desktop shell
+- UI-006 Japanese-only copy foundation
+- UI-009 preproduction interaction prototype
+- UI-010 design tokens/component states
+- UI-011 responsive application shell
+- UI-012 keyboard/focus architecture
 - UI-001 desktop shell
 - UI-002 Python sidecar/lifecycle
 - UI-003 Verovio interaction
