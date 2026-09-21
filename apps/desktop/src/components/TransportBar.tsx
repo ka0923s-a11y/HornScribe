@@ -28,13 +28,18 @@ function withShortcut(title: string, shortcut?: string): string {
  *
  * `live` mirrors the transport adapter's low-frequency snapshot (UI-020):
  * play/pause icon, the MM:SS.t position/duration readout and the rate
- * button reflect the real audio clock — omit it and the bar renders its
- * original static placeholder.
+ * button reflect the real audio clock. When no media transport is live but
+ * a score clock runs (dev score-only path, UI-030), `timeLabel` supplies
+ * the same readout; otherwise the static placeholder shows.
  */
 export function TransportBar({
   commands,
   live,
   onCycleRate,
+  timeLabel,
+  followEnabled,
+  followSuspended,
+  onToggleFollow,
 }: {
   commands: CommandSurface;
   live?: {
@@ -45,11 +50,23 @@ export function TransportBar({
   };
   /** 再生速度 button — cycles SUPPORTED_RATES when the transport is live. */
   onCycleRate?(): void;
+  /** [UI-030] "mm:ss.t / mm:ss.t" readout from the score clock when the
+   *  media transport has no loaded source (score-only playback). */
+  timeLabel?: string;
+  /** [UI-030] 再生位置追従 armed state (§11); undefined = no score clock. */
+  followEnabled?: boolean;
+  /** [UI-030] Manual scroll suspended follow — button resumes it. */
+  followSuspended?: boolean;
+  onToggleFollow?(): void;
 }) {
   // All transport commands share the hasAudio gate (see definitions).
   const enabled = commands.isEnabled("transport.playPause");
-  const position = live ? formatTimecode(live.positionSec) : ja.time.zero;
-  const duration = live ? formatTimecode(live.durationSec) : ja.time.zeroTotal;
+  const position = live
+    ? formatTimecode(live.positionSec)
+    : (timeLabel?.split(" / ")[0] ?? ja.time.zero);
+  const duration = live
+    ? formatTimecode(live.durationSec)
+    : (timeLabel?.split(" / ")[1] ?? ja.time.zeroTotal);
   const rateLabel = live ? `${live.rate}×` : "1.0×";
   return (
     <Toolbar
@@ -184,11 +201,20 @@ export function TransportBar({
           onClick={() => commands.invoke("transport.toggleLoop")}
         />
       </Tooltip>
-      <Tooltip content={ja.transport.follow} relationship="label">
+      <Tooltip
+        content={
+          followSuspended ? ja.scoreView.resumeFollow : ja.transport.follow
+        }
+        relationship="label"
+      >
         <ToolbarButton
           icon={<SlideTextSparkle24Regular />}
-          aria-label={ja.transport.follow}
+          aria-label={
+            followSuspended ? ja.scoreView.resumeFollow : ja.transport.follow
+          }
+          aria-pressed={followEnabled === true && !followSuspended}
           disabled={!enabled}
+          onClick={onToggleFollow}
         />
       </Tooltip>
     </Toolbar>

@@ -743,6 +743,292 @@ body {
   color: var(--hs-text-secondary);
 }
 
+/* ====================== Score workspace (UI-030) ======================
+   Rendered Verovio SVG + DOM-mark highlights. All marks are class toggles
+   on `hs-*` groups — the frame path never re-renders the SVG (UI-003/005). */
+
+/* Score-ready body: the scroll area owns the space, not the centered
+   empty-state layout above. */
+.hs-score--ready {
+  padding: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  overflow: hidden;
+}
+.hs-score-workspace {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Score-local toolbar: view mode + zoom (commands also fire via registry). */
+.hs-score-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  min-height: 36px;
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  background: var(--hs-surface-panel);
+  border-bottom: 1px solid var(--hs-border-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.hs-score-toolbar__spacer {
+  flex: 1 1 auto;
+}
+.hs-score-toolbar__caption {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+}
+.hs-score-toolbar__pages {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-xs);
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-score-toolbar__zoom {
+  min-width: 3.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+}
+
+/* 要確認 review strip (§12 header, non-modal). */
+.hs-score-reviewbar {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  background: var(--hs-review-tint);
+  border-bottom: 1px solid var(--hs-border-subtle);
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-primary);
+}
+
+/* Scroll surface — continuous mode stacks pages vertically; page mode
+   shows one. Score dominates the workspace (§6). */
+.hs-score-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--hs-space-md);
+}
+.hs-score-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.hs-score-page {
+  background: var(--hs-surface-score);
+  margin: 0 auto var(--hs-space-md);
+  width: fit-content;
+  border: 1px solid var(--hs-score-paper-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+/* Only the outer page svg is fluid-scaled — the nested svg.definition-scale
+   carries the content viewBox and must not be restyled (UI-003 finding). */
+.hs-score-page > svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---- DOM-mark highlights (no re-render; §10 hierarchy) ---- */
+/* Selected = soft accent wash fill + accent edge; distinct from keyboard
+   focus (DESIGN_SYSTEM §16) and never color-only (stroke accompanies). */
+.hs-score-pages g.hs-selected :is(use, path, rect, ellipse, polygon):not(.hs-hit):not(.hs-measure-wash):not(.hs-score-caret) {
+  fill: var(--hs-score-selection);
+  stroke: var(--hs-accent);
+}
+/* Active (sounding) note = solid active-note recolor — the strongest mark. */
+.hs-score-pages g.hs-active :is(use, path, rect, ellipse, polygon):not(.hs-hit):not(.hs-measure-wash):not(.hs-score-caret) {
+  fill: var(--hs-score-active-note);
+  stroke: var(--hs-score-active-note);
+}
+.hs-score-pages g.hs-selected.hs-active :is(use, path, rect, ellipse, polygon):not(.hs-hit):not(.hs-measure-wash):not(.hs-score-caret) {
+  fill: var(--hs-score-active-note);
+  stroke: var(--hs-accent-pressed);
+}
+/* Loop passage: green outline-style mark on overlapped notes. */
+.hs-score-pages g.hs-loop :is(use, path, rect, ellipse, polygon):not(.hs-hit):not(.hs-measure-wash):not(.hs-score-caret) {
+  stroke: var(--hs-status-success);
+  stroke-width: 1.4;
+}
+.hs-score-pages g.hs-loop .notehead use {
+  fill: var(--hs-status-success);
+}
+/* Current-measure wash: subtle background under the active measure. */
+.hs-score-pages g.hs-measure-active {
+  fill: none;
+}
+.hs-score-pages g.hs-measure-active > rect.hs-measure-wash {
+  fill: var(--hs-score-current-measure);
+}
+/* Playback caret (§10 hierarchy level 1): thin bar at the sounding onset. */
+.hs-score-pages rect.hs-score-caret {
+  fill: var(--hs-playhead);
+}
+.hs-score-pages rect.hs-measure-wash,
+.hs-score-pages rect.hs-score-caret {
+  pointer-events: none;
+}
+.hs-score-pages g[id^="hs-"] {
+  cursor: pointer;
+}
+/* Invisible per-note hit area (domScore.ts): hollow noteheads are
+   transparent in the middle, so glyph paint alone is not a reliable target. */
+.hs-score-pages ellipse.hs-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+/* 要確認 review marker (§12/§15): warning-tint dotted cue — never error red. */
+.hs-score-pages g.hs-review-mark__line,
+.hs-score-pages .hs-review-mark__line {
+  stroke: var(--hs-review-marker);
+  stroke-width: 2.5;
+  stroke-dasharray: 3 4;
+  stroke-linecap: round;
+  fill: none;
+}
+.hs-score-pages .hs-review-mark__badge {
+  fill: var(--hs-review-marker);
+}
+.hs-score-pages .hs-review-mark__glyph {
+  fill: var(--hs-surface-score);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* Loading / error bodies inside the score region. */
+.hs-score-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-score-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--hs-space-sm);
+  flex: 1 1 auto;
+  padding: var(--hs-space-lg);
+  text-align: center;
+}
+.hs-score-error h2 {
+  margin: 0;
+  font-size: var(--hs-font-size-subtitle);
+  color: var(--hs-text-primary);
+}
+.hs-score-error p {
+  margin: 0;
+  max-width: 40em;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+}
+
+/* Follow-suspension note (§11): non-modal, explicit resume only. */
+.hs-score-follownote {
+  position: absolute;
+  bottom: var(--hs-space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-ms);
+  padding: var(--hs-space-xs) var(--hs-space-md);
+  background: var(--hs-surface-elevated);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-panel);
+  box-shadow: var(--hs-elevation-popover);
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-primary);
+  white-space: nowrap;
+}
+
+/* ---- Properties panel content (GUI_UX_PLAN §22) ---- */
+.hs-properties__section {
+  margin: var(--hs-space-sm) 0 var(--hs-space-xs);
+  font-size: var(--hs-font-size-compact);
+  font-weight: var(--hs-font-weight-emphasis);
+  color: var(--hs-text-primary);
+}
+.hs-properties__rows {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-properties__row {
+  display: grid;
+  grid-template-columns: minmax(5.5em, auto) 1fr;
+  gap: var(--hs-space-sm);
+  align-items: baseline;
+}
+.hs-properties__row dt {
+  color: var(--hs-text-muted);
+}
+.hs-properties__row dd {
+  margin: 0;
+  color: var(--hs-text-primary);
+  overflow-wrap: anywhere;
+}
+.hs-properties__value--strong {
+  font-weight: var(--hs-font-weight-emphasis);
+}
+.hs-properties__issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-sm);
+}
+.hs-properties__issue {
+  padding: var(--hs-space-xs) var(--hs-space-sm);
+  border: 1px solid var(--hs-border-subtle);
+  border-left: 3px solid var(--hs-review-marker);
+  border-radius: var(--hs-radius-input);
+  background: var(--hs-review-tint);
+}
+.hs-properties__issue-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-xs);
+  font-weight: var(--hs-font-weight-emphasis);
+  color: var(--hs-text-primary);
+}
+.hs-properties__issue-badge {
+  flex: 0 0 auto;
+  padding: 0 var(--hs-space-xs);
+  border-radius: var(--hs-radius-input);
+  border: 1px dotted var(--hs-review-marker);
+  color: var(--hs-review-marker);
+  font-size: var(--hs-font-size-caption);
+  font-weight: var(--hs-font-weight-emphasis);
+}
+.hs-properties__issue-detail {
+  margin: var(--hs-space-xs) 0 0;
+  color: var(--hs-text-secondary);
+}
+.hs-properties__issue-meta {
+  margin: var(--hs-space-xs) 0 0;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+}
+
 /* ---- Settings (auxiliary screen, §18): replaces the workspace rows ---- */
 .hs-settings-wrap {
   grid-row: commandbar / transport; /* spans commandbar…main rows */

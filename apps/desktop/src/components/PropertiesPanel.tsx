@@ -4,6 +4,13 @@ import { ja } from "../strings/ja";
 import { HsIconButton } from "./primitives/IconButton";
 import type { InspectorContent } from "../workspace/inspector";
 import { startPointerResize } from "../workspace/layout";
+import {
+  headlinePitch,
+  type InspectorModel,
+  type NoteInspectorModel,
+  type ScoreInspectorModel,
+} from "../score/inspector";
+import type { PitchView } from "./PitchSegmented";
 
 /**
  * Properties inspector (GUI_UX_SPEC §6, §21; inspector contract in
@@ -12,13 +19,18 @@ import { startPointerResize } from "../workspace/layout";
  * - Docked on the right at ≥1200px; below that it renders as a non-modal
  *   overlay drawer so the score keeps priority (§21).
  * - User-closable (acceptance: properties can be closed); the command-bar
- *   overflow menu reopens it. With no selection it shows only the
- *   placeholder body — feature inspectors (note/range) slot into the
- *   `content` contract, not into this file.
+ *   overflow menu reopens it.
+ * - `content` is the shell's selection contract; `model` is the UI-030
+ *   feature view-model (note rows / score summary) built by
+ *   score/inspector.ts — all Japanese text is precomputed there so the
+ *   readable properties stay screen-reader accessible as plain DOM (§24).
+ *   Without a model the placeholder body shows.
  * - Left-edge separator resizes within the breakpoint clamps.
  */
 export function PropertiesPanel({
   content,
+  model,
+  pitch = "concert",
   width,
   min,
   max,
@@ -28,6 +40,10 @@ export function PropertiesPanel({
   onClose,
 }: {
   content: InspectorContent;
+  /** UI-030 feature inspector view-model (note/score/range bodies). */
+  model?: InspectorModel;
+  /** Pitch view the user is looking at — leads the note headline. */
+  pitch?: PitchView;
   width: number;
   min: number;
   max: number;
@@ -37,6 +53,8 @@ export function PropertiesPanel({
   onReset(): void;
   onClose(): void;
 }) {
+  const body =
+    model && model.kind !== "empty" ? model.kind : content.kind;
   return (
     <aside
       className={mergeClasses(
@@ -58,13 +76,14 @@ export function PropertiesPanel({
             onClick={onClose}
           />
         </header>
-        <div className="hs-properties__body" data-inspector={content.kind}>
-          {/* Inspector contract: `content` resolves the selection → body.
-              kind "note"/"range" get their feature inspectors later; the
-              shell guarantees the panel chrome either way. */}
-          <p className="hs-properties__placeholder">
-            {ja.properties.placeholder}
-          </p>
+        <div className="hs-properties__body" data-inspector={body}>
+          {model && model.kind !== "empty" ? (
+            <InspectorBody model={model} pitch={pitch} />
+          ) : (
+            <p className="hs-properties__placeholder">
+              {ja.properties.placeholder}
+            </p>
+          )}
         </div>
       </div>
       <div
@@ -93,5 +112,118 @@ export function PropertiesPanel({
         onDoubleClick={onReset}
       />
     </aside>
+  );
+}
+
+/** Feature body per inspector kind (GUI_UX_PLAN §22). */
+function InspectorBody({
+  model,
+  pitch,
+}: {
+  model: InspectorModel;
+  pitch: PitchView;
+}) {
+  if (model.kind === "score") return <ScoreBody model={model} />;
+  if (model.kind === "note") return <NoteBody model={model} pitch={pitch} />;
+  if (model.kind === "range") {
+    const f = ja.inspector.fields;
+    return (
+      <dl className="hs-properties__rows">
+        <Row label={f.onset} value={model.startLabel} />
+        <Row label={f.duration} value={model.endLabel} />
+      </dl>
+    );
+  }
+  return null;
+}
+
+/** §22 "Nothing selected" — score/measure summary. */
+function ScoreBody({ model }: { model: ScoreInspectorModel }) {
+  const f = ja.inspector.summaryFields;
+  return (
+    <>
+      <dl className="hs-properties__rows">
+        <Row label={f.title} value={model.title} />
+        {model.tempoLabel && <Row label={f.tempo} value={model.tempoLabel} />}
+        {model.meterLabel && <Row label={f.meter} value={model.meterLabel} />}
+        {model.keyLabel && <Row label={f.key} value={model.keyLabel} />}
+        <Row label={f.measures} value={model.measureLabel} />
+        <Row label={f.notes} value={model.noteLabel} />
+        <Row label={f.openIssues} value={model.openIssueLabel} />
+      </dl>
+      <p className="hs-properties__placeholder">{ja.inspector.selectHint}</p>
+    </>
+  );
+}
+
+/** §22 "Note selected" — pitch, onset, duration, review info. */
+function NoteBody({
+  model,
+  pitch,
+}: {
+  model: NoteInspectorModel;
+  pitch: PitchView;
+}) {
+  const f = ja.inspector.fields;
+  const { primary, secondary } = headlinePitch(model, pitch);
+  return (
+    <>
+      <h3 className="hs-properties__section">{ja.inspector.noteSection}</h3>
+      <dl className="hs-properties__rows">
+        <Row label={f.pitch} value={primary} strong />
+        {secondary && (
+          <Row
+            label={pitch === "hornF" ? f.concertPitch : f.writtenPitch}
+            value={secondary}
+          />
+        )}
+        <Row label={f.duration} value={model.durationLabel} />
+        <Row label={f.onset} value={model.onsetLabel} />
+        {model.tieLabel && <Row label={f.tie} value={model.tieLabel} />}
+        {model.canonicalId && <Row label={f.canonicalId} value={model.canonicalId} />}
+      </dl>
+      {model.issues.length > 0 && (
+        <>
+          <h3 className="hs-properties__section">{ja.inspector.issuesSection}</h3>
+          <ul className="hs-properties__issues">
+            {model.issues.map((issue) => (
+              <li key={issue.id} className="hs-properties__issue">
+                <p className="hs-properties__issue-title">
+                  <span className="hs-properties__issue-badge">
+                    {ja.reviewBadge.needsReview}
+                  </span>
+                  {issue.reasonTitle}
+                </p>
+                <p className="hs-properties__issue-detail">{issue.reasonDetail}</p>
+                <p className="hs-properties__issue-meta">
+                  {issue.severityLabel}
+                  {issue.confidencePct != null &&
+                    ` ・ ${f.confidence} ${issue.confidencePct}%`}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
+function Row({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className="hs-properties__row">
+      <dt>{label}</dt>
+      <dd className={strong ? "hs-properties__value--strong" : undefined}>
+        {value}
+      </dd>
+    </div>
   );
 }

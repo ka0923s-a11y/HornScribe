@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="4.0">
+  <work>
+    <work-title>Sync Fixture</work-title>
+  </work>
+  <movement-title>UI-005 Sync Fixture</movement-title>
+  <identification>
+    <creator type="composer">HornScribe spike generator</creator>
+    <encoding>
+      <software>apps/spikes/score-audio-sync/scripts/gen-fixtures.mjs</software>
+      <supports element="beam" type="yes" />
+      <supports element="stem" type="yes" />
+      <supports element="accidental" type="yes" />
+    </encoding>
+  </identification>
+  <defaults>
+    <scaling>
+      <millimeters>7</millimeters>
+      <tenths>40</tenths>
+    </scaling>
+  </defaults>
+  <part-list>
+    <score-part id="P1">
+      <part-name>Horn in F</part-name>
+    </score-part>
+  </part-list>
+  <part id="P1">
+    <measure implicit="no" number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <key>
+          <fifths>0</fifths>
+        </key>
+        <time>
+          <beats>4</beats>
+          <beat-type>4</beat-type>
+        </time>
+        <clef>
+          <sign>G</sign>
+          <line>2</line>
+        </clef>
+      </attributes>
+      <direction>
+        <direction-type>
+          <metronome parentheses="no">
+            <beat-unit>quarter</beat-unit>
+            <per-minute>100</per-minute>
+          </metronome>
+        </direction-type>
+        <sound tempo="100" />
+      </direction>
+      <note id="hs-sn-000001">
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000002">
+        <pitch>
+          <step>E</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000003">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000004">
+        <pitch>
+          <step>C</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000005">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="2">
+      <note id="hs-sn-000006">
+        <pitch>
+          <step>A</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000007">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000008">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000009">
+        <pitch>
+          <step>E</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>960</duration>
+        <type>half</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="3">
+      <note id="hs-sn-000010">
+        <pitch>
+          <step>D</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000011">
+        <pitch>
+          <step>F</step>
+          <alter>1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+        <accidental>sharp</accidental>
+      </note>
+      <note id="hs-sn-000012">
+        <pitch>
+          <step>B</step>
+          <alter>-1</alter>
+          <octave>3</octave>
+        </pitch>
+        <duration>720</duration>
+        <tie type="start" />
+        <type>quarter</type>
+        <dot />
+        <accidental>flat</accidental>
+        <notations>
+          <tied type="start" />
+        </notations>
+      </note>
+      <note id="hs-sn-000013">
+        <pitch>
+          <step>A</step>
+          <octave>3</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="4">
+      <note id="hs-sn-000012-2">
+        <pitch>
+          <step>B</step>
+          <alter>-1</alter>
+          <octave>3</octave>
+        </pitch>
+        <duration>960</duration>
+        <tie type="stop" />
+        <type>half</type>
+        <notations>
+          <tied type="stop" />
+        </notations>
+      </note>
+      <note id="hs-rest-000001">
+        <rest />
+        <duration>960</duration>
+        <type>half</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="5">
+      <note id="hs-sn-000014">
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000015">
+        <pitch>
+          <step>D</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000016">
+        <pitch>
+          <step>E</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000017">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000018">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000019">
+        <pitch>
+          <step>A</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="6">
+      <note id="hs-sn-000020">
+        <pitch>
+          <step>B</step>
+          <alter>-1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>720</duration>
+        <type>quarter</type>
+        <dot />
+        <accidental>flat</accidental>
+      </note>
+      <note id="hs-sn-000021">
+        <pitch>
+          <step>A</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000022">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>960</duration>
+        <type>half</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="7">
+      <note id="hs-sn-000023">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000024">
+        <pitch>
+          <step>E</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000025">
+        <pitch>
+          <step>D</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>960</duration>
+        <tie type="start" />
+        <type>half</type>
+        <notations>
+          <tied type="start" />
+        </notations>
+      </note>
+    </measure>
+    <measure implicit="no" number="8">
+      <note id="hs-sn-000025-2">
+        <pitch>
+          <step>D</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <tie type="stop" />
+        <type>eighth</type>
+        <notations>
+          <tied type="stop" />
+        </notations>
+      </note>
+      <note id="hs-sn-000026">
+        <pitch>
+          <step>E</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000027">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>960</duration>
+        <type>half</type>
+      </note>
+      <note id="hs-rest-000002">
+        <rest />
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="9">
+      <note id="hs-sn-000028">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000029">
+        <pitch>
+          <step>A</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000030">
+        <pitch>
+          <step>B</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000031">
+        <pitch>
+          <step>C</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="10">
+      <note id="hs-sn-000032">
+        <pitch>
+          <step>D</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>960</duration>
+        <type>half</type>
+      </note>
+      <note id="hs-sn-000033">
+        <pitch>
+          <step>C</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000034">
+        <pitch>
+          <step>B</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000035">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="11">
+      <note id="hs-sn-000036">
+        <pitch>
+          <step>A</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000037">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-sn-000038">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>960</duration>
+        <tie type="start" />
+        <type>half</type>
+        <notations>
+          <tied type="start" />
+        </notations>
+      </note>
+    </measure>
+    <measure implicit="no" number="12">
+      <note id="hs-sn-000038-2">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <tie type="stop" />
+        <tie type="start" />
+        <type>quarter</type>
+        <notations>
+          <tied type="stop" />
+          <tied type="start" />
+        </notations>
+      </note>
+      <note id="hs-sn-000038-3">
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <tie type="stop" />
+        <type>eighth</type>
+        <notations>
+          <tied type="stop" />
+        </notations>
+      </note>
+      <note id="hs-sn-000039">
+        <pitch>
+          <step>F</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <type>eighth</type>
+      </note>
+      <note id="hs-sn-000040">
+        <pitch>
+          <step>E</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>960</duration>
+        <type>half</type>
+      </note>
+    </measure>
+  </part>
+</score-partwise>

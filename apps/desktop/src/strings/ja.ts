@@ -800,6 +800,119 @@ export const ja = {
     close: "閉じる",
   },
 
+  /* ====================== UI-030 score workspace ======================
+   * 本実装の楽譜ワークスペース文言。prototype.* ではなく本番の面に使う。 */
+  scoreView: {
+    regionLabel: "楽譜",
+    loading: "楽譜を読み込んでいます…",
+    renderErrorTitle: "楽譜を表示できません",
+    renderErrorBody:
+      "楽譜データの読み込みに失敗しました。プロジェクトと採譜結果は失われていません。",
+    viewModeLabel: "表示方法",
+    continuous: "連続表示",
+    page: "ページ表示",
+    prevPage: "前のページ",
+    nextPage: "次のページ",
+    pagePosition: (page: number, total: number) => `${page} / ${total} ページ`,
+    zoomLabel: "拡大率",
+    zoomOut: "楽譜を縮小",
+    zoomIn: "楽譜を拡大",
+    zoomFit: "幅に合わせる",
+    followPaused: "再生位置の追従を一時停止しました",
+    resumeFollow: "追従を再開",
+    follow: "再生位置を追従",
+    deselected: "選択を解除しました",
+    reviewPosition: (index: number, total: number) => `要確認 ${index} / ${total}`,
+    reviewExit: "要確認を終了",
+    measureNth: (n: number) => `第${n}小節`,
+    noteSelected: "音符を選択しました",
+  },
+
+  /** Properties inspector (GUI_UX_PLAN §22) — labels rendered by
+   *  PropertiesPanel; values are built by score/inspector.ts. */
+  inspector: {
+    noteSection: "音符",
+    issuesSection: "要確認",
+    selectHint: "音符を選択すると、ここに情報が表示されます。",
+    fields: {
+      pitch: "音高",
+      concertPitch: "コンサートピッチ",
+      writtenPitch: "記譜音（F管）",
+      onset: "開始位置",
+      duration: "音の長さ",
+      tie: "タイ",
+      canonicalId: "正準ID",
+      confidence: "モデル確信度",
+    },
+    summaryFields: {
+      title: "タイトル",
+      tempo: "テンポ",
+      meter: "拍子",
+      key: "調",
+      measures: "小節数",
+      notes: "音符数",
+      openIssues: "要確認",
+    },
+    scoreSeconds: (sec: number) => `スコア ${sec.toFixed(1)} 秒`,
+    tieFragments: (count: number) => `タイで分割（${count}分割）`,
+    tempoLabel: (bpm: number) => `${bpm} BPM`,
+    measureCountLabel: (n: number) => `${n} 小節`,
+    noteCountLabel: (n: number) => `${n} 音`,
+    openIssuesLabel: (n: number) => `${n} 件`,
+    keyLabel: (fifthsLabel: string) => fifthsLabel,
+  },
+
+  /** ReviewIssue.reason → Japanese copy (domain/review.py reason codes;
+   *  GUI_UX_SPEC §12 理由例). */
+  reviewReasons: {
+    low_model_confidence: {
+      title: "音高を確認してください",
+      detail: "検出された音高の確信度が低めです。",
+    },
+    very_short_detection: {
+      title: "音の長さを確認してください",
+      detail: "ごく短い音として検出されました。意図した音か確認してください。",
+    },
+    overlapping_candidates: {
+      title: "音高を確認してください",
+      detail: "複数の候補が重なって検出されました。",
+    },
+    quantization_ambiguous: {
+      title: "リズムの解釈を確認してください",
+      detail: "リズムの取り方が複数考えられます。",
+    },
+    pitch_spelling_ambiguous: {
+      title: "表記を確認してください",
+      detail: "異名同音の表記が複数考えられます。",
+    },
+    outside_preferred_horn_range: {
+      title: "ホルンの音域を確認してください",
+      detail: "一般的なホルンの音域を外れている可能性があります。",
+    },
+    structural_measure_conflict: {
+      title: "拍位置を確認してください",
+      detail: "小節内の拍位置が合っていない可能性があります。",
+    },
+    /** Engine reason codes newer than this UI version (sidecar/review.ts
+     *  falls back to `other` the same way). */
+    other: {
+      title: "内容を確認してください",
+      detail: "採譜エンジンが確認を求めています。",
+    },
+  },
+
+  /** ReviewIssue.severity/status → Japanese labels (domain/review.py). */
+  reviewSeverity: {
+    info: "情報",
+    caution: "注意",
+    warning: "警告",
+  },
+  reviewStatus: {
+    open: "未確認",
+    accepted: "確認済み",
+    dismissed: "対応不要",
+    fixed: "修正済み",
+  },
 } as const;
 
 export type JaStrings = typeof ja;

@@ -6,6 +6,14 @@ import {
   type ImportView,
 } from "../import/ImportStates";
 import type { ScreenState } from "../workspace/screen";
+import { ScoreReadyWorkspace } from "../score/ScoreReadyWorkspace";
+import type { ScoreDocumentPort } from "../score/document";
+import type { InspectorModel } from "../score/inspector";
+import type {
+  ScoreWorkspaceController,
+  ScoreWorkspaceState,
+} from "../score/controller";
+import type { PitchView } from "./PitchSegmented";
 
 /**
  * Score workspace (GUI_UX_SPEC §3/§4/§5/§6, §27 screen state machine).
@@ -16,13 +24,19 @@ import type { ScreenState } from "../workspace/screen";
  *   transcribing → the job-driven body injected via `transcribingBody`
  *                  (UI-040 renders the real stage/progress/cancel view)
  *   transcriptionError → §20 surface injected via `transcriptionErrorBody`
- *   scoreReady+  → score paper placeholder (real rendering is UI-003)
+ *   scoreReady+  → the production score workspace (UI-030, src/score/)
+ *                  once a `ScoreDocumentPort` exists; paper placeholder
+ *                  otherwise.
  *
  * The region is the §3 drop target: HTML5 drops hand `File` objects to
  * `onDropFiles` (browser dev), while the Tauri window emits native
  * drag-drop path events (see import/nativeDrop.ts) which App routes into
  * the same import flow — `externalDragActive` keeps the affordance lit for
  * both paths.
+ *
+ * The UI-030 props are additive: while no `ScoreDocumentPort` is wired the
+ * shell states keep working untouched; once the document exists the real
+ * score takes over the region.
  */
 export function ScoreWorkspace({
   screen,
@@ -32,6 +46,13 @@ export function ScoreWorkspace({
   onTranscribe,
   transcribingBody,
   transcriptionErrorBody,
+  scoreDocument = null,
+  pitch = "concert",
+  onInspectorChange,
+  onScoreStateChange,
+  scoreControllerRef,
+  announce,
+  transport = null,
 }: {
   screen: ScreenState;
   importView: ImportView;
@@ -45,12 +66,36 @@ export function ScoreWorkspace({
   transcribingBody?: ReactNode;
   /** [UI-040] §20 failure/recovery surface for TRANSCRIPTION_ERROR. */
   transcriptionErrorBody?: ReactNode;
+  /** [UI-030] present when the screen machine says a score exists; the
+   *  port abstracts fixture vs engine data. */
+  scoreDocument?: ScoreDocumentPort | null;
+  pitch?: PitchView;
+  onInspectorChange?(model: InspectorModel): void;
+  onScoreStateChange?(state: ScoreWorkspaceState): void;
+  scoreControllerRef?(controller: ScoreWorkspaceController | null): void;
+  announce?(message: string): void;
+  /** [UI-020→UI-030] live media-transport mirror — when set, the score
+   *  clock follows the real audio clock (UI-005 one-clock contract). */
+  transport?: {
+    readonly isPlaying: boolean;
+    readonly positionSec: number;
+    readonly rate?: number;
+  } | null;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const dragActive = dragOver || externalDragActive;
+  const scoreState =
+    screen === "scoreReady" ||
+    screen === "reviewing" ||
+    screen === "exporting";
+  const showScore = scoreState && scoreDocument !== null;
   return (
     <main
-      className={mergeClasses("hs-score", dragActive && "hs-score--dragover")}
+      className={mergeClasses(
+        "hs-score",
+        dragActive && "hs-score--dragover",
+        showScore && "hs-score--ready",
+      )}
       role="region"
       aria-label={ja.score.regionLabel}
       data-hs-focus-zone="score"
@@ -89,14 +134,25 @@ export function ScoreWorkspace({
             </p>
           </div>
         )
-      ) : screen === "scoreReady" ||
-        screen === "reviewing" ||
-        screen === "exporting" ? (
-        <div className="hs-score-paper" aria-hidden="true">
-          <span className="hs-score-paper__placeholder">
-            {ja.score.placeholder}
-          </span>
-        </div>
+      ) : scoreState ? (
+        showScore && scoreDocument ? (
+          <ScoreReadyWorkspace
+            key={scoreDocument.revisionId}
+            document={scoreDocument}
+            pitch={pitch}
+            onInspectorChange={(m) => onInspectorChange?.(m)}
+            onStateChange={(s) => onScoreStateChange?.(s)}
+            controllerRef={(c) => scoreControllerRef?.(c)}
+            announce={(m) => announce?.(m)}
+            transport={transport}
+          />
+        ) : (
+          <div className="hs-score-paper" aria-hidden="true">
+            <span className="hs-score-paper__placeholder">
+              {ja.score.placeholder}
+            </span>
+          </div>
+        )
       ) : (
         <ImportScreenBody
           screen={screen}

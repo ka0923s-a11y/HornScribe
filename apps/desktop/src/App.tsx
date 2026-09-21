@@ -23,6 +23,16 @@ import { SettingsView } from "./components/SettingsView";
 import { TranscriptionView } from "./components/TranscriptionView";
 import { TranscriptionErrorView } from "./components/TranscriptionErrorView";
 import type { PitchView } from "./components/PitchSegmented";
+import { createFixtureScoreDocument } from "./score/fixtureDocument";
+import { scoreHandoffFromResult } from "./score/jobResult";
+import type { ScoreDocumentPort } from "./score/document";
+import type { InspectorModel } from "./score/inspector";
+import type {
+  ScoreWorkspaceController,
+  ScoreWorkspaceState,
+} from "./score/controller";
+import { openIssues } from "./score/review";
+import { formatTimecode as formatScoreTimecode } from "./score/timecode";
 import {
   createCommandRegistry,
   createCommandSurface,
@@ -64,7 +74,11 @@ import {
   createDefaultSidecarPort,
   type EngineStatus,
 } from "./sidecar";
-import { NO_SELECTION } from "./workspace/inspector";
+import {
+  inspectorHasContent,
+  NO_SELECTION,
+  type InspectorContent,
+} from "./workspace/inspector";
 import { useWorkspaceLayout } from "./workspace/layout";
 import { initWindowGeometryPersistence } from "./workspace/windowGeometry";
 
@@ -176,12 +190,29 @@ export default function App() {
   const job = sessionSnap.job;
   const jobPhase = job?.phase;
 
+  // [UI-030] the document behind SCORE_READY+: built once a transcription
+  // completes — identity + review issues come from the job result
+  // (score/jobResult.ts); the notation body stays on the committed fixture
+  // until the engine ships MusicXML through the same port.
+  const [scoreDocument, setScoreDocument] =
+    useState<ScoreDocumentPort | null>(null);
+  const [inspectorModel, setInspectorModel] = useState<InspectorModel>({
+    kind: "empty",
+  });
+  const [scoreState, setScoreState] = useState<ScoreWorkspaceState | null>(null);
+  const scoreCtlRef = useRef<ScoreWorkspaceController | null>(null);
+
   // §27 transitions driven by the job lifecycle. Terminal phases are
   // consumed once (session.clearJob) — retry is never silent.
   useEffect(() => {
     if (!jobPhase) return;
     if (jobPhase === "completed") {
       setHasScore(true);
+      setScoreDocument(
+        createFixtureScoreDocument(
+          scoreHandoffFromResult(sessionSnap.lastResult),
+        ),
+      );
       setScreen("scoreReady");
       setStatusMessage(ja.transcription.completed);
       session.clearJob();
@@ -192,7 +223,7 @@ export default function App() {
     }
     // `failed` also sets snap.failure — the screen mapping lives on the
     // failure flag below so crash/unresponsive land identically.
-  }, [jobPhase, hasScore, session]);
+  }, [jobPhase, hasScore, session, sessionSnap.lastResult]);
 
   // §27: fail → TRANSCRIPTION_ERROR. Set by a terminal `failed` event
   // (job error) or by crash/unresponsive supervision while a job ran.
@@ -237,14 +268,23 @@ export default function App() {
   );
 
   const regions = regionVisibility(screen);
-  // Inspector contract: no selection model exists yet (UI-003+); the panel
-  // renders the "none" body when opened manually.
-  const inspector = NO_SELECTION;
+
+  // [UI-030] Feature inspector model → the shell's selection contract: the
+  // panel auto-opens on real selections and stays closed otherwise (§6).
+  const inspector: InspectorContent = useMemo(
+    () =>
+      inspectorModel.kind === "note"
+        ? { kind: "note", noteId: inspectorModel.canonicalId ?? "" }
+        : NO_SELECTION,
+    [inspectorModel],
+  );
   const propertiesVisible = regions.properties && layout.propertiesOpen;
-  // Real open-issue count from the last completed job (UI-040); the
+  // Open-issue count prefers the live score document (real markers); the
+  // job result count covers the window before the document mounts; the
   // dev-state REVIEWING placeholder stays so its surfaces can be reviewed.
-  const reviewCount =
-    sessionSnap.reviewIssueCount > 0
+  const reviewCount = scoreDocument
+    ? openIssues(scoreDocument.reviewIssues()).length
+    : sessionSnap.reviewIssueCount > 0
       ? sessionSnap.reviewIssueCount
       : screen === "reviewing"
         ? 12
@@ -254,23 +294,35 @@ export default function App() {
   const registry = useMemo(() => createCommandRegistry(), []);
 
   // Screen machine → command snapshot (§23). Playback fields mirror the
-  // transport adapter (UI-020); undo/selection stay false until their
-  // feature issues land; isTranscribing keeps score-writing commands
-  // disabled while a transcription runs (§5).
+  // transport adapter (UI-020) or, when no media source is loaded, the
+  // score clock (UI-030 dev/fixture playback); isTranscribing keeps
+  // score-writing commands disabled while a transcription runs (§5).
   const snapshot = useMemo<CommandSnapshot>(
     () => ({
       ...commandStateFor(screen),
-      isPlaying: transportSnap?.status === "playing",
-      loopEnabled: transportSnap?.loop != null,
+      hasScore: commandStateFor(screen).hasScore && scoreDocument !== null,
+      isPlaying:
+        transportSnap?.status === "playing" ||
+        (scoreState?.isPlaying ?? false),
+      loopEnabled:
+        transportSnap?.loop != null || (scoreState?.loopEnabled ?? false),
       pitch,
       canUndo: false,
       canRedo: false,
-      hasSelection: false,
+      hasSelection: scoreState?.hasSelection ?? false,
+      reviewOpen: scoreState?.reviewOpen ?? screen === "reviewing",
       reviewCount,
       view,
     }),
-    [screen, transportSnap, pitch, reviewCount, view],
+    [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view],
   );
+
+  // Whether the media transport carries a loaded source — then it is the
+  // authoritative clock and the score follows via the transport prop
+  // (UI-005 one-clock contract). Otherwise transport commands fall back to
+  // the score clock (dev/fixture playback with no audio loaded).
+  const mediaLive =
+    transportSnap != null && transportSnap.status !== "empty";
 
   // §8 §-seek transport step (GUI_UX_SPEC §9: ←/→ 5 seconds).
   const seekBy = useCallback(
@@ -304,43 +356,78 @@ export default function App() {
         // real transition; the button shows キャンセルしています… until then.
         session.cancelTranscription().catch(() => {
           /* JOB_NOT_FOUND races are ignored in the session; other
-             failures surface through snap.failure/engine state */
+            failures surface through snap.failure/engine state */
         });
       },
       togglePlayPause: () => {
-        if (transport.getSnapshot().status === "playing") {
-          transport.pause();
-          setStatusMessage(ja.import.feedback.paused);
+        if (transport.getSnapshot().status !== "empty") {
+          // [UI-020] real audio clock — the score follows it through the
+          // transport prop mirror (ScoreReadyWorkspace sync effect).
+          if (transport.getSnapshot().status === "playing") {
+            transport.pause();
+            setStatusMessage(ja.import.feedback.paused);
+          } else {
+            void transport.play().catch(() => undefined);
+            setStatusMessage(ja.import.feedback.playing);
+          }
         } else {
-          void transport.play().catch(() => undefined);
-          setStatusMessage(ja.import.feedback.playing);
+          // No audio source loaded — the score clock is the transport
+          // (fixture/dev playback, UI-030).
+          const c = scoreCtlRef.current;
+          if (c) c.togglePlayPause();
+          else setStatusMessage(ja.score.empty);
         }
       },
       stop: () => {
-        transport.stop();
-        setStatusMessage(ja.import.feedback.stopped);
+        if (transport.getSnapshot().status !== "empty") {
+          transport.stop();
+          setStatusMessage(ja.import.feedback.stopped);
+        } else {
+          const c = scoreCtlRef.current;
+          if (c) c.stop();
+          else setStatusMessage(ja.score.empty);
+        }
       },
-      jumpBack: () => seekBy(-5),
-      jumpForward: () => seekBy(5),
+      jumpBack: () => {
+        if (transport.getSnapshot().status !== "empty") seekBy(-5);
+        else scoreCtlRef.current?.jumpBy(-5000);
+      },
+      jumpForward: () => {
+        if (transport.getSnapshot().status !== "empty") seekBy(5);
+        else scoreCtlRef.current?.jumpBy(5000);
+      },
       seekToStart: () => {
-        void transport.seek(0).catch(() => undefined);
-        setStatusMessage(
-          ja.import.feedback.position(formatTimecode(0)),
-        );
+        if (transport.getSnapshot().status !== "empty") {
+          void transport.seek(0).catch(() => undefined);
+          setStatusMessage(
+            ja.import.feedback.position(formatTimecode(0)),
+          );
+        } else {
+          scoreCtlRef.current?.seekToStart();
+        }
       },
       seekToEnd: () => {
-        void transport
-          .seek(transport.getDuration())
-          .catch(() => undefined);
-        setStatusMessage(
-          ja.import.feedback.position(
-            formatTimecode(transport.getDuration()),
-          ),
-        );
+        if (transport.getSnapshot().status !== "empty") {
+          void transport
+            .seek(transport.getDuration())
+            .catch(() => undefined);
+          setStatusMessage(
+            ja.import.feedback.position(
+              formatTimecode(transport.getDuration()),
+            ),
+          );
+        } else {
+          scoreCtlRef.current?.seekToEnd();
+        }
       },
-      // Loop arming needs a selection range (UI-030 owns that contract);
-      // keep the honest stub instead of a fake toggle.
-      toggleLoop: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      // Loop arming is score-side (UI-030 owns the range contract the
+      // UI-020 stub deferred to): the score clock wraps inside the range
+      // and the score draws passage marks.
+      toggleLoop: () => {
+        const c = scoreCtlRef.current;
+        if (c) c.toggleLoop();
+        else setStatusMessage(ja.commandFeedback.notImplemented);
+      },
       setPitchView: (v) => {
         setPitch(v);
         setStatusMessage(
@@ -349,18 +436,16 @@ export default function App() {
             : ja.commandFeedback.pitchHornF,
         );
       },
-      openReview: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      reviewNext: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      reviewPrevious: () =>
-        setStatusMessage(ja.commandFeedback.notImplemented),
+      openReview: () => scoreCtlRef.current?.openReview(),
+      reviewNext: () => scoreCtlRef.current?.reviewNext(),
+      reviewPrevious: () => scoreCtlRef.current?.reviewPrevious(),
       undo: () => setStatusMessage(ja.commandFeedback.notImplemented),
       redo: () => setStatusMessage(ja.commandFeedback.notImplemented),
       openExport: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      zoomScoreIn: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      zoomScoreOut: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      zoomScoreFit: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      clearSelection: () =>
-        setStatusMessage(ja.commandFeedback.notImplemented),
+      zoomScoreIn: () => scoreCtlRef.current?.zoomIn(),
+      zoomScoreOut: () => scoreCtlRef.current?.zoomOut(),
+      zoomScoreFit: () => scoreCtlRef.current?.zoomFit(),
+      clearSelection: () => scoreCtlRef.current?.clearSelection(),
       openSettings: () => setView("settings"),
       // F6 / Shift+F6 region cycling (§22) — owned by focus/zones.ts; these
       // are the only fully-working transport-independent commands so far.
@@ -417,6 +502,18 @@ export default function App() {
     }
   }, [layout]);
 
+  // §6: the panel opens itself when a real selection exists; with nothing
+  // selected it stays closed until the user reopens it manually.
+  useEffect(() => {
+    if (
+      inspectorHasContent(inspector) &&
+      regions.properties &&
+      !layout.propertiesOpen
+    ) {
+      layout.setPropertiesOpen(true);
+    }
+  }, [inspector, regions.properties, layout]);
+
   // 採譜 start routes through the command surface — the registry decides
   // (disabled → honest announcement, never a silent no-op). Cancellation
   // is owned by TranscriptionView via score.cancelTranscription (§5).
@@ -434,6 +531,12 @@ export default function App() {
       setHash(h);
       const forced = screenFromHash(h);
       if (forced) {
+        // Score states need a document — the deterministic fixture adapter
+        // supplies one until engine output flows through the job result.
+        if (commandStateFor(forced).hasScore) {
+          setHasScore(true);
+          setScoreDocument((doc) => doc ?? createFixtureScoreDocument());
+        }
         setScreen(forced);
         setView("workspace");
       }
@@ -656,10 +759,29 @@ export default function App() {
                       }}
                     />
                   }
+                  scoreDocument={scoreDocument}
+                  pitch={pitch}
+                  onInspectorChange={setInspectorModel}
+                  onScoreStateChange={setScoreState}
+                  scoreControllerRef={(c) => {
+                    scoreCtlRef.current = c;
+                  }}
+                  announce={setStatusMessage}
+                  transport={
+                    mediaLive && transportSnap
+                      ? {
+                          isPlaying: transportSnap.status === "playing",
+                          positionSec: transportSnap.time,
+                          rate: transportSnap.rate,
+                        }
+                      : null
+                  }
                 />
                 {propertiesVisible ? (
                   <PropertiesPanel
                     content={inspector}
+                    model={inspectorModel}
+                    pitch={pitch}
                     width={layout.propertiesWidth}
                     min={layout.propertiesMin}
                     max={layout.propertiesMax}
@@ -690,6 +812,19 @@ export default function App() {
                     const next =
                       SUPPORTED_RATES[(idx + 1) % SUPPORTED_RATES.length] ?? 1;
                     transport.setRate(next);
+                  }}
+                  timeLabel={
+                    !mediaLive && scoreState
+                      ? `${formatScoreTimecode(scoreState.positionMs)} / ${formatScoreTimecode(scoreState.durationMs)}`
+                      : undefined
+                  }
+                  followEnabled={scoreState?.followEnabled}
+                  followSuspended={scoreState?.followSuspended}
+                  onToggleFollow={() => {
+                    const c = scoreCtlRef.current;
+                    if (!c) return;
+                    if (scoreState?.followSuspended) c.resumeFollow();
+                    else c.setFollowEnabled(!(scoreState?.followEnabled ?? true));
                   }}
                 />
               ) : null}
