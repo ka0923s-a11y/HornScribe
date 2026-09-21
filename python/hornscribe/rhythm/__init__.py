@@ -1,9 +1,11 @@
-"""Deterministic timing/meter contracts and the HSQ-v1 onset quantizer.
+"""Deterministic timing/meter contracts and the HSQ-v1 quantizer.
 
 The immutable contracts the quantizer consumes and produces live here, plus
-the QNT-002 onset search: binary candidate lattice, Huber onset/IOI costs,
+the QNT-002 onset search (binary candidate lattice, Huber onset/IOI costs,
 deterministic top-K DP, global alignment-shift search, naive baselines, and
-onset-metric benchmarks. No audio, GUI, or notation-backend logic — see
+onset-metric benchmarks) and the QNT-003 joint duration/rest realization
+(span decomposition into notation atoms, rest generation, tie splitting,
+notation-complexity costs). No audio, GUI, or notation-backend logic — see
 ``docs/QUANTIZER_DESIGN.md``.
 """
 
@@ -27,6 +29,7 @@ from hornscribe.rhythm.contracts import (
     QuantizationAlternative,
     QuantizationDiagnostics,
     QuantizedRhythmNote,
+    RealizedRest,
     RhythmAtom,
 )
 from hornscribe.rhythm.costs import (
@@ -65,6 +68,11 @@ from hornscribe.rhythm.quantizer import (
     quantize_events,
     quantize_normalized,
 )
+from hornscribe.rhythm.realize import (
+    IntervalRealization,
+    SpanRealizer,
+    realize_interval,
+)
 from hornscribe.rhythm.timewarp import (
     TimeWarp,
     TimeWarpMode,
@@ -80,6 +88,7 @@ __all__ = [
     "BeatMap",
     "BeatSource",
     "CandidateGrid",
+    "IntervalRealization",
     "InvalidBeatMapError",
     "MeterError",
     "MeterMap",
@@ -98,7 +107,9 @@ __all__ = [
     "QuantizationProfile",
     "QuantizedRhythmNote",
     "QuantizerWeights",
+    "RealizedRest",
     "RhythmAtom",
+    "SpanRealizer",
     "TimeWarp",
     "TimeWarpMode",
     "TripletPolicy",
@@ -118,6 +129,7 @@ __all__ = [
     "onset_metrics",
     "quantize_events",
     "quantize_normalized",
+    "realize_interval",
     "snap_candidate_lattice",
     "snap_nearest_grid",
     "snap_to_grid_ql",

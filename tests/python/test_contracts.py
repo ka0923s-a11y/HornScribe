@@ -199,7 +199,7 @@ def test_alternative_rank_and_cost() -> None:
 def test_diagnostics_defaults() -> None:
     diag = QuantizationDiagnostics()
     assert diag.quantizer_id == QUANTIZER_ID == "HSQ"
-    assert diag.quantizer_version == QUANTIZER_VERSION == 1
+    assert diag.quantizer_version == QUANTIZER_VERSION == 2
     assert diag.symbol_count == 0
     assert diag.review_reasons == ()
     filled = QuantizationDiagnostics(

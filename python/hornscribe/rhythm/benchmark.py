@@ -1,18 +1,25 @@
-"""Onset-metric benchmark harness for baseline/HSQ ablation (design 36-37).
+"""Benchmark harness for baseline/HSQ ablation (design 36-37).
 
 Feeds the same fixture through every method and emits per-method
 :class:`OnsetMetrics` so the quantizer's value can be measured, not assumed:
 
 * ``"B0"`` — nearest-sixteenth snap (:func:`snap_nearest_grid`);
 * ``"B1"`` — nearest candidate-lattice snap (:func:`snap_candidate_lattice`);
-* ``"HSQ"`` — the k-best onset DP (rank-1 path of :func:`quantize_events`);
-* ``"HSQ-no-ioi"`` — same run with ``weights.ioi = 0``, the timing-only
-  ablation proving the IOI term's contribution;
+* ``"HSQ"`` — the k-best onset DP with joint note/rest realization
+  (rank-1 path of :func:`quantize_events`);
+* ``"HSQ-no-ioi"`` — same run with ``weights.ioi = 0``, the ablation
+  proving the IOI term's contribution;
+* ``"HSQ-timing"`` — same run with every notation-complexity weight zeroed
+  (``symbol``/``tie``/``dots``/``tiny_rest``/boundary/tuplet/mode terms), so
+  note ends follow offset timing evidence only — the timing-only ablation
+  showing what the notation cost buys (design 37, B3-style);
 * ``"music21"`` — optional B2 baseline (``include_music21``).
 
 Baselines run on the unshifted normalization (``baseline_shift_sec = 0.0``
 by default): compensating latency is part of what HSQ adds, so naive
-baselines stay naive.
+baselines stay naive. They also emit provisional durations only — notation
+complexity fields stay ``None`` for them (design 36.2 metrics apply to
+realized output).
 """
 
 from __future__ import annotations
@@ -25,16 +32,26 @@ from fractions import Fraction
 from hornscribe.domain.events import RawNoteEvent
 from hornscribe.rhythm._output import onset_sorted
 from hornscribe.rhythm.baselines import snap_candidate_lattice, snap_nearest_grid
-from hornscribe.rhythm.contracts import QuantizedRhythmNote
+from hornscribe.rhythm.contracts import (
+    QuantizationDiagnostics,
+    QuantizedRhythmNote,
+    RealizedRest,
+)
 from hornscribe.rhythm.meter import MeterMap
 from hornscribe.rhythm.profile import QuantizationProfile
 from hornscribe.rhythm.quantizer import quantize_events
+from hornscribe.rhythm.realize import TINY_REST_MAX_QL
 from hornscribe.rhythm.timewarp import TimeWarp, normalize_to_score_time
 
 
 @dataclass(frozen=True)
 class OnsetMetrics:
-    """Per-method onset quality numbers for one fixture (design 36.1)."""
+    """Per-method quality numbers for one fixture (design 36.1-36.2).
+
+    Onset/duration fields are timing-space metrics (36.1); the
+    ``*_count`` fields are the notation-complexity metrics (36.2) and stay
+    ``None`` for methods that emit no realization (naive baselines).
+    """
 
     method: str
     note_count: int
@@ -53,15 +70,28 @@ class OnsetMetrics:
     """True iff emitted onsets are strictly increasing (output contract)."""
     total_cost: float | None = None
     """HSQ objective cost when available (``None`` for baselines)."""
+    exact_duration_rate: float | None = None
+    """Index-aligned exact notated-duration rate (needs
+    ``expected_durations_ql``)."""
+    mean_abs_duration_error_ql: float | None = None
+    """Mean |notated - expected| duration over paired notes (ql)."""
+    symbol_count: int | None = None
+    tie_count: int | None = None
+    rest_count: int | None = None
+    tiny_rest_count: int | None = None
+    second_dot_count: int | None = None
+    strong_boundary_obscured_count: int | None = None
 
     def __post_init__(self) -> None:
         for name in (
             "exact_onset_rate",
             "mean_abs_onset_error_ql",
             "max_abs_onset_error_ql",
+            "exact_duration_rate",
+            "mean_abs_duration_error_ql",
         ):
             value = getattr(self, name)
-            if not math.isfinite(value) or value < 0:
+            if value is not None and (not math.isfinite(value) or value < 0):
                 raise ValueError(f"{name} must be finite and >= 0, got {value!r}")
         if self.total_cost is not None and not math.isfinite(self.total_cost):
             raise ValueError(f"total_cost must be finite or None, got {self.total_cost!r}")
@@ -72,12 +102,23 @@ def onset_metrics(
     quantized: Sequence[QuantizedRhythmNote],
     expected_onsets_ql: Sequence[Fraction],
     *,
+    expected_durations_ql: Sequence[Fraction] | None = None,
+    rests: Sequence[RealizedRest] | None = None,
+    diagnostics: QuantizationDiagnostics | None = None,
     total_cost: float | None = None,
 ) -> OnsetMetrics:
-    """Compare emitted onsets to expected grid positions, index-aligned.
+    """Compare emitted onsets/durations to expected values, index-aligned.
 
     Positions pair by index (fixture order); extras on either side are
-    counted via the counts/exact rate rather than penalized pairwise.
+    counted via the counts/exact rate rather than penalized pairwise. When
+    ``expected_durations_ql`` is given, duration accuracy is scored the same
+    way on ``note.duration_ql``.
+
+    Notation-complexity counts (design 36.2) come from ``diagnostics`` when
+    given — they include non-atom-derivable data such as obscured-boundary
+    counts — and otherwise from the emitted atoms when the method produced
+    realizations (``rests`` and/or note ``notation``). Naive baselines pass
+    neither and report ``None``.
     """
     expected = tuple(expected_onsets_ql)
     errors = [
@@ -87,6 +128,49 @@ def onset_metrics(
     matched = sum(1 for e in errors if e == 0.0)
     positions = [note.onset_ql for note in quantized]
     monotonic = all(b > a for a, b in zip(positions, positions[1:], strict=False))
+
+    duration_rate = duration_error = None
+    if expected_durations_ql is not None:
+        dur_errors = [
+            abs(float(note.duration_ql) - float(exp))
+            for note, exp in zip(quantized, expected_durations_ql, strict=False)
+        ]
+        duration_rate = (
+            sum(1 for e in dur_errors if e == 0.0) / len(expected_durations_ql)
+            if expected_durations_ql
+            else 1.0
+        )
+        duration_error = sum(dur_errors) / len(dur_errors) if dur_errors else 0.0
+
+    realized = rests is not None or any(n.notation is not None for n in quantized)
+    counts: dict[str, int] = {}
+    if diagnostics is not None:
+        counts = {
+            "symbol_count": diagnostics.symbol_count,
+            "tie_count": diagnostics.tie_count,
+            "rest_count": diagnostics.rest_count,
+            "tiny_rest_count": diagnostics.tiny_rest_count,
+            "second_dot_count": diagnostics.second_dot_count,
+            "strong_boundary_obscured_count": (
+                diagnostics.strong_boundary_obscured_count
+            ),
+        }
+    elif realized:
+        note_atoms = [
+            a for n in quantized if n.notation is not None for a in n.notation.atoms
+        ]
+        rest_atoms = [a for r in rests or () for a in r.notation.atoms]
+        counts = {
+            "symbol_count": len(note_atoms) + len(rest_atoms),
+            "tie_count": sum(1 for a in note_atoms if a.tie_to_next),
+            "rest_count": len(rest_atoms),
+            "tiny_rest_count": sum(
+                1 for a in rest_atoms if a.duration_ql < TINY_REST_MAX_QL
+            ),
+            "second_dot_count": sum(
+                1 for a in note_atoms + rest_atoms if a.dots == 2
+            ),
+        }
     return OnsetMetrics(
         method=method,
         note_count=len(quantized),
@@ -97,6 +181,9 @@ def onset_metrics(
         max_abs_onset_error_ql=max(errors) if errors else 0.0,
         monotonic=monotonic,
         total_cost=total_cost,
+        exact_duration_rate=duration_rate,
+        mean_abs_duration_error_ql=duration_error,
+        **counts,
     )
 
 
@@ -105,17 +192,21 @@ def benchmark_onsets(
     warp: TimeWarp,
     expected_onsets_ql: Sequence[Fraction],
     *,
+    expected_durations_ql: Sequence[Fraction] | None = None,
     meter_map: MeterMap | None = None,
     profile: QuantizationProfile | None = None,
     baseline_shift_sec: float = 0.0,
     include_ioi_ablation: bool = True,
+    include_timing_ablation: bool = True,
     include_music21: bool = False,
 ) -> dict[str, OnsetMetrics]:
-    """Run B0/B1/HSQ (+ ablations) on one fixture and emit onset metrics.
+    """Run B0/B1/HSQ (+ ablations) on one fixture and emit metrics.
 
     Deterministic: same inputs always produce the same metrics table.
     Baselines normalize with ``baseline_shift_sec`` (default 0 = naive);
     HSQ performs its own alignment search inside :func:`quantize_events`.
+    ``expected_durations_ql`` (index-aligned with ``expected_onsets_ql``)
+    additionally enables duration accuracy metrics for every method.
     """
     profile = profile if profile is not None else QuantizationProfile.standard()
     normalized = onset_sorted(
@@ -123,9 +214,17 @@ def benchmark_onsets(
     )
     results: dict[str, OnsetMetrics] = {}
 
-    results["B0"] = onset_metrics("B0", snap_nearest_grid(normalized), expected_onsets_ql)
+    results["B0"] = onset_metrics(
+        "B0",
+        snap_nearest_grid(normalized),
+        expected_onsets_ql,
+        expected_durations_ql=expected_durations_ql,
+    )
     results["B1"] = onset_metrics(
-        "B1", snap_candidate_lattice(normalized, profile), expected_onsets_ql
+        "B1",
+        snap_candidate_lattice(normalized, profile),
+        expected_onsets_ql,
+        expected_durations_ql=expected_durations_ql,
     )
 
     best = quantize_events(
@@ -135,6 +234,9 @@ def benchmark_onsets(
         "HSQ",
         best[0].notes if best else (),
         expected_onsets_ql,
+        expected_durations_ql=expected_durations_ql,
+        rests=best[0].rests if best else None,
+        diagnostics=best[0].diagnostics if best else None,
         total_cost=best[0].total_cost if best else None,
     )
 
@@ -149,7 +251,44 @@ def benchmark_onsets(
             "HSQ-no-ioi",
             ablated[0].notes if ablated else (),
             expected_onsets_ql,
+            expected_durations_ql=expected_durations_ql,
+            rests=ablated[0].rests if ablated else None,
+            diagnostics=ablated[0].diagnostics if ablated else None,
             total_cost=ablated[0].total_cost if ablated else None,
+        )
+
+    if include_timing_ablation:
+        # Timing-only ablation (design 37): realization stays on so the
+        # output remains comparable, but every notation-complexity weight
+        # is zeroed so note ends follow offset/IOI evidence alone.
+        w = profile.weights
+        timing_only_profile = replace(
+            profile,
+            weights=replace(
+                w,
+                symbol=0.0,
+                tie=0.0,
+                first_dot=0.0,
+                second_dot=0.0,
+                tuplet_group=0.0,
+                tuplet_atom=0.0,
+                mode_switch=0.0,
+                tiny_rest=0.0,
+                weak_boundary_crossing=0.0,
+                strong_boundary_crossing=0.0,
+            ),
+        )
+        timing = quantize_events(
+            events, warp, meter_map, timing_only_profile, search_alignment=True
+        )
+        results["HSQ-timing"] = onset_metrics(
+            "HSQ-timing",
+            timing[0].notes if timing else (),
+            expected_onsets_ql,
+            expected_durations_ql=expected_durations_ql,
+            rests=timing[0].rests if timing else None,
+            diagnostics=timing[0].diagnostics if timing else None,
+            total_cost=timing[0].total_cost if timing else None,
         )
 
     if include_music21:
@@ -161,6 +300,7 @@ def benchmark_onsets(
                 normalized, snap_grid_ql=profile.min_note_value_ql
             ),
             expected_onsets_ql,
+            expected_durations_ql=expected_durations_ql,
         )
 
     return results

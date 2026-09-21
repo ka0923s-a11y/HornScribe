@@ -232,14 +232,30 @@ def test_infeasible_input_falls_back_monotonic() -> None:
 
 
 def test_ioi_cost_recovers_consistent_shift() -> None:
-    """Design 10.2: IOI keeps the pair's interval -> [0, 1] not [0, 5/4]."""
+    """Design 10.2: IOI keeps the pair's interval -> [0, 1] not [0, 5/4].
+
+    QNT-003: with joint duration/rest realization enabled, the notation
+    complexity term alone also prefers [0, 1] — a 5/4 note span needs an
+    ugly tie across a beat — so the IOI term's isolated contribution is
+    shown through the timing-only (onset-only) ablation path.
+    """
     fixture = fx.ioi_pair_fixture()
     profile = QuantizationProfile()
     with_ioi = quantize_events(fixture.events, fixture.warp, profile=profile)
     no_ioi_profile = replace(profile, weights=replace(profile.weights, ioi=0.0))
-    without_ioi = quantize_events(fixture.events, fixture.warp, profile=no_ioi_profile)
+    without_ioi = quantize_events(
+        fixture.events,
+        fixture.warp,
+        profile=no_ioi_profile,
+        realize_durations=False,
+    )
     assert _onsets(with_ioi[0]) == [Fraction(0), Fraction(1)]
     assert _onsets(without_ioi[0]) == [Fraction(0), Fraction(5, 4)]
+    # Realization on: the span-notation cost recovers [0, 1] without IOI.
+    realized_no_ioi = quantize_events(
+        fixture.events, fixture.warp, profile=no_ioi_profile
+    )
+    assert _onsets(realized_no_ioi[0]) == [Fraction(0), Fraction(1)]
 
 
 # --- misc contract --------------------------------------------------------------------------
@@ -251,15 +267,30 @@ def test_empty_input() -> None:
 
 
 def test_raw_event_durations_never_mutated() -> None:
-    """Acceptance: raw evidence is immutable; output durations are provisional."""
+    """Acceptance: raw evidence is immutable; realized notes never overlap."""
     fixture = fx.quarters_jitter50()
     before = [(e.onset_sec, e.offset_sec) for e in fixture.events]
     alts = quantize_events(fixture.events, fixture.warp, fixture.meter_map)
     after = [(e.onset_sec, e.offset_sec) for e in fixture.events]
     assert before == after
-    # provisional rule: duration spans to the next onset; no notation yet
+    # realized rule: notation tiles each note span; a note end never crosses
+    # the next onset (monophonic rule, design 27); rests fill the gaps.
+    for alt in alts:
+        assert all(n.notation is not None for n in alt.notes)
+        for cur, nxt in pairwise(alt.notes):
+            assert cur.end_ql <= nxt.onset_ql
+
+
+def test_provisional_output_in_timing_only_ablation() -> None:
+    """``realize_durations=False`` keeps the QNT-002 provisional contract."""
+    fixture = fx.quarters_jitter50()
+    alts = quantize_events(
+        fixture.events, fixture.warp, fixture.meter_map, realize_durations=False
+    )
+    assert alts
     for alt in alts:
         assert all(n.notation is None for n in alt.notes)
+        assert alt.rests == ()
         for cur, nxt in pairwise(alt.notes):
             assert cur.end_ql == nxt.onset_ql
 

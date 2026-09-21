@@ -1,12 +1,12 @@
-"""Shared assembly of quantizer outputs (QNT-002 onset phase).
+"""Shared assembly of quantizer outputs.
 
 Both the HSQ DP and the naive baselines emit the same
 :class:`~hornscribe.rhythm.QuantizedRhythmNote` contract, so note assembly —
 canonical ID allocation, provisional duration, monotonic repair — lives in
 one place.
 
-Provisional duration rule (no duration/rest realization yet — that is the
-QNT-003 joint transition realization, design 12/33):
+Provisional duration rule (used only when duration realization is disabled —
+the QNT-003 joint transition realization is the default, design 12/33):
 
 * non-final notes span to the next quantized onset: ``duration_i =
   q_{i+1} - q_i`` — always positive because positions are strictly
@@ -16,9 +16,14 @@ QNT-003 joint transition realization, design 12/33):
   reversed/degenerate raw offsets fall back to one step (design 38 problem
   fixtures must not crash the quantizer).
 
-Durations here are placeholders that keep the output contract valid; they
-are never written back to source events — raw timing is immutable evidence
-(design principle 8).
+With realization enabled, :func:`assemble_realized_notes` commits each
+interval's chosen note span + notation atoms, and :func:`assemble_path_rests`
+materializes the leading/inter-interval/trailing rests so every touched
+measure's note+rest atoms tile it exactly.
+
+Provisional durations are placeholders that keep the output contract valid;
+raw timing is never written back to source events — raw timing is immutable
+evidence (design principle 8).
 """
 
 from __future__ import annotations
@@ -28,8 +33,13 @@ from fractions import Fraction
 
 from hornscribe.domain.ids import IdAllocator
 from hornscribe.rhythm._util import as_exact_fraction
-from hornscribe.rhythm.contracts import NormalizedNote, QuantizedRhythmNote
+from hornscribe.rhythm.contracts import (
+    NormalizedNote,
+    QuantizedRhythmNote,
+    RealizedRest,
+)
 from hornscribe.rhythm.lattice import snap_to_grid_ql
+from hornscribe.rhythm.realize import IntervalRealization, SpanRealizer
 
 
 def onset_sorted(notes: Sequence[NormalizedNote]) -> tuple[NormalizedNote, ...]:
@@ -95,3 +105,95 @@ def assemble_quantized_notes(
             )
         )
     return tuple(out)
+
+
+def assemble_realized_notes(
+    notes: tuple[NormalizedNote, ...],
+    positions: tuple[Fraction, ...],
+    realizations: tuple[IntervalRealization, ...],
+) -> tuple[QuantizedRhythmNote, ...]:
+    """Build :class:`QuantizedRhythmNote` results for one realized path.
+
+    Each note's ``duration_ql`` is its chosen *note span* ``[p, e)`` — the
+    sounding written duration, which may end before the next onset when the
+    realization chose a rest (design 12). ``notation`` carries the atom
+    decomposition including barline/beat-split ties (design 15-16).
+    ``realizations[i]`` must be the interval starting at ``positions[i]``.
+    """
+    if not (len(notes) == len(positions) == len(realizations)):
+        raise ValueError(
+            f"notes/positions/realizations length mismatch: "
+            f"{len(notes)} != {len(positions)} != {len(realizations)}"
+        )
+    allocator = IdAllocator("sn")
+    out: list[QuantizedRhythmNote] = []
+    for note, pos, rlz in zip(notes, positions, realizations, strict=True):
+        if rlz.start_ql != pos:
+            raise ValueError(
+                f"realization start {rlz.start_ql} does not match path onset {pos}"
+            )
+        out.append(
+            QuantizedRhythmNote(
+                canonical_note_id=allocator.allocate_score_note_id(),
+                source_event_ids=(note.source_id,),
+                onset_ql=pos,
+                duration_ql=rlz.note_end_ql - pos,
+                notation=rlz.note,
+            )
+        )
+    return tuple(out)
+
+
+def assemble_path_rests(
+    positions: tuple[Fraction, ...],
+    realizations: tuple[IntervalRealization, ...],
+    realizer: SpanRealizer,
+) -> tuple[tuple[RealizedRest, ...], int]:
+    """Materialize all rest spans for one committed path.
+
+    Coverage runs from the meter map's origin to the end of the measure
+    containing the last note's end, so every touched measure's note+rest
+    atoms tile it exactly (issue acceptance: measure-duration invariants):
+
+    * a leading rest fills ``[score_start, first_onset)`` — including
+      whole-rest atoms for completely empty leading measures;
+    * each interval's chosen rest span fills the gap before the next onset;
+    * a trailing rest fills the final measure up to its barline (none when
+      the last note ends exactly on a barline — no empty measure is created).
+
+    Returns ``(rests, extra_strong_boundary_obscured)`` where the count
+    aggregates obscured-strong-boundary penalties of the leading/trailing
+    spans (inter-interval spans already carry theirs on the
+    :class:`IntervalRealization` objects).
+    """
+    if not positions:
+        return (), 0
+    rests: list[RealizedRest] = []
+    extra_strong = 0
+
+    score_start = realizer.score_start_ql
+    first = positions[0]
+    if first > score_start:
+        leading = realizer.realize_span(score_start, first, is_rest=True)
+        rests.append(
+            RealizedRest(onset_ql=score_start, notation=leading.notation)
+        )
+        extra_strong += leading.strong_boundary_obscured
+
+    for rlz in realizations:
+        if rlz.rest is not None:
+            rests.append(
+                RealizedRest(onset_ql=rlz.note_end_ql, notation=rlz.rest)
+            )
+
+    last_end = realizations[-1].note_end_ql
+    if not realizer.is_measure_boundary(last_end):
+        measure_end = realizer.next_measure_boundary(last_end)
+        trailing = realizer.realize_span(last_end, measure_end, is_rest=True)
+        rests.append(
+            RealizedRest(onset_ql=last_end, notation=trailing.notation)
+        )
+        extra_strong += trailing.strong_boundary_obscured
+
+    rests.sort(key=lambda r: r.onset_ql)
+    return tuple(rests), extra_strong

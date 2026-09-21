@@ -22,8 +22,10 @@ from hornscribe.rhythm.profile import TripletPolicy
 QUANTIZER_ID = "HSQ"
 """Quantizer identifier stored in project persistence (design section 45)."""
 
-QUANTIZER_VERSION = 1
-"""HSQ-v1 behavior version; bump when quantization output can change."""
+QUANTIZER_VERSION = 2
+"""HSQ-v1 behavior version; bump when quantization output can change.
+2 = QNT-003 joint duration/rest realization (notes carry notation atoms,
+alternatives carry realized rests; durations are no longer provisional)."""
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,46 @@ class QuantizedRhythmNote:
 
 
 @dataclass(frozen=True)
+class RealizedRest:
+    """A realized rest span (design sections 12 and 16).
+
+    Rests carry no canonical identity (``ids.py``: rest ``note/@id`` values
+    are presentation-only); a rest is fully described by its exact onset and
+    the rest-atom decomposition of its span. ``notation`` tiles exactly
+    ``duration_ql`` and every atom has ``is_rest=True`` — rest atoms never
+    tie (design section 16) and never cross a barline, so a rest covering
+    several measures simply contains one atom group per measure.
+    """
+
+    onset_ql: Fraction
+    notation: NotationRealization
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "onset_ql", as_exact_fraction(self.onset_ql, name="onset_ql")
+        )
+        if self.onset_ql < 0:
+            raise ValueError(f"rest onset_ql must be >= 0, got {self.onset_ql}")
+        if not isinstance(self.notation, NotationRealization):
+            raise TypeError(
+                f"notation must be a NotationRealization, got {self.notation!r}"
+            )
+        for atom in self.notation.atoms:
+            if not atom.is_rest:
+                raise ValueError("rest realization atoms must all be rests")
+
+    @property
+    def duration_ql(self) -> Fraction:
+        """Total exact span covered by the rest atoms."""
+        return self.notation.total_ql
+
+    @property
+    def end_ql(self) -> Fraction:
+        """End of the rest span (exclusive)."""
+        return self.onset_ql + self.duration_ql
+
+
+@dataclass(frozen=True)
 class QuantizationDiagnostics:
     """Result metadata for one quantization run (design section 41).
 
@@ -171,12 +213,24 @@ class QuantizationDiagnostics:
     """Total cost of the best runner-up alternative (rank 2)."""
     ambiguous_region_count: int = 0
     symbol_count: int = 0
+    """All written symbols: note atoms + rest atoms (design 36.2, 41)."""
     tie_count: int = 0
     rest_count: int = 0
+    """Number of written rest *atoms* (a multi-measure gap may split)."""
     tiny_rest_count: int = 0
     tuplet_group_count: int = 0
     second_dot_count: int = 0
     strong_boundary_obscured_count: int = 0
+    overlap_clipped_count: int = 0
+    """Notes whose raw offset ran past the next onset and were clipped
+    (monophonic rule, design 27)."""
+    max_overlap_ql: float = 0.0
+    """Largest raw-offset overrun past a next onset, retained for
+    diagnostics (design 27: "raw overlap amountはdiagnosticsへ保持")."""
+    span_realization_calls: int = 0
+    """Measure-local span decomposition lookups (design 43 profiling)."""
+    span_realization_cache_hits: int = 0
+    """Cache hits among those lookups (design 43 memoization)."""
     review_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -195,6 +249,8 @@ class QuantizationDiagnostics:
             )
         if not math.isfinite(self.alignment_shift_sec):
             raise ValueError("alignment_shift_sec must be finite")
+        if not math.isfinite(self.max_overlap_ql) or self.max_overlap_ql < 0:
+            raise ValueError(f"max_overlap_ql must be finite and >= 0, got {self.max_overlap_ql!r}")
         for name in ("path_cost", "alternative_cost"):
             value = getattr(self, name)
             if value is not None and (
@@ -215,9 +271,13 @@ class QuantizationAlternative:
     total_cost: float
     notes: tuple[QuantizedRhythmNote, ...]
     diagnostics: QuantizationDiagnostics = field(default_factory=QuantizationDiagnostics)
+    rests: tuple[RealizedRest, ...] = ()
+    """Realized rest spans in score order (QNT-003); empty for onset-only
+    provisional output (baselines, ``realize_durations=False``)."""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "notes", tuple(self.notes))
+        object.__setattr__(self, "rests", tuple(self.rests))
         if isinstance(self.rank, bool) or not isinstance(self.rank, int) or self.rank < 1:
             raise ValueError(f"rank must be a positive int, got {self.rank!r}")
         if not math.isfinite(self.total_cost):
@@ -225,3 +285,6 @@ class QuantizationAlternative:
         for note in self.notes:
             if not isinstance(note, QuantizedRhythmNote):
                 raise TypeError(f"expected QuantizedRhythmNote, got {note!r}")
+        for rest in self.rests:
+            if not isinstance(rest, RealizedRest):
+                raise TypeError(f"expected RealizedRest, got {rest!r}")

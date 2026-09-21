@@ -23,7 +23,7 @@ def test_benchmark_emits_all_method_metrics(make: FixtureFactory) -> None:
         fixture.events, fixture.warp, fixture.expected_onsets_ql,
         meter_map=fixture.meter_map,
     )
-    assert set(metrics) == {"B0", "B1", "HSQ", "HSQ-no-ioi"}
+    assert set(metrics) == {"B0", "B1", "HSQ", "HSQ-no-ioi", "HSQ-timing"}
     for name, m in metrics.items():
         assert m.method == name
         assert m.expected_count == len(fixture.expected_onsets_ql)
@@ -31,6 +31,10 @@ def test_benchmark_emits_all_method_metrics(make: FixtureFactory) -> None:
         assert 0.0 <= m.exact_onset_rate <= 1.0
     assert metrics["HSQ"].total_cost is not None
     assert metrics["B0"].total_cost is None
+    # realized methods report notation-complexity counts; baselines do not
+    assert metrics["HSQ"].symbol_count is not None
+    assert metrics["HSQ-timing"].symbol_count is not None
+    assert metrics["B0"].symbol_count is None
 
 
 def test_benchmark_deterministic() -> None:
@@ -49,8 +53,14 @@ def test_hsq_beats_baselines_on_ioi_fixture() -> None:
     assert metrics["HSQ"].exact_onset_rate == 1.0
     assert metrics["B0"].exact_onset_rate == 0.5
     assert metrics["B1"].exact_onset_rate == 0.5
-    # and the no-IOI ablation falls back to baseline behavior
-    assert metrics["HSQ-no-ioi"].exact_onset_rate == 0.5
+    # QNT-003: the joint realization's notation cost alone also recovers the
+    # pair (a 5/4 span needs an ugly tie), so the no-IOI ablation no longer
+    # degrades to baseline on this fixture. The timing-only ablation keeps
+    # the IOI term, so it stays exact too — the timing terms' isolated
+    # contribution is covered in
+    # test_hsq_dp.test_ioi_cost_recovers_consistent_shift.
+    assert metrics["HSQ-no-ioi"].exact_onset_rate == 1.0
+    assert metrics["HSQ-timing"].exact_onset_rate == 1.0
 
 
 def test_onset_metrics_fields() -> None:

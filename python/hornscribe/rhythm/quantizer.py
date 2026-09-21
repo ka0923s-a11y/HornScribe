@@ -1,4 +1,4 @@
-"""HSQ-v1 onset quantizer (QNT-002; QUANTIZER_DESIGN.md 11, 19, 32, 44).
+"""HSQ-v1 quantizer (QNT-002 onsets + QNT-003 realization; design 11-16, 32-33).
 
 Pipeline implemented here (design 32):
 
@@ -9,15 +9,19 @@ Pipeline implemented here (design 32):
 2. ``candidates`` — per-note binary lattice inside the candidate window
    (design 8, :mod:`hornscribe.rhythm.lattice`);
 3. ``DP`` — deterministic top-K monotonic onset search over Huber onset
-   cost + IOI cost (design 9-11, :mod:`hornscribe.rhythm.dp`);
+   cost + IOI cost (design 9-11, :mod:`hornscribe.rhythm.dp`), where every
+   transition also evaluates the joint note-duration/rest realization of the
+   interval it closes (design 12/33, :mod:`hornscribe.rhythm.realize`);
 4. alternatives — up to ``k_best`` ranked :class:`QuantizationAlternative`
-   objects (design 19), with review reasons surfaced through
-   :class:`QuantizationDiagnostics` (design 40-41).
+   objects (design 19) carrying realized notes, rests and complexity
+   diagnostics (design 36.2, 40-41).
 
-Deliberately absent at this phase (issue non-goals): rests, ties, tuplets,
-joint duration realization — note durations are provisional spans to the
-next onset (see :mod:`hornscribe.rhythm._output`), and raw event durations
-are never mutated.
+Passing ``realize_durations=False`` restores the QNT-002 onset-only behavior
+(provisional span-to-next-onset durations, ``notation=None``, no rests) —
+kept as the timing-only ablation switch for benchmarks and tests.
+
+Still absent at this phase (later milestones): tuplets (QNT-005), triplet
+grids, swing, grace notes. Raw event durations are never mutated.
 """
 
 from __future__ import annotations
@@ -28,7 +32,9 @@ from fractions import Fraction
 
 from hornscribe.domain.events import RawNoteEvent
 from hornscribe.rhythm._output import (
+    assemble_path_rests,
     assemble_quantized_notes,
+    assemble_realized_notes,
     monotonic_positions,
     onset_sorted,
 )
@@ -46,6 +52,7 @@ from hornscribe.rhythm.lattice import (
 )
 from hornscribe.rhythm.meter import MeterMap, MeterSegment
 from hornscribe.rhythm.profile import QuantizationProfile
+from hornscribe.rhythm.realize import TINY_REST_MAX_QL, SpanRealizer
 from hornscribe.rhythm.timewarp import TimeWarp, normalize_to_score_time
 
 #: Coarse alignment-shift search step (design 6.3: ±120 ms band).
@@ -56,6 +63,10 @@ ALIGNMENT_FINE_STEP_SEC = 0.001
 AMBIGUITY_MARGIN_PER_NOTE = 0.15
 #: Relative tolerance for competing local minima in the shift surface (6.3).
 ALIGNMENT_COMPETING_MIN_REL = 0.05
+#: Raw-offset overrun past the next onset (in grid steps) that counts as an
+#: "extreme" overlap worth a ``overlapping_candidates`` review reason
+#: (design 27); smaller overruns are clipped silently and only counted.
+OVERLAP_REVIEW_MIN_STEPS = 1.0
 
 
 @dataclass(frozen=True)
@@ -175,6 +186,61 @@ def _review_reasons(
     return tuple(reasons)
 
 
+@dataclass(frozen=True)
+class _RealizationCounts:
+    """Typed notation-complexity counters for one realized path."""
+
+    tie_count: int
+    tiny_rest_count: int
+    second_dot_count: int
+    strong_boundary_obscured_count: int
+    overlap_clipped_count: int
+    max_overlap_ql: float
+
+
+def _realization_diagnostics(
+    ordered: tuple[NormalizedNote, ...],
+    path: OnsetPath,
+    extra_strong: int,
+    profile: QuantizationProfile,
+) -> tuple[_RealizationCounts, tuple[str, ...]]:
+    """Aggregate notation-complexity counters + review reasons for a path.
+
+    Returns the diagnostics field values and the realization-specific review
+    reasons: ``overlapping_candidates`` when a raw offset overran the next
+    onset by at least a grid step (design 27), ``offset_ambiguous`` when a
+    raw offset reversed/collapsed onto its onset (design 40).
+    """
+    step = float(profile.min_note_value_ql)
+    note_atoms = [a for rlz in path.realizations for a in rlz.note.atoms]
+    rest_atoms = [
+        a
+        for rlz in path.realizations
+        if rlz.rest is not None
+        for a in rlz.rest.atoms
+    ]
+    overlaps = [r.raw_overlap_ql for r in path.realizations if r.raw_overlap_ql > 0]
+    counts = _RealizationCounts(
+        tie_count=sum(r.tie_count for r in path.realizations),
+        tiny_rest_count=sum(
+            1 for a in rest_atoms if a.duration_ql < TINY_REST_MAX_QL
+        ),
+        second_dot_count=sum(1 for a in note_atoms + rest_atoms if a.dots == 2),
+        strong_boundary_obscured_count=sum(
+            r.strong_boundary_obscured for r in path.realizations
+        )
+        + extra_strong,
+        overlap_clipped_count=len(overlaps),
+        max_overlap_ql=max(overlaps, default=0.0),
+    )
+    reasons: list[str] = []
+    if any(o >= step * OVERLAP_REVIEW_MIN_STEPS for o in overlaps):
+        reasons.append("overlapping_candidates")
+    if any(n.offset_ql <= n.onset_ql for n in ordered):
+        reasons.append("offset_ambiguous")
+    return counts, tuple(reasons)
+
+
 def _quantize(
     notes: tuple[NormalizedNote, ...],
     meter_map: MeterMap,
@@ -182,15 +248,23 @@ def _quantize(
     *,
     alignment_shift_sec: float,
     alignment_uncertain: bool,
+    realize_durations: bool = True,
 ) -> tuple[QuantizationAlternative, ...]:
-    """Core onset quantization over already-normalized notes."""
+    """Core quantization over already-normalized notes.
+
+    With ``realize_durations`` (default) each DP transition jointly evaluates
+    the note+rest decomposition of the interval it closes (design 12/33) and
+    alternatives carry real notation atoms + rests. Disabled, it falls back
+    to provisional onset-only output — the timing-only ablation switch.
+    """
     if not notes:
         return ()
     ordered = onset_sorted(notes)
     candidates = tuple(
         generate_onset_candidates(note, profile) for note in ordered
     )
-    paths = kbest_onset_paths(ordered, candidates, profile)
+    realizer = SpanRealizer(meter_map, profile) if realize_durations else None
+    paths = kbest_onset_paths(ordered, candidates, profile, realizer)
 
     reasons_extra: tuple[str, ...] = ()
     if not paths:
@@ -202,10 +276,15 @@ def _quantize(
             snap_to_grid_ql(note.onset_ql, profile.min_note_value_ql) for note in ordered
         )
         repaired = monotonic_positions(snapped, profile.min_note_value_ql)
+        realizations = (
+            realizer.realize_path(repaired, ordered) if realizer is not None else ()
+        )
         paths = (
             OnsetPath(
                 positions=repaired,
-                cost=evaluate_onset_path_cost(repaired, ordered, profile),
+                cost=evaluate_onset_path_cost(repaired, ordered, profile)
+                + sum(r.cost for r in realizations),
+                realizations=realizations,
             ),
         )
         reasons_extra = ("overlapping_candidates",)
@@ -219,26 +298,63 @@ def _quantize(
     alternatives: list[QuantizationAlternative] = []
     for rank, path in enumerate(paths, start=1):
         next_cost = paths[rank].cost if rank < len(paths) else None
-        diagnostics = QuantizationDiagnostics(
-            weights_version=profile.weights.weights_version,
-            meter=f"{segment.numerator}/{segment.denominator}",
-            min_note_value_ql=profile.min_note_value_ql,
-            triplet_policy=profile.triplet_policy,
-            alignment_shift_sec=alignment_shift_sec,
-            path_cost=path.cost,
-            alternative_cost=next_cost,
-            ambiguous_region_count=ambiguous,
-            symbol_count=len(ordered),
-            review_reasons=reasons,
-        )
+        if realizer is not None:
+            qnotes = assemble_realized_notes(
+                ordered, path.positions, path.realizations
+            )
+            rests, extra_strong = assemble_path_rests(
+                path.positions, path.realizations, realizer
+            )
+            counts, extra_reasons = _realization_diagnostics(
+                ordered, path, extra_strong, profile
+            )
+            diagnostics = QuantizationDiagnostics(
+                weights_version=profile.weights.weights_version,
+                meter=f"{segment.numerator}/{segment.denominator}",
+                min_note_value_ql=profile.min_note_value_ql,
+                triplet_policy=profile.triplet_policy,
+                alignment_shift_sec=alignment_shift_sec,
+                path_cost=path.cost,
+                alternative_cost=next_cost,
+                ambiguous_region_count=ambiguous,
+                symbol_count=sum(len(rlz.note.atoms) for rlz in path.realizations)
+                + sum(len(r.notation.atoms) for r in rests),
+                rest_count=sum(len(r.notation.atoms) for r in rests),
+                span_realization_calls=realizer.piece_calls,
+                span_realization_cache_hits=realizer.piece_cache_hits,
+                review_reasons=reasons
+                + tuple(r for r in extra_reasons if r not in reasons),
+                tie_count=counts.tie_count,
+                tiny_rest_count=counts.tiny_rest_count,
+                second_dot_count=counts.second_dot_count,
+                strong_boundary_obscured_count=counts.strong_boundary_obscured_count,
+                overlap_clipped_count=counts.overlap_clipped_count,
+                max_overlap_ql=counts.max_overlap_ql,
+            )
+        else:
+            qnotes = assemble_quantized_notes(
+                ordered, path.positions, profile.min_note_value_ql
+            )
+            rests = ()
+            diagnostics = QuantizationDiagnostics(
+                weights_version=profile.weights.weights_version,
+                meter=f"{segment.numerator}/{segment.denominator}",
+                min_note_value_ql=profile.min_note_value_ql,
+                triplet_policy=profile.triplet_policy,
+                alignment_shift_sec=alignment_shift_sec,
+                path_cost=path.cost,
+                alternative_cost=next_cost,
+                ambiguous_region_count=ambiguous,
+                symbol_count=len(ordered),
+                review_reasons=reasons,
+            )
         alternatives.append(
             QuantizationAlternative(
                 rank=rank,
                 total_cost=path.cost,
-                notes=assemble_quantized_notes(
-                    ordered, path.positions, profile.min_note_value_ql
-                ),
+                notes=qnotes,
                 diagnostics=diagnostics,
+                rests=rests,
             )
         )
     return tuple(alternatives)
@@ -248,6 +364,8 @@ def quantize_normalized(
     notes: Sequence[NormalizedNote],
     meter_map: MeterMap | None = None,
     profile: QuantizationProfile | None = None,
+    *,
+    realize_durations: bool = True,
 ) -> tuple[QuantizationAlternative, ...]:
     """Quantize already-normalized onsets (design 32, steps 4-5).
 
@@ -260,6 +378,10 @@ def quantize_normalized(
     Returns up to ``profile.k_best`` alternatives ordered by the documented
     deterministic tie-break (design 44); every emitted onset sequence is
     strictly increasing. Empty input returns an empty tuple.
+
+    ``realize_durations=False`` produces the QNT-002 onset-only output
+    (provisional durations, ``notation=None``, no rests) — the timing-only
+    ablation switch.
     """
     profile = profile if profile is not None else QuantizationProfile.standard()
     meter_map = meter_map if meter_map is not None else _default_meter_map()
@@ -269,6 +391,7 @@ def quantize_normalized(
         profile,
         alignment_shift_sec=0.0,
         alignment_uncertain=False,
+        realize_durations=realize_durations,
     )
 
 
@@ -279,6 +402,7 @@ def quantize_events(
     profile: QuantizationProfile | None = None,
     *,
     search_alignment: bool = True,
+    realize_durations: bool = True,
 ) -> tuple[QuantizationAlternative, ...]:
     """Quantize raw events end to end: alignment search -> normalize -> DP.
 
@@ -288,6 +412,11 @@ def quantize_events(
     shift is reported in ``diagnostics.alignment_shift_sec``. Untrustworthy
     searches surface ``"beat_alignment_uncertain"`` in
     ``diagnostics.review_reasons`` instead of being silently applied.
+
+    With ``realize_durations`` (default) alternatives carry the joint
+    note/rest realization (design 12): notated durations, rest spans, ties
+    and notation-complexity diagnostics. ``False`` restores the onset-only
+    timing ablation output (design 37, B3-style).
     """
     profile = profile if profile is not None else QuantizationProfile.standard()
     meter_map = meter_map if meter_map is not None else _default_meter_map()
@@ -312,4 +441,5 @@ def quantize_events(
         profile,
         alignment_shift_sec=shift,
         alignment_uncertain=uncertain,
+        realize_durations=realize_durations,
     )
