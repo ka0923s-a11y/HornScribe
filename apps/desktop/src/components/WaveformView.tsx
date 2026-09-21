@@ -11,6 +11,7 @@ export function WaveformView() {
       className="hs-waveform"
       role="region"
       aria-label={ja.waveform.regionLabel}
+      data-hs-focus-zone="waveform"
       tabIndex={0}
     >
       {ja.waveform.placeholder}

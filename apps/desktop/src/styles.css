@@ -28,8 +28,8 @@ body {
    compatible focus ring, this guarantees the same contract for every other
    focusable region (waveform, score surface, segmented control, links). */
 :focus-visible {
-  outline: 2px solid var(--hs-focus);
-  outline-offset: 2px;
+  outline: var(--hs-focus-width) solid var(--hs-focus);
+  outline-offset: var(--hs-focus-offset);
   border-radius: var(--hs-radius-input);
 }
 /* Never remove the outline without a replacement. */

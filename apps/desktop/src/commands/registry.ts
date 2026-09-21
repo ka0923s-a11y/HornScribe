@@ -1,122 +1,197 @@
 /**
- * Keyboard command registry (docs/GUI_UX_SPEC.md §23).
+ * Command registry (docs/GUI_UX_SPEC.md §23) — the single source of truth
+ * for every invocable action in the app.
  *
- * All shortcuts are defined in this single place; components must not
- * register their own ad-hoc keydown handlers for app commands.
+ * - Command bar buttons, menus, a future command palette and the keyboard
+ *   dispatcher all go through this registry; components never own ad-hoc
+ *   keydown handlers for app commands.
+ * - Commands are stateless definitions; `isEnabled`/`isVisible` predicates
+ *   evaluate against an immutable CommandSnapshot the app rebuilds per
+ *   render, so enabled state is always consistent across every surface.
+ * - `detectConflicts` catches duplicate bindings at construction time —
+ *   see registry.test.ts which asserts the shipped set is conflict-free.
  */
 
-export interface CommandContext {
-  setPitchView(view: "concert" | "hornF"): void;
-  openAudioRequested(): void;
-  openSettings(): void;
+import { parseShortcut, sequenceKey, type KeySequence } from "../keyboard/keys";
+import { createCommandDefinitions } from "./definitions";
+import type { Command, CommandContext, CommandSnapshot } from "./types";
+
+export type { Command, CommandContext, CommandSnapshot } from "./types";
+
+/** One registered binding: which command owns a parsed sequence. */
+export interface CommandBinding {
+  readonly command: Command;
+  /** The original shortcut string ("Ctrl+Shift+Z"). */
+  readonly shortcut: string;
+  /** Parsed chord sequence (single chord for all current bindings). */
+  readonly sequence: KeySequence;
 }
 
-export interface Command {
-  id: string;
-  /** Japanese label shown in UI / tooltips. */
-  labelJa: string;
-  /** e.g. "Ctrl+1" — matched case-insensitively on KeyboardEvent. */
-  shortcut?: string;
-  isEnabled(): boolean;
-  execute(ctx: CommandContext): void;
+/** A detected shortcut collision between two commands. */
+export interface ShortcutConflict {
+  readonly shortcut: string;
+  readonly commandIds: readonly string[];
 }
 
-export interface ShellState {
-  hasAudio: boolean;
-  hasScore: boolean;
-  reviewCount: number;
-}
+export class CommandRegistry {
+  private readonly byId = new Map<string, Command>();
+  private readonly bindingList: CommandBinding[] = [];
 
-export function createCommands(state: ShellState): Command[] {
-  return [
-    {
-      id: "file.openAudio",
-      labelJa: "音声ファイルを開く",
-      shortcut: "Ctrl+O",
-      isEnabled: () => true,
-      execute: (ctx) => ctx.openAudioRequested(),
-    },
-    {
-      id: "score.transcribe",
-      labelJa: "採譜",
-      isEnabled: () => state.hasAudio,
-      execute: () => undefined, // spike: transcription engine not wired yet
-    },
-    {
-      id: "view.concertPitch",
-      labelJa: "コンサートピッチ",
-      shortcut: "Ctrl+1",
-      isEnabled: () => true,
-      execute: (ctx) => ctx.setPitchView("concert"),
-    },
-    {
-      id: "view.hornF",
-      labelJa: "F管ホルン",
-      shortcut: "Ctrl+2",
-      isEnabled: () => true,
-      execute: (ctx) => ctx.setPitchView("hornF"),
-    },
-    {
-      id: "review.open",
-      labelJa: "要確認",
-      isEnabled: () => state.hasScore && state.reviewCount > 0,
-      execute: () => undefined,
-    },
-    {
-      id: "export.open",
-      labelJa: "書き出し",
-      isEnabled: () => state.hasScore,
-      execute: () => undefined,
-    },
-    {
-      id: "app.settings",
-      labelJa: "設定",
-      isEnabled: () => true,
-      execute: (ctx) => ctx.openSettings(),
-    },
-  ];
-}
+  constructor(commands: readonly Command[] = []) {
+    for (const command of commands) this.register(command);
+  }
 
-/** Match a KeyboardEvent against "Ctrl+1" style shortcut strings. */
-export function matchesShortcut(e: KeyboardEvent, shortcut: string): boolean {
-  const parts = shortcut.split("+");
-  const key = parts[parts.length - 1].toLowerCase();
-  const wantCtrl = parts.includes("Ctrl");
-  const wantShift = parts.includes("Shift");
-  const wantAlt = parts.includes("Alt");
-  return (
-    e.key.toLowerCase() === key &&
-    e.ctrlKey === wantCtrl &&
-    e.shiftKey === wantShift &&
-    e.altKey === wantAlt
-  );
-}
+  /**
+   * Registers a command. Throws on duplicate id — a second registration for
+   * an id is always a bug (use a new id or unregister first).
+   */
+  register(command: Command): void {
+    if (this.byId.has(command.id)) {
+      throw new Error(`Duplicate command id: "${command.id}"`);
+    }
+    this.byId.set(command.id, command);
+    for (const shortcut of command.shortcuts ?? []) {
+      this.bindingList.push({
+        command,
+        shortcut,
+        sequence: parseShortcut(shortcut),
+      });
+    }
+  }
 
-function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA" ||
-    target.isContentEditable
-  );
+  unregister(id: string): boolean {
+    if (!this.byId.delete(id)) return false;
+    for (let i = this.bindingList.length - 1; i >= 0; i--) {
+      if (this.bindingList[i].command.id === id) this.bindingList.splice(i, 1);
+    }
+    return true;
+  }
+
+  get(id: string): Command | undefined {
+    return this.byId.get(id);
+  }
+
+  /** All registered commands in registration order. */
+  list(): readonly Command[] {
+    return [...this.byId.values()];
+  }
+
+  /** Commands currently listed on command surfaces (menus/palette). */
+  listVisible(snapshot: CommandSnapshot): readonly Command[] {
+    return this.list().filter((c) => c.isVisible?.(snapshot) ?? true);
+  }
+
+  isEnabled(id: string, snapshot: CommandSnapshot): boolean {
+    const command = this.byId.get(id);
+    if (!command) return false;
+    return command.isEnabled?.(snapshot) ?? true;
+  }
+
+  isVisible(id: string, snapshot: CommandSnapshot): boolean {
+    const command = this.byId.get(id);
+    if (!command) return false;
+    return command.isVisible?.(snapshot) ?? true;
+  }
+
+  /** Canonical display shortcut (first binding), e.g. "Ctrl+O". */
+  shortcutLabel(id: string): string | undefined {
+    return this.byId.get(id)?.shortcuts?.[0];
+  }
+
+  /**
+   * All parsed bindings — consumed by the keyboard dispatcher and by
+   * conflict detection. Same normalized sequence under two commands with
+   * overlapping scopes is a conflict.
+   */
+  bindings(): readonly CommandBinding[] {
+    return this.bindingList;
+  }
+
+  /**
+   * Invoke a command by id — the path used by buttons, menus and palette
+   * items. Returns false (running nothing) when the command is unknown or
+   * disabled, so a disabled command is non-executable from every surface.
+   */
+  invoke(
+    id: string,
+    ctx: CommandContext,
+    snapshot: CommandSnapshot,
+  ): boolean {
+    const command = this.byId.get(id);
+    if (!command) return false;
+    if (!(command.isEnabled?.(snapshot) ?? true)) return false;
+    command.run(ctx, snapshot);
+    return true;
+  }
+
+  /**
+   * Finds duplicate normalized bindings. Two commands binding the same
+   * chord sequence is always a conflict — all commands share the workspace
+   * scope, so overlapping `isEnabled` predicates cannot rescue it.
+   */
+  detectConflicts(): ShortcutConflict[] {
+    const bySequence = new Map<string, Set<string>>();
+    for (const binding of this.bindingList) {
+      const key = sequenceKey(binding.sequence);
+      const ids = bySequence.get(key) ?? new Set<string>();
+      ids.add(binding.command.id);
+      bySequence.set(key, ids);
+    }
+    const conflicts: ShortcutConflict[] = [];
+    for (const [shortcut, ids] of bySequence) {
+      if (ids.size > 1) {
+        conflicts.push({ shortcut, commandIds: [...ids] });
+      }
+    }
+    return conflicts;
+  }
 }
 
 /**
- * Central keydown dispatcher. Text-entry contexts are left alone so
- * shortcuts never fight Japanese IME input (MASTER_PLAN §8).
+ * Render-scoped view of the registry for components. Bound to one snapshot
+ * so every surface (command bar, transport, menus) agrees on enabled state
+ * within a render; `invoke` routes through the same predicates as keyboard
+ * dispatch, so a disabled command is non-executable everywhere.
  */
-export function dispatchCommand(
-  e: KeyboardEvent,
-  commands: Command[],
+export interface CommandSurface {
+  /** Runs the command when enabled; returns whether it ran. */
+  invoke(id: string): boolean;
+  isEnabled(id: string): boolean;
+  isVisible(id: string): boolean;
+  /** Japanese title for buttons/menus ("" when the id is unknown). */
+  title(id: string): string;
+  /** Canonical display shortcut, e.g. "Ctrl+O". */
+  shortcutLabel(id: string): string | undefined;
+}
+
+export function createCommandSurface(
+  registry: CommandRegistry,
   ctx: CommandContext,
-): boolean {
-  if (isTextEntryTarget(e.target)) return false;
-  for (const cmd of commands) {
-    if (cmd.shortcut && matchesShortcut(e, cmd.shortcut)) {
-      if (!cmd.isEnabled()) return true; // swallow: shortcut known but disabled
-      cmd.execute(ctx);
-      return true;
-    }
+  snapshot: CommandSnapshot,
+): CommandSurface {
+  return {
+    invoke: (id) => registry.invoke(id, ctx, snapshot),
+    isEnabled: (id) => registry.isEnabled(id, snapshot),
+    isVisible: (id) => registry.isVisible(id, snapshot),
+    title: (id) => registry.get(id)?.title ?? "",
+    shortcutLabel: (id) => registry.shortcutLabel(id),
+  };
+}
+
+/**
+ * Builds the app registry from the built-in definitions and fails fast on
+ * shortcut conflicts — a conflicting registration must never ship silently.
+ */
+export function createCommandRegistry(
+  commands: readonly Command[] = createCommandDefinitions(),
+): CommandRegistry {
+  const registry = new CommandRegistry(commands);
+  const conflicts = registry.detectConflicts();
+  if (conflicts.length > 0) {
+    const detail = conflicts
+      .map((c) => `${c.shortcut}: ${c.commandIds.join(", ")}`)
+      .join("; ");
+    throw new Error(`Shortcut conflicts in command registry: ${detail}`);
   }
-  return false;
+  return registry;
 }

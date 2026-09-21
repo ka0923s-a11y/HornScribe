@@ -16,6 +16,8 @@ export function StatusBar({
       className="hs-statusbar"
       role="status"
       aria-label={ja.status.regionLabel}
+      data-hs-focus-zone="status"
+      tabIndex={0}
     >
       <span className="hs-statusbar__message">{message}</span>
       <span className="hs-statusbar__spacer" />

@@ -20,7 +20,13 @@ export function SettingsView({
   onBack(): void;
 }) {
   return (
-    <div className="hs-settings" role="region" aria-label={ja.settings.regionLabel}>
+    <div
+      className="hs-settings"
+      role="region"
+      aria-label={ja.settings.regionLabel}
+      data-hs-focus-zone="settings"
+      tabIndex={-1}
+    >
       <HsButton
         variant="subtle"
         icon={<ArrowLeft24Regular />}

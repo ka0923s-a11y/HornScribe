@@ -6,6 +6,7 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
+import { useFocusRestoreOnClose } from "../../focus/useFocusRestoreOnClose";
 
 /**
  * HsPopover — anchored floating surface (DESIGN_SYSTEM §8 elevation tier).
@@ -52,6 +53,9 @@ export function HsPopover({
   positioning = "below",
 }: HsPopoverProps) {
   const styles = usePopoverStyles();
+  // §22/UI-012: if focus ever moved into the popover, closing returns it to
+  // the trigger — temporary popovers must not strand logical focus.
+  useFocusRestoreOnClose(open ?? false);
   return (
     <FluentPopover
       open={open}

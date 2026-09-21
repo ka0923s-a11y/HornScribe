@@ -7,7 +7,12 @@ import { ja } from "../strings/ja";
  */
 export function PropertiesPanel() {
   return (
-    <aside className="hs-properties" aria-label={ja.properties.regionLabel}>
+    <aside
+      className="hs-properties"
+      aria-label={ja.properties.regionLabel}
+      data-hs-focus-zone="properties"
+      tabIndex={0}
+    >
       <h2 className="hs-properties__title">{ja.properties.title}</h2>
       <p className="hs-properties__body">{ja.properties.placeholder}</p>
     </aside>

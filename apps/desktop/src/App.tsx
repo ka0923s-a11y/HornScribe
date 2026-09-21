@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { FluentProvider } from "@fluentui/react-components";
 import { ja } from "./strings/ja";
 import { hsLightTheme, hsDarkTheme } from "./theme/fluentTheme";
@@ -14,10 +14,14 @@ import { StatusBar } from "./components/StatusBar";
 import { SettingsView } from "./components/SettingsView";
 import type { PitchView } from "./components/PitchSegmented";
 import {
-  createCommands,
-  dispatchCommand,
+  createCommandRegistry,
+  createCommandSurface,
   type CommandContext,
+  type CommandSnapshot,
 } from "./commands/registry";
+import { KeyboardDispatcher } from "./keyboard/dispatcher";
+import { useCommandKeyboard } from "./keyboard/useCommandKeyboard";
+import { cycleFocusZone } from "./focus/zones";
 import { getShellInfo } from "./tauri/bridge";
 
 type View = "workspace" | "settings";
@@ -29,11 +33,18 @@ const DevGallery = import.meta.env.DEV
   ? lazy(() => import("./dev/Gallery"))
   : null;
 
+/** Japanese display name for a focus zone (for status announcements). */
+function zoneName(id: string): string {
+  const names: Record<string, string> = ja.commandFeedback.zoneNames;
+  return names[id] ?? id;
+}
+
 /**
- * UI-001 spike shell. Screen state is fixed to EMPTY (GUI_UX_SPEC §27):
- * no audio, no score, no engine. The shell proves layout, theming,
- * Japanese copy, keyboard focus, IPC plumbing and the CSP/capability
- * baseline before real features are wired in.
+ * UI-001 spike shell driven by the UI-012 command architecture
+ * (GUI_UX_SPEC §22/§23). Screen state is fixed to EMPTY (§27): no audio, no
+ * score, no engine. The shell proves layout, theming, Japanese copy,
+ * keyboard/focus behavior, IPC plumbing and the CSP/capability baseline
+ * before real features are wired in.
  */
 export default function App() {
   const { mode, resolved, select } = useThemeMode();
@@ -45,20 +56,101 @@ export default function App() {
   );
   const [hash, setHash] = useState(() => window.location.hash);
 
-  // EMPTY state: nothing loaded yet.
-  const shellState = useMemo(
-    () => ({ hasAudio: false, hasScore: false, reviewCount: 0 }),
-    [],
+  // The registry is static: predicates read the snapshot, not React state.
+  const registry = useMemo(() => createCommandRegistry(), []);
+
+  // EMPTY state (§27): nothing loaded yet — transport/edit/export commands
+  // evaluate disabled from this snapshot on every surface at once.
+  const snapshot = useMemo<CommandSnapshot>(
+    () => ({
+      hasAudio: false,
+      hasScore: false,
+      isTranscribing: false,
+      isPlaying: false,
+      loopEnabled: false,
+      pitch,
+      canUndo: false,
+      canRedo: false,
+      hasSelection: false,
+      reviewOpen: false,
+      reviewCount: 0,
+      view,
+    }),
+    [pitch, view],
   );
-  const commands = useMemo(() => createCommands(shellState), [shellState]);
 
   const ctx = useMemo<CommandContext>(
     () => ({
-      setPitchView: setPitch,
-      openAudioRequested: () => setStatusMessage(ja.status.spikeNoFileOpen),
+      openAudio: () => setStatusMessage(ja.status.spikeNoFileOpen),
+      transcribe: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      togglePlayPause: () =>
+        setStatusMessage(ja.commandFeedback.notImplemented),
+      stop: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      jumpBack: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      jumpForward: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      seekToStart: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      seekToEnd: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      toggleLoop: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      setPitchView: (v) => {
+        setPitch(v);
+        setStatusMessage(
+          v === "concert"
+            ? ja.commandFeedback.pitchConcert
+            : ja.commandFeedback.pitchHornF,
+        );
+      },
+      openReview: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      reviewNext: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      reviewPrevious: () =>
+        setStatusMessage(ja.commandFeedback.notImplemented),
+      undo: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      redo: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      openExport: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      zoomScoreIn: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      zoomScoreOut: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      zoomScoreFit: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      clearSelection: () =>
+        setStatusMessage(ja.commandFeedback.notImplemented),
       openSettings: () => setView("settings"),
+      // F6 / Shift+F6 region cycling (§22) — the only fully-working
+      // transport-independent commands in the spike.
+      focusNextRegion: () => {
+        const zone = cycleFocusZone(1);
+        if (zone) {
+          setStatusMessage(ja.commandFeedback.focusMoved(zoneName(zone)));
+        }
+      },
+      focusPreviousRegion: () => {
+        const zone = cycleFocusZone(-1);
+        if (zone) {
+          setStatusMessage(ja.commandFeedback.focusMoved(zoneName(zone)));
+        }
+      },
+      announce: setStatusMessage,
     }),
     [],
+  );
+
+  // The dispatcher reads the snapshot lazily per key event, so it must see
+  // the latest render's value even though the listener is stable.
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const dispatcher = useMemo(
+    () =>
+      new KeyboardDispatcher({
+        registry,
+        getSnapshot: () => snapshotRef.current,
+        context: ctx,
+      }),
+    [registry, ctx],
+  );
+  useCommandKeyboard(dispatcher);
+
+  // One render-scoped invocation surface shared by command bar, transport
+  // and any other component — buttons never call services directly.
+  const commands = useMemo(
+    () => createCommandSurface(registry, ctx, snapshot),
+    [registry, ctx, snapshot],
   );
 
   // Hash routing is only used for the internal dev gallery; the product
@@ -68,15 +160,6 @@ export default function App() {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
-
-  // Central shortcut dispatch (GUI_UX_SPEC §23).
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (dispatchCommand(e, commands, ctx)) e.preventDefault();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [commands, ctx]);
 
   // Prove the JS↔Rust IPC channel early; populates the status area.
   useEffect(() => {
@@ -117,18 +200,15 @@ export default function App() {
             </div>
           ) : (
             <>
-              <CommandBar
-                commands={commands}
-                ctx={ctx}
-                pitch={pitch}
-                onPitch={setPitch}
-              />
+              <CommandBar commands={commands} pitch={pitch} />
               <WaveformView />
               <div className="hs-main">
-                <ScoreWorkspace onOpenAudio={ctx.openAudioRequested} />
+                <ScoreWorkspace
+                  onOpenAudio={() => commands.invoke("file.openAudio")}
+                />
                 <PropertiesPanel />
               </div>
-              <TransportBar enabled={shellState.hasAudio} />
+              <TransportBar commands={commands} />
             </>
           )}
           <StatusBar message={statusMessage} detail={shellDetail} />

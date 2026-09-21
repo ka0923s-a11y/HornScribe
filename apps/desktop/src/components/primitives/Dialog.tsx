@@ -10,6 +10,7 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
+import { useFocusRestoreOnClose } from "../../focus/useFocusRestoreOnClose";
 
 /**
  * HsDialog — modal surface (§7 modal radius, §8 elevation, §20 error shape).
@@ -59,6 +60,10 @@ export function HsDialog({
   modalType = "modal",
 }: HsDialogProps) {
   const styles = useDialogStyles();
+  // §22: closing the dialog returns focus to the opener — the hook only
+  // restores when focus would otherwise strand on <body>, so Fluent's own
+  // trigger-restore keeps precedence and deliberate moves are respected.
+  useFocusRestoreOnClose(open);
   return (
     <FluentDialog
       open={open}

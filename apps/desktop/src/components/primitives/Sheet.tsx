@@ -11,6 +11,7 @@ import {
 import { Dismiss24Regular } from "@fluentui/react-icons";
 import { HsIconButton } from "./IconButton";
 import { ja } from "../../strings/ja";
+import { useFocusRestoreOnClose } from "../../focus/useFocusRestoreOnClose";
 
 /**
  * HsSheet — side sheet over Fluent v9 OverlayDrawer (書き出し, 採譜オプション
@@ -57,6 +58,8 @@ export function HsSheet({
   closeLabel,
 }: HsSheetProps) {
   const styles = useSheetStyles();
+  // §22: closing the sheet returns focus to the opener (see HsDialog).
+  useFocusRestoreOnClose(open);
   return (
     <OverlayDrawer
       open={open}

@@ -17,6 +17,7 @@ export function ScoreWorkspace({
       className="hs-score"
       role="region"
       aria-label={ja.score.regionLabel}
+      data-hs-focus-zone="score"
       tabIndex={0}
     >
       <div className="hs-empty">

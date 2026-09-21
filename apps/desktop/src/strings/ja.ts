@@ -233,6 +233,61 @@ export const ja = {
       destination: "保存先",
     },
   },
+
+  /**
+   * Command registry titles (GUI_UX_SPEC §23). One canonical Japanese label
+   * per command — command bar, menus, tooltips and screen readers all
+   * announce the same string, so terminology never drifts.
+   */
+  commands: {
+    openAudio: "音声ファイルを開く",
+    transcribe: "採譜",
+    retranscribe: "採譜し直す",
+    playPause: "再生 / 一時停止",
+    stop: "停止",
+    jumpBack: "戻る",
+    jumpForward: "進む",
+    seekStart: "先頭へ移動",
+    seekEnd: "末尾へ移動",
+    toggleLoop: "ループを切り替える",
+    concertPitch: "コンサートピッチ",
+    hornF: "F管ホルン",
+    openReview: "要確認箇所を見る",
+    reviewNext: "次の要確認箇所へ",
+    reviewPrevious: "前の要確認箇所へ",
+    undo: "元に戻す",
+    redo: "やり直し",
+    export: "書き出し",
+    zoomScoreIn: "楽譜を拡大",
+    zoomScoreOut: "楽譜を縮小",
+    zoomScoreFit: "楽譜を幅に合わせる",
+    clearSelection: "選択を解除",
+    nextRegion: "次の領域へ移動",
+    previousRegion: "前の領域へ移動",
+    settings: "設定",
+  },
+
+  /**
+   * Command feedback announced in the status area (role="status" is
+   * aria-live polite, so these lines are what screen-reader users hear
+   * when a command runs or cannot run).
+   */
+  commandFeedback: {
+    pitchConcert: "コンサートピッチに切り替えました",
+    pitchHornF: "F管ホルン表示に切り替えました",
+    notImplemented: "この操作はスパイク版ではまだ実行できません",
+    disabled: "この操作は現在実行できません",
+    focusMoved: (zoneName: string) => `${zoneName}に移動しました`,
+    zoneNames: {
+      commandbar: "コマンドバー",
+      waveform: "波形",
+      score: "楽譜",
+      properties: "プロパティ",
+      transport: "トランスポート",
+      status: "状態表示",
+      settings: "設定",
+    },
+  },
   /* ============================ prototype ============================
    * UI-009 (issue #31): 事前検証プロトタイプ専用の文言。
    * 正準コピーは protocol/copy/ja-JP.json（UI-006）。ここでは同じ文面を
@@ -546,6 +601,7 @@ export const ja = {
       simulatedSeek: "元音源の該当位置へ移動しました",
     },
   },
+
 } as const;
 
 export type JaStrings = typeof ja;
