@@ -4,6 +4,8 @@
 > Updated: 2026-09-21  
 > Scope: 個人利用、完全無料、ローカル完結、Windowsを第一対象とする
 
+> **GUI architecture update:** 高品質なdesktop UIについては [GUI / UX Design & Implementation Plan](GUI_UX_PLAN.md) と [ADR-0001](adr/ADR-0001-desktop-ui-architecture.md) を優先する。既存のPySide6記述は初期案であり、Tauri 2 + React/TypeScript + Python worker構成を技術spikeで検証後に正式固定する。
+
 ## 0. この文書の位置づけ
 
 この文書を HornScribe の実装上の基準書とする。
@@ -68,7 +70,7 @@ MVPでは **Python 3.10.x を標準環境**とする。
 
 - Basic Pitch が正式に対応している。
 - Windows + Python 3.10 では軽量な ONNX runtime 系を利用しやすい。
-- PySide6 の現行版も Python 3.10+ をサポートする。
+- desktop UI dependencies (Tauri / React / Fluent / Verovio / wavesurfer.js) の現行版も Python 3.10+ をサポートする。
 - Python 3.11 では Basic Pitch の依存条件上 TensorFlow が入りやすく、MVPとしては依存が重い。
 - Python 3.12 は2026-09現在 upstream で対応作業が進行中のため、初期固定環境にはしない。
 
@@ -205,34 +207,31 @@ HornScribeではこれをそのまま再実装せず、
 
 # 3. 採用技術
 
-| レイヤ | 初期採用 | 用途 | 方針 |
+GUI/UX層は別文書 [GUI_UX_PLAN.md](GUI_UX_PLAN.md) の技術spikeで検証する。音楽処理のPython domainはGUI技術から独立させる。
+
+| レイヤ | 初期採用 / 検証対象 | 用途 | 方針 |
 |---|---|---|---|
-| Language | Python 3.10.x | 全体 | MVPでは固定 |
-| GUI | PySide6 | Desktop UI | Qt公式Python binding |
-| Audio decode | FFmpeg | MP3/M4A/FLAC/OGG→内部WAV | subprocess経由 |
-| Audio playback | QtMultimedia | 再生/停止/シーク | GUI用 |
+| Desktop shell | Tauri 2 / Rust | native window / sidecar lifecycle / OS integration | GUI spike後に正式固定 |
+| Frontend | React + TypeScript | Desktop UI | business logicを持たせない |
+| UI foundation | Fluent UI React v9 + HornScribe tokens | controls / theme / accessibility | Windows 11との整合 |
+| Score preview | Verovio WASM | MusicXML→interactive SVG | note/time mappingを検証 |
+| Waveform | wavesurfer.js | waveform / regions / timeline | stable releaseをpin |
+| Backend language | Python 3.10.x initially | AMT / music domain / export | Basic Pitch互換性を優先 |
+| Audio decode | FFmpeg | MP3/M4A/FLAC/OGG→内部形式 | subprocess経由 |
 | AMT | Basic Pitch | Audio→NoteEvent | baseline backend |
 | MIDI | pretty_midi / mido | MIDI入出力 | 用途ごとに限定 |
 | Signal analysis | librosa | tempo/beat等 | 必要な箇所のみ |
-| Score domain | HornScribe独自モデル | 正規化された内部表現 | 最重要 |
+| Score domain | HornScribe独自モデル | canonical concert score | UIから独立 |
 | Notation | music21 | 調号、音名、MusicXML支援 | domainを直接依存させすぎない |
-| Score preview | Verovio を候補 | MusicXML→SVG | MVP後半で評価 |
-| PDF | MuseScore Studio CLI | MusicXML→PDF | 外部インストールを検出 |
-| Tests | pytest | unit/integration | 必須 |
-| Packaging | PyInstaller 等 | Windows executable | MVP完成後 |
+| PDF | MuseScore Studio CLI | MusicXML→PDF | 外部実行ファイルを検出 |
+| Backend tests | pytest | unit/integration | 必須 |
+| Frontend tests | component/a11y/visual/E2E | GUI品質 | GUI計画に従う |
 
-ライセンス上の概要:
+Tauri案はArchitecture Spikeを通過するまで **Proposed** とする。失敗時の第一fallbackは Qt Quick/QML。
 
-- Basic Pitch: Apache-2.0
-- music21: BSD
-- PySide6: LGPLv3 / GPLv3 / commercial
-- Verovio: LGPLv3
-- FFmpeg: 基本 LGPLv2.1+、ビルド構成によりGPL
-- MuseScore Studio: GPLv3
+将来配布する場合は、Tauri/React/Fluent/Verovio/wavesurfer.js/Python依存/FFmpeg/MuseScoreを含め、採用versionのライセンスとバイナリ同梱条件をrelease前に再監査する。
 
-今回は個人利用のため実運用上の制約は小さい。ただし将来配布する場合は、バイナリ同梱方法と各OSSのライセンス条件を改めて監査する。
-
-**初期版では MuseScore / FFmpeg をアプリへ無断で埋め込まず、外部実行ファイルを検出して利用する構成を優先する。**
+**個人利用MVPではクラウドAPIや有料runtimeを導入しない。**
 
 ---
 
@@ -780,58 +779,24 @@ MVP後半でA/Bを比較し、UIプレビューはVerovioを第一候補とす�
 
 ---
 
-# 15. GUI仕様
+# 15. GUI / UX
 
-## 15.1 Main window
+GUIの詳細仕様、Information Architecture、design tokens、waveform/score同期、AI confidence review、accessibility、keyboard shortcuts、performance budget、visual regression testingは以下を唯一の詳細基準とする。
 
-```text
-┌─────────────────────────────────────────────────────────┐
-│ HornScribe                 [Open Audio] [Settings]      │
-├─────────────────────────────────────────────────────────┤
-│ filename.mp3                                            │
-│ ▶  ⏸  ■   ─────────●────────────  01:23 / 03:45       │
-├─────────────────────┬───────────────────────────────────┤
-│ Transcription       │ Score                             │
-│ Backend: BasicPitch │ [Concert Pitch] [Horn in F]       │
-│ BPM: Auto / 120     │                                   │
-│ Meter: 4/4          │         score preview             │
-│ Grid: 1/16          │                                   │
-│ Confidence: ...     │                                   │
-│                     │                                   │
-│ [Transcribe]        │                                   │
-├─────────────────────┴───────────────────────────────────┤
-│ [Export MIDI] [Export MusicXML] [Export PDF] [All]      │
-└─────────────────────────────────────────────────────────┘
-```
+- [GUI / UX Design & Implementation Plan](GUI_UX_PLAN.md)
+- [ADR-0001: Desktop UI Architecture](adr/ADR-0001-desktop-ui-architecture.md)
 
-## 15.2 必須UX
+基本方針:
 
-- drag & drop
-- play/pause
-- seek
-- 現在位置表示
-- transcription progress
-- cancel
-- Concert/Horn tab
-- BPM編集
-- time signature編集
-- quantization再実行
-- export
-
-## 15.3 UIをフリーズさせない
-
-以下はすべてworkerで実行する。
-
-- FFmpeg
-- Basic Pitch
-- Demucs（将来）
-- quantization
-- MusicXML rendering
-- MuseScore PDF export
-
-Qt main threadでは実行しない。
-
-キャンセル可能なジョブ管理を用意する。
+- Scoreを通常画面の主役にする
+- Score / Review の2主要workspace
+- Concert / Horn in F は別documentではなく同一canonical scoreのpresentation
+- waveformとscoreを同じplayback clockへ同期
+- low-confidence結果はReview modeで段階的に提示
+- advanced/raw diagnostic UIは通常画面から隠す
+- heavy/ML処理はPython workerで実行しfrontendをblockしない
+- Tauri/React案はtechnical spike通過後に正式固定
+- fallbackはQt Quick/QML
 
 ---
 
@@ -839,89 +804,42 @@ Qt main threadでは実行しない。
 
 ```text
 HornScribe/
-├─ pyproject.toml
-├─ README.md
-├─ LICENSE
-├─ docs/
-│  ├─ DEVELOPMENT_PLAN.md
-│  ├─ ARCHITECTURE.md
-│  ├─ MUSICXML_HORN_F.md
-│  └─ TESTING.md
-├─ src/
+├─ apps/
+│  └─ desktop/
+│     ├─ src/                 # React / TypeScript
+│     ├─ src-tauri/           # Rust / Tauri
+│     └─ package.json
+│
+├─ python/
 │  └─ hornscribe/
-│     ├─ __init__.py
-│     ├─ app.py
-│     ├─ config.py
-│     │
 │     ├─ domain/
-│     │  ├─ audio.py
-│     │  ├─ notes.py
-│     │  ├─ tempo.py
-│     │  ├─ score.py
-│     │  └─ instruments.py
-│     │
 │     ├─ audio/
-│     │  ├─ decoder.py
-│     │  ├─ player.py
-│     │  └─ cache.py
-│     │
 │     ├─ transcription/
-│     │  ├─ base.py
-│     │  ├─ basic_pitch.py
-│     │  └─ cleanup.py
-│     │
 │     ├─ rhythm/
-│     │  ├─ beat_tracker.py
-│     │  ├─ quantizer.py
-│     │  ├─ meter.py
-│     │  └─ rests.py
-│     │
 │     ├─ notation/
-│     │  ├─ score_builder.py
-│     │  ├─ spelling.py
-│     │  ├─ ties.py
-│     │  └─ musicxml.py
-│     │
 │     ├─ instruments/
-│     │  └─ horn_f.py
-│     │
 │     ├─ export/
-│     │  ├─ midi.py
-│     │  ├─ musicxml.py
-│     │  ├─ musescore.py
-│     │  └─ paths.py
-│     │
-│     ├─ preview/
-│     │  └─ verovio.py
-│     │
-│     ├─ jobs/
-│     │  ├─ manager.py
-│     │  └─ workers.py
-│     │
-│     └─ ui/
-│        ├─ main_window.py
-│        ├─ player_widget.py
-│        ├─ transcription_panel.py
-│        ├─ score_view.py
-│        └─ settings_dialog.py
+│     ├─ project/
+│     └─ worker/
+│
+├─ protocol/
+│  ├─ schema/
+│  └─ PROTOCOL.md
 │
 ├─ tests/
-│  ├─ unit/
-│  │  ├─ test_horn_transposition.py
-│  │  ├─ test_quantizer.py
-│  │  ├─ test_rest_generation.py
-│  │  ├─ test_pitch_spelling.py
-│  │  └─ test_musicxml.py
-│  ├─ integration/
-│  │  ├─ test_basic_pitch_backend.py
-│  │  ├─ test_musescore_export.py
-│  │  └─ test_roundtrip.py
-│  └─ fixtures/
+│  ├─ python/
+│  ├─ frontend/
+│  └─ e2e/
 │
-└─ scripts/
-   ├─ doctor.py
-   └─ benchmark.py
+├─ fixtures/
+├─ scripts/
+└─ docs/
+   ├─ DEVELOPMENT_PLAN.md
+   ├─ GUI_UX_PLAN.md
+   └─ adr/
 ```
+
+Python music domain と desktop frontend をdirectory levelでも分離する。
 
 ---
 
@@ -1008,7 +926,7 @@ sounding result = C4
 - [ ] OGG
 - [ ] FFmpeg executable discovery
 - [ ] normalization cache
-- [ ] QtMultimedia playback
+- [ ] desktop frontend audio playback
 - [ ] seek
 - [ ] duration
 - [ ] drag & drop
@@ -1113,31 +1031,47 @@ MySong/
 
 # Phase 6 — Desktop GUI MVP
 
-タスク:
+Phase 6の詳細は [GUI_UX_PLAN.md](GUI_UX_PLAN.md) の UX Phase 0〜7 を実行する。
 
-- [ ] main window
-- [ ] player
-- [ ] transcription settings
-- [ ] worker jobs
-- [ ] progress
-- [ ] cancel
-- [ ] Concert/Horn tabs
-- [ ] score preview
-- [ ] export dialog
-- [ ] app settings
-- [ ] errors/log viewer
+本実装前に必須のArchitecture Spike:
+
+- [ ] Tauri shell
+- [ ] Python sidecar handshake/progress/cancel/crash recovery
+- [ ] Verovio MusicXML render + note/time mapping
+- [ ] wavesurfer seek/loop/playback-rate
+- [ ] bidirectional score ↔ audio synchronization
+- [ ] Light/Dark design token prototype
+
+spike通過後:
+
+- [ ] Welcome / drag & drop
+- [ ] transport
+- [ ] waveform
+- [ ] Score workspace
+- [ ] Review workspace
+- [ ] Concert/Horn segmented switch
+- [ ] contextual inspector
+- [ ] transcription job progress/cancel
+- [ ] confidence review
+- [ ] export
+- [ ] settings/diagnostics
+- [ ] ja-JP / en-US
+- [ ] accessibility
+- [ ] visual regression
+- [ ] autosave/crash recovery
 
 受け入れ条件:
-
-ユーザー操作が以下だけで成立する。
 
 ```text
 音源をドロップ
 → 再生確認
 → Transcribe
-→ Concert / Horn譜を確認
-→ Export All
+→ Concert / Horn譜を同期表示
+→ 疑わしい箇所だけReview
+→ Export
 ```
+
+1366×768、1920×1080、HiDPIで成立し、主要操作がkeyboard-onlyでも完結すること。
 
 ---
 
@@ -1462,11 +1396,15 @@ Acceptance:
 13. Export concert/Horn MusicXML
 14. Export concert/Horn MIDI
 15. Add MuseScore CLI exporter
-16. Build PySide6 main window
-17. Add audio player and seek
-18. Add background job manager
-19. Add score preview
-20. Add end-to-end MVP test
+16. Run desktop architecture spikes
+17. Implement versioned Python sidecar IPC
+18. Build Tauri/React application shell and design tokens
+19. Add waveform + transport
+20. Add Verovio score view and score/audio synchronization
+21. Add Review workspace and confidence UX
+22. Add export/settings/diagnostics
+23. Add accessibility/localization/visual regression tests
+24. Add end-to-end MVP test
 
 この順番では、GUIより先に「正しい音楽データ」を完成させる。
 
@@ -1604,11 +1542,10 @@ MusicXML / MIDI / PDF
 
 # 30. 現時点の技術選定結論
 
-MVPは次の組み合わせで開始する。
+音楽処理の中核:
 
 ```text
-Python 3.10
-PySide6
+Python 3.10 initially
 FFmpeg
 Basic Pitch (baseline AMT)
 HornScribe internal score model
@@ -1619,7 +1556,22 @@ MuseScore Studio CLI
 pytest
 ```
 
-ただし設計上は、
+Desktop GUIのProposed構成:
+
+```text
+Tauri 2 / Rust shell
+React / TypeScript
+Fluent UI React v9
+HornScribe design tokens
+Verovio WASM
+wavesurfer.js
+Python worker sidecar
+versioned local IPC
+```
+
+GUI構成は [GUI_UX_PLAN.md](GUI_UX_PLAN.md) のArchitecture Spike通過後に正式採用する。失敗時はQt Quick/QMLへ切り替える。
+
+採譜モデルは引き続き交換可能にする。
 
 ```text
 Basic Pitch
@@ -1629,12 +1581,12 @@ TranscriptionBackend
 YourMT3+ / future AMT
 ```
 
-の交換可能構造を最初から採用する。
-
-最重要の設計判断は次の3点。
+最重要の設計判断:
 
 1. **concert pitch を唯一の canonical representation にする**
 2. **AMT出力と楽譜量子化を分離する**
 3. **採譜モデルを交換可能にする**
+4. **GUI processとML/music workerを分離する**
+5. **score / waveform / review UXを同じ時間軸で統合する**
 
-この3点を崩さず、Phase 0 → Phase 1 → Phase 2… の順にCodexへ実装させる。
+音楽ロジックを先に正しくし、GUIはtechnical spike → design foundation → playback → score → review → exportの順で実装する。
