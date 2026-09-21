@@ -1,0 +1,29 @@
+{
+  "name": "@hornscribe/spike-score-render",
+  "private": true,
+  "version": "0.0.0",
+  "description": "UI-003 spike: Verovio WASM interactive score rendering for HornScribe",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "smoke": "node scripts/smoke.mjs",
+    "gen:multisystem": "node scripts/gen-multisystem.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "verovio": "^6.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  }
+}

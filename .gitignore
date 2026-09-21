@@ -14,9 +14,9 @@ benchmarks/local/
 
 # Node / desktop app
 node_modules/
-apps/*/dist/
-apps/*/src-tauri/target/
-apps/*/src-tauri/gen/
+apps/**/dist/
+apps/**/src-tauri/target/
+apps/**/src-tauri/gen/
 
 # HornScribe runtime artifacts
 cache/

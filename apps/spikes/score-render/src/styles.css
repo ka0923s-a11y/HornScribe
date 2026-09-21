@@ -1,0 +1,178 @@
+/* UI-003 spike styles — HornScribe design tokens (GUI_UX_PLAN §33, light). */
+:root {
+  --hs-bg-app: #f3f4f6;
+  --hs-surface-1: #ffffff;
+  --hs-surface-2: #f8f9fb;
+  --hs-surface-3: #eef1f5;
+  --hs-border-subtle: #dadde3;
+  --hs-text-primary: #1b1d22;
+  --hs-text-secondary: #5f6672;
+  --hs-accent: #3b73d9;
+  --hs-accent-hover: #2f64c4;
+  --hs-active: #b45309; /* playback-active mark (amber, distinct from selection) */
+  --hs-score-paper: #fbfaf7;
+  font-family: 'Segoe UI Variable', 'Segoe UI', 'Yu Gothic UI', 'Meiryo', sans-serif;
+  color: var(--hs-text-primary);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--hs-bg-app); }
+
+.hs-app { display: flex; flex-direction: column; min-height: 100vh; }
+
+.hs-header {
+  padding: 12px 16px 8px;
+  border-bottom: 1px solid var(--hs-border-subtle);
+  background: var(--hs-surface-1);
+}
+.hs-header h1 { font-size: 16px; margin: 0; }
+.hs-subtitle { margin: 4px 0 0; font-size: 12px; color: var(--hs-text-secondary); }
+
+.hs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--hs-surface-1);
+  border-bottom: 1px solid var(--hs-border-subtle);
+}
+.hs-field { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.hs-field select { font-size: 13px; padding: 4px 8px; }
+
+.hs-segment { display: inline-flex; border: 1px solid var(--hs-border-subtle); border-radius: 6px; overflow: hidden; }
+.hs-segment button {
+  border: 0;
+  background: var(--hs-surface-1);
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.hs-segment button[aria-pressed='true'] { background: var(--hs-accent); color: #fff; }
+.hs-segment button:disabled { opacity: 0.45; cursor: default; }
+
+.hs-zoom { display: inline-flex; align-items: center; gap: 6px; }
+.hs-zoom button { width: 28px; height: 28px; font-size: 14px; cursor: pointer; }
+.hs-zoom-value { font-size: 13px; min-width: 44px; }
+
+.hs-toolbar > button { font-size: 13px; padding: 6px 12px; cursor: pointer; }
+
+.hs-timebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--hs-surface-2);
+  border-bottom: 1px solid var(--hs-border-subtle);
+  font-size: 13px;
+}
+.hs-time-field { flex: 1 1 320px; }
+.hs-time-field input { flex: 1; }
+.hs-timecode { font-family: 'Cascadia Mono', Consolas, monospace; }
+.hs-active-notes { color: var(--hs-text-secondary); }
+
+.hs-main {
+  display: grid;
+  grid-template-columns: 280px 1fr 300px;
+  gap: 12px;
+  padding: 12px 16px;
+  flex: 1;
+  min-height: 0;
+  align-items: start;
+}
+
+.hs-panel-title { font-size: 13px; margin: 0 0 8px; }
+.hs-notelist { background: var(--hs-surface-1); border: 1px solid var(--hs-border-subtle); border-radius: 8px; padding: 12px; }
+.hs-notelist-ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 70vh;
+  overflow: auto;
+}
+.hs-note-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.hs-note-option:hover { background: var(--hs-surface-3); }
+.hs-note-option:focus-visible { outline: 2px solid var(--hs-accent); outline-offset: -2px; }
+.hs-note-option.is-selected { background: var(--hs-accent); color: #fff; }
+.hs-note-option.is-selected .hs-note-option-id { color: #dbe7ff; }
+.hs-note-option.is-active:not(.is-selected) { background: #fde8cd; }
+.hs-note-option-id { color: var(--hs-text-secondary); font-size: 11px; }
+
+.hs-score-area {
+  background: var(--hs-surface-1);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: 8px;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+.hs-score-scroll { overflow: auto; max-height: 78vh; padding: 16px; }
+.hs-score-page {
+  background: var(--hs-score-paper);
+  margin: 0 auto 16px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+  width: fit-content;
+}
+/* Only the outer page svg is fluid-scaled. The nested `svg.definition-scale`
+   inside Verovio output carries the real content via viewBox and MUST NOT be
+   restyled — scaling it breaks its geometry and makes its (largely unpainted)
+   box intercept hit-testing over the score. */
+.hs-score-page > svg { display: block; max-width: 100%; height: auto; }
+
+/* Highlighting is a pure class toggle — no re-render (measured in the spike). */
+.hs-score-pages g.hs-selected :is(use, path, rect, ellipse, polygon):not(.hs-hit) {
+  fill: var(--hs-accent);
+  stroke: var(--hs-accent);
+}
+.hs-score-pages g.hs-active :is(use, path, rect, ellipse, polygon):not(.hs-hit) {
+  fill: var(--hs-active);
+  stroke: var(--hs-active);
+}
+.hs-score-pages g.hs-selected.hs-active :is(use, path, rect, ellipse, polygon):not(.hs-hit) {
+  fill: var(--hs-accent-hover);
+  stroke: var(--hs-accent-hover);
+}
+.hs-score-pages g[id^='hs-'] { cursor: pointer; }
+
+/* Invisible per-note hit area (see domScore.ts): hollow noteheads are
+   transparent in the middle, so glyph paint alone is not a reliable target. */
+.hs-score-pages ellipse.hs-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+
+.hs-error-panel { padding: 24px; }
+.hs-error-panel h2 { font-size: 15px; margin: 0 0 8px; }
+.hs-error-panel button { padding: 6px 16px; font-size: 13px; cursor: pointer; }
+.hs-loading { padding: 24px; color: var(--hs-text-secondary); }
+
+.hs-side { display: flex; flex-direction: column; gap: 12px; }
+.hs-side section {
+  background: var(--hs-surface-1);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: 8px;
+  padding: 12px;
+}
+.hs-props { margin: 0; font-size: 12px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+.hs-props dt { color: var(--hs-text-secondary); }
+.hs-props dd { margin: 0; }
+.hs-dim { color: var(--hs-text-secondary); font-size: 12px; }
+
+.hs-metrics { width: 100%; border-collapse: collapse; font-size: 11px; }
+.hs-metrics th { text-align: left; font-weight: normal; color: var(--hs-text-secondary); padding: 3px 8px 3px 0; vertical-align: top; }
+.hs-metrics td { font-family: 'Cascadia Mono', Consolas, monospace; }
+
+@media (max-width: 1100px) {
+  .hs-main { grid-template-columns: 1fr; }
+  .hs-notelist-ul { max-height: 240px; }
+}
