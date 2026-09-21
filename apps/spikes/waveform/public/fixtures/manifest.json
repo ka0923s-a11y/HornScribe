@@ -1,0 +1,29 @@
+[
+  {
+    "file": "sweep_30s.wav",
+    "seconds": 30.0,
+    "sampleRate": 44100,
+    "channels": 1,
+    "bitDepth": 16,
+    "bytes": 2646044,
+    "sha256": "33430fecb3a3843d346db4bbef8437c35d0f934b0728e63052744acfd831a5bb"
+  },
+  {
+    "file": "sweep_3min.wav",
+    "seconds": 180.0,
+    "sampleRate": 44100,
+    "channels": 1,
+    "bitDepth": 16,
+    "bytes": 15876044,
+    "sha256": "21fd4eab2f9c713b8acaa2cf3e77facfdc16391e71c6d02ab2d3e3a3b2f9f96e"
+  },
+  {
+    "file": "sweep_10min.wav",
+    "seconds": 600.0,
+    "sampleRate": 44100,
+    "channels": 1,
+    "bitDepth": 16,
+    "bytes": 52920044,
+    "sha256": "f16ca6e86bdc874ccb7f74510f6e41b65ddf73726a75212da3e2235932aa1aa1"
+  }
+]

@@ -1,0 +1,30 @@
+{
+  "name": "hornscribe-ui004-waveform-spike",
+  "private": true,
+  "version": "0.0.0",
+  "description": "UI-004 spike: waveform, loop, zoom, and playback measurement behind a HornScribe TransportController",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "fixtures": "python scripts/generate_audio_fixtures.py",
+    "measure": "node scripts/measure.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "wavesurfer.js": "7.12.12"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "puppeteer-core": "^23.10.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}

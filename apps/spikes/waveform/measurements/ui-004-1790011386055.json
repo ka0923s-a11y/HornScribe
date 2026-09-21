@@ -1,0 +1,254 @@
+{
+  "tool": "ui-004-spike",
+  "timestamp": "2026-09-21T17:23:06.053Z",
+  "browser": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "quick": false,
+  "fixtures": [
+    {
+      "fixture": "30s (file)",
+      "durationSec": 30,
+      "loadDecodeMs": 365.89999997615814,
+      "loadReadyMs": 381.59999990463257,
+      "seek": {
+        "samples": 16,
+        "medianMs": 3.550000011920929,
+        "p95Ms": 12,
+        "meanMs": 4.331250004470348,
+        "maxMs": 12,
+        "coldSeekMs": 527.2999999523163
+      },
+      "jitter": {
+        "frames": 301,
+        "audioDeltaSigmaMs": 4.936605496698832,
+        "maxAbsErrMs": 16.5,
+        "frameIntervalMeanMs": 16.661666666666665,
+        "frameIntervalSigmaMs": 0.6507666417752097,
+        "reactRenders": 45
+      },
+      "loop": {
+        "wraps": 10,
+        "loopStart": 7.5,
+        "loopEnd": 9,
+        "rate": 1.5,
+        "overshootMeanMs": 11.991499999999888,
+        "overshootMaxMs": 28.577999999999548,
+        "periodErrMeanMs": 64.51111111376021,
+        "periodErrMaxMs": 66.60000002384186,
+        "totalDriftMs": 580.6000000238419
+      },
+      "memory": {
+        "supported": true,
+        "beforeLoadMB": 2.7759761810302734,
+        "afterLoadMB": 7.885890007019043,
+        "duringPlaybackMB": 8.266929626464844
+      },
+      "zoomMeanMs": 9.124999985098839,
+      "zoomMaxMs": 13.199999928474426,
+      "panMeanMs": 0.04285713604518345,
+      "panMaxMs": 0.10000002384185791,
+      "rates": [
+        {
+          "rate": 0.5,
+          "measuredRate": 0.5016871459299603,
+          "relErrorPct": 0.3374291859920664,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 0.75,
+          "measuredRate": 0.7530302546212922,
+          "relErrorPct": 0.4040339495056333,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1,
+          "measuredRate": 1.0017263778933432,
+          "relErrorPct": 0.17263778933431784,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1.25,
+          "measuredRate": 1.2547071045992508,
+          "relErrorPct": 0.37656836794006665,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1.5,
+          "measuredRate": 1.5059758438793411,
+          "relErrorPct": 0.39838959195607576,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        }
+      ],
+      "peaksJsonBytes": 14772,
+      "peaksMaxLength": 2000
+    },
+    {
+      "fixture": "3min (file)",
+      "durationSec": 180,
+      "loadDecodeMs": 445.60000002384186,
+      "loadReadyMs": 478.2999999523163,
+      "seek": {
+        "samples": 16,
+        "medianMs": 4.700000047683716,
+        "p95Ms": 9.300000071525574,
+        "meanMs": 4.850000016391277,
+        "maxMs": 9.300000071525574,
+        "coldSeekMs": 24.600000023841858
+      },
+      "jitter": {
+        "frames": 301,
+        "audioDeltaSigmaMs": 4.917289484321236,
+        "maxAbsErrMs": 16.61600004768374,
+        "frameIntervalMeanMs": 16.662000000079473,
+        "frameIntervalSigmaMs": 0.18856298734581345,
+        "reactRenders": 45
+      },
+      "loop": {
+        "wraps": 10,
+        "loopStart": 45,
+        "loopEnd": 46.5,
+        "rate": 1.5,
+        "overshootMeanMs": 13.73089999999948,
+        "overshootMaxMs": 29.434999999999434,
+        "periodErrMeanMs": 64.52222221427493,
+        "periodErrMaxMs": 66.89999997615814,
+        "totalDriftMs": 580.6999999284744
+      },
+      "memory": {
+        "supported": true,
+        "beforeLoadMB": 5.744844436645508,
+        "afterLoadMB": 17.83740234375,
+        "duringPlaybackMB": 8.331007957458496
+      },
+      "zoomMeanMs": 27.62500001490116,
+      "zoomMaxMs": 55.200000047683716,
+      "panMeanMs": 0,
+      "panMaxMs": 0,
+      "rates": [
+        {
+          "rate": 0.5,
+          "measuredRate": 0.501978645969554,
+          "relErrorPct": 0.39572919391079875,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 0.75,
+          "measuredRate": 0.753025847977234,
+          "relErrorPct": 0.40344639696453893,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1,
+          "measuredRate": 1.0032204947748218,
+          "relErrorPct": 0.32204947748217805,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1.25,
+          "measuredRate": 1.2498413203420164,
+          "relErrorPct": 0.012694372638684117,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1.5,
+          "measuredRate": 1.5047896504695366,
+          "relErrorPct": 0.31931003130244073,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        }
+      ],
+      "peaksJsonBytes": 14798,
+      "peaksMaxLength": 2000
+    },
+    {
+      "fixture": "10min (file)",
+      "durationSec": 600,
+      "loadDecodeMs": 949.5,
+      "loadReadyMs": 1051.2000000476837,
+      "seek": {
+        "samples": 16,
+        "medianMs": 4.800000011920929,
+        "p95Ms": 7,
+        "meanMs": 4.831250004470348,
+        "maxMs": 7,
+        "coldSeekMs": 20.299999952316284
+      },
+      "jitter": {
+        "frames": 301,
+        "audioDeltaSigmaMs": 4.910804435671752,
+        "maxAbsErrMs": 16.699999928474426,
+        "frameIntervalMeanMs": 16.662000000079473,
+        "frameIntervalSigmaMs": 0.794285416260038,
+        "reactRenders": 45
+      },
+      "loop": {
+        "wraps": 10,
+        "loopStart": 150,
+        "loopEnd": 151.5,
+        "rate": 1.5,
+        "overshootMeanMs": 8.488700000000904,
+        "overshootMaxMs": 19.95900000000006,
+        "periodErrMeanMs": 60.78888887829251,
+        "periodErrMaxMs": 66.80000007152557,
+        "totalDriftMs": 547.0999999046326
+      },
+      "memory": {
+        "supported": true,
+        "beforeLoadMB": 9.790699005126953,
+        "afterLoadMB": 40.248284339904785,
+        "duringPlaybackMB": 21.409088134765625
+      },
+      "zoomMeanMs": 78.93749997019768,
+      "zoomMaxMs": 131.59999990463257,
+      "panMeanMs": 0.014285717691693987,
+      "panMaxMs": 0.10000002384185791,
+      "rates": [
+        {
+          "rate": 0.5,
+          "measuredRate": 0.5020514767547382,
+          "relErrorPct": 0.4102953509476315,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 0.75,
+          "measuredRate": 0.7528229378737974,
+          "relErrorPct": 0.3763917165063191,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1,
+          "measuredRate": 1.0030545338524484,
+          "relErrorPct": 0.305453385244836,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1.25,
+          "measuredRate": 1.2546784257618357,
+          "relErrorPct": 0.3742740609468598,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        },
+        {
+          "rate": 1.5,
+          "measuredRate": 1.501704454777028,
+          "relErrorPct": 0.11363031846853093,
+          "preservesPitch": true,
+          "preservePitchOff": false
+        }
+      ],
+      "peaksJsonBytes": 44237,
+      "peaksMaxLength": 6000
+    }
+  ]
+}

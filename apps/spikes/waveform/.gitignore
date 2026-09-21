@@ -1,0 +1,12 @@
+# Local build/test artifacts (repo .gitignore only covers apps/*/dist)
+dist/
+node_modules/
+
+# Generated measurement output (canonical run JSONs may be committed)
+measurements/*.png
+
+# Generated fixtures: only small committed fixtures live in git.
+# Regenerate locally with `npm run fixtures` (Python) or the in-app generator.
+public/fixtures/sweep_3min.wav
+public/fixtures/sweep_10min.wav
+public/fixtures/generated_*.wav

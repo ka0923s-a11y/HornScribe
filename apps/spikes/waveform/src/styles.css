@@ -1,0 +1,203 @@
+/* UI-004 spike: functional styling only — final visuals belong to the
+   HornScribe design system, not this spike. */
+
+:root {
+  color-scheme: dark;
+  --bg: #16181d;
+  --panel: #1e2129;
+  --border: #31363f;
+  --text: #e8e8ea;
+  --muted: #9aa3b2;
+  --accent: #e8b339;
+  font-family:
+    'Segoe UI', 'Yu Gothic UI', 'Meiryo UI', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0;
+  font-weight: 600;
+}
+
+h2 {
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+
+.fixture-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fixture-bar label,
+.rate,
+.check,
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+select,
+button {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  border-color: var(--accent);
+}
+
+button.toggled,
+button[aria-pressed='true'] {
+  background: #2d4a38;
+  border-color: #60cb94;
+}
+
+button.resume-follow {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.transport-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.time-readout {
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  min-width: 170px;
+}
+
+.zoom input[type='range'] {
+  width: 120px;
+}
+
+.waveform-area {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.waveform {
+  width: 100%;
+}
+
+.timeline {
+  border-top: 1px solid var(--border);
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.region-hint {
+  margin-top: -4px;
+}
+
+.loaded-label {
+  color: #60cb94;
+  font-size: 12px;
+}
+
+.follow-note {
+  color: var(--accent);
+  font-size: 12px;
+  margin: 0;
+}
+
+.measure-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.measure-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.measure-actions .stage {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.measure-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12.5px;
+}
+
+.measure-table th,
+.measure-table td {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.measure-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.app-footer {
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
