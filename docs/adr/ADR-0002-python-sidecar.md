@@ -63,20 +63,19 @@ Do not add a process hierarchy before measurements justify it.
 
 ## Runtime selection
 
-Runtime choice is governed by FND-002.
+Runtime choice was governed by FND-002; measured results and reproduction
+commands live in [../ENGINE_RUNTIME_MATRIX.md](../ENGINE_RUNTIME_MATRIX.md)
+(raw JSON captures under `benchmarks/runtime/`).
 
-The selected combination records:
+Selected: **Python 3.12 + basic-pitch 0.4.0 via onnxruntime** (`--no-deps`
+wheel install — upstream 0.4.0 cannot resolve `tensorflow<2.15.1` on
+Windows Python ≥3.12). Verified: PyInstaller onefile freeze 128.7 MB,
+7.6 s cold start, 4.4 s inference for 30 s audio, ~250 MB peak RAM,
+fully offline (model ships inside the wheel). Fallback: Python 3.11 +
+official TensorFlow path (measured: ~22 s worst import, 632 MB peak).
 
-- Python version
-- dependency lock
-- freeze/package method
-- bundle size
-- cold start
-- model init
-- inference time
-- peak RAM
-- offline execution
-- cancellation behavior
+Lifecycle triggers are documented in the matrix doc — chiefly an upstream
+basic-pitch release that officially supports Python ≥3.12.
 
 ## Failure model
 

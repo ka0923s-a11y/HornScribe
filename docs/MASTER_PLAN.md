@@ -94,9 +94,14 @@ Required compatibility matrix:
 
 | Candidate | Basic Pitch path | Main concern | Status |
 |---|---|---|---|
-| Python 3.10 | ONNX-friendly | EOL imminent | fallback/spike only |
-| Python 3.11 | officially declared by Basic Pitch | heavier TensorFlow dependency | primary stable candidate |
-| Python 3.12+ | preferred lifecycle | upstream Basic Pitch support not yet stable | experimental until verified |
+| Python 3.10 | ONNX-friendly | EOL imminent | excluded as baseline (measured) |
+| Python 3.11 | officially declared by Basic Pitch | heavier TensorFlow dependency | measured fallback |
+| Python 3.12+ | preferred lifecycle | upstream Basic Pitch support not yet stable | **selected via ONNX path** |
+
+**Decision (2026-09-22, FND-002): Python 3.12 + Basic Pitch 0.4.0 via
+onnxruntime** — see [ENGINE_RUNTIME_MATRIX.md](ENGINE_RUNTIME_MATRIX.md)
+for measurements, the `--no-deps` install procedure, freeze results, and
+migration triggers.
 
 Before v1, the chosen Python runtime must have an explicit lifecycle/migration plan.
 

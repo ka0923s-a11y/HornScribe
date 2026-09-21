@@ -2,10 +2,15 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local working dirs (benchmark envs, dumps)
+.work/
+benchmarks/local/
 
 # Node / desktop app
 node_modules/
