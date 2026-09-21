@@ -1,0 +1,218 @@
+/* UI-005 spike styles — HornScribe design tokens (GUI_UX_PLAN §33, light). */
+:root {
+  --hs-bg-app: #f3f4f6;
+  --hs-surface-1: #ffffff;
+  --hs-surface-2: #f8f9fb;
+  --hs-surface-3: #eef1f5;
+  --hs-border-subtle: #dadde3;
+  --hs-text-primary: #1b1d22;
+  --hs-text-secondary: #5f6672;
+  --hs-accent: #3b73d9;
+  --hs-accent-hover: #2f64c4;
+  --hs-active: #b45309; /* playback-active mark (amber, distinct from selection) */
+  --hs-loop: #2f7d4f; /* loop passage indication (green) */
+  --hs-score-paper: #fbfaf7;
+  font-family: 'Segoe UI Variable', 'Segoe UI', 'Yu Gothic UI', 'Meiryo', sans-serif;
+  color: var(--hs-text-primary);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--hs-bg-app); }
+
+.hs-app { display: flex; flex-direction: column; min-height: 100vh; }
+
+.hs-header {
+  padding: 10px 16px 6px;
+  border-bottom: 1px solid var(--hs-border-subtle);
+  background: var(--hs-surface-1);
+}
+.hs-header h1 { font-size: 16px; margin: 0; }
+.hs-subtitle { margin: 3px 0 0; font-size: 12px; color: var(--hs-text-secondary); }
+
+.hs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--hs-surface-1);
+  border-bottom: 1px solid var(--hs-border-subtle);
+}
+.hs-field { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.hs-field select { font-size: 13px; padding: 4px 8px; }
+
+.hs-segment { display: inline-flex; border: 1px solid var(--hs-border-subtle); border-radius: 6px; overflow: hidden; align-items: center; }
+.hs-segment button {
+  border: 0;
+  background: var(--hs-surface-1);
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.hs-segment button[aria-pressed='true'] { background: var(--hs-accent); color: #fff; }
+.hs-horn-caption { font-size: 11px; color: var(--hs-text-secondary); padding: 0 10px; }
+
+.hs-zoom { display: inline-flex; align-items: center; gap: 6px; }
+.hs-zoom button { width: 28px; height: 28px; font-size: 14px; cursor: pointer; }
+.hs-zoom-value { font-size: 13px; min-width: 44px; }
+
+/* Transport bar (mirrors UI-004 surface). */
+.transport-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--hs-surface-1);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 10px 16px 0;
+}
+.transport-bar button { font-size: 13px; padding: 5px 10px; cursor: pointer; }
+.transport-bar button.primary { border-color: var(--hs-accent); }
+.transport-bar button.toggled,
+.transport-bar button[aria-pressed='true'] { background: #d9e7d9; border-color: var(--hs-loop); }
+.transport-bar button:disabled { opacity: 0.45; cursor: default; }
+.resume-follow { border-color: var(--hs-active) !important; color: var(--hs-active); }
+.time-readout { font-variant-numeric: tabular-nums; font-size: 15px; min-width: 170px; }
+.rate, .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--hs-text-secondary); }
+
+.waveform-area {
+  background: var(--hs-surface-1);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 10px 16px 0;
+}
+.waveform { width: 100%; }
+.timeline { border-top: 1px solid var(--hs-border-subtle); }
+
+.hint { color: var(--hs-text-secondary); font-size: 12px; margin: 4px 16px 0; }
+
+.hs-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--hs-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.hs-main {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 12px;
+  padding: 10px 16px 16px;
+  flex: 1;
+  min-height: 0;
+  align-items: start;
+}
+
+.hs-panel-title { font-size: 13px; margin: 0 0 8px; }
+
+.hs-score-area {
+  background: var(--hs-surface-1);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: 8px;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+.hs-score-scroll { overflow: auto; max-height: 62vh; padding: 16px; }
+.hs-score-page {
+  background: var(--hs-score-paper);
+  margin: 0 auto 16px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+  width: fit-content;
+}
+/* Only the outer page svg is fluid-scaled — the nested svg.definition-scale
+   carries the content viewBox and must not be restyled (UI-003 finding). */
+.hs-score-page > svg { display: block; max-width: 100%; height: auto; }
+
+/* Highlighting = pure class toggles; no re-render (UI-003 measurement). */
+.hs-score-pages g.hs-selected :is(use, path, rect, ellipse, polygon):not(.hs-hit) {
+  fill: var(--hs-accent);
+  stroke: var(--hs-accent);
+}
+.hs-score-pages g.hs-active :is(use, path, rect, ellipse, polygon):not(.hs-hit) {
+  fill: var(--hs-active);
+  stroke: var(--hs-active);
+}
+.hs-score-pages g.hs-selected.hs-active :is(use, path, rect, ellipse, polygon):not(.hs-hit) {
+  fill: var(--hs-accent-hover);
+  stroke: var(--hs-accent-hover);
+}
+/* Loop passage indication: outline-style mark on overlapped notes. */
+.hs-score-pages g.hs-loop :is(use, path, rect, ellipse, polygon):not(.hs-hit) {
+  stroke: var(--hs-loop);
+  stroke-width: 1.4;
+}
+.hs-score-pages g.hs-loop .notehead use { fill: var(--hs-loop); }
+/* Current-measure wash: subtle background under the active measure group. */
+.hs-score-pages g.hs-measure-active {
+  fill: none;
+}
+.hs-score-pages g.hs-measure-active > rect.hs-measure-wash {
+  fill: rgb(180 83 9 / 0.06);
+}
+.hs-score-pages g[id^='hs-'] { cursor: pointer; }
+
+/* Invisible per-note hit area (domScore.ts): hollow noteheads are transparent
+   in the middle, so glyph paint alone is not a reliable target. */
+.hs-score-pages ellipse.hs-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+
+.hs-error-panel { padding: 24px; }
+.hs-error-panel h2 { font-size: 15px; margin: 0 0 8px; }
+.hs-error-panel button { padding: 6px 16px; font-size: 13px; cursor: pointer; }
+.hs-loading { padding: 24px; color: var(--hs-text-secondary); }
+
+.follow-note {
+  color: var(--hs-active);
+  font-size: 12px;
+  margin: 4px 16px 8px;
+}
+.follow-note .resume-follow { margin-left: 8px; }
+
+.hs-side { display: flex; flex-direction: column; gap: 12px; }
+.hs-side section {
+  background: var(--hs-surface-1);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: 8px;
+  padding: 12px;
+}
+.hs-props { margin: 0; font-size: 12px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+.hs-props dt { color: var(--hs-text-secondary); }
+.hs-props dd { margin: 0; }
+.hs-dim { color: var(--hs-text-secondary); font-size: 12px; }
+
+.measure-panel { font-size: 12px; }
+.measure-actions { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.measure-actions .stage { color: var(--hs-text-secondary); font-size: 12px; }
+.measure-table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+.measure-table th, .measure-table td {
+  border: 1px solid var(--hs-border-subtle);
+  padding: 4px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+.measure-table th { color: var(--hs-text-secondary); font-weight: 600; }
+
+.hs-footer {
+  margin-top: auto;
+  padding: 8px 16px;
+  color: var(--hs-text-secondary);
+  font-size: 12px;
+  display: flex;
+  gap: 16px;
+}
+
+:focus-visible { outline: 2px solid var(--hs-accent); outline-offset: 1px; }
+
+@media (max-width: 1100px) {
+  .hs-main { grid-template-columns: 1fr; }
+}

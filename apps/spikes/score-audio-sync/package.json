@@ -1,0 +1,33 @@
+{
+  "name": "@hornscribe/spike-score-audio-sync",
+  "private": true,
+  "version": "0.0.0",
+  "description": "UI-005 spike: unified score <-> audio synchronization (one transport clock, canonical-ID mapping chain)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "gen:fixtures": "node scripts/gen-fixtures.mjs",
+    "measure": "node scripts/measure.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "verovio": "^6.3.0",
+    "wavesurfer.js": "7.12.12"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "puppeteer-core": "^23.10.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}

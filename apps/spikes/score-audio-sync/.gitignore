@@ -1,0 +1,5 @@
+# Local build/test artifacts (repo .gitignore covers apps/**/dist)
+node_modules/
+
+# Screenshots/probe artifacts; canonical run JSONs may be committed
+measurements/*.png

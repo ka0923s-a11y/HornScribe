@@ -1,0 +1,204 @@
+{
+  "tool": "ui-005-spike",
+  "timestamp": "2026-09-21T18:16:47.638Z",
+  "browser": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "fixtures": [
+    {
+      "fixture": "一定テンポ（100 BPM）",
+      "warpMode": "fixed_bpm",
+      "durationSec": 30,
+      "canonicalNotes": 40,
+      "scoreClickSeek": {
+        "samples": 40,
+        "medianMs": 3.849999964237213,
+        "p95Ms": 5.700000047683716,
+        "meanMs": 4.614999997615814,
+        "maxMs": 28.399999976158142
+      },
+      "waveClickSelect": {
+        "samples": 24,
+        "medianMs": 1.100000023841858,
+        "p95Ms": 1.6999999284744263,
+        "meanMs": 1.1916666825612385,
+        "maxMs": 2.299999952316284,
+        "correctSelections": 24
+      },
+      "sync": {
+        "frames": 361,
+        "mismatchFrames": 0,
+        "boundaries": 11,
+        "lagMeanMs": 0,
+        "lagMaxMs": 0,
+        "reactRenders": 66,
+        "verovioRenderCalls": 0
+      },
+      "follow": {
+        "calls": 11,
+        "meanMs": 0.4909090887416493,
+        "maxMs": 0.8000000715255737
+      },
+      "highlight": {
+        "calls": 12,
+        "meanMs": 0.3750000099341075,
+        "maxMs": 1.2000000476837158
+      },
+      "loopDrift": {
+        "wraps": 8,
+        "loopStart": 7.5,
+        "loopEnd": 9,
+        "rate": 1.5,
+        "overshootMeanMs": 9.05099999999992,
+        "overshootMaxMs": 21.874999999999645,
+        "periodErrMeanMs": 63.94285714626312,
+        "periodErrMaxMs": 66.60000002384186,
+        "totalDriftMs": 447.60000002384186
+      },
+      "loopScore": {
+        "rangeSec": {
+          "start": 5.2,
+          "end": 12.4
+        },
+        "expected": [
+          "sn-000010",
+          "sn-000011",
+          "sn-000012",
+          "sn-000013",
+          "sn-000014",
+          "sn-000015",
+          "sn-000016",
+          "sn-000017",
+          "sn-000018",
+          "sn-000019",
+          "sn-000020"
+        ],
+        "domMarked": [
+          "sn-000010",
+          "sn-000011",
+          "sn-000012",
+          "sn-000013",
+          "sn-000014",
+          "sn-000015",
+          "sn-000016",
+          "sn-000017",
+          "sn-000018",
+          "sn-000019",
+          "sn-000020"
+        ],
+        "correct": true,
+        "measures": [
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      "viewSwitch": {
+        "from": "concert",
+        "to": "horn",
+        "switchMs": 87.60000002384186,
+        "selectionPreserved": true,
+        "timeConsistencyMs": 1.6109999761582117,
+        "playingContinued": true,
+        "loopPreserved": true
+      },
+      "fixtureId": "steady"
+    },
+    {
+      "fixture": "テンポ変化（リタルダンド）",
+      "warpMode": "beat_map",
+      "durationSec": 40.3,
+      "canonicalNotes": 40,
+      "scoreClickSeek": {
+        "samples": 40,
+        "medianMs": 3.550000011920929,
+        "p95Ms": 4.5,
+        "meanMs": 4.302500021457672,
+        "maxMs": 33.90000009536743
+      },
+      "waveClickSelect": {
+        "samples": 24,
+        "medianMs": 0.8500000238418579,
+        "p95Ms": 1.2000000476837158,
+        "meanMs": 0.8791666775941849,
+        "maxMs": 1.2000000476837158,
+        "correctSelections": 24
+      },
+      "sync": {
+        "frames": 361,
+        "mismatchFrames": 0,
+        "boundaries": 11,
+        "lagMeanMs": 0,
+        "lagMaxMs": 0,
+        "reactRenders": 65,
+        "verovioRenderCalls": 0
+      },
+      "follow": {
+        "calls": 11,
+        "meanMs": 0.4818181883205067,
+        "maxMs": 0.8000000715255737
+      },
+      "highlight": {
+        "calls": 12,
+        "meanMs": 0.4249999523162842,
+        "maxMs": 1.399999976158142
+      },
+      "loopDrift": {
+        "wraps": 8,
+        "loopStart": 10.075,
+        "loopEnd": 11.575,
+        "rate": 1.5,
+        "overshootMeanMs": 15.038875000001006,
+        "overshootMaxMs": 28.63600000000055,
+        "periodErrMeanMs": 64.0285714183535,
+        "periodErrMaxMs": 66.60000002384186,
+        "totalDriftMs": 448.1999999284744
+      },
+      "loopScore": {
+        "rangeSec": {
+          "start": 5.3,
+          "end": 13.9
+        },
+        "expected": [
+          "sn-000010",
+          "sn-000011",
+          "sn-000012",
+          "sn-000013",
+          "sn-000014",
+          "sn-000015",
+          "sn-000016",
+          "sn-000017",
+          "sn-000018",
+          "sn-000019"
+        ],
+        "domMarked": [
+          "sn-000010",
+          "sn-000011",
+          "sn-000012",
+          "sn-000013",
+          "sn-000014",
+          "sn-000015",
+          "sn-000016",
+          "sn-000017",
+          "sn-000018",
+          "sn-000019"
+        ],
+        "correct": true,
+        "measures": [
+          3,
+          4,
+          5
+        ]
+      },
+      "viewSwitch": {
+        "from": "concert",
+        "to": "horn",
+        "switchMs": 59.200000047683716,
+        "selectionPreserved": true,
+        "timeConsistencyMs": 1.3830000476833249,
+        "playingContinued": true,
+        "loopPreserved": true
+      },
+      "fixtureId": "warped"
+    }
+  ]
+}
