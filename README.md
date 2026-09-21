@@ -22,8 +22,9 @@ Planning / architecture validation.
 1. **[Master Plan](docs/MASTER_PLAN.md)** — scope, milestones, gates, risks, and implementation order.
 2. **[Development Plan](docs/DEVELOPMENT_PLAN.md)** — music engine, transcription, notation, Horn in F, export, and testing details.
 3. **[GUI / UX Plan](docs/GUI_UX_PLAN.md)** — interaction design, visual system, accessibility, performance, and frontend architecture.
-4. **[ADR-0001: Desktop UI Architecture](docs/adr/ADR-0001-desktop-ui-architecture.md)** — proposed Tauri/React architecture, pending spike validation.
-5. **[ADR-0002: Python Sidecar](docs/adr/ADR-0002-python-sidecar.md)** — proposed Python engine process boundary.
+4. **[Quantizer Design](docs/QUANTIZER_DESIGN.md)** — HSQ-v1 rhythm quantization algorithm, cost model, tests, and implementation phases.
+5. **[ADR-0001: Desktop UI Architecture](docs/adr/ADR-0001-desktop-ui-architecture.md)** — proposed Tauri/React architecture, pending spike validation.
+6. **[ADR-0002: Python Sidecar](docs/adr/ADR-0002-python-sidecar.md)** — proposed Python engine process boundary.
 
 If documents conflict, an **Accepted ADR** overrides the plans. Until an ADR is accepted, the Master Plan defines the active implementation sequence.
 
