@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { FluentProvider } from "@fluentui/react-components";
 import { ja } from "./strings/ja";
 import { hsLightTheme, hsDarkTheme } from "./theme/fluentTheme";
@@ -22,6 +22,13 @@ import { getShellInfo } from "./tauri/bridge";
 
 type View = "workspace" | "settings";
 
+/** "#/dev/gallery" — dev-only internal component gallery (UI-010). */
+const GALLERY_HASH = "#/dev/gallery";
+// Lazy so the gallery (and its Fluent imports) stay out of the prod bundle.
+const DevGallery = import.meta.env.DEV
+  ? lazy(() => import("./dev/Gallery"))
+  : null;
+
 /**
  * UI-001 spike shell. Screen state is fixed to EMPTY (GUI_UX_SPEC §27):
  * no audio, no score, no engine. The shell proves layout, theming,
@@ -36,6 +43,7 @@ export default function App() {
   const [shellDetail, setShellDetail] = useState<string | undefined>(
     ja.status.shellInfoLoading,
   );
+  const [hash, setHash] = useState(() => window.location.hash);
 
   // EMPTY state: nothing loaded yet.
   const shellState = useMemo(
@@ -52,6 +60,14 @@ export default function App() {
     }),
     [],
   );
+
+  // Hash routing is only used for the internal dev gallery; the product
+  // shell is a single workspace (GUI_UX_SPEC §2), not a page router.
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   // Central shortcut dispatch (GUI_UX_SPEC §23).
   useEffect(() => {
@@ -78,37 +94,46 @@ export default function App() {
   }, []);
 
   const theme = resolved === "dark" ? hsDarkTheme : hsLightTheme;
+  // Dev-only route: the gallery renders in place of the shell and never
+  // appears in product navigation.
+  const showGallery = DevGallery != null && hash === GALLERY_HASH;
 
   return (
     <FluentProvider theme={theme}>
-      <AppShell>
-        <TitleBar />
-        {view === "settings" ? (
-          <div className="hs-settings-wrap">
-            <SettingsView
-              themeMode={mode}
-              onThemeMode={select}
-              onBack={() => setView("workspace")}
-            />
-          </div>
-        ) : (
-          <>
-            <CommandBar
-              commands={commands}
-              ctx={ctx}
-              pitch={pitch}
-              onPitch={setPitch}
-            />
-            <WaveformView />
-            <div className="hs-main">
-              <ScoreWorkspace onOpenAudio={ctx.openAudioRequested} />
-              <PropertiesPanel />
+      {showGallery ? (
+        <Suspense fallback={null}>
+          <DevGallery themeMode={mode} onThemeMode={select} />
+        </Suspense>
+      ) : (
+        <AppShell>
+          <TitleBar />
+          {view === "settings" ? (
+            <div className="hs-settings-wrap">
+              <SettingsView
+                themeMode={mode}
+                onThemeMode={select}
+                onBack={() => setView("workspace")}
+              />
             </div>
-            <TransportBar enabled={shellState.hasAudio} />
-          </>
-        )}
-        <StatusBar message={statusMessage} detail={shellDetail} />
-      </AppShell>
+          ) : (
+            <>
+              <CommandBar
+                commands={commands}
+                ctx={ctx}
+                pitch={pitch}
+                onPitch={setPitch}
+              />
+              <WaveformView />
+              <div className="hs-main">
+                <ScoreWorkspace onOpenAudio={ctx.openAudioRequested} />
+                <PropertiesPanel />
+              </div>
+              <TransportBar enabled={shellState.hasAudio} />
+            </>
+          )}
+          <StatusBar message={statusMessage} detail={shellDetail} />
+        </AppShell>
+      )}
     </FluentProvider>
   );
 }

@@ -14,6 +14,7 @@ benchmarks/local/
 
 # Node / desktop app
 node_modules/
+*.tsbuildinfo
 apps/**/dist/
 apps/**/src-tauri/target/
 apps/**/src-tauri/gen/

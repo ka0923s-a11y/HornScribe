@@ -1,0 +1,249 @@
+/**
+ * Dev gallery (#/dev/gallery) — layout + simulated-state fixture styling.
+ *
+ * Simulated pseudo-states (.hs-sim-*) exist so screenshot-based visual
+ * regression can capture hover/pressed/focus without driving a mouse.
+ * They paint the same --hs-* tokens the real :hover/:active/:focus-visible
+ * rules use; they are dev-page plumbing, not product styling.
+ */
+
+/* Fixed overlay: the dev route replaces the shell entirely, so the gallery
+   owns the viewport and is its own scroll container (the FluentProvider
+   wrapper has no constrained height, and body is overflow:hidden). */
+.hs-gallery {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  background: var(--hs-surface-app);
+  color: var(--hs-text-primary);
+}
+
+/* ---- Header ---- */
+.hs-gallery__header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-sm) var(--hs-space-md);
+  background: var(--hs-surface-panel);
+  border-bottom: 1px solid var(--hs-border-subtle);
+}
+.hs-gallery__title {
+  margin: 0;
+  font-size: var(--hs-font-size-title);
+  line-height: var(--hs-line-height-title);
+  font-weight: var(--hs-font-weight-title);
+}
+.hs-gallery__note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--hs-font-size-caption);
+  line-height: var(--hs-line-height-caption);
+  color: var(--hs-text-muted);
+}
+.hs-gallery__spacer {
+  flex: 1 1 auto;
+}
+
+/* ---- Per-theme sections: data-hs-theme rebinds every --hs-* token ---- */
+.hs-gallery__theme {
+  padding: var(--hs-space-md) var(--hs-space-md) var(--hs-space-xl);
+  background: var(--hs-surface-app);
+  color: var(--hs-text-primary);
+}
+.hs-gallery__theme + .hs-gallery__theme {
+  border-top: 2px solid var(--hs-border-strong);
+}
+.hs-gallery__theme-title {
+  margin: 0 0 var(--hs-space-md);
+  font-size: var(--hs-font-size-subtitle);
+  line-height: var(--hs-line-height-subtitle);
+  font-weight: var(--hs-font-weight-title);
+  color: var(--hs-text-secondary);
+}
+
+.hs-gallery__section {
+  margin: 0 0 var(--hs-space-xl);
+}
+.hs-gallery__section-title {
+  margin: 0 0 var(--hs-space-sm);
+  font-size: var(--hs-font-size-body);
+  line-height: var(--hs-line-height-body);
+  font-weight: var(--hs-font-weight-emphasis);
+}
+
+/* ---- Fixture grid ---- */
+.hs-fixture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--hs-space-ms);
+  align-items: start;
+}
+.hs-fixture-grid--wide {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.hs-fixture {
+  margin: 0;
+  min-width: 0;
+}
+.hs-fixture__stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--hs-space-sm);
+  min-height: 56px;
+  padding: var(--hs-space-sm);
+  background: var(--hs-surface-elevated);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-panel);
+  /* Stretch form controls inside the cell. */
+  text-align: center;
+}
+.hs-fixture__stage .fui-Field {
+  width: 100%;
+  text-align: start;
+}
+.hs-fixture__stage--stretch {
+  align-items: stretch;
+}
+.hs-fixture__caption {
+  margin-top: var(--hs-space-xs);
+  font-size: var(--hs-font-size-caption);
+  line-height: var(--hs-line-height-caption);
+  color: var(--hs-text-muted);
+  text-align: center;
+}
+
+/* Contained overlay stage: mountNode target for tooltip / popover / menu /
+   sheet fixtures. transform makes position:fixed descendants (drawer)
+   resolve against the stage box instead of the viewport. */
+.hs-overlay-stage {
+  position: relative;
+  transform: translateZ(0);
+  overflow: hidden;
+  min-height: 220px;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+.hs-overlay-stage--tall {
+  min-height: 300px;
+}
+.hs-overlay-stage .fui-Drawer,
+.hs-overlay-stage .fui-OverlayDrawer {
+  position: absolute;
+}
+
+/* ===================== Simulated pseudo-states =====================
+   Only inside fixture stages. Tokens mirror the real interaction colors:
+   - accent fill variants use --hs-accent-hover / --hs-accent-pressed
+   - danger fill variants use --hs-danger-hover / --hs-danger-pressed
+   - neutral variants use --hs-control-hover / --hs-control-pressed
+   - focus uses the §16 ring contract (2px --hs-focus + offset)          */
+
+.hs-sim-hover .hs-button--primary:not(:disabled),
+.hs-sim-hover .hs-icon-button--primary:not(:disabled) {
+  background-color: var(--hs-accent-hover);
+}
+.hs-sim-pressed .hs-button--primary:not(:disabled),
+.hs-sim-pressed .hs-icon-button--primary:not(:disabled) {
+  background-color: var(--hs-accent-pressed);
+}
+.hs-sim-hover .hs-button--secondary:not(:disabled),
+.hs-sim-hover .hs-button--subtle:not(:disabled),
+.hs-sim-hover .hs-icon-button:not(:disabled) {
+  background-color: var(--hs-control-hover);
+}
+.hs-sim-pressed .hs-button--secondary:not(:disabled),
+.hs-sim-pressed .hs-button--subtle:not(:disabled),
+.hs-sim-pressed .hs-icon-button:not(:disabled) {
+  background-color: var(--hs-control-pressed);
+}
+.hs-sim-hover .hs-button--danger:not(:disabled) {
+  background-color: var(--hs-danger-hover);
+}
+.hs-sim-pressed .hs-button--danger:not(:disabled) {
+  background-color: var(--hs-danger-pressed);
+}
+
+/* Segmented control: unselected item picks up the hover wash. */
+.hs-sim-hover .hs-segmented__item:not(:disabled):not([aria-checked="true"]) {
+  background: var(--hs-control-hover);
+}
+.hs-sim-pressed .hs-segmented__item:not(:disabled):not([aria-checked="true"]) {
+  background: var(--hs-control-pressed);
+}
+
+/* Field controls: hover strengthens the input border (≥3:1 boundary). */
+.hs-sim-hover .fui-Input,
+.hs-sim-hover .fui-Select,
+.hs-sim-hover .fui-SpinButton {
+  border-color: var(--hs-border-strong);
+}
+.hs-sim-hover .fui-Slider__thumb {
+  box-shadow: 0 0 0 4px var(--hs-control-hover);
+}
+
+/* Focus simulation = the real HornScribe focus ring contract. */
+.hs-sim-focus :where(button, input, select, [role="radio"], .fui-Slider__thumb, .hs-segmented__item) {
+  outline: var(--hs-focus-width) solid var(--hs-focus) !important;
+  outline-offset: var(--hs-focus-offset);
+}
+
+/* ---- Screen-state fixture cards ---- */
+.hs-fixture-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-sm);
+}
+.hs-fixture-card__title {
+  margin: 0;
+  font-size: var(--hs-font-size-body);
+  line-height: var(--hs-line-height-body);
+  font-weight: var(--hs-font-weight-emphasis);
+}
+.hs-fixture-card__text {
+  margin: 0;
+  font-size: var(--hs-font-size-compact);
+  line-height: var(--hs-line-height-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-fixture-card__actions {
+  display: flex;
+  gap: var(--hs-space-sm);
+  flex-wrap: wrap;
+  margin-top: var(--hs-space-xs);
+}
+
+/* Transcribing stage list (GUI_UX_SPEC §5 shape: ✓ done ● active ○ pending) */
+.hs-stage-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+}
+.hs-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  font-size: var(--hs-font-size-compact);
+  line-height: var(--hs-line-height-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-stage--done {
+  color: var(--hs-status-success);
+}
+.hs-stage--active {
+  color: var(--hs-status-info);
+  font-weight: var(--hs-font-weight-emphasis);
+}
+.hs-stage__icon {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+}

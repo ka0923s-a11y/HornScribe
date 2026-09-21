@@ -132,13 +132,15 @@ body {
   border-left: 1px solid var(--hs-border-subtle);
 }
 .hs-segmented__item:hover {
-  background: var(--hs-score-current-measure);
+  background: var(--hs-control-hover);
 }
-/* selected state = fill + weight + border cues combined (§11) */
+/* selected state = fill + weight + border cues combined (§11);
+   on-accent text color keeps ≥4.5:1 in both themes (dark accent is light,
+   so the foreground flips to dark ink via --hs-accent-foreground). */
 .hs-segmented__item[aria-checked="true"] {
   background: var(--hs-accent);
-  color: var(--hs-surface-score);
-  font-weight: 600;
+  color: var(--hs-accent-foreground);
+  font-weight: var(--hs-font-weight-emphasis);
   box-shadow: inset 0 0 0 1px var(--hs-accent-pressed);
 }
 .hs-segmented__item:focus-visible {
@@ -289,6 +291,146 @@ body {
   flex: 1 1 auto;
 }
 
+/* ====================== Primitives (components/primitives) ======================
+   Only --hs-* semantic tokens; raw values live exclusively in tokens.css. */
+
+/* ---- HsButton (§9): danger re-tints the primary fill to palette red ----
+   Double-class selectors keep precedence over Fluent's atomic classes. */
+.hs-button.hs-button--danger:not(:disabled) {
+  background-color: var(--hs-danger);
+  color: var(--hs-danger-foreground);
+  border-color: transparent;
+}
+.hs-button.hs-button--danger:not(:disabled):hover {
+  background-color: var(--hs-danger-hover);
+}
+.hs-button.hs-button--danger:not(:disabled):active {
+  background-color: var(--hs-danger-pressed);
+}
+/* State changes use the fast motion tier (§18). */
+.hs-button {
+  transition-duration: var(--hs-motion-fast);
+  transition-timing-function: var(--hs-ease-standard);
+}
+
+/* ---- Segmented control additions (§11, §17) ---- */
+.hs-segmented__item:disabled {
+  color: var(--hs-text-disabled);
+  cursor: not-allowed;
+}
+.hs-segmented__item:disabled:hover {
+  background: transparent;
+}
+.hs-segmented__item {
+  transition: background-color var(--hs-motion-fast) var(--hs-ease-standard);
+}
+
+/* ---- StatusBadge / ReviewBadge (§15): tint + glyph + (review) dotted cue ---- */
+.hs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-xs);
+  padding: 1px var(--hs-space-sm);
+  border-radius: var(--hs-radius-input);
+  border: 1px solid transparent;
+  font-size: var(--hs-font-size-caption);
+  line-height: var(--hs-line-height-caption);
+  font-weight: var(--hs-font-weight-emphasis);
+  white-space: nowrap;
+  user-select: none;
+}
+.hs-badge__icon {
+  display: inline-flex;
+  font-size: 14px;
+}
+.hs-badge--neutral {
+  color: var(--hs-text-secondary);
+  background: var(--hs-status-neutral-subtle);
+  border-color: color-mix(in srgb, currentColor 25%, transparent);
+}
+.hs-badge--info {
+  color: var(--hs-status-info);
+  background: var(--hs-status-info-subtle);
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+.hs-badge--success {
+  color: var(--hs-status-success);
+  background: var(--hs-status-success-subtle);
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+.hs-badge--warning {
+  color: var(--hs-status-warning);
+  background: var(--hs-status-warning-subtle);
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+.hs-badge--error {
+  color: var(--hs-status-error);
+  background: var(--hs-status-error-subtle);
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+/* §15: the 要確認 marker adds a dotted underline — review is never red. */
+.hs-badge--needs-review .hs-badge__label {
+  border-bottom: 2px dotted var(--hs-review-marker);
+}
+
+/* ---- HsPanel (§8): flat separation by border; elevated for floats ---- */
+.hs-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--hs-surface-panel);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-panel);
+  color: var(--hs-text-primary);
+}
+.hs-panel--elevated {
+  background: var(--hs-surface-elevated);
+  box-shadow: var(--hs-elevation-popover);
+}
+.hs-panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-sm) var(--hs-space-ms);
+  border-bottom: 1px solid var(--hs-border-subtle);
+  min-height: 40px;
+}
+.hs-panel__title {
+  margin: 0;
+  font-size: var(--hs-font-size-subtitle);
+  line-height: var(--hs-line-height-subtitle);
+  font-weight: var(--hs-font-weight-title);
+}
+.hs-panel__header-spacer {
+  flex: 1 1 auto;
+}
+.hs-panel__body {
+  padding: var(--hs-space-md);
+  min-width: 0;
+}
+.hs-panel__body--flush {
+  padding: 0;
+}
+
+/* ---- HsSlider: track + tabular readout (§5) ---- */
+.hs-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+}
+.hs-slider .fui-Slider {
+  flex: 1 1 auto;
+}
+.hs-slider__value {
+  flex: 0 0 auto;
+  min-width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--hs-font-size-compact);
+  line-height: var(--hs-line-height-compact);
+  color: var(--hs-text-secondary);
+}
+
 /* ---- Settings (auxiliary screen, §18): replaces the workspace rows ---- */
 .hs-settings-wrap {
   grid-row: commandbar / transport; /* spans commandbar…main rows */
@@ -309,20 +451,14 @@ body {
   font-size: var(--hs-font-size-title);
   font-weight: 600;
 }
+/* Section chrome (border / radius / padding) comes from the HsPanel
+   primitive; this class only constrains width and rhythm. */
 .hs-settings__section {
   margin: 0 0 var(--hs-space-lg);
-  padding: var(--hs-space-md);
-  background: var(--hs-surface-panel);
-  border: 1px solid var(--hs-border-subtle);
-  border-radius: var(--hs-radius-panel);
   max-width: 560px;
 }
-.hs-settings__section-title {
-  margin: 0 0 var(--hs-space-sm);
-  font-size: var(--hs-font-size-subtitle);
-  font-weight: 600;
-}
 .hs-settings__note {
+  margin: 0;
   color: var(--hs-text-muted);
   font-size: var(--hs-font-size-compact);
 }

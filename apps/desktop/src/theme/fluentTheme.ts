@@ -32,8 +32,24 @@ const hornscribeBrand: BrandVariants = {
   160: "#ebf3fc",
 };
 
-export const hsLightTheme: Theme = createLightTheme(hornscribeBrand);
-export const hsDarkTheme: Theme = createDarkTheme(hornscribeBrand);
+/**
+ * §5 typography: the same stack as --hs-font-family so Fluent component
+ * internals render Japanese text through Yu Gothic UI / Meiryo too.
+ */
+const hsFontStack =
+  '"Segoe UI Variable","Segoe UI","Yu Gothic UI","Meiryo",sans-serif';
+
+export const hsLightTheme: Theme = {
+  ...createLightTheme(hornscribeBrand),
+  fontFamilyBase: hsFontStack,
+  fontFamilyNumeric: hsFontStack,
+};
+
+export const hsDarkTheme: Theme = {
+  ...createDarkTheme(hornscribeBrand),
+  fontFamilyBase: hsFontStack,
+  fontFamilyNumeric: hsFontStack,
+};
 
 export type ThemeMode = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";

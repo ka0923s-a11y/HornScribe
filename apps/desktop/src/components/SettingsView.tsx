@@ -1,12 +1,9 @@
-import {
-  Button,
-  Radio,
-  RadioGroup,
-  Label,
-} from "@fluentui/react-components";
+import { Radio, RadioGroup, Label } from "@fluentui/react-components";
 import { ArrowLeft24Regular } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { ThemeMode } from "../theme/fluentTheme";
+import { HsButton } from "./primitives/Button";
+import { HsPanel } from "./primitives/Panel";
 
 /**
  * 設定 — auxiliary screen, not a work mode (GUI_UX_SPEC §18).
@@ -24,19 +21,20 @@ export function SettingsView({
 }) {
   return (
     <div className="hs-settings" role="region" aria-label={ja.settings.regionLabel}>
-      <Button
-        appearance="subtle"
+      <HsButton
+        variant="subtle"
         icon={<ArrowLeft24Regular />}
         onClick={onBack}
       >
         {ja.settings.back}
-      </Button>
+      </HsButton>
       <h1 className="hs-settings__title">{ja.settings.title}</h1>
 
-      <section className="hs-settings__section">
-        <h2 className="hs-settings__section-title">
-          {ja.settings.appearanceSection}
-        </h2>
+      <HsPanel
+        title={ja.settings.appearanceSection}
+        titleLevel={2}
+        className="hs-settings__section"
+      >
         <Label id="hs-theme-label">{ja.settings.themeLabel}</Label>
         <RadioGroup
           aria-labelledby="hs-theme-label"
@@ -47,7 +45,7 @@ export function SettingsView({
           <Radio value="light" label={ja.settings.themeLight} />
           <Radio value="dark" label={ja.settings.themeDark} />
         </RadioGroup>
-      </section>
+      </HsPanel>
 
       {(
         [
@@ -58,10 +56,14 @@ export function SettingsView({
           ja.settings.advancedSection,
         ] as const
       ).map((title) => (
-        <section key={title} className="hs-settings__section">
-          <h2 className="hs-settings__section-title">{title}</h2>
+        <HsPanel
+          key={title}
+          title={title}
+          titleLevel={2}
+          className="hs-settings__section"
+        >
           <p className="hs-settings__note">{ja.settings.placeholder}</p>
-        </section>
+        </HsPanel>
       ))}
     </div>
   );

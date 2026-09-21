@@ -1,6 +1,6 @@
-import { Button } from "@fluentui/react-components";
 import { FolderOpen24Regular } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
+import { HsButton } from "./primitives/Button";
 
 /**
  * Score workspace — EMPTY state (GUI_UX_SPEC §3, §27).
@@ -22,14 +22,14 @@ export function ScoreWorkspace({
       <div className="hs-empty">
         <p className="hs-empty__title">{ja.emptyState.title}</p>
         <p className="hs-empty__or">{ja.emptyState.or}</p>
-        <Button
-          appearance="primary"
+        <HsButton
+          variant="primary"
           size="large"
           icon={<FolderOpen24Regular />}
           onClick={onOpenAudio}
         >
           {ja.emptyState.open}
-        </Button>
+        </HsButton>
         <p className="hs-empty__formats">{ja.emptyState.formats}</p>
         <p className="hs-empty__privacy">{ja.emptyState.privacy}</p>
       </div>

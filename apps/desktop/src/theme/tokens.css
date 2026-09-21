@@ -11,7 +11,8 @@
  */
 
 :root {
-  /* ---- Typography (DESIGN_SYSTEM §5) ---- */
+  /* ---- Typography (DESIGN_SYSTEM §5) ----
+     Japanese-capable stack: Yu Gothic UI / Meiryo before generic fallback. */
   --hs-font-family:
     "Segoe UI Variable",
     "Segoe UI",
@@ -24,6 +25,17 @@
   --hs-font-size-subtitle: 16px;
   --hs-font-size-title: 20px;
   --hs-font-size-display: 24px;
+  /* body-emphasis is a weight variant of body (§5). */
+  --hs-font-weight-regular: 400;
+  --hs-font-weight-emphasis: 600;
+  --hs-font-weight-title: 600;
+  /* Line heights keep 4px-grid alignment (§6). */
+  --hs-line-height-caption: 16px;
+  --hs-line-height-compact: 18px;
+  --hs-line-height-body: 20px;
+  --hs-line-height-subtitle: 22px;
+  --hs-line-height-title: 28px;
+  --hs-line-height-display: 32px;
 
   /* ---- Spacing, 4px grid (§6) ---- */
   --hs-space-micro: 2px;
@@ -42,11 +54,32 @@
   --hs-radius-modal: 10px;
   --hs-radius-score-paper: 3px;
 
-  /* ---- Motion (§18) ---- */
+  /* ---- Motion (§18): durations + easing curves ---- */
   --hs-motion-fast: 100ms;
   --hs-motion-normal: 180ms;
   --hs-motion-panel: 220ms;
   --hs-motion-dialog: 240ms;
+  /* Fluent-curve aligned: standard for color/position, decelerate for
+     entrances, accelerate for exits. */
+  --hs-ease-standard: cubic-bezier(0.8, 0, 0.2, 1);
+  --hs-ease-decelerate: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --hs-ease-accelerate: cubic-bezier(0.9, 0.1, 1, 0.2);
+
+  /* ---- Focus geometry (§16): 2px+, offset from control bounds ---- */
+  --hs-focus-width: 2px;
+  --hs-focus-offset: 2px;
+}
+
+/* Reduced motion (§18): panel/dialog transitions collapse to near-instant
+   and crossfades shorten; JS-driven animation code should read these tokens
+   instead of hard-coded ms values. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --hs-motion-fast: 1ms;
+    --hs-motion-normal: 1ms;
+    --hs-motion-panel: 1ms;
+    --hs-motion-dialog: 1ms;
+  }
 }
 
 /* ============================= LIGHT ============================= */
@@ -68,6 +101,14 @@
   --hs-accent: #0f6cbd;
   --hs-accent-hover: #115ea3;
   --hs-accent-pressed: #0f548c;
+  /* Text/icons placed on --hs-accent fills (selected segments, primary). */
+  --hs-accent-foreground: #ffffff;
+  /* Quiet accent tint for selected/informational washes. */
+  --hs-accent-subtle: #ebf3fc;
+
+  /* Neutral interaction tints for subtle/secondary control states. */
+  --hs-control-hover: rgba(0, 0, 0, 0.06);
+  --hs-control-pressed: rgba(0, 0, 0, 0.1);
 
   --hs-focus: #000000;
 
@@ -75,16 +116,54 @@
   --hs-status-warning: #986f0b;
   --hs-status-error: #c50f1f;
   --hs-status-success: #107c10;
+  /* Tinted surfaces behind status text/badges (≥4.5:1 with the matching
+     --hs-status-* text color; checked against these paired values only). */
+  --hs-status-info-subtle: #ebf3fc;
+  --hs-status-warning-subtle: #fff4ce;
+  --hs-status-error-subtle: #fde7e9;
+  --hs-status-success-subtle: #f1faf1;
+  --hs-status-neutral-subtle: #f0f0f0;
+
+  /* Destructive-action fill (§9 danger button, §20): palette red family,
+     same values in dark theme — distinct from --hs-status-error which is
+     the text/icon signal color. */
+  --hs-danger: #c50f1f;
+  --hs-danger-hover: #b10e1c;
+  --hs-danger-pressed: #960b18;
+  --hs-danger-foreground: #ffffff;
+
+  /* §15: 要確認 cue = warning tint, never error red. */
+  --hs-review-tint: #fff4ce;
 
   --hs-waveform: #5f6b73;
   --hs-waveform-played: rgba(15, 108, 189, 0.75);
   --hs-waveform-selection: rgba(15, 108, 189, 0.22);
   --hs-playhead: #0c3b5e;
 
+  /* Score paper (§13 option A): paper stays light in both themes, so the
+     ink/staff tokens keep their light-paper values in the dark block too. */
+  --hs-score-ink: #1a1a1a;
+  --hs-score-staff: #333333;
+  --hs-score-paper-border: #d4d4d4;
   --hs-score-selection: rgba(15, 108, 189, 0.25);
   --hs-score-active-note: #0f6cbd;
   --hs-score-current-measure: rgba(0, 0, 0, 0.05);
   --hs-review-marker: #986f0b;
+
+  /* ---- Elevation (§8): reserved for menu/popover/sheet/drag; the
+     persistent workspace itself stays flat and separates by border. ---- */
+  --hs-elevation-menu:
+    0 4px 8px rgba(0, 0, 0, 0.14),
+    0 0 2px rgba(0, 0, 0, 0.12);
+  --hs-elevation-popover:
+    0 8px 16px rgba(0, 0, 0, 0.14),
+    0 0 2px rgba(0, 0, 0, 0.12);
+  --hs-elevation-sheet:
+    0 16px 32px rgba(0, 0, 0, 0.2),
+    0 0 4px rgba(0, 0, 0, 0.12);
+  --hs-elevation-drag:
+    0 8px 16px rgba(0, 0, 0, 0.2),
+    0 0 2px rgba(0, 0, 0, 0.12);
 }
 
 /* ============================= DARK ============================== */
@@ -108,6 +187,12 @@
   --hs-accent: #479ef5;
   --hs-accent-hover: #62abf5;
   --hs-accent-pressed: #2886de;
+  /* The dark accent is light, so on-accent text flips to dark ink. */
+  --hs-accent-foreground: #1a1a1a;
+  --hs-accent-subtle: #0a2e4a;
+
+  --hs-control-hover: rgba(255, 255, 255, 0.08);
+  --hs-control-pressed: rgba(255, 255, 255, 0.12);
 
   --hs-focus: #ffffff;
 
@@ -115,6 +200,19 @@
   --hs-status-warning: #fee06e;
   --hs-status-error: #f1707b;
   --hs-status-success: #9fd89f;
+  --hs-status-info-subtle: #0a2e4a;
+  --hs-status-warning-subtle: #443a08;
+  --hs-status-error-subtle: #3f1011;
+  --hs-status-success-subtle: #052501;
+  --hs-status-neutral-subtle: #3a3a3a;
+
+  /* Danger fill is the palette red family in both themes. */
+  --hs-danger: #c50f1f;
+  --hs-danger-hover: #b10e1c;
+  --hs-danger-pressed: #960b18;
+  --hs-danger-foreground: #ffffff;
+
+  --hs-review-tint: #443a08;
 
   --hs-waveform: #9eaab2;
   --hs-waveform-played: rgba(71, 158, 245, 0.8);
@@ -122,8 +220,24 @@
   --hs-playhead: #a6c8fa;
 
   /* Score marks land on the (light) score paper in both themes. */
+  --hs-score-ink: #1a1a1a;
+  --hs-score-staff: #333333;
+  --hs-score-paper-border: #c9c9c9;
   --hs-score-selection: rgba(15, 108, 189, 0.25);
   --hs-score-active-note: #0f6cbd;
   --hs-score-current-measure: rgba(0, 0, 0, 0.06);
   --hs-review-marker: #8a6308;
+
+  --hs-elevation-menu:
+    0 4px 8px rgba(0, 0, 0, 0.4),
+    0 0 2px rgba(0, 0, 0, 0.3);
+  --hs-elevation-popover:
+    0 8px 16px rgba(0, 0, 0, 0.45),
+    0 0 2px rgba(0, 0, 0, 0.3);
+  --hs-elevation-sheet:
+    0 16px 32px rgba(0, 0, 0, 0.55),
+    0 0 4px rgba(0, 0, 0, 0.35);
+  --hs-elevation-drag:
+    0 8px 16px rgba(0, 0, 0, 0.5),
+    0 0 2px rgba(0, 0, 0, 0.3);
 }
