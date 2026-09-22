@@ -22,6 +22,11 @@ import { StatusBar } from "./components/StatusBar";
 import { SettingsView } from "./components/SettingsView";
 import { TranscriptionView } from "./components/TranscriptionView";
 import { TranscriptionErrorView } from "./components/TranscriptionErrorView";
+import { ExportDialog } from "./export/ExportDialog";
+import { DiagnosticsSheet } from "./diagnostics/DiagnosticsSheet";
+import { createDefaultExportPort } from "./export/port";
+import { createDefaultDiagnosticsPort } from "./diagnostics/port";
+import { useAppSettings, type SettingsCategory } from "./settings/store";
 import type { PitchView } from "./components/PitchSegmented";
 import { createFixtureScoreDocument } from "./score/fixtureDocument";
 import { scoreHandoffFromResult } from "./score/jobResult";
@@ -149,6 +154,26 @@ export default function App() {
   const { mode, resolved, select } = useThemeMode();
   const [view, setView] = useState<View>("workspace");
   const [pitch, setPitch] = useState<PitchView>("concert");
+  // UI-060: persisted settings (localStorage) + the two secondary surfaces
+  // (書き出し dialog / 診断情報 sheet) that live outside the workspace.
+  const { settings, update: updateSettings } = useAppSettings();
+  const [exportOpen, setExportOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [settingsFocus, setSettingsFocus] = useState<
+    SettingsCategory | undefined
+  >(undefined);
+  // Ports are runtime-gated (mock in a browser, explicit-failure in the
+  // Tauri shell until the engine spawn bridge lands — see export/port.ts).
+  const exportPort = useMemo(() => createDefaultExportPort(), []);
+  const diagnosticsPort = useMemo(() => createDefaultDiagnosticsPort(), []);
+  // User-specified tool paths (設定 → ツール) flow into every probe.
+  const toolOverrides = useMemo(
+    () => ({
+      museScorePath: settings.museScorePath || undefined,
+      ffmpegPath: settings.ffmpegPath || undefined,
+    }),
+    [settings.museScorePath, settings.ffmpegPath],
+  );
   const [statusMessage, setStatusMessage] = useState<string>(ja.status.ready);
   const [shellDetail, setShellDetail] = useState<string | undefined>(
     ja.status.shellInfoLoading,
@@ -441,12 +466,16 @@ export default function App() {
       reviewPrevious: () => scoreCtlRef.current?.reviewPrevious(),
       undo: () => setStatusMessage(ja.commandFeedback.notImplemented),
       redo: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      openExport: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      openExport: () => setExportOpen(true),
       zoomScoreIn: () => scoreCtlRef.current?.zoomIn(),
       zoomScoreOut: () => scoreCtlRef.current?.zoomOut(),
       zoomScoreFit: () => scoreCtlRef.current?.zoomFit(),
       clearSelection: () => scoreCtlRef.current?.clearSelection(),
-      openSettings: () => setView("settings"),
+      openSettings: () => {
+        setSettingsFocus(undefined);
+        setView("settings");
+      },
+      openDiagnostics: () => setDiagnosticsOpen(true),
       // F6 / Shift+F6 region cycling (§22) — owned by focus/zones.ts; these
       // are the only fully-working transport-independent commands so far.
       focusNextRegion: () => {
@@ -675,6 +704,13 @@ export default function App() {
                 themeMode={mode}
                 onThemeMode={select}
                 onBack={() => setView("workspace")}
+                settings={settings}
+                onSettingsChange={updateSettings}
+                diagnosticsPort={diagnosticsPort}
+                exportPort={exportPort}
+                onOpenDiagnostics={() => setDiagnosticsOpen(true)}
+                onAnnounce={setStatusMessage}
+                focusCategory={settingsFocus}
               />
             </div>
           ) : (
@@ -875,6 +911,28 @@ export default function App() {
                 );
               })()
             : null}
+          {/* UI-060 secondary surfaces — modals over the shell, never a
+              workspace mode. Recovery paths deep-link into 設定/診断情報. */}
+          <ExportDialog
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+            port={exportPort}
+            defaultDestination={settings.defaultExportDir}
+            toolOverrides={toolOverrides}
+            onOpenSettings={(category) => {
+              setSettingsFocus(category);
+              setView("settings");
+            }}
+            onOpenDiagnostics={() => setDiagnosticsOpen(true)}
+            onAnnounce={setStatusMessage}
+          />
+          <DiagnosticsSheet
+            open={diagnosticsOpen}
+            onOpenChange={setDiagnosticsOpen}
+            port={diagnosticsPort}
+            toolOverrides={toolOverrides}
+            onAnnounce={setStatusMessage}
+          />
         </AppShell>
       )}
     </FluentProvider>

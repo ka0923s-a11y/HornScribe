@@ -254,5 +254,11 @@ export function createCommandDefinitions(): readonly Command[] {
       section: "app",
       run: (ctx) => ctx.openSettings(),
     },
+    {
+      id: "app.diagnostics",
+      title: ja.commands.diagnostics,
+      section: "app",
+      run: (ctx) => ctx.openDiagnostics(),
+    },
   ];
 }

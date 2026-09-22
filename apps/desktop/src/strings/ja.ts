@@ -133,6 +133,38 @@ export const ja = {
     toolsSection: "ツール",
     advancedSection: "詳細設定",
     placeholder: "この画面はスパイク用のプレースホルダーです。",
+
+    /* ---- UI-060 additions (deck: settings.*) ---- */
+    scoreSection: "楽譜",
+    navLabel: "設定のカテゴリ",
+    defaultRate: "標準再生速度",
+    skipSeconds: "戻る/進む秒数",
+    secondsUnit: "秒",
+    followPlayback: "再生位置を追従",
+    tempo: "テンポ",
+    tempoAuto: "自動",
+    tempoManual: "手動",
+    bpm: "BPM",
+    meter: "拍子",
+    minDuration: "最小音価",
+    minDurationEighth: "8分音符",
+    minDurationSixteenth: "16分音符",
+    minDurationThirtySecond: "32分音符",
+    tripletsAllow: "三連符を使う",
+    initialView: "初期表示",
+    viewContinuous: "連続表示",
+    viewPage: "ページ表示",
+    defaultFolder: "既定の保存先",
+    folderPlaceholder: "未設定",
+    musescorePath: "MuseScoreの場所",
+    ffmpegPath: "FFmpegの場所",
+    pathPlaceholder: "自動検出",
+    modelInfo: "モデル情報",
+    backendLabel: "採譜エンジン",
+    cache: "キャッシュの場所",
+    logs: "ログの場所",
+    openLogs: "ログフォルダを開く",
+    openDiagnostics: "診断情報を開く",
   },
 
   time: {
@@ -342,6 +374,7 @@ export const ja = {
     nextRegion: "次の領域へ移動",
     previousRegion: "前の領域へ移動",
     settings: "設定",
+    diagnostics: "診断情報",
   },
 
   /**
@@ -790,14 +823,83 @@ export const ja = {
       diagnostics: "診断情報",
     },
     close: "閉じる",
+    /* ---- UI-060 export errors (deck: errors.*; the export dialog maps
+       stable ExportError codes onto these — engine stderr/stack traces
+       never reach the surface). ---- */
+    musescoreMissing: {
+      title: "PDFを書き出せません",
+      body: "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。",
+      actions: {
+        specifyMusescore: "MuseScoreの場所を指定",
+        exportMusicxml: "MusicXMLを書き出す",
+        close: "閉じる",
+      },
+    },
+    engineUnavailable: {
+      title: "採譜エンジンに接続できません",
+      body: "書き出しと採譜にはエンジンへの接続が必要です。エンジンを再起動するか、診断情報で状態を確認してください。",
+      actions: {
+        diagnostics: "診断情報",
+        restartEngine: "エンジンを再起動",
+        close: "閉じる",
+      },
+    },
+    exportFailed: {
+      title: "書き出しを完了できませんでした",
+      body: "書き出し先への保存に失敗しました。プロジェクトと楽譜は失われていません。",
+      actions: {
+        chooseDestination: "別の保存先を選ぶ",
+        retry: "再試行",
+      },
+    },
+    exportPermissionDenied: {
+      title: "保存先に書き込めません",
+      body: "選択したフォルダへの書き込み権限がありません。プロジェクトと楽譜は失われていません。",
+      actions: {
+        chooseDestination: "別の保存先を選ぶ",
+      },
+    },
   },
 
-  /** 診断情報 (GUI_UX_SPEC §19) — セッションが正直に報告できる範囲のみ */
+  /** 診断情報 (GUI_UX_SPEC §19) — セッションが正直に報告できる範囲のみ。
+   *  UI-060 adds the full sheet surface (fields/groups/actions). */
   diagnostics: {
     title: "診断情報",
     copy: "診断情報をコピー",
     copied: "診断情報をコピーしました",
     close: "閉じる",
+    fields: {
+      appVersion: "HornScribeのバージョン",
+      engineVersion: "Pythonエンジンのバージョン",
+      protocolVersion: "プロトコルバージョン",
+      backend: "採譜エンジン",
+      ffmpeg: "FFmpeg",
+      musescore: "MuseScore",
+      verovio: "Verovio",
+      wavesurfer: "wavesurfer",
+      cachePath: "キャッシュの場所",
+      logPath: "ログの場所",
+      workerStatus: "エンジンの状態",
+    },
+    groups: {
+      versions: "バージョン",
+      tools: "ツールの状態",
+      locations: "場所",
+    },
+    copyFailed: "診断情報をコピーできませんでした",
+    openLogs: "ログフォルダを開く",
+    openLogsFailed: "ログフォルダを開けませんでした",
+    restartEngine: "エンジンを再起動",
+    restarted: "エンジンを再起動しました",
+    restartFailed: "エンジンを再起動できませんでした",
+    collecting: "診断情報を集めています",
+    notConnected: "未接続",
+    unknown: "不明",
+    workerStates: {
+      running: "稼働中",
+      stopped: "停止中",
+      unavailable: "未接続",
+    },
   },
 
   /* ====================== UI-030 score workspace ======================
@@ -912,6 +1014,59 @@ export const ja = {
     accepted: "確認済み",
     dismissed: "対応不要",
     fixed: "修正済み",
+  },
+
+  /* ============================ UI-060 ============================
+   * Product export dialog (deck: exportSheet.*) — distinct from the
+   * prototype mirror above; this is the real 書き出し surface.
+   */
+  exportSheet: {
+    title: "書き出し",
+    scoreSection: "楽譜",
+    pdfSection: "PDF",
+    midiSection: "MIDI",
+    options: {
+      concertMusicxml: "コンサートピッチ MusicXML",
+      hornMusicxml: "F管ホルン MusicXML",
+      concertPdf: "コンサートピッチ PDF",
+      hornPdf: "F管ホルン PDF",
+      playbackMidi: "再生用MIDI（実音）",
+    },
+    destination: "保存先",
+    chooseDestination: "保存先を選ぶ",
+    submit: "書き出す",
+    running: "書き出しています",
+    loading: "書き出しの準備をしています",
+    museScoreMissingNote:
+      "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。",
+    pdfDisabledTooltip: "MuseScoreが見つからないためPDFを書き出せません",
+    specifyMuseScore: "MuseScoreの場所を指定",
+    completeTitle: "書き出しが完了しました",
+    completeCount: "{count}件のファイルを書き出しました",
+    revealInExplorer: "エクスプローラーで表示",
+    revealFailed: "エクスプローラーで表示できませんでした",
+    destinationPickFailed: "保存先を選択できませんでした",
+  },
+
+  /** External-tool status vocabulary (deck: dependencies.*). */
+  dependencies: {
+    statusFound: "検出済み",
+    statusMissing: "見つかりません",
+    statusChecking: "確認しています",
+    specifyLocation: "場所を指定",
+    ffmpeg: {
+      name: "FFmpeg",
+      purpose: "音声ファイルの変換に必要です。",
+    },
+    musescore: {
+      name: "MuseScore",
+      purpose: "PDFの書き出しに必要です。",
+    },
+  },
+
+  /** Status-bar notifications (deck: notifications.*). */
+  notifications: {
+    exportDone: "書き出しが完了しました",
   },
 } as const;
 

@@ -7,6 +7,7 @@ import {
   Settings24Regular,
   MoreHorizontal24Regular,
   PanelRight24Regular,
+  Wrench24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -93,6 +94,13 @@ export function CommandBar({
       key: "properties",
       label: propertiesOpen ? ja.properties.close : ja.properties.show,
       icon: <PanelRight24Regular />,
+    },
+    { key: "overflow-divider", divider: true },
+    // §16: diagnostics lives in the overflow, never on the command bar.
+    {
+      key: "diagnostics",
+      label: commands.title("app.diagnostics"),
+      icon: <Wrench24Regular />,
     },
   ];
 
@@ -186,6 +194,7 @@ export function CommandBar({
         onSelect={(key) => {
           if (key === "settings") commands.invoke("app.settings");
           else if (key === "properties") onToggleProperties();
+          else if (key === "diagnostics") commands.invoke("app.diagnostics");
         }}
       />
     </Toolbar>

@@ -1202,3 +1202,240 @@ body {
   color: var(--hs-text-secondary);
   user-select: text;
 }
+
+/* ---- Settings category layout (UI-060): left nav + one panel at a time.
+   The nav list is the only visible control; 詳細設定 never leaks into the
+   workspace because it is a category like any other, behind the same nav. */
+.hs-settings__layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hs-space-lg);
+  min-height: 0;
+}
+.hs-settings__nav {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+  min-width: 11em;
+  padding: var(--hs-space-xs);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-panel);
+  background: var(--hs-surface-panel);
+}
+.hs-settings__nav-item {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--hs-radius-input);
+  background: transparent;
+  color: var(--hs-text-primary);
+  font: inherit;
+  text-align: start;
+  padding: var(--hs-space-sm) var(--hs-space-ms);
+  cursor: pointer;
+}
+.hs-settings__nav-item:hover {
+  background: var(--hs-control-hover);
+}
+.hs-settings__nav-item:focus-visible {
+  outline: var(--hs-focus-width) solid var(--hs-focus);
+  outline-offset: var(--hs-focus-offset);
+}
+.hs-settings__nav-item--active {
+  background: var(--hs-accent);
+  color: var(--hs-accent-foreground);
+}
+.hs-settings__nav-item--active:hover {
+  background: var(--hs-accent-pressed);
+}
+.hs-settings__content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hs-settings__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-md);
+  max-width: 34em;
+}
+.hs-settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+  min-width: 0;
+}
+.hs-settings__path-row {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  min-width: 0;
+}
+.hs-settings__path-row .fui-Input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hs-settings__value {
+  margin: 0;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+  overflow-wrap: anywhere;
+}
+.hs-settings__tool {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+  padding: var(--hs-space-ms);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-panel);
+}
+.hs-settings__tool-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hs-space-sm);
+}
+.hs-settings__tool-name {
+  font-weight: var(--hs-font-weight-emphasis);
+}
+@media (max-width: 760px) {
+  .hs-settings__layout {
+    flex-direction: column;
+  }
+  .hs-settings__nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+}
+
+/* ---- Export dialog (UI-060, §17) ---- */
+.hs-export {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-sm);
+  min-width: 22em;
+}
+.hs-export__section {
+  margin: var(--hs-space-sm) 0 0;
+  font-size: var(--hs-font-size-compact);
+  font-weight: var(--hs-font-weight-emphasis);
+  color: var(--hs-text-secondary);
+}
+.hs-export__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+}
+.hs-export__option {
+  display: inline-flex;
+}
+.hs-export__note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--hs-space-sm);
+  margin: 0;
+  padding: var(--hs-space-sm) var(--hs-space-ms);
+  border: 1px solid var(--hs-status-warning);
+  border-radius: var(--hs-radius-panel);
+  background: var(--hs-status-warning-subtle);
+  color: var(--hs-text-primary);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-export__note > svg {
+  flex: 0 0 auto;
+  color: var(--hs-status-warning);
+}
+.hs-export__dest {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  margin-top: var(--hs-space-sm);
+  padding-top: var(--hs-space-sm);
+  border-top: 1px solid var(--hs-border-subtle);
+}
+.hs-export__dest-label {
+  flex: 0 0 auto;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-export__dest-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hs-font-size-compact);
+}
+.hs-export__progress {
+  margin-top: var(--hs-space-sm);
+}
+.hs-export__done,
+.hs-export__error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hs-space-sm);
+  margin: 0;
+}
+.hs-export__done-icon {
+  flex: 0 0 auto;
+  color: var(--hs-status-success);
+}
+.hs-export__error-icon {
+  flex: 0 0 auto;
+  color: var(--hs-status-error);
+}
+.hs-export__files {
+  margin: 0;
+  padding-inline-start: var(--hs-space-lg);
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+  overflow-wrap: anywhere;
+}
+
+/* ---- Diagnostics sheet (UI-060, §19) ---- */
+.hs-diag {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-lg);
+}
+.hs-diag__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+}
+.hs-diag__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hs-space-md);
+}
+.hs-diag__label {
+  flex: 0 0 11em;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-diag__value {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--hs-space-sm);
+  overflow-wrap: anywhere;
+}
+.hs-diag__detail {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-compact);
+  overflow-wrap: anywhere;
+}
+.hs-diag__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  color: var(--hs-text-secondary);
+}
+.hs-diag__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-sm);
+}

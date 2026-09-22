@@ -370,7 +370,12 @@
     "museScoreMissingNote": "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。",
     "pdfDisabledTooltip": "MuseScoreが見つからないためPDFを書き出せません",
     "completeTitle": "書き出しが完了しました",
+    "completeCount": "{count}件のファイルを書き出しました",
     "revealInExplorer": "エクスプローラーで表示",
+    "revealFailed": "エクスプローラーで表示できませんでした",
+    "destinationPickFailed": "保存先を選択できませんでした",
+    "loading": "書き出しの準備をしています",
+    "specifyMuseScore": "MuseScoreの場所を指定",
     "openInMusescore": "MuseScoreで開く"
   },
   "settings": {
@@ -387,15 +392,23 @@
       "label": "再生",
       "defaultRate": "標準再生速度",
       "skipSeconds": "戻る/進む秒数",
+      "secondsUnit": "秒",
       "followPlayback": "再生位置を追従"
     },
     "transcription": {
       "label": "採譜",
       "backend": "採譜エンジン",
+      "tempo": "テンポ",
+      "tempoAuto": "自動",
+      "tempoManual": "手動",
       "bpm": "BPM",
       "meter": "拍子",
       "minDuration": "最小音価",
-      "triplets": "三連符"
+      "minDurationEighth": "8分音符",
+      "minDurationSixteenth": "16分音符",
+      "minDurationThirtySecond": "32分音符",
+      "triplets": "三連符",
+      "tripletsAllow": "三連符を使う"
     },
     "score": {
       "label": "楽譜",
@@ -406,16 +419,20 @@
     "export": {
       "label": "書き出し",
       "defaultFolder": "既定の保存先",
+      "folderPlaceholder": "未設定",
       "musescorePath": "MuseScoreの場所"
     },
     "tools": {
       "label": "ツール",
       "ffmpeg": "FFmpeg",
       "musescore": "MuseScore",
-      "modelInfo": "モデル情報"
+      "modelInfo": "モデル情報",
+      "ffmpegPath": "FFmpegの場所",
+      "pathPlaceholder": "自動検出"
     },
     "advanced": {
       "label": "詳細設定",
+      "backend": "採譜エンジン",
       "cache": "キャッシュ",
       "logs": "ログ",
       "diagnostics": "診断情報"
@@ -436,10 +453,27 @@
       "logPath": "ログの場所",
       "workerStatus": "エンジンの状態"
     },
+    "groups": {
+      "versions": "バージョン",
+      "tools": "ツールの状態",
+      "locations": "場所"
+    },
     "copy": "診断情報をコピー",
     "copied": "診断情報をコピーしました",
+    "copyFailed": "診断情報をコピーできませんでした",
     "openLogs": "ログフォルダを開く",
-    "restartEngine": "エンジンを再起動"
+    "openLogsFailed": "ログフォルダを開けませんでした",
+    "restartEngine": "エンジンを再起動",
+    "restarted": "エンジンを再起動しました",
+    "restartFailed": "エンジンを再起動できませんでした",
+    "collecting": "診断情報を集めています",
+    "notConnected": "未接続",
+    "unknown": "不明",
+    "workerStates": {
+      "running": "稼働中",
+      "stopped": "停止中",
+      "unavailable": "未接続"
+    }
   },
   "dialogs": {
     "retranscribeConfirm": {
@@ -485,6 +519,15 @@
       "actions": {
         "specifyMusescore": "MuseScoreの場所を指定",
         "exportMusicxml": "MusicXMLを書き出す",
+        "close": "閉じる"
+      }
+    },
+    "engineUnavailable": {
+      "title": "採譜エンジンに接続できません",
+      "body": "書き出しと採譜にはエンジンへの接続が必要です。エンジンを再起動するか、診断情報で状態を確認してください。",
+      "actions": {
+        "diagnostics": "診断情報",
+        "restartEngine": "エンジンを再起動",
         "close": "閉じる"
       }
     },

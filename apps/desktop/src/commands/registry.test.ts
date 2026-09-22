@@ -65,6 +65,7 @@ function mockContext(): CommandContext & { calls: string[] } {
     zoomScoreFit: spy("zoomScoreFit"),
     clearSelection: spy("clearSelection"),
     openSettings: spy("openSettings"),
+    openDiagnostics: spy("openDiagnostics"),
     focusNextRegion: spy("focusNextRegion"),
     focusPreviousRegion: spy("focusPreviousRegion"),
     announce: spy("announce"),
@@ -96,6 +97,8 @@ describe("command definitions", () => {
       "score.zoomFit",
       "nav.nextRegion",
       "nav.previousRegion",
+      "app.settings",
+      "app.diagnostics",
     ]) {
       expect(ids).toContain(required);
     }

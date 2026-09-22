@@ -59,6 +59,7 @@ function mockContext() {
     zoomScoreFit: spy("zoomScoreFit"),
     clearSelection: spy("clearSelection"),
     openSettings: spy("openSettings"),
+    openDiagnostics: spy("openDiagnostics"),
     focusNextRegion: spy("focusNextRegion"),
     focusPreviousRegion: spy("focusPreviousRegion"),
     announce: spy("announce"),

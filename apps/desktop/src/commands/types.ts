@@ -88,6 +88,8 @@ export interface CommandContext {
   zoomScoreFit(): void;
   clearSelection(): void;
   openSettings(): void;
+  /** Opens the 診断情報 sheet (§19 — separated from the normal UI). */
+  openDiagnostics(): void;
   /** F6 region navigation — implemented by focus/zones. */
   focusNextRegion(): void;
   focusPreviousRegion(): void;
