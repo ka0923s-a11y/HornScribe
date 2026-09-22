@@ -57,8 +57,7 @@ def test_hsq_beats_baselines_on_ioi_fixture() -> None:
     # pair (a 5/4 span needs an ugly tie), so the no-IOI ablation no longer
     # degrades to baseline on this fixture. The timing-only ablation keeps
     # the IOI term, so it stays exact too — the timing terms' isolated
-    # contribution is covered in
-    # test_hsq_dp.test_ioi_cost_recovers_consistent_shift.
+    # contribution is covered in test_hsq_dp.test_ioi_cost_recovers_consistent_shift.
     assert metrics["HSQ-no-ioi"].exact_onset_rate == 1.0
     assert metrics["HSQ-timing"].exact_onset_rate == 1.0
 

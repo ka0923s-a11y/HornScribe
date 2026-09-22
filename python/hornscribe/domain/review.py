@@ -27,6 +27,7 @@ class ReviewReason(Enum):
     VERY_SHORT_DETECTION = "very_short_detection"
     OVERLAPPING_CANDIDATES = "overlapping_candidates"
     QUANTIZATION_AMBIGUOUS = "quantization_ambiguous"
+    POSSIBLE_TRIPLET = "possible_triplet"
     PITCH_SPELLING_AMBIGUOUS = "pitch_spelling_ambiguous"
     OUTSIDE_PREFERRED_HORN_RANGE = "outside_preferred_horn_range"
     STRUCTURAL_MEASURE_CONFLICT = "structural_measure_conflict"

@@ -301,6 +301,110 @@ def meter_change_44_68() -> RhythmFixture:
     )
 
 
+# --- triplet fixtures (issue #19 / QNT-005) ----------------------------------------
+
+
+def triplet_eighths_exact() -> RhythmFixture:
+    """Exact 8th-note triplets over two beats in 4/4."""
+    return straight_fixture(
+        "triplet_eighths_exact",
+        [
+            Fraction(0),
+            Fraction(1, 3),
+            Fraction(2, 3),
+            Fraction(1),
+            Fraction(4, 3),
+            Fraction(5, 3),
+        ],
+        duration_ql=Fraction(1, 4),
+    )
+
+
+def triplet_eighths_jitter() -> RhythmFixture:
+    """8th-note triplets with deterministic ±15 ms timing jitter."""
+    return straight_fixture(
+        "triplet_eighths_jitter",
+        [
+            Fraction(0),
+            Fraction(1, 3),
+            Fraction(2, 3),
+            Fraction(1),
+            Fraction(4, 3),
+            Fraction(5, 3),
+        ],
+        seed=5107,
+        jitter_range_ms=15.0,
+        duration_ql=Fraction(1, 4),
+    )
+
+
+def eighths_jitter_straight() -> RhythmFixture:
+    """Straight 8ths with deterministic ±20 ms jitter — must stay binary."""
+    return straight_fixture(
+        "eighths_jitter_straight",
+        [Fraction(i, 2) for i in range(8)],
+        seed=2609,
+        jitter_range_ms=20.0,
+        duration_ql=Fraction(2, 5),
+    )
+
+
+def isolated_late_note() -> RhythmFixture:
+    """One isolated off-grid note (2.62 ql) in a straight-8th passage.
+
+    Region [2, 3) holds only one triplet-relevant onset — below the region
+    evidence gate — so the note snaps to the binary grid (2.5) and the
+    region stays binary; the evidence still surfaces ``possible_triplet``
+    for review.
+    """
+    return straight_fixture(
+        "isolated_late_note",
+        [
+            Fraction(0),
+            Fraction(1, 2),
+            Fraction(1),
+            Fraction(3, 2),
+            Fraction(2),
+            Fraction(131, 50),  # 2.62 — 120 ms late of the 8th at 2.5
+            Fraction(3),
+            Fraction(7, 2),
+        ],
+        expected_ql=[
+            Fraction(0),
+            Fraction(1, 2),
+            Fraction(1),
+            Fraction(3, 2),
+            Fraction(2),
+            Fraction(5, 2),
+            Fraction(3),
+            Fraction(7, 2),
+        ],
+        duration_ql=Fraction(2, 5),
+    )
+
+
+def binary_triplet_binary() -> RhythmFixture:
+    """Binary -> triplet -> binary passage (design 38 fixture).
+
+    Quarter, eighths, one full beat of triplet eighths, then quarters — the
+    triplet beat is the only region with enough evidence to open the gate.
+    """
+    return straight_fixture(
+        "binary_triplet_binary",
+        [
+            Fraction(0),
+            Fraction(1),
+            Fraction(3, 2),
+            Fraction(2),
+            Fraction(7, 3),
+            Fraction(8, 3),
+            Fraction(3),
+            Fraction(4),
+        ],
+        duration_ql=Fraction(1, 4),
+    )
+
+
 ALL_FIXTURES: tuple[Callable[[], RhythmFixture], ...] = (
     quarters_exact,
     quarters_jitter20,
@@ -318,6 +422,11 @@ ALL_FIXTURES: tuple[Callable[[], RhythmFixture], ...] = (
     meter_68_dotted_beats,
     pickup_44_quarter,
     meter_change_44_68,
+    triplet_eighths_exact,
+    triplet_eighths_jitter,
+    eighths_jitter_straight,
+    isolated_late_note,
+    binary_triplet_binary,
 )
 """Every required fixture, for parametrized acceptance tests."""
 

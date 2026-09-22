@@ -5,10 +5,12 @@ the QNT-002 onset search (binary candidate lattice, Huber onset/IOI costs,
 deterministic top-K DP, global alignment-shift search, naive baselines, and
 onset-metric benchmarks) and the QNT-003 joint duration/rest realization
 (span decomposition into notation atoms, rest generation, tie splitting,
-notation-complexity costs), and the QNT-004 meter expansion (3/4, 2/4
+notation-complexity costs), the QNT-004 meter expansion (3/4, 2/4
 and compound 6/8 measures, manual ``measure_phase_ql`` anacrusis,
 meter-aware rest grouping, and the ``assemble_score_document`` MusicXML
-bridge). No audio, GUI, or notation-backend logic — see
+bridge), and the QNT-005 triplet model (region-gated triplet grid, grid-mode
+switch cost, tuplet notation cost, notation-sensitive ambiguity and
+``generate_review_issues``). No audio, GUI, or notation-backend logic — see
 ``docs/QUANTIZER_DESIGN.md``.
 """
 
@@ -43,6 +45,7 @@ from hornscribe.rhythm.costs import (
     onset_cost,
 )
 from hornscribe.rhythm.dp import OnsetPath, evaluate_onset_path_cost, kbest_onset_paths
+from hornscribe.rhythm.issues import generate_review_issues
 from hornscribe.rhythm.lattice import (
     CandidateGrid,
     OnsetCandidate,
@@ -82,6 +85,13 @@ from hornscribe.rhythm.timewarp import (
     TimeWarpMode,
     normalize_to_score_time,
 )
+from hornscribe.rhythm.triplet import (
+    TripletRegion,
+    TripletRegionEvidence,
+    enabled_triplet_regions,
+    region_evidence,
+    simple_meter_regions,
+)
 
 __all__ = [
     "QUANTIZER_ID",
@@ -117,13 +127,17 @@ __all__ = [
     "TimeWarp",
     "TimeWarpMode",
     "TripletPolicy",
+    "TripletRegion",
+    "TripletRegionEvidence",
     "UnsupportedMeterError",
     "assemble_score_document",
     "benchmark_onsets",
     "confidence_weight",
+    "enabled_triplet_regions",
     "estimate_alignment_shift",
     "evaluate_onset_path_cost",
     "generate_onset_candidates",
+    "generate_review_issues",
     "grid_distance_ql",
     "huber",
     "ioi_cost",
@@ -135,6 +149,8 @@ __all__ = [
     "quantize_events",
     "quantize_normalized",
     "realize_interval",
+    "region_evidence",
+    "simple_meter_regions",
     "snap_candidate_lattice",
     "snap_nearest_grid",
     "snap_to_grid_ql",

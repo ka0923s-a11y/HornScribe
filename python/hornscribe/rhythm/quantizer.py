@@ -1,4 +1,4 @@
-"""HSQ-v1 quantizer (QNT-002 onsets + QNT-003 realization; design 11-16, 32-33).
+"""HSQ-v1 quantizer (QNT-002..005; design 7-20, 32-33).
 
 Pipeline implemented here (design 32):
 
@@ -6,22 +6,27 @@ Pipeline implemented here (design 32):
    quarterLength (:func:`hornscribe.rhythm.normalize_to_score_time`);
    a global alignment shift ``delta_sec`` compensating AMT/beat latency is
    searched *before* this step (design 6.3);
-2. ``candidates`` — per-note binary lattice inside the candidate window
-   (design 8, :mod:`hornscribe.rhythm.lattice`);
-3. ``DP`` — deterministic top-K monotonic onset search over Huber onset
-   cost + IOI cost (design 9-11, :mod:`hornscribe.rhythm.dp`), where every
-   transition also evaluates the joint note-duration/rest realization of the
-   interval it closes (design 12/33, :mod:`hornscribe.rhythm.realize`);
-4. alternatives — up to ``k_best`` ranked :class:`QuantizationAlternative`
-   objects (design 19) carrying realized notes, rests and complexity
-   diagnostics (design 36.2, 40-41).
+2. ``triplet gate`` — simple-meter beats are evaluated for triplet evidence
+   (design 17.2, :mod:`hornscribe.rhythm.triplet`); enabled regions feed
+   both the lattice and the realizer so the grid mode is applied uniformly;
+3. ``candidates`` — per-note binary lattice plus triplet points inside
+   enabled regions (design 8, :mod:`hornscribe.rhythm.lattice`);
+4. ``DP`` — deterministic top-K monotonic onset search over Huber onset
+   cost + IOI cost + grid-mode-switch cost (design 9-11, 18,
+   :mod:`hornscribe.rhythm.dp`), where every transition also evaluates the
+   joint note-duration/rest realization of the interval it closes —
+   including tuplet group/atom notation cost (design 7.3, 12/33,
+   :mod:`hornscribe.rhythm.realize`);
+5. alternatives — up to ``k_best`` ranked :class:`QuantizationAlternative`
+   objects (design 19) carrying realized notes, rests, tuplet counts and
+   ambiguity diagnostics (design 20, 36.2, 40-41).
 
 Passing ``realize_durations=False`` restores the QNT-002 onset-only behavior
 (provisional span-to-next-onset durations, ``notation=None``, no rests) —
 kept as the timing-only ablation switch for benchmarks and tests.
 
-Still absent at this phase (later milestones): tuplets (QNT-005), triplet
-grids, swing, grace notes. Raw event durations are never mutated.
+Still absent at this phase (later milestones): 16th-note tuplets, compound
+tuplets, swing, grace notes. Raw event durations are never mutated.
 """
 
 from __future__ import annotations
@@ -42,6 +47,7 @@ from hornscribe.rhythm.contracts import (
     NormalizedNote,
     QuantizationAlternative,
     QuantizationDiagnostics,
+    RhythmAtom,
 )
 from hornscribe.rhythm.costs import confidence_weight, huber
 from hornscribe.rhythm.dp import OnsetPath, evaluate_onset_path_cost, kbest_onset_paths
@@ -54,6 +60,12 @@ from hornscribe.rhythm.meter import MeterMap, MeterSegment
 from hornscribe.rhythm.profile import QuantizationProfile
 from hornscribe.rhythm.realize import TINY_REST_MAX_QL, SpanRealizer
 from hornscribe.rhythm.timewarp import TimeWarp, normalize_to_score_time
+from hornscribe.rhythm.triplet import (
+    TripletRegion,
+    TripletRegionEvidence,
+    enabled_triplet_regions,
+    region_evidence,
+)
 
 #: Coarse alignment-shift search step (design 6.3: ±120 ms band).
 ALIGNMENT_COARSE_STEP_SEC = 0.005
@@ -172,18 +184,126 @@ def estimate_alignment_shift(
     )
 
 
+_AtomSignature = tuple[Fraction, str, int, str | None, bool, bool]
+"""Notation-comparable fingerprint of one atom (design 20 comparisons)."""
+
+
+def _atoms_signature(atoms: tuple[RhythmAtom, ...]) -> tuple[_AtomSignature, ...]:
+    """Notation-comparable fingerprint of one atom sequence."""
+    return tuple(
+        (a.duration_ql, a.symbol, a.dots, a.tuplet, a.is_rest, a.tie_to_next)
+        for a in atoms
+    )
+
+
+def _differing_note_indices(a: OnsetPath, b: OnsetPath) -> tuple[int, ...]:
+    """Note indices where two paths produce *different notation* (design 20).
+
+    Onset-only paths compare positions (position == provisional notation);
+    realized paths compare onset, written note end and the note/rest atom
+    signatures — grid-family bookkeeping alone never counts (a triplet
+    candidate and a binary candidate at the same position write the same
+    atoms and must not flag ambiguity).
+    """
+    n = len(a.positions)
+    if a.realizations and b.realizations:
+        out = []
+        for i in range(n):
+            ra, rb = a.realizations[i], b.realizations[i]
+            if (
+                a.positions[i] != b.positions[i]
+                or ra.note_end_ql != rb.note_end_ql
+                or _atoms_signature(ra.note.atoms) != _atoms_signature(rb.note.atoms)
+                or _atoms_signature(ra.rest_atoms) != _atoms_signature(rb.rest_atoms)
+            ):
+                out.append(i)
+        return tuple(out)
+    return tuple(i for i in range(n) if a.positions[i] != b.positions[i])
+
+
+def _count_runs(indices: tuple[int, ...]) -> int:
+    """Number of contiguous index runs — the ambiguous-region count."""
+    runs = 0
+    prev = -2
+    for i in indices:
+        if i != prev + 1:
+            runs += 1
+        prev = i
+    return runs
+
+
 def _review_reasons(
-    paths: tuple[OnsetPath, ...], note_count: int, alignment_uncertain: bool
-) -> tuple[str, ...]:
-    """Internal review reason strings for diagnostics (design 40)."""
+    paths: tuple[OnsetPath, ...],
+    note_count: int,
+    alignment_uncertain: bool,
+) -> tuple[tuple[str, ...], int]:
+    """Internal review reason strings + ambiguous-region count (design 20/40).
+
+    ``quantization_ambiguous`` fires only when rank-1 and rank-2 are close
+    enough *and* their resulting notation differs — equal-cost paths that
+    produce the same written score (e.g. binary/triplet grid labels on a
+    shared position) are never flagged.
+    """
+    del note_count  # margin normalizes over affected notes, not the passage
     reasons: list[str] = []
+    regions = 0
     if len(paths) >= 2:
-        margin = (paths[1].cost - paths[0].cost) / max(note_count, 1)
-        if margin < AMBIGUITY_MARGIN_PER_NOTE:
-            reasons.append("quantization_ambiguous")
+        differing = _differing_note_indices(paths[0], paths[1])
+        if differing:
+            margin = (paths[1].cost - paths[0].cost) / len(differing)
+            if margin < AMBIGUITY_MARGIN_PER_NOTE:
+                reasons.append("quantization_ambiguous")
+                regions = _count_runs(differing)
     if alignment_uncertain:
         reasons.append("beat_alignment_uncertain")
-    return tuple(reasons)
+    return tuple(reasons), regions
+
+
+def _region_has_triplet_atoms(path: OnsetPath, region: TripletRegion) -> bool:
+    """Whether the path committed triplet notation inside ``region``.
+
+    Two proofs: any interval atom carrying a tuplet label inside the region,
+    or a committed onset position on a region-*interior* third — only
+    triplet atoms can begin or end there, so such a position forces triplet
+    notation even in onset-only output.
+    """
+    for pos in path.positions:
+        if region.is_interior_point(pos):
+            return True
+    for rlz in path.realizations:
+        pos = rlz.start_ql
+        for atom in rlz.note.atoms:
+            if atom.tuplet is not None and region.start_ql <= pos < region.end_ql:
+                return True
+            pos += atom.duration_ql
+        if rlz.rest is not None:
+            pos = rlz.note_end_ql
+            for atom in rlz.rest.atoms:
+                if atom.tuplet is not None and region.start_ql <= pos < region.end_ql:
+                    return True
+                pos += atom.duration_ql
+    return False
+
+
+def _triplet_review_reasons(
+    paths: tuple[OnsetPath, ...],
+    evidence: tuple[TripletRegionEvidence, ...],
+) -> tuple[str, ...]:
+    """``possible_triplet`` when triplet evidence lost to binary (design 40).
+
+    A region with at least one triplet-relevant onset whose rank-1 path
+    committed no triplet notation is flagged — the evidence existed but the
+    gate or the cost model kept binary notation, so a reviewer should look.
+    Onset-only output has no atoms at all, so only the position check can
+    clear an evidenced region.
+    """
+    if not paths:
+        return ()
+    best = paths[0]
+    for ev in evidence:
+        if ev.relevant_onsets >= 1 and not _region_has_triplet_atoms(best, ev.region):
+            return ("possible_triplet",)
+    return ()
 
 
 def _phase_review_reasons(
@@ -221,7 +341,7 @@ def _phase_review_reasons(
 
 @dataclass(frozen=True)
 class _RealizationCounts:
-    """Typed notation-complexity counters for one realized path."""
+    """Notation-complexity counters for one realized path (design 36.2/41)."""
 
     tie_count: int
     tiny_rest_count: int
@@ -292,17 +412,29 @@ def _quantize(
     """
     if not notes:
         return ()
-    # Reject meter maps whose structure cannot tile onto the notation grid
-    # before any search work — the same contract in realization ablations
-    # (SpanRealizer validates again for its own direct callers).
-    meter_map.validate_notation_grid(profile.min_note_value_ql)
     ordered = onset_sorted(notes)
     score_start = meter_map.segments[0].start_ql
+
+    # Triplet region gate (design 17.2): the *same* enabled region set feeds
+    # the candidate lattice and the realizer — the grid mode is applied
+    # uniformly, so a committed triplet-mode onset can always be written
+    # with triplet atoms and a binary-mode onset is never secretly tuplet.
+    evidence = region_evidence(ordered, meter_map, profile)
+    triplet_regions = enabled_triplet_regions(evidence, profile)
     candidates = tuple(
-        generate_onset_candidates(note, profile, min_position_ql=score_start)
+        generate_onset_candidates(
+            note,
+            profile,
+            min_position_ql=score_start,
+            triplet_regions=triplet_regions,
+        )
         for note in ordered
     )
-    realizer = SpanRealizer(meter_map, profile) if realize_durations else None
+    realizer = (
+        SpanRealizer(meter_map, profile, triplet_regions=triplet_regions)
+        if realize_durations
+        else None
+    )
     paths = kbest_onset_paths(ordered, candidates, profile, realizer)
 
     reasons_extra: tuple[str, ...] = ()
@@ -332,12 +464,13 @@ def _quantize(
         reasons_extra = ("overlapping_candidates",)
 
     segment = meter_map.segments[0]
+    base_reasons, ambiguous = _review_reasons(paths, len(ordered), alignment_uncertain)
     reasons = (
-        _review_reasons(paths, len(ordered), alignment_uncertain)
+        base_reasons
         + _phase_review_reasons(meter_map, ordered)
+        + _triplet_review_reasons(paths, evidence)
         + reasons_extra
     )
-    ambiguous = 1 if "quantization_ambiguous" in reasons else 0
 
     alternatives: list[QuantizationAlternative] = []
     for rank, path in enumerate(paths, start=1):
@@ -364,6 +497,7 @@ def _quantize(
                 symbol_count=sum(len(rlz.note.atoms) for rlz in path.realizations)
                 + sum(len(r.notation.atoms) for r in rests),
                 rest_count=sum(len(r.notation.atoms) for r in rests),
+                tuplet_group_count=path.tuplet_group_count,
                 span_realization_calls=realizer.piece_calls,
                 span_realization_cache_hits=realizer.piece_cache_hits,
                 review_reasons=reasons

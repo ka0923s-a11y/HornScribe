@@ -88,6 +88,12 @@ class QuantizationProfile:
     """Max onset-candidate distance; ~0.35 ql starting heuristic (8.3)."""
     max_alignment_shift_sec: float = 0.12
     """Half-width of the global latency search band, ±120 ms (6.3)."""
+    triplet_gate_min_relevant_onsets: int = 2
+    """Triplet-relevant onsets a beat region needs for ``AUTO`` candidacy
+    (design 17.2: "region内に2個以上のrelevant onset")."""
+    triplet_relevance_margin_ql: float = 0.02
+    """How much closer the triplet grid must fit than the binary grid for an
+    onset to count as triplet *relevant* evidence (design 17.2)."""
     sigma_onset_ql: float = 0.10
     """Huber scale for onset residuals; starting value, tuned in QNT-007."""
     sigma_ioi_ql: float = 0.10
@@ -128,18 +134,30 @@ class QuantizationProfile:
             raise TypeError(
                 f"triplet_policy must be a TripletPolicy, got {self.triplet_policy!r}"
             )
+        if (
+            isinstance(self.triplet_gate_min_relevant_onsets, bool)
+            or not isinstance(self.triplet_gate_min_relevant_onsets, int)
+            or self.triplet_gate_min_relevant_onsets < 1
+        ):
+            raise ValueError(
+                "triplet_gate_min_relevant_onsets must be a positive int, "
+                f"got {self.triplet_gate_min_relevant_onsets!r}"
+            )
         for name in (
             "max_alignment_shift_sec",
             "sigma_onset_ql",
             "sigma_ioi_ql",
             "sigma_offset_ql",
             "huber_k",
+            "triplet_relevance_margin_ql",
         ):
             value = getattr(self, name)
             if not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"{name} must be finite, got {value!r}")
         if self.max_alignment_shift_sec < 0:
             raise ValueError("max_alignment_shift_sec must be >= 0")
+        if self.triplet_relevance_margin_ql < 0:
+            raise ValueError("triplet_relevance_margin_ql must be >= 0")
         if min(self.sigma_onset_ql, self.sigma_ioi_ql, self.sigma_offset_ql) <= 0:
             raise ValueError("sigma_* values must be > 0")
         if self.huber_k <= 0:

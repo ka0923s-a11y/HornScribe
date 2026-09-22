@@ -2,10 +2,13 @@
 
 For each normalized note onset ``x_i`` (float quarterLength, still raw
 evidence) the quantizer generates a small set of candidate grid positions
-``C_i``. QNT-002 implements the *binary* lattice only: positions are exact
+``C_i``. The *binary* lattice is always enabled: positions are exact
 multiples ``k * step`` of the profile's ``min_note_value_ql`` (default
-``1/4 ql`` = sixteenth note, design 8.1). Triplet grid families are gated on
-region evidence and arrive with QNT-005 (design 8.2, 17.2).
+``1/4 ql`` = sixteenth note, design 8.1). QNT-005 adds the *triplet* grid
+family: positions ``b + k/3`` inside evidence-gated
+:class:`~hornscribe.rhythm.triplet.TripletRegion` beats of simple meters
+(design 8.2, 17.2). Compound-meter ternary subdivisions are native meter
+structure and never appear as triplet candidates (design 7.3).
 
 Candidate selection rule (design 8.3):
 
@@ -26,13 +29,19 @@ the observed onset are ``float`` evidence values used only inside costs.
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 from hornscribe.rhythm._util import as_exact_fraction
 from hornscribe.rhythm.contracts import NormalizedNote
 from hornscribe.rhythm.profile import QuantizationProfile
+
+if TYPE_CHECKING:
+    # Cycle guard: triplet.py imports grid_distance_ql from this module.
+    from hornscribe.rhythm.triplet import TripletRegion
 
 #: Inclusion tolerance for float boundary comparisons (design 8.3).
 _WINDOW_EPSILON = 1e-9
@@ -45,13 +54,13 @@ DEFAULT_MAX_CANDIDATES_PER_GRID = 3
 class CandidateGrid(Enum):
     """Grid family a candidate position was drawn from (design 8, 18).
 
-    ``BINARY`` is the only family in QNT-002; ``TRIPLET`` arrives with the
-    triplet model in QNT-005 and is declared now so grid-family bookkeeping
-    (mode-switch cost, tie-break "earlier/simpler grid family") has a stable
-    vocabulary.
+    The enum doubles as the DP *grid mode* (design 18): every committed
+    position carries the family it came from so mode-switch cost and
+    grid-aware tie-breaks have a stable vocabulary.
     """
 
     BINARY = "binary"
+    TRIPLET = "triplet"
 
 
 @dataclass(frozen=True)
@@ -124,14 +133,22 @@ def generate_onset_candidates(
     *,
     max_candidates_per_grid: int = DEFAULT_MAX_CANDIDATES_PER_GRID,
     min_position_ql: Fraction = Fraction(0),
+    triplet_regions: tuple[TripletRegion, ...] = (),
 ) -> tuple[OnsetCandidate, ...]:
-    """Binary-lattice onset candidates for one normalized note (design 8).
+    """Onset candidates for one normalized note (design 8).
 
-    Positions are the exact multiples of ``profile.min_note_value_ql`` inside
-    ``[x - window, x + window]`` (clamped to ``>= min_position_ql``), ranked
-    by ``(distance, position)`` and capped at ``max_candidates_per_grid``.
-    The result is sorted by position — the canonical iteration order for
-    the DP.
+    Binary positions are the exact multiples of ``profile.min_note_value_ql``
+    inside ``[x - window, x + window]`` (clamped to ``>= min_position_ql``).
+    When the onset falls inside an enabled :class:`TripletRegion`, the
+    region's triplet points ``b + k/3`` (``k = 0, 1, 2`` — the end point is
+    the next beat and belongs to the binary grid) are added as
+    :attr:`CandidateGrid.TRIPLET` candidates (design 8.2). A beat-start
+    position therefore exists once per family — both labels are kept so the
+    DP can track grid mode honestly.
+
+    Each family is ranked by ``(distance, position)`` and capped at
+    ``max_candidates_per_grid``; the merged result is sorted by position —
+    the canonical iteration order for the DP.
 
     ``min_position_ql`` defaults to the score origin ``0``; the quantizer
     passes the meter map's first segment start so no candidate can land
@@ -173,8 +190,29 @@ def generate_onset_candidates(
         )
         for pos in points
     ]
+
     # Nearest-first ranking; ties prefer the earlier position (design 44).
     candidates.sort(key=lambda c: (c.distance_ql, c.position_ql))
     kept = candidates[:max_candidates_per_grid]
+
+    if triplet_regions:
+        starts = [r.start_ql for r in triplet_regions]
+        i = bisect_right(starts, x) - 1
+        if i >= 0 and x < float(triplet_regions[i].end_ql):
+            region = triplet_regions[i]
+            trip = [
+                OnsetCandidate(
+                    position_ql=pos,
+                    grid=CandidateGrid.TRIPLET,
+                    distance_ql=abs(float(pos) - x),
+                )
+                for pos in region.third_positions_ql[:-1]
+                if pos >= floor and abs(float(pos) - x) <= window + _WINDOW_EPSILON
+            ]
+            trip.sort(key=lambda c: (c.distance_ql, c.position_ql))
+            kept.extend(trip[:max_candidates_per_grid])
+
+    # Per-family caps above; merged order is by position so the DP iterates
+    # candidates canonically (design 44).
     kept.sort(key=lambda c: c.position_ql)
     return tuple(kept)

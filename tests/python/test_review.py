@@ -38,6 +38,7 @@ def test_all_master_plan_reasons_exist() -> None:
         "very_short_detection",
         "overlapping_candidates",
         "quantization_ambiguous",
+        "possible_triplet",
         "pitch_spelling_ambiguous",
         "outside_preferred_horn_range",
         "structural_measure_conflict",

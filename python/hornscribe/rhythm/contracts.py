@@ -22,13 +22,16 @@ from hornscribe.rhythm.profile import TripletPolicy
 QUANTIZER_ID = "HSQ"
 """Quantizer identifier stored in project persistence (design section 45)."""
 
-QUANTIZER_VERSION = 3
+QUANTIZER_VERSION = 4
 """HSQ-v1 behavior version; bump when quantization output can change.
 
 2 = QNT-003 joint duration/rest realization (notes carry notation atoms,
 alternatives carry realized rests; durations are no longer provisional).
 3 = QNT-004 meter-aware runs: meter-map candidate floor, ``pickup_ambiguous``
-review reasons, grid-validated ``measure_phase_ql`` (design section 22)."""
+review reasons, grid-validated ``measure_phase_ql`` (design 22).
+4 = QNT-005 triplet model: region-gated triplet candidates/atoms, grid-mode
+switch cost, notation-sensitive ambiguity, ``possible_triplet`` reasons.
+"""
 
 
 @dataclass(frozen=True)

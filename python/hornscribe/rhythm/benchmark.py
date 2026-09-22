@@ -36,6 +36,7 @@ from hornscribe.rhythm.contracts import (
     QuantizationDiagnostics,
     QuantizedRhythmNote,
     RealizedRest,
+    RhythmAtom,
 )
 from hornscribe.rhythm.meter import MeterMap
 from hornscribe.rhythm.profile import QuantizationProfile
@@ -81,6 +82,8 @@ class OnsetMetrics:
     tiny_rest_count: int | None = None
     second_dot_count: int | None = None
     strong_boundary_obscured_count: int | None = None
+    tuplet_group_count: int | None = None
+    """Visual tuplet groups committed (design 36.1 triplet metric)."""
 
     def __post_init__(self) -> None:
         for name in (
@@ -95,6 +98,22 @@ class OnsetMetrics:
                 raise ValueError(f"{name} must be finite and >= 0, got {value!r}")
         if self.total_cost is not None and not math.isfinite(self.total_cost):
             raise ValueError(f"total_cost must be finite or None, got {self.total_cost!r}")
+
+
+def _atom_triplet_group_count(atoms: Sequence[RhythmAtom]) -> int:
+    """Contiguous triplet-atom runs — the atom-derived approximation of
+    ``diagnostics.tuplet_group_count`` (positions are unavailable here, so
+    a region-boundary split inside one contiguous run counts once)."""
+    groups = 0
+    in_group = False
+    for atom in atoms:
+        if atom.tuplet is not None:
+            if not in_group:
+                groups += 1
+            in_group = True
+        else:
+            in_group = False
+    return groups
 
 
 def onset_metrics(
@@ -154,6 +173,7 @@ def onset_metrics(
             "strong_boundary_obscured_count": (
                 diagnostics.strong_boundary_obscured_count
             ),
+            "tuplet_group_count": diagnostics.tuplet_group_count,
         }
     elif realized:
         note_atoms = [
@@ -169,6 +189,9 @@ def onset_metrics(
             ),
             "second_dot_count": sum(
                 1 for a in note_atoms + rest_atoms if a.dots == 2
+            ),
+            "tuplet_group_count": _atom_triplet_group_count(
+                note_atoms + rest_atoms
             ),
         }
     return OnsetMetrics(
