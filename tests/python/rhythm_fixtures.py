@@ -301,6 +301,33 @@ def meter_change_44_68() -> RhythmFixture:
     )
 
 
+def barline_tie_44() -> RhythmFixture:
+    """A sustained note crossing the barline — committed barline tie.
+
+    Onsets at 0, 3, 6 with 3-beat spans: the middle note covers ``[3, 6)``
+    and must be written as tied atoms across the barline at beat 4.
+    """
+    return straight_fixture(
+        "barline_tie_44",
+        [Fraction(0), Fraction(3), Fraction(6)],
+        duration_ql=Fraction(3),
+    )
+
+
+def rests_44() -> RhythmFixture:
+    """Sparse quarter onsets -> realized rest spans between notes.
+
+    Onsets 0/2/5/8 leave rest gaps ``[1,2)``, ``[3,5)``, ``[6,8)`` plus a
+    trailing rest to the final barline — exercises explicit rest atoms and
+    the measure-rest convention.
+    """
+    return straight_fixture(
+        "rests_44",
+        [Fraction(0), Fraction(2), Fraction(5), Fraction(8)],
+        duration_ql=Fraction(1),
+    )
+
+
 # --- triplet fixtures (issue #19 / QNT-005) ----------------------------------------
 
 
@@ -422,6 +449,8 @@ ALL_FIXTURES: tuple[Callable[[], RhythmFixture], ...] = (
     meter_68_dotted_beats,
     pickup_44_quarter,
     meter_change_44_68,
+    barline_tie_44,
+    rests_44,
     triplet_eighths_exact,
     triplet_eighths_jitter,
     eighths_jitter_straight,
@@ -435,7 +464,13 @@ METER_GOLDEN_FACTORIES: tuple[Callable[[], RhythmFixture], ...] = (
     meter_34_quarters,
     meter_68_eighths,
     pickup_44_quarter,
+    meter_change_44_68,
+    binary_triplet_binary,
+    barline_tie_44,
+    rests_44,
 )
 """Fixtures whose quantized output is committed as MusicXML golden files
 (``fixtures/musicxml/<name>_concert.musicxml`` / ``_horn_in_f.musicxml``) —
-regenerate via ``scripts/generate_fixtures.py``."""
+regenerate via ``scripts/generate_fixtures.py``.  QNT-006 extended the set
+to cover the realization features: meter changes, tuplets, barline ties,
+and explicit rests."""

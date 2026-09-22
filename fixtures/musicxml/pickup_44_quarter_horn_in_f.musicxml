@@ -71,12 +71,6 @@
         <duration>10080</duration>
         <type>quarter</type>
       </note>
-      <note print-object="no" print-spacing="yes" id="hs-rest-000001">
-        <rest />
-        <duration>30240</duration>
-        <type>half</type>
-        <dot />
-      </note>
     </measure>
     <measure implicit="no" number="1">
       <note id="hs-sn-000002">
@@ -121,11 +115,15 @@
         <duration>10080</duration>
         <type>quarter</type>
       </note>
+      <note id="hs-rest-000001">
+        <rest />
+        <duration>10080</duration>
+        <type>quarter</type>
+      </note>
       <note id="hs-rest-000002">
         <rest />
-        <duration>30240</duration>
+        <duration>20160</duration>
         <type>half</type>
-        <dot />
       </note>
     </measure>
   </part>

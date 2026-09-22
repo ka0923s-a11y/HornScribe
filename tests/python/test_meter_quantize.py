@@ -372,16 +372,22 @@ def test_pickup_exports_implicit_measure_zero() -> None:
     assert measures[0].get("implicit") == "yes"
 
 
-def test_score_document_bridge_rejects_meter_changes() -> None:
-    """The v1 bridge carries one time signature — a mid-piece change is a
-    loud error, not silent loss of the second meter."""
+def test_score_document_bridge_carries_meter_changes() -> None:
+    """QNT-006: a mid-piece meter change survives the bridge as canonical
+    ``meter_changes`` content rather than being dropped or rejected."""
     fixture = fx.meter_change_44_68()
     meter_map = fixture.meter_map
     assert meter_map is not None
     alt = quantize_events(fixture.events, fixture.warp, meter_map)[0]
     notes = normalize_to_score_time(fixture.events, fixture.warp)
-    with pytest.raises(ValueError, match="single meter segment"):
-        assemble_score_document(alt, notes, meter_map)
+    doc = assemble_score_document(alt, notes, meter_map)
+    changes = doc.payload.meter_changes
+    assert len(changes) == 2
+    assert changes[0].start_beat == 0
+    assert changes[0].time_signature.beats_per_measure == 4
+    assert changes[1].start_beat == Fraction(8)  # ql 8, quarter beats
+    assert (changes[1].time_signature.beats_per_measure,
+            changes[1].time_signature.beat_unit) == (6, 8)
 
 
 @pytest.mark.parametrize(
@@ -403,11 +409,21 @@ def test_metered_quantize_deterministic_and_roundtrips(
     parsed = converter.parse(xml, format="musicxml")
     assert parsed.parts
     part = parsed.parts[0].flatten()
-    got = [
-        (n.pitch.midi, Fraction(str(n.quarterLength)))
-        for n in part.notes
-        if hasattr(n, "pitch")
-    ]
+    # Canonical notes may emit several tied <note> elements (committed atom
+    # ties and barline splits): merge each tied continuation into the note
+    # it belongs to before comparing against canonical durations.
+    got: list[tuple[int, Fraction]] = []
+    for n in part.notes:
+        if not hasattr(n, "pitch"):
+            continue
+        midi = n.pitch.midi
+        ql = Fraction(str(n.quarterLength))
+        if n.tie is not None and n.tie.type in ("stop", "continue") and got:
+            prev_pitch, prev_ql = got[-1]
+            assert prev_pitch == midi  # tied fragments share the pitch
+            got[-1] = (prev_pitch, prev_ql + ql)
+        else:
+            got.append((midi, ql))
     want = [
         (int(p), d)
         for (p, d) in zip(

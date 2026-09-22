@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
+from itertools import pairwise
 from typing import Any
 
 from hornscribe.domain.ids import (
@@ -33,8 +34,136 @@ class PitchSpace(Enum):
 
 
 @dataclass(frozen=True)
+class ScoreAtom:
+    """One written symbol inside a canonical note or rest (QNT-006).
+
+    ``duration_beats`` is the atom's exact span on the canonical beat axis;
+    ``symbol`` + ``dots`` + ``tuplet`` describe how it is written. These are
+    the quantizer's committed notation decisions — HSQ decides the written
+    decomposition, the notation layer only renders it (architecture rule:
+    music21 realizes/serializes, never re-quantizes).
+
+    ``tie_to_next`` joins this atom to the following atom *inside the same
+    canonical note's* atom list; it is always ``False`` on a note's last atom
+    and always ``False`` on rest atoms (rests never tie).
+    """
+
+    duration_beats: Fraction
+    """Exact span of the written symbol (e.g. a triplet eighth = 1/3 beat in
+    a quarter-note-beat meter)."""
+    symbol: str
+    """Base symbol name: ``"whole"``, ``"half"``, ``"quarter"``, ``"eighth"``,
+    ``"sixteenth"``, ``"32nd"``, ``"64th"``."""
+    dots: int = 0
+    tuplet: str | None = None
+    """Tuplet label (``"triplet"`` in HSQ-v1), or ``None`` for binary atoms."""
+    tuplet_group_start: bool = False
+    """``True`` when this atom opens a new visual tuplet group (MusicXML
+    ``<tuplet type="start">``); the last tuplet atom before the next
+    ``tuplet_group_start``/non-tuplet atom closes it."""
+    tie_to_next: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "duration_beats", _unfrac(self.duration_beats))
+        if self.duration_beats <= 0:
+            raise ValueError(f"atom duration_beats must be > 0, got {self.duration_beats}")
+        if not self.symbol:
+            raise ValueError("atom symbol must be a non-empty string")
+        if (
+            isinstance(self.dots, bool)
+            or not isinstance(self.dots, int)
+            or not 0 <= self.dots <= 2
+        ):
+            raise ValueError(f"atom dots must be in 0..2, got {self.dots!r}")
+        if self.tuplet is not None and not self.tuplet:
+            raise ValueError("atom tuplet must be None or a non-empty label")
+        if self.tuplet_group_start and self.tuplet is None:
+            raise ValueError("tuplet_group_start requires a tuplet atom")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "durationBeats": _frac(self.duration_beats),
+            "symbol": self.symbol,
+            "dots": self.dots,
+            "tuplet": self.tuplet,
+            "tupletGroupStart": self.tuplet_group_start,
+            "tieToNext": self.tie_to_next,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ScoreAtom:
+        return cls(
+            duration_beats=_unfrac(data["durationBeats"]),
+            symbol=str(data["symbol"]),
+            dots=int(data.get("dots", 0)),
+            tuplet=data.get("tuplet"),
+            tuplet_group_start=bool(data.get("tupletGroupStart", False)),
+            tie_to_next=bool(data.get("tieToNext", False)),
+        )
+
+
+@dataclass(frozen=True)
+class ScoreRest:
+    """A realized rest span: start position plus its written rest atoms.
+
+    Rests carry no canonical identity (``ids.py``: rest ``note/@id`` values
+    are presentation-only). The atoms tile ``[start_beat, start_beat +
+    total)`` exactly, never tie, and never cross a barline — a multi-measure
+    rest span contains one atom group per measure (a complete empty measure
+    is a single ``"whole"`` atom = the measure-rest convention).
+    """
+
+    start_beat: Fraction
+    atoms: tuple[ScoreAtom, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
+        object.__setattr__(self, "atoms", tuple(self.atoms))
+        if self.start_beat < 0:
+            raise ValueError(f"rest start_beat must be >= 0, got {self.start_beat}")
+        if not self.atoms:
+            raise ValueError("a rest span needs at least one atom")
+        for atom in self.atoms:
+            if not isinstance(atom, ScoreAtom):
+                raise TypeError(f"expected ScoreAtom, got {atom!r}")
+            if atom.tie_to_next:
+                raise ValueError("rest atoms cannot tie to the next atom")
+
+    @property
+    def duration_beats(self) -> Fraction:
+        """Total exact span covered by the rest atoms."""
+        return sum((a.duration_beats for a in self.atoms), Fraction(0))
+
+    @property
+    def end_beat(self) -> Fraction:
+        """End of the rest span (exclusive)."""
+        return self.start_beat + self.duration_beats
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "startBeat": _frac(self.start_beat),
+            "atoms": [a.to_dict() for a in self.atoms],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ScoreRest:
+        return cls(
+            start_beat=_unfrac(data["startBeat"]),
+            atoms=tuple(ScoreAtom.from_dict(a) for a in data.get("atoms", ())),
+        )
+
+
+@dataclass(frozen=True)
 class QuantizedNote:
-    """A canonical score note in rational beat positions."""
+    """A canonical score note in rational beat positions.
+
+    ``atoms`` is the optional written decomposition committed by the
+    quantizer (QNT-006): when present it tiles ``duration_beats`` exactly,
+    every atom but the last carries ``tie_to_next``, and no atom crosses a
+    barline (barline/beat splits are already materialized as separate tied
+    atoms). When empty the notation layer falls back to deriving the written
+    decomposition itself (legacy/provisional scores).
+    """
 
     id: ScoreNoteId
     source_event_ids: tuple[RawNoteEventId, ...]
@@ -44,9 +173,41 @@ class QuantizedNote:
     velocity: int | None = None
     tie_start: bool = False
     tie_stop: bool = False
+    atoms: tuple[ScoreAtom, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
+        object.__setattr__(self, "duration_beats", _unfrac(self.duration_beats))
+        object.__setattr__(self, "atoms", tuple(self.atoms))
+        if self.start_beat < 0:
+            raise ValueError(f"start_beat must be >= 0, got {self.start_beat}")
+        if self.duration_beats <= 0:
+            raise ValueError(f"duration_beats must be > 0, got {self.duration_beats}")
+        if self.atoms:
+            for atom in self.atoms:
+                if not isinstance(atom, ScoreAtom):
+                    raise TypeError(f"expected ScoreAtom, got {atom!r}")
+            total = sum((a.duration_beats for a in self.atoms), Fraction(0))
+            if total != self.duration_beats:
+                raise ValueError(
+                    f"note atoms total {total} != duration_beats {self.duration_beats}"
+                )
+            if self.atoms[-1].tie_to_next:
+                raise ValueError("a note's last atom cannot tie_to_next")
+            for atom in self.atoms[:-1]:
+                if not atom.tie_to_next:
+                    raise ValueError(
+                        "interior atoms of a note must tie to the next atom "
+                        "(an untied boundary would read as two notes)"
+                    )
+
+    @property
+    def end_beat(self) -> Fraction:
+        """End of the note span (exclusive)."""
+        return self.start_beat + self.duration_beats
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "id": str(self.id),
             "sourceEventIds": [str(e) for e in self.source_event_ids],
             "pitchMidi": self.pitch_midi,
@@ -56,6 +217,11 @@ class QuantizedNote:
             "tieStart": self.tie_start,
             "tieStop": self.tie_stop,
         }
+        # Omitted when absent so pre-QNT-006 payloads keep their derived
+        # revision IDs (content-derived identity, ids.py).
+        if self.atoms:
+            data["atoms"] = [a.to_dict() for a in self.atoms]
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> QuantizedNote:
@@ -68,6 +234,7 @@ class QuantizedNote:
             velocity=data.get("velocity"),
             tie_start=bool(data.get("tieStart", False)),
             tie_stop=bool(data.get("tieStop", False)),
+            atoms=tuple(ScoreAtom.from_dict(a) for a in data.get("atoms", ())),
         )
 
 
@@ -116,15 +283,91 @@ class KeySignature:
 
 
 @dataclass(frozen=True)
+class MeterChange:
+    """A meter segment boundary on the canonical beat axis (QNT-006).
+
+    The meter ``time_signature`` is active from ``start_beat`` until the
+    next change's ``start_beat`` (or indefinitely for the last change).
+    ``measure_phase_beats`` is the metrical offset of ``start_beat`` inside
+    its measure cycle — the mid-piece analogue of ``pickup_beats``: ``0``
+    means the change lands on a downbeat; ``p > 0`` means the segment's
+    first measure covers only its last ``measure_length - p`` beats.
+    """
+
+    start_beat: Fraction
+    time_signature: TimeSignature
+    measure_phase_beats: Fraction = Fraction(0)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
+        object.__setattr__(
+            self, "measure_phase_beats", _unfrac(self.measure_phase_beats)
+        )
+        if self.start_beat < 0:
+            raise ValueError(f"meter change start_beat must be >= 0, got {self.start_beat}")
+        if self.measure_phase_beats < 0:
+            raise ValueError(
+                f"measure_phase_beats must be >= 0, got {self.measure_phase_beats}"
+            )
+        # The upper bound (phase < measure length) needs the canonical beat
+        # unit, which only the owning ScoreRevisionPayload knows — it is
+        # validated there.
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "startBeat": _frac(self.start_beat),
+            "timeSignature": self.time_signature.to_dict(),
+            "measurePhaseBeats": _frac(self.measure_phase_beats),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MeterChange:
+        return cls(
+            start_beat=_unfrac(data["startBeat"]),
+            time_signature=TimeSignature.from_dict(data["timeSignature"]),
+            measure_phase_beats=_unfrac(data.get("measurePhaseBeats", "0/1")),
+        )
+
+
+@dataclass(frozen=True)
 class Part:
-    """A single staff part containing canonical notes in score order."""
+    """A single staff part containing canonical notes in score order.
+
+    ``rests`` is the committed rest list (QNT-006): when non-empty the
+    notation layer renders exactly these rest atoms and requires notes+rests
+    to tile every measure — no gap-filling. When empty (legacy/provisional
+    scores) the notation layer fills inter-note gaps itself.
+    """
 
     id: str
     name: str
     notes: tuple[QuantizedNote, ...] = field(default_factory=tuple)
+    rests: tuple[ScoreRest, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "notes", tuple(self.notes))
+        object.__setattr__(self, "rests", tuple(self.rests))
+        ordered = sorted(self.rests, key=lambda r: r.start_beat)
+        if tuple(ordered) != self.rests:
+            raise ValueError("part rests must be in start_beat order")
+        for prev, cur in pairwise(self.rests):
+            if cur.start_beat < prev.end_beat:
+                raise ValueError(
+                    f"overlapping rests: {prev.start_beat}+{prev.duration_beats} "
+                    f"vs {cur.start_beat}"
+                )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "name": self.name, "notes": [n.to_dict() for n in self.notes]}
+        data: dict[str, Any] = {
+            "id": self.id,
+            "name": self.name,
+            "notes": [n.to_dict() for n in self.notes],
+        }
+        # Omitted when absent so pre-QNT-006 payloads keep their derived
+        # revision IDs.
+        if self.rests:
+            data["rests"] = [r.to_dict() for r in self.rests]
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Part:
@@ -132,6 +375,7 @@ class Part:
             id=str(data["id"]),
             name=str(data["name"]),
             notes=tuple(QuantizedNote.from_dict(n) for n in data.get("notes", ())),
+            rests=tuple(ScoreRest.from_dict(r) for r in data.get("rests", ())),
         )
 
 
@@ -153,6 +397,14 @@ class ScoreRevisionPayload:
 
     Anything that changes the *musical content* of the score belongs here so
     that revision IDs track content, not serialization accidents.
+
+    ``meter_changes`` is the full ordered meter map when the piece changes
+    meter (QNT-006); when present it is authoritative for measure layout,
+    its first entry must sit at beat ``0`` with ``time_signature`` matching
+    the payload's own ``time_signature`` field, and its first
+    ``measure_phase_beats`` must agree with ``pickup_beats``. When empty,
+    layout derives from ``time_signature`` + ``pickup_beats`` alone (the
+    single-meter legacy path).
     """
 
     tempo_map: tuple[TempoSegment, ...]
@@ -161,9 +413,67 @@ class ScoreRevisionPayload:
     pickup_beats: Fraction
     parts: tuple[Part, ...]
     quantization_settings: dict[str, Any]
+    meter_changes: tuple[MeterChange, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "tempo_map", tuple(self.tempo_map))
+        object.__setattr__(self, "parts", tuple(self.parts))
+        object.__setattr__(self, "meter_changes", tuple(self.meter_changes))
+        object.__setattr__(self, "pickup_beats", _unfrac(self.pickup_beats))
+        if self.pickup_beats < 0:
+            raise ValueError(f"pickup_beats must be >= 0, got {self.pickup_beats}")
+        ts0 = self.time_signature
+        if ts0.beats_per_measure <= 0 or ts0.beat_unit <= 0:
+            raise ValueError(
+                f"invalid time signature: {ts0.beats_per_measure}/{ts0.beat_unit}"
+            )
+        if not self.meter_changes:
+            # Legacy single-meter path: pickup must fit inside a measure of
+            # the (beat-defining) first time signature.
+            if self.pickup_beats >= ts0.beats_per_measure:
+                raise ValueError(
+                    f"pickup_beats {self.pickup_beats} must be shorter than a "
+                    f"{ts0.beats_per_measure}-beat measure"
+                )
+            return
+        first = self.meter_changes[0]
+        if first.start_beat != 0:
+            raise ValueError(
+                f"first meter change must start at beat 0, got {first.start_beat}"
+            )
+        if first.time_signature != ts0:
+            raise ValueError(
+                "first meter change must carry the payload time_signature: "
+                f"{first.time_signature} != {ts0}"
+            )
+        beat_ql = Fraction(4, ts0.beat_unit)
+        expected_phase = (
+            Fraction(ts0.beats_per_measure) - self.pickup_beats
+            if self.pickup_beats > 0
+            else Fraction(0)
+        )
+        if first.measure_phase_beats != expected_phase:
+            raise ValueError(
+                f"first meter change phase {first.measure_phase_beats} "
+                f"disagrees with pickup_beats {self.pickup_beats} "
+                f"(expected {expected_phase})"
+            )
+        for prev, cur in pairwise(self.meter_changes):
+            if cur.start_beat <= prev.start_beat:
+                raise ValueError(
+                    "meter changes must be strictly increasing: "
+                    f"{prev.start_beat} !< {cur.start_beat}"
+                )
+        for change in self.meter_changes:
+            mlen = measure_length_beats(change.time_signature, beat_ql)
+            if change.measure_phase_beats >= mlen:
+                raise ValueError(
+                    f"meter change at {change.start_beat} has phase "
+                    f"{change.measure_phase_beats} >= measure length {mlen}"
+                )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "tempoMap": [t.to_dict() for t in self.tempo_map],
             "timeSignature": self.time_signature.to_dict(),
             "keySignature": self.key_signature.to_dict(),
@@ -171,6 +481,11 @@ class ScoreRevisionPayload:
             "parts": [p.to_dict() for p in self.parts],
             "quantizationSettings": self.quantization_settings,
         }
+        # Omitted when absent so pre-QNT-006 payloads keep their derived
+        # revision IDs.
+        if self.meter_changes:
+            data["meterChanges"] = [m.to_dict() for m in self.meter_changes]
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreRevisionPayload:
@@ -181,10 +496,152 @@ class ScoreRevisionPayload:
             pickup_beats=_unfrac(data.get("pickupBeats", "0/1")),
             parts=tuple(Part.from_dict(p) for p in data.get("parts", ())),
             quantization_settings=dict(data.get("quantizationSettings", {})),
+            meter_changes=tuple(
+                MeterChange.from_dict(m) for m in data.get("meterChanges", ())
+            ),
         )
 
     def revision_id(self) -> ScoreRevisionId:
         return derive_score_revision_id(self.to_dict())
+
+
+def beat_ql_of(payload: ScoreRevisionPayload) -> Fraction:
+    """QuarterLength of one canonical beat — set by the first time signature.
+
+    With a single meter this is simply ``4/beat_unit``. With meter changes
+    the *first* meter change defines the beat axis for the whole score, so
+    positions stay comparable across segment boundaries.
+    """
+    return Fraction(4, payload.time_signature.beat_unit)
+
+
+def measure_length_beats(ts: TimeSignature, beat_ql: Fraction) -> Fraction:
+    """One measure of *ts* expressed in canonical beats.
+
+    ``ts.beats_per_measure * (4/beat_unit)`` gives the measure length in
+    quarterLength; dividing by ``beat_ql`` converts to canonical beats
+    (for the beat-defining signature this is just ``beats_per_measure``).
+    """
+    if ts.beats_per_measure <= 0 or ts.beat_unit <= 0:
+        raise ValueError(
+            f"invalid time signature: {ts.beats_per_measure}/{ts.beat_unit}"
+        )
+    return Fraction(ts.beats_per_measure * 4, ts.beat_unit) / beat_ql
+
+
+def primary_beat_beats(ts: TimeSignature, beat_ql: Fraction) -> Fraction:
+    """Length of one primary (felt) beat of *ts* in canonical beats.
+
+    Compound meters (``numerator % 3 == 0 and numerator > 3`` — e.g. 6/8)
+    have ``numerator // 3`` dotted beats; simple meters beat on the
+    denominator unit. Mirrors ``MeterSegment.beat_unit_ql`` (design 7.3).
+    """
+    if ts.beats_per_measure <= 0 or ts.beat_unit <= 0:
+        raise ValueError(
+            f"invalid time signature: {ts.beats_per_measure}/{ts.beat_unit}"
+        )
+    beat_count = (
+        ts.beats_per_measure // 3
+        if ts.beats_per_measure % 3 == 0 and ts.beats_per_measure > 3
+        else ts.beats_per_measure
+    )
+    return measure_length_beats(ts, beat_ql) / beat_count
+
+
+@dataclass(frozen=True)
+class MeasureSpan:
+    """One measure's span on the canonical beat axis.
+
+    ``number`` is the MusicXML measure number (``0`` for the implicit
+    anacrusis measure); ``time_signature`` is the meter active inside the
+    measure; ``meter_change`` marks the first measure of a new meter — the
+    notation layer emits ``<time>`` attributes there;
+    ``cycle_offset_beats`` is the span's position inside its meter's measure
+    cycle (``0`` except for the partial first measure of a phased segment).
+    """
+
+    number: int
+    start_beat: Fraction
+    end_beat: Fraction
+    time_signature: TimeSignature
+    meter_change: bool = False
+    implicit: bool = False
+    cycle_offset_beats: Fraction = Fraction(0)
+
+    @property
+    def duration_beats(self) -> Fraction:
+        return self.end_beat - self.start_beat
+
+
+def measure_spans(payload: ScoreRevisionPayload) -> tuple[MeasureSpan, ...]:
+    """Deterministic measure layout shared by every part and every consumer.
+
+    Layout rules (QNT-006):
+
+    * each meter change tiles measures from its ``start_beat`` until the next
+      change (or the content end for the last change), each first measure
+      shortened by its ``measure_phase_beats``;
+    * a meter change that falls inside a previous measure *clips* it — the
+      partial measure keeps its number;
+    * a ``measure_phase_beats > 0`` on the *first* change is the anacrusis:
+      measure ``0`` with ``implicit`` (the existing convention); phased
+      mid-piece changes keep regular numbering;
+    * every segment emits at least one measure, so a meter declared beyond
+      the content end still appears (as an empty measure);
+    * with no ``meter_changes`` this degenerates to the historical layout:
+      optional implicit pickup measure plus ``beats_per_measure`` tiling.
+    """
+    changes = payload.meter_changes
+    if not changes:
+        ts0 = payload.time_signature
+        mlen0 = Fraction(ts0.beats_per_measure)
+        phase0 = (
+            mlen0 - payload.pickup_beats if payload.pickup_beats > 0 else Fraction(0)
+        )
+        changes = (MeterChange(Fraction(0), ts0, phase0),)
+    beat_ql = beat_ql_of(payload)
+
+    end = payload.pickup_beats
+    for part in payload.parts:
+        for n in part.notes:
+            end = max(end, n.end_beat)
+        for r in part.rests:
+            end = max(end, r.end_beat)
+
+    spans: list[MeasureSpan] = []
+    number = 1
+    for i, change in enumerate(changes):
+        seg_end = changes[i + 1].start_beat if i + 1 < len(changes) else None
+        mlen = measure_length_beats(change.time_signature, beat_ql)
+        pos = change.start_beat
+        first = True
+        while first or (pos < seg_end if seg_end is not None else pos < end):
+            dur = mlen - change.measure_phase_beats if first else mlen
+            m_end = pos + dur
+            if seg_end is not None and m_end > seg_end:
+                m_end = seg_end
+            if m_end <= pos:
+                break  # safety: zero-length measure
+            implicit = first and i == 0 and change.measure_phase_beats > 0
+            span_number = 0 if implicit else number
+            if not implicit:
+                number += 1
+            spans.append(
+                MeasureSpan(
+                    number=span_number,
+                    start_beat=pos,
+                    end_beat=m_end,
+                    time_signature=change.time_signature,
+                    meter_change=first and i > 0,
+                    implicit=implicit,
+                    cycle_offset_beats=(
+                        change.measure_phase_beats if first else Fraction(0)
+                    ),
+                )
+            )
+            pos = m_end
+            first = False
+    return tuple(spans)
 
 
 @dataclass(frozen=True)

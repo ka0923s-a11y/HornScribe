@@ -34,11 +34,15 @@ from fractions import Fraction
 from hornscribe.domain.ids import IdAllocator, derive_project_id
 from hornscribe.domain.score import (
     KeySignature,
+    MeterChange,
     Part,
     QuantizedNote,
+    ScoreAtom,
     ScoreDocument,
+    ScoreRest,
     ScoreRevisionPayload,
     TempoSegment,
+    measure_spans,
 )
 from hornscribe.rhythm._util import as_exact_fraction
 from hornscribe.rhythm.contracts import (
@@ -48,6 +52,7 @@ from hornscribe.rhythm.contracts import (
     QuantizationAlternative,
     QuantizedRhythmNote,
     RealizedRest,
+    RhythmAtom,
 )
 from hornscribe.rhythm.lattice import snap_to_grid_ql
 from hornscribe.rhythm.meter import MeterMap
@@ -211,6 +216,50 @@ def assemble_path_rests(
     return tuple(rests), extra_strong
 
 
+def _atoms_to_score(
+    atoms: tuple[RhythmAtom, ...],
+    start_ql: Fraction,
+    beat_ql: Fraction,
+    meter_map: MeterMap,
+) -> tuple[ScoreAtom, ...]:
+    """Project one committed atom list onto the beat axis.
+
+    ``tuplet_group_start`` reproduces the realizer's visual-group rule
+    (``realize._decompose_piece``: a new group starts when the previous atom
+    was not a triplet, when the atom sits on a triplet-region start, or at a
+    piece boundary). Regions are beat-aligned, so "atom start is a beat
+    start of its segment" is equivalent to "region start" for triplet atoms:
+    a triplet atom can only begin inside an enabled region, and a region
+    containing a beat-aligned start begins there. Piece boundaries are
+    barlines (always beat starts) or meter changes (a triplet atom can only
+    begin there when the boundary is a beat start of the new segment).
+    """
+    out: list[ScoreAtom] = []
+    prev_tuplet = False
+    pos = start_ql
+    for atom in atoms:
+        group_start = False
+        if atom.tuplet is not None:
+            segment = meter_map.segment_at(pos)
+            beat_aligned = (
+                pos - segment.start_ql + segment.measure_phase_ql
+            ) % segment.beat_unit_ql == 0
+            group_start = (not prev_tuplet) or beat_aligned
+        out.append(
+            ScoreAtom(
+                duration_beats=atom.duration_ql / beat_ql,
+                symbol=atom.symbol,
+                dots=atom.dots,
+                tuplet=atom.tuplet,
+                tuplet_group_start=group_start,
+                tie_to_next=atom.tie_to_next,
+            )
+        )
+        prev_tuplet = atom.tuplet is not None
+        pos += atom.duration_ql
+    return tuple(out)
+
+
 def assemble_score_document(
     alternative: QuantizationAlternative,
     notes: Sequence[NormalizedNote],
@@ -224,33 +273,37 @@ def assemble_score_document(
 ) -> ScoreDocument:
     """Lift a quantization alternative into a canonical :class:`ScoreDocument`.
 
-    QNT-004 bridge so meter-specific output round-trips through the MusicXML
-    export path (issue #18 acceptance). The alternative's committed
-    :class:`QuantizedRhythmNote` records become canonical
+    QNT-006 realization->score bridge (issue #20): the alternative's
+    committed :class:`QuantizedRhythmNote` records become canonical
     :class:`QuantizedNote` records — canonical note IDs and
-    ``source_event_ids`` are preserved so review linkage survives —
-    positioned on the beat axis implied by the meter's ``beat_unit``
-    (``beat_ql = 4/denominator``: eighth-note beats in 6/8). The first
-    segment's ``start_ql`` is normalized to beat ``0`` and
-    ``payload.pickup_beats`` is set from ``measure_phase_ql``, so a declared
-    anacrusis exports as measure ``0`` with ``implicit="yes"`` (the notation
-    layer's existing convention, design section 22).
+    ``source_event_ids`` are preserved so review linkage survives — and the
+    committed atom decomposition (interior ties, barline splits, triplet
+    atoms) is carried verbatim as ``QuantizedNote.atoms`` so the notation
+    layer renders HSQ's decisions instead of re-deriving them (architecture
+    rule: HSQ decides onset/duration/rest/tie/tuplet intent; the notation
+    backend only realizes/serializes).
+
+    Beat axis: the *first* meter segment's denominator defines the canonical
+    beat unit (``beat_ql = 4/denominator`` — eighth-note beats when the
+    piece starts in 6/8) and the first segment's ``start_ql`` normalizes to
+    beat ``0``. Mid-piece meter changes land in ``payload.meter_changes``
+    with each segment's ``measure_phase_ql`` preserved in beats; the first
+    segment's phase continues to surface as ``pickup_beats`` (measure ``0``
+    with ``implicit="yes"``, design section 22).
+
+    ``alternative.rests`` become canonical :class:`ScoreRest` records on the
+    part; the notation layer then renders exactly those atoms and requires
+    complete measure tiling. When the meter map declares a segment beyond
+    the content end, the bridge appends whole-rest atoms up to the last
+    emitted measure so the score tiles to the final barline.
 
     Pitches come from the ``notes`` evidence via ``source_event_ids``.
-    Rests are not canonical notes — the exporter fills gaps between notes
-    measure-by-measure — and atom-level regrouping (interior ties) flattens
-    to canonical durations which the exporter re-splits at barlines; both
-    refinements belong to QNT-006's full realization->score bridge.
-
-    Single-segment meter maps only: the canonical payload carries one
-    ``time_signature``, so a mid-piece meter change raises ``ValueError``.
+    Provisional alternatives (``notation=None``, no rests — the timing-only
+    ablation output) still lift: notes carry no atoms and the notation layer
+    falls back to gap-filling, matching the pre-QNT-006 behavior.
     """
-    if len(meter_map.segments) != 1:
-        raise ValueError(
-            "assemble_score_document supports a single meter segment "
-            f"(got {len(meter_map.segments)}); mid-piece meter changes need "
-            "the richer QNT-006 score bridge"
-        )
+    if not meter_map.segments:
+        raise ValueError("meter_map needs at least one segment")
     segment = meter_map.segments[0]
     beat_ql = Fraction(4, segment.denominator)
     pitch_by_event = {str(n.source_id): n.pitch_midi for n in notes}
@@ -270,6 +323,16 @@ def assemble_score_document(
                 f"quantized note {n.canonical_note_id} source event {src} is "
                 "not in the supplied notes"
             )
+        if n.onset_ql < segment.start_ql:
+            raise ValueError(
+                f"quantized note {n.canonical_note_id} onset {n.onset_ql} "
+                f"precedes the meter map start {segment.start_ql}"
+            )
+        atoms = (
+            _atoms_to_score(n.notation.atoms, n.onset_ql, beat_ql, meter_map)
+            if n.notation is not None
+            else ()
+        )
         qnotes.append(
             QuantizedNote(
                 id=n.canonical_note_id,
@@ -277,24 +340,84 @@ def assemble_score_document(
                 pitch_midi=int(pitch_by_event[src]),
                 start_beat=(n.onset_ql - segment.start_ql) / beat_ql,
                 duration_beats=n.duration_ql / beat_ql,
+                atoms=atoms,
             )
         )
+
+    rests: list[ScoreRest] = [
+        ScoreRest(
+            start_beat=(r.onset_ql - segment.start_ql) / beat_ql,
+            atoms=_atoms_to_score(
+                r.notation.atoms, r.onset_ql, beat_ql, meter_map
+            ),
+        )
+        for r in alternative.rests
+    ]
+
+    meter_changes = (
+        tuple(
+            MeterChange(
+                start_beat=(s.start_ql - segment.start_ql) / beat_ql,
+                time_signature=s.time_signature,
+                measure_phase_beats=s.measure_phase_ql / beat_ql,
+            )
+            for s in meter_map.segments
+        )
+        if len(meter_map.segments) > 1
+        else ()
+    )
 
     step = alternative.diagnostics.min_note_value_ql or Fraction(1, 4)
     denom = Fraction(4) / step  # ql step -> note-value denominator ("1/16")
     grid_name = f"1/{denom.numerator}" if denom.denominator == 1 else f"{step}ql"
-    payload = ScoreRevisionPayload(
-        tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=bpm),),
-        time_signature=segment.time_signature,
-        key_signature=KeySignature(fifths, mode),
-        pickup_beats=segment.pickup_length_ql / beat_ql,
-        parts=(Part(id="part-1", name=part_name, notes=tuple(qnotes)),),
-        quantization_settings={
-            "grid": grid_name,
-            "quantizer": QUANTIZER_ID,
-            "quantizerVersion": QUANTIZER_VERSION,
-        },
-    )
+
+    def _payload(part: Part) -> ScoreRevisionPayload:
+        return ScoreRevisionPayload(
+            tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=bpm),),
+            time_signature=segment.time_signature,
+            key_signature=KeySignature(fifths, mode),
+            pickup_beats=segment.pickup_length_ql / beat_ql,
+            parts=(part,),
+            quantization_settings={
+                "grid": grid_name,
+                "quantizer": QUANTIZER_ID,
+                "quantizerVersion": QUANTIZER_VERSION,
+            },
+            meter_changes=meter_changes,
+        )
+
+    part = Part(id="part-1", name=part_name, notes=tuple(qnotes), rests=tuple(rests))
+    payload = _payload(part)
+
+    if rests:
+        # Realized output tiles every touched measure; extend coverage with
+        # one measure-rest atom per trailing empty measure so the score also
+        # tiles to the layout end — including meter segments declared beyond
+        # the last note (each still emits a measure for its signature).
+        covered = max(
+            [n.end_beat for n in qnotes] + [r.end_beat for r in rests],
+            default=Fraction(0),
+        )
+        spans = measure_spans(payload)
+        layout_end = spans[-1].end_beat
+        if layout_end > covered:
+            boundaries = {s.start_beat for s in spans}
+            if covered not in boundaries:
+                raise ValueError(
+                    f"realized coverage ends at {covered}, which is not a "
+                    "measure boundary"
+                )
+            gap_atoms = tuple(
+                ScoreAtom(duration_beats=s.duration_beats, symbol="whole")
+                for s in spans
+                if s.start_beat >= covered
+            )
+            rests.append(ScoreRest(start_beat=covered, atoms=gap_atoms))
+            part = Part(
+                id="part-1", name=part_name, notes=tuple(qnotes), rests=tuple(rests)
+            )
+            payload = _payload(part)
+
     return ScoreDocument(
         project_id=derive_project_id({"score": payload.to_dict()}),
         payload=payload,

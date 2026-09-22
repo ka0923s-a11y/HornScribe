@@ -2,9 +2,9 @@
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="4.0">
   <work>
-    <work-title>pickup_44_quarter</work-title>
+    <work-title>rests_44</work-title>
   </work>
-  <movement-title>pickup_44_quarter</movement-title>
+  <movement-title>rests_44</movement-title>
   <identification>
     <creator type="composer">Music21</creator>
     <encoding>
@@ -26,7 +26,7 @@
     </score-part>
   </part-list>
   <part id="P1">
-    <measure implicit="yes" number="0">
+    <measure implicit="no" number="1">
       <attributes>
         <divisions>10080</divisions>
         <key>
@@ -58,13 +58,28 @@
         <duration>10080</duration>
         <type>quarter</type>
       </note>
-    </measure>
-    <measure implicit="no" number="1">
+      <note id="hs-rest-000001">
+        <rest />
+        <duration>10080</duration>
+        <type>quarter</type>
+      </note>
       <note id="hs-sn-000002">
         <pitch>
           <step>C</step>
           <octave>4</octave>
         </pitch>
+        <duration>10080</duration>
+        <type>quarter</type>
+      </note>
+      <note id="hs-rest-000002">
+        <rest />
+        <duration>10080</duration>
+        <type>quarter</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="2">
+      <note id="hs-rest-000003">
+        <rest />
         <duration>10080</duration>
         <type>quarter</type>
       </note>
@@ -76,6 +91,13 @@
         <duration>10080</duration>
         <type>quarter</type>
       </note>
+      <note id="hs-rest-000004">
+        <rest />
+        <duration>20160</duration>
+        <type>half</type>
+      </note>
+    </measure>
+    <measure implicit="no" number="3">
       <note id="hs-sn-000004">
         <pitch>
           <step>C</step>
@@ -84,30 +106,12 @@
         <duration>10080</duration>
         <type>quarter</type>
       </note>
-      <note id="hs-sn-000005">
-        <pitch>
-          <step>C</step>
-          <octave>4</octave>
-        </pitch>
-        <duration>10080</duration>
-        <type>quarter</type>
-      </note>
-    </measure>
-    <measure implicit="no" number="2">
-      <note id="hs-sn-000006">
-        <pitch>
-          <step>C</step>
-          <octave>4</octave>
-        </pitch>
-        <duration>10080</duration>
-        <type>quarter</type>
-      </note>
-      <note id="hs-rest-000001">
+      <note id="hs-rest-000005">
         <rest />
         <duration>10080</duration>
         <type>quarter</type>
       </note>
-      <note id="hs-rest-000002">
+      <note id="hs-rest-000006">
         <rest />
         <duration>20160</duration>
         <type>half</type>
