@@ -21,6 +21,7 @@ from fractions import Fraction
 from importlib import import_module
 from typing import Any
 
+from hornscribe.domain.ids import IdAllocator
 from hornscribe.rhythm._output import (
     assemble_quantized_notes,
     monotonic_positions,
@@ -41,6 +42,7 @@ def quantize_with_music21(
     *,
     quarter_length_divisors: tuple[int, ...] = (4,),
     snap_grid_ql: Fraction = Fraction(1, 4),
+    process_durations: bool = True,
 ) -> tuple[QuantizedRhythmNote, ...]:
     """Quantize normalized note onsets via ``Stream.quantize`` (B2).
 
@@ -49,6 +51,12 @@ def quantize_with_music21(
     Emitted onsets are re-snapped to ``snap_grid_ql`` so results satisfy the
     exact-Fraction output contract, and monotonicity is repaired identically
     to the other baselines.
+
+    ``process_durations`` (default on, QNT-007) additionally lets music21
+    quantize each note's written duration — the strongest fair B2: it can
+    then answer note-value questions, but it still emits no rests, ties or
+    notation atoms (``Stream.quantize`` does not insert rests), so the
+    notation-complexity metrics stay ``None``.
     """
     m21 = _music21()
 
@@ -67,11 +75,28 @@ def quantize_with_music21(
     stream.quantize(
         quarterLengthDivisors=list(quarter_length_divisors),
         processOffsets=True,
-        processDurations=False,
+        processDurations=process_durations,
         inPlace=True,
     )
 
     quantized = sorted(stream.recurse().notes, key=lambda el: float(el.offset))
     snapped = tuple(snap_to_grid_ql(float(el.offset), grid) for el in quantized)
     positions = monotonic_positions(snapped, grid)
-    return assemble_quantized_notes(ordered, positions, grid)
+    if not process_durations or len(quantized) != len(ordered):
+        return assemble_quantized_notes(ordered, positions, grid)
+
+    # Carry music21's quantized durations (re-snapped to the contract grid,
+    # clamped to at least one step) instead of provisional spans.
+    allocator = IdAllocator("sn")
+    out: list[QuantizedRhythmNote] = []
+    for note, pos, el in zip(ordered, positions, quantized, strict=True):
+        duration = snap_to_grid_ql(float(el.duration.quarterLength), grid, minimum=grid)
+        out.append(
+            QuantizedRhythmNote(
+                canonical_note_id=allocator.allocate_score_note_id(),
+                source_event_ids=(note.source_id,),
+                onset_ql=pos,
+                duration_ql=duration,
+            )
+        )
+    return tuple(out)

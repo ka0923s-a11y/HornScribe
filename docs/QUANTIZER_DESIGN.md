@@ -1587,9 +1587,10 @@ tiny rest penalty↑
 
 ---
 
-# 31. Proposed initial cost configuration
+# 31. Cost configuration — weights v1 (frozen, QNT-007)
 
-**これは初期値であり、benchmark後にfreezeする。**
+~~これは初期値であり、benchmark後にfreezeする。~~ → **QNT-007でfreeze済み。
+以下の値が `weights_version=1` として `QuantizerWeights` のdefaultである。**
 
 ```python
 QuantizerWeights(
@@ -1606,8 +1607,20 @@ QuantizerWeights(
     tiny_rest=0.75,
     weak_boundary_crossing=0.90,
     strong_boundary_crossing=1.40,
+    weights_version=1,
 )
 ```
+
+freeze根拠(`benchmarks/quantizer_benchmark.json`, 33 fixture corpus):
+
+- B4 exact-onset率 **1.000** vs B0/B1/B2 **0.919**、B3 **0.970**
+- B4 exact-duration率 **1.000** vs baselines ≤ **0.87**
+- B4 rest exact **32/32**(+1 extra)、tiny-rest **1**(real 16th restのみ)
+- triplet false positive/missed: **0/0**
+- ablation: `B4-no-ioi`は±80 ms jitterでonset率0.917に低下(IOI項の寄与)、
+  `B4-no-tiny-rest`は+8 extra rests(tiny-rest項の寄与)、
+  `B4-no-mode-switch`はcorpus全体で出力差0(効果未実測 — 正直な記録として残す)
+- 詳細と既知の失敗クラスは `docs/QUANTIZER_WEIGHTS_V1.md`
 
 重要:
 

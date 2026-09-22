@@ -4,9 +4,10 @@ Contracts only — these immutable dataclasses carry the grid/cost
 configuration for one HSQ-v1 run. The dynamic-programming search that
 consumes them lands in later QNT milestones; no search logic lives here.
 
-Per design section 31 all weight numbers are *starting values* to be tuned
-against the benchmark corpus and frozen via ``weights_version`` (design
-section 45).
+Per design section 31 the weight numbers were benchmarked in QNT-007 and
+frozen as weights v1 (``weights_version = 1``) — see
+``docs/QUANTIZER_WEIGHTS_V1.md`` and ``benchmarks/quantizer_benchmark.json``
+(design section 45).
 """
 
 from __future__ import annotations
@@ -38,8 +39,10 @@ class QuantizerWeights:
     """Objective cost weights (design section 31 initial values).
 
     ``weights_version`` tracks the tuning state so a project can pin the
-    exact weight set that produced its score revision (design section 45);
-    ``0`` means "pre-freeze starting values".
+    exact weight set that produced its score revision (design section 45).
+    ``1`` = QNT-007 weights v1: the values above, benchmarked and frozen
+    against the ``ALL_FIXTURES`` corpus (``benchmarks/quantizer_benchmark.json``,
+    ``docs/QUANTIZER_WEIGHTS_V1.md``). ``0`` = pre-freeze starting values.
     """
 
     onset: float = 4.0
@@ -55,7 +58,7 @@ class QuantizerWeights:
     tiny_rest: float = 0.75
     weak_boundary_crossing: float = 0.90
     strong_boundary_crossing: float = 1.40
-    weights_version: int = 0
+    weights_version: int = 1
 
     def __post_init__(self) -> None:
         for f in fields(self):

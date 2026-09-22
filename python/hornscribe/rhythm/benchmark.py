@@ -1,19 +1,29 @@
-"""Benchmark harness for baseline/HSQ ablation (design 36-37).
+"""Benchmark harness for baseline/HSQ ablation (design 36-37, QNT-007).
 
 Feeds the same fixture through every method and emits per-method
-:class:`OnsetMetrics` so the quantizer's value can be measured, not assumed:
+:class:`OnsetMetrics` so the quantizer's value can be measured, not assumed.
+The arm vocabulary is the issue's:
 
 * ``"B0"`` — nearest-sixteenth snap (:func:`snap_nearest_grid`);
-* ``"B1"`` — nearest candidate-lattice snap (:func:`snap_candidate_lattice`);
-* ``"HSQ"`` — the k-best onset DP with joint note/rest realization
-  (rank-1 path of :func:`quantize_events`);
-* ``"HSQ-no-ioi"`` — same run with ``weights.ioi = 0``, the ablation
-  proving the IOI term's contribution;
-* ``"HSQ-timing"`` — same run with every notation-complexity weight zeroed
-  (``symbol``/``tie``/``dots``/``tiny_rest``/boundary/tuplet/mode terms), so
-  note ends follow offset timing evidence only — the timing-only ablation
-  showing what the notation cost buys (design 37, B3-style);
-* ``"music21"`` — optional B2 baseline (``include_music21``).
+* ``"B1"`` — nearest binary/triplet candidate-lattice snap
+  (:func:`snap_candidate_lattice`);
+* ``"B2"`` — optional ``music21.Stream.quantize`` baseline (skipped when
+  music21 cannot be imported);
+* ``"B3"`` — HSQ timing-only ablation: every notation-complexity weight
+  zeroed (``symbol``/``tie``/``dots``/``tiny_rest``/boundary/tuplet/mode
+  terms), so note ends follow onset/offset/IOI timing evidence alone —
+  shows what the notation cost buys (design 37);
+* ``"B4"`` — full HSQ-v1: the k-best onset DP with joint note/rest
+  realization (rank-1 path of :func:`quantize_events`).
+
+Ablation arms (``ABLATION_ARMS``) isolate single cost terms:
+
+* ``"B4-no-ioi"`` — ``weights.ioi = 0``;
+* ``"B4-no-tiny-rest"`` — ``weights.tiny_rest = 0``;
+* ``"B4-no-mode-switch"`` — ``weights.mode_switch = 0``;
+* ``"B3-no-ioi"`` — IOI removed inside the timing-only context, where it is
+  the load-bearing term (in the realized context the notation cost can
+  rescue the IOI pair on its own).
 
 Baselines run on the unshifted normalization (``baseline_shift_sec = 0.0``
 by default): compensating latency is part of what HSQ adds, so naive
@@ -25,7 +35,8 @@ realized output).
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from fractions import Fraction
 
@@ -44,6 +55,22 @@ from hornscribe.rhythm.quantizer import quantize_events
 from hornscribe.rhythm.realize import TINY_REST_MAX_QL
 from hornscribe.rhythm.timewarp import TimeWarp, normalize_to_score_time
 
+#: The five comparison arms required by the issue (design 37).
+BASELINE_ARMS: tuple[str, ...] = ("B0", "B1", "B2", "B3", "B4")
+
+#: Weight ablations (issue: no IOI, no notation complexity [= B3],
+#: no tiny-rest penalty, no mode-switch penalty; ``B3-no-ioi`` isolates the
+#: IOI term inside the timing-only context).
+ABLATION_ARMS: tuple[str, ...] = (
+    "B4-no-ioi",
+    "B4-no-tiny-rest",
+    "B4-no-mode-switch",
+    "B3-no-ioi",
+)
+
+#: Every arm the standard benchmark run executes.
+DEFAULT_ARMS: tuple[str, ...] = BASELINE_ARMS + ABLATION_ARMS
+
 
 @dataclass(frozen=True)
 class OnsetMetrics:
@@ -52,6 +79,8 @@ class OnsetMetrics:
     Onset/duration fields are timing-space metrics (36.1); the
     ``*_count`` fields are the notation-complexity metrics (36.2) and stay
     ``None`` for methods that emit no realization (naive baselines).
+    Rest-span and triplet-classification metrics are ``None`` unless the
+    fixture declares the corresponding expectation.
     """
 
     method: str
@@ -76,6 +105,22 @@ class OnsetMetrics:
     ``expected_durations_ql``)."""
     mean_abs_duration_error_ql: float | None = None
     """Mean |notated - expected| duration over paired notes (ql)."""
+    expected_rest_count: int | None = None
+    """Rest spans the fixture declares (needs ``expected_rest_spans_ql``)."""
+    rest_exact_count: int | None = None
+    """Emitted rest spans exactly matching an expected ``(onset, duration)``."""
+    rest_extra_count: int | None = None
+    """Emitted rest spans matching no expected span."""
+    rest_exact_rate: float | None = None
+    """``rest_exact_count / max(expected_rest_count, 1)`` — rest correctness."""
+    expected_tuplet_group_count: int | None = None
+    """Visual triplet groups the fixture intends (triplet classification)."""
+    triplet_false_positive_groups: int | None = None
+    """Emitted tuplet groups beyond the expected count (false positives)."""
+    triplet_missed_groups: int | None = None
+    """Expected tuplet groups the method failed to emit (false negatives)."""
+    review_issue_count: int | None = None
+    """Internal review reasons raised (HSQ arms only; diagnostics-driven)."""
     symbol_count: int | None = None
     tie_count: int | None = None
     rest_count: int | None = None
@@ -92,12 +137,35 @@ class OnsetMetrics:
             "max_abs_onset_error_ql",
             "exact_duration_rate",
             "mean_abs_duration_error_ql",
+            "rest_exact_rate",
         ):
             value = getattr(self, name)
             if value is not None and (not math.isfinite(value) or value < 0):
                 raise ValueError(f"{name} must be finite and >= 0, got {value!r}")
         if self.total_cost is not None and not math.isfinite(self.total_cost):
-            raise ValueError(f"total_cost must be finite or None, got {self.total_cost!r}")
+            raise ValueError(
+                f"total_cost must be finite or None, got {self.total_cost!r}"
+            )
+
+
+@dataclass(frozen=True)
+class MethodRun:
+    """One method's benchmark result on one fixture, with wall-clock runtime.
+
+    ``runtime_sec`` is the measured quantization time for the arm — the
+    issue's runtime metric. It is intentionally kept out of
+    :class:`OnsetMetrics` so the metrics stay exactly deterministic
+    (``benchmark_onsets`` results compare equal across runs).
+    """
+
+    metrics: OnsetMetrics
+    runtime_sec: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.runtime_sec) or self.runtime_sec < 0:
+            raise ValueError(
+                f"runtime_sec must be finite and >= 0, got {self.runtime_sec!r}"
+            )
 
 
 def _atom_triplet_group_count(atoms: Sequence[RhythmAtom]) -> int:
@@ -122,16 +190,31 @@ def onset_metrics(
     expected_onsets_ql: Sequence[Fraction],
     *,
     expected_durations_ql: Sequence[Fraction] | None = None,
+    expected_rest_spans_ql: Sequence[tuple[Fraction, Fraction]] | None = None,
+    expected_tuplet_groups: int | None = None,
     rests: Sequence[RealizedRest] | None = None,
     diagnostics: QuantizationDiagnostics | None = None,
     total_cost: float | None = None,
 ) -> OnsetMetrics:
-    """Compare emitted onsets/durations to expected values, index-aligned.
+    """Compare emitted onsets/durations/rests to expected values, index-aligned.
 
     Positions pair by index (fixture order); extras on either side are
     counted via the counts/exact rate rather than penalized pairwise. When
     ``expected_durations_ql`` is given, duration accuracy is scored the same
     way on ``note.duration_ql``.
+
+    When ``expected_rest_spans_ql`` is given (possibly empty), emitted
+    ``RealizedRest`` spans ``(onset_ql, duration_ql)`` are compared as an
+    exact multiset — a rest is correct only when both its position and its
+    total span match (atom decomposition quality is covered by the
+    complexity counts). Methods that emit no rests (naive baselines) score
+    ``rest_exact_count = 0``.
+
+    ``expected_tuplet_groups`` enables the triplet-classification metric:
+    emitted ``tuplet_group_count`` is compared to the intent and the
+    surplus/deficit is reported as false-positive/missed groups. It is
+    ``None`` for methods without realization (a naive baseline cannot
+    "commit" tuplets).
 
     Notation-complexity counts (design 36.2) come from ``diagnostics`` when
     given — they include non-atom-derivable data such as obscured-boundary
@@ -161,8 +244,31 @@ def onset_metrics(
         )
         duration_error = sum(dur_errors) / len(dur_errors) if dur_errors else 0.0
 
+    emitted_rest_spans = tuple((r.onset_ql, r.duration_ql) for r in rests or ())
+    expected_rest_count = rest_exact = rest_extra = rest_rate = None
+    if expected_rest_spans_ql is not None:
+        expected_spans = list(expected_rest_spans_ql)
+        unmatched = list(emitted_rest_spans)
+        exact = 0
+        for span in expected_spans:
+            if span in unmatched:
+                unmatched.remove(span)
+                exact += 1
+        expected_rest_count = len(expected_spans)
+        rest_exact = exact
+        rest_extra = len(unmatched)
+        # Empty expectation: perfect iff nothing was emitted (a spurious rest
+        # against an empty expectation scores 0).
+        rest_rate = (
+            exact / len(expected_spans)
+            if expected_spans
+            else (1.0 if not unmatched else 0.0)
+        )
+
     realized = rests is not None or any(n.notation is not None for n in quantized)
     counts: dict[str, int] = {}
+    emitted_tuplet_groups: int | None = None
+    review_count: int | None = None
     if diagnostics is not None:
         counts = {
             "symbol_count": diagnostics.symbol_count,
@@ -175,11 +281,14 @@ def onset_metrics(
             ),
             "tuplet_group_count": diagnostics.tuplet_group_count,
         }
+        emitted_tuplet_groups = diagnostics.tuplet_group_count
+        review_count = len(diagnostics.review_reasons)
     elif realized:
         note_atoms = [
             a for n in quantized if n.notation is not None for a in n.notation.atoms
         ]
         rest_atoms = [a for r in rests or () for a in r.notation.atoms]
+        emitted_tuplet_groups = _atom_triplet_group_count(note_atoms + rest_atoms)
         counts = {
             "symbol_count": len(note_atoms) + len(rest_atoms),
             "tie_count": sum(1 for a in note_atoms if a.tie_to_next),
@@ -190,10 +299,12 @@ def onset_metrics(
             "second_dot_count": sum(
                 1 for a in note_atoms + rest_atoms if a.dots == 2
             ),
-            "tuplet_group_count": _atom_triplet_group_count(
-                note_atoms + rest_atoms
-            ),
+            "tuplet_group_count": emitted_tuplet_groups,
         }
+    triplet_fp = triplet_missed = None
+    if expected_tuplet_groups is not None and emitted_tuplet_groups is not None:
+        triplet_fp = max(0, emitted_tuplet_groups - expected_tuplet_groups)
+        triplet_missed = max(0, expected_tuplet_groups - emitted_tuplet_groups)
     return OnsetMetrics(
         method=method,
         note_count=len(quantized),
@@ -206,8 +317,135 @@ def onset_metrics(
         total_cost=total_cost,
         exact_duration_rate=duration_rate,
         mean_abs_duration_error_ql=duration_error,
+        expected_rest_count=expected_rest_count,
+        rest_exact_count=rest_exact,
+        rest_extra_count=rest_extra,
+        rest_exact_rate=rest_rate,
+        expected_tuplet_group_count=expected_tuplet_groups,
+        triplet_false_positive_groups=triplet_fp,
+        triplet_missed_groups=triplet_missed,
+        review_issue_count=review_count,
         **counts,
     )
+
+
+def _timing_only_weights(profile: QuantizationProfile) -> QuantizationProfile:
+    """B3 profile: every notation-complexity weight zeroed (design 37).
+
+    Realization stays enabled so output remains metrically comparable —
+    note ends then follow onset/offset/IOI timing evidence alone.
+    """
+    return replace(
+        profile,
+        weights=replace(
+            profile.weights,
+            symbol=0.0,
+            tie=0.0,
+            first_dot=0.0,
+            second_dot=0.0,
+            tuplet_group=0.0,
+            tuplet_atom=0.0,
+            mode_switch=0.0,
+            tiny_rest=0.0,
+            weak_boundary_crossing=0.0,
+            strong_boundary_crossing=0.0,
+        ),
+    )
+
+
+def _arm_thunks(
+    events: Sequence[RawNoteEvent],
+    warp: TimeWarp,
+    expected_onsets_ql: Sequence[Fraction],
+    *,
+    expected_durations_ql: Sequence[Fraction] | None,
+    expected_rest_spans_ql: Sequence[tuple[Fraction, Fraction]] | None,
+    expected_tuplet_groups: int | None,
+    meter_map: MeterMap | None,
+    profile: QuantizationProfile,
+    baseline_shift_sec: float,
+    arms: Sequence[str],
+) -> list[tuple[str, Callable[[], OnsetMetrics]]]:
+    """Build one zero-argument thunk per requested arm (shared by the
+    deterministic and the timed entry points)."""
+    normalized = onset_sorted(
+        normalize_to_score_time(events, warp, alignment_shift_sec=baseline_shift_sec)
+    )
+
+    def hsq(
+        name: str, run_profile: QuantizationProfile
+    ) -> Callable[[], OnsetMetrics]:
+        def run() -> OnsetMetrics:
+            best = quantize_events(
+                events, warp, meter_map, run_profile, search_alignment=True
+            )
+            return onset_metrics(
+                name,
+                best[0].notes if best else (),
+                expected_onsets_ql,
+                expected_durations_ql=expected_durations_ql,
+                expected_rest_spans_ql=expected_rest_spans_ql,
+                expected_tuplet_groups=expected_tuplet_groups,
+                rests=best[0].rests if best else None,
+                diagnostics=best[0].diagnostics if best else None,
+                total_cost=best[0].total_cost if best else None,
+            )
+
+        return run
+
+    def baseline(
+        name: str, snap: Callable[[], tuple[QuantizedRhythmNote, ...]]
+    ) -> Callable[[], OnsetMetrics]:
+        def run() -> OnsetMetrics:
+            return onset_metrics(
+                name,
+                snap(),
+                expected_onsets_ql,
+                expected_durations_ql=expected_durations_ql,
+                expected_rest_spans_ql=expected_rest_spans_ql,
+            )
+
+        return run
+
+    def music21_arm() -> OnsetMetrics:
+        from hornscribe.rhythm.music21_baseline import quantize_with_music21
+
+        return onset_metrics(
+            "B2",
+            quantize_with_music21(normalized, snap_grid_ql=profile.min_note_value_ql),
+            expected_onsets_ql,
+            expected_durations_ql=expected_durations_ql,
+            expected_rest_spans_ql=expected_rest_spans_ql,
+        )
+
+    timing_only = _timing_only_weights(profile)
+    builders: dict[str, Callable[[], OnsetMetrics]] = {
+        "B0": baseline("B0", lambda: snap_nearest_grid(normalized)),
+        "B1": baseline("B1", lambda: snap_candidate_lattice(normalized, profile)),
+        "B2": music21_arm,
+        "B3": hsq("B3", timing_only),
+        "B4": hsq("B4", profile),
+        "B4-no-ioi": hsq(
+            "B4-no-ioi",
+            replace(profile, weights=replace(profile.weights, ioi=0.0)),
+        ),
+        "B4-no-tiny-rest": hsq(
+            "B4-no-tiny-rest",
+            replace(profile, weights=replace(profile.weights, tiny_rest=0.0)),
+        ),
+        "B4-no-mode-switch": hsq(
+            "B4-no-mode-switch",
+            replace(profile, weights=replace(profile.weights, mode_switch=0.0)),
+        ),
+        "B3-no-ioi": hsq(
+            "B3-no-ioi",
+            replace(timing_only, weights=replace(timing_only.weights, ioi=0.0)),
+        ),
+    }
+    unknown = [a for a in arms if a not in builders]
+    if unknown:
+        raise ValueError(f"unknown benchmark arms: {unknown}")
+    return [(arm, builders[arm]) for arm in arms]
 
 
 def benchmark_onsets(
@@ -216,117 +454,114 @@ def benchmark_onsets(
     expected_onsets_ql: Sequence[Fraction],
     *,
     expected_durations_ql: Sequence[Fraction] | None = None,
+    expected_rest_spans_ql: Sequence[tuple[Fraction, Fraction]] | None = None,
+    expected_tuplet_groups: int | None = None,
     meter_map: MeterMap | None = None,
     profile: QuantizationProfile | None = None,
     baseline_shift_sec: float = 0.0,
-    include_ioi_ablation: bool = True,
-    include_timing_ablation: bool = True,
-    include_music21: bool = False,
+    arms: Sequence[str] = DEFAULT_ARMS,
 ) -> dict[str, OnsetMetrics]:
-    """Run B0/B1/HSQ (+ ablations) on one fixture and emit metrics.
+    """Run the requested arms on one fixture and emit deterministic metrics.
 
-    Deterministic: same inputs always produce the same metrics table.
+    Arm vocabulary is the issue's: ``B0`` nearest-16th, ``B1`` nearest
+    binary/triplet lattice, ``B2`` music21 ``Stream.quantize``, ``B3`` HSQ
+    timing-only, ``B4`` full HSQ-v1, plus the weight ablations in
+    ``ABLATION_ARMS``. ``B2`` is skipped when music21 cannot be imported
+    (optional baseline). Deterministic: same inputs always produce the same
+    metrics table.
+
     Baselines normalize with ``baseline_shift_sec`` (default 0 = naive);
-    HSQ performs its own alignment search inside :func:`quantize_events`.
-    ``expected_durations_ql`` (index-aligned with ``expected_onsets_ql``)
-    additionally enables duration accuracy metrics for every method.
+    HSQ arms perform their own alignment search inside
+    :func:`quantize_events`. ``expected_durations_ql`` /
+    ``expected_rest_spans_ql`` / ``expected_tuplet_groups`` (index-aligned
+    with ``expected_onsets_ql`` where applicable) enable the duration, rest
+    and triplet-classification metrics for every method.
     """
-    profile = profile if profile is not None else QuantizationProfile.standard()
-    normalized = onset_sorted(
-        normalize_to_score_time(events, warp, alignment_shift_sec=baseline_shift_sec)
+    thunks = _arm_thunks(
+        events,
+        warp,
+        expected_onsets_ql,
+        expected_durations_ql=expected_durations_ql,
+        expected_rest_spans_ql=expected_rest_spans_ql,
+        expected_tuplet_groups=expected_tuplet_groups,
+        meter_map=meter_map,
+        profile=profile
+        if profile is not None
+        else QuantizationProfile.standard(),
+        baseline_shift_sec=baseline_shift_sec,
+        arms=arms,
     )
     results: dict[str, OnsetMetrics] = {}
-
-    results["B0"] = onset_metrics(
-        "B0",
-        snap_nearest_grid(normalized),
-        expected_onsets_ql,
-        expected_durations_ql=expected_durations_ql,
-    )
-    results["B1"] = onset_metrics(
-        "B1",
-        snap_candidate_lattice(normalized, profile),
-        expected_onsets_ql,
-        expected_durations_ql=expected_durations_ql,
-    )
-
-    best = quantize_events(
-        events, warp, meter_map, profile, search_alignment=True
-    )
-    results["HSQ"] = onset_metrics(
-        "HSQ",
-        best[0].notes if best else (),
-        expected_onsets_ql,
-        expected_durations_ql=expected_durations_ql,
-        rests=best[0].rests if best else None,
-        diagnostics=best[0].diagnostics if best else None,
-        total_cost=best[0].total_cost if best else None,
-    )
-
-    if include_ioi_ablation:
-        no_ioi_profile = replace(
-            profile, weights=replace(profile.weights, ioi=0.0)
-        )
-        ablated = quantize_events(
-            events, warp, meter_map, no_ioi_profile, search_alignment=True
-        )
-        results["HSQ-no-ioi"] = onset_metrics(
-            "HSQ-no-ioi",
-            ablated[0].notes if ablated else (),
-            expected_onsets_ql,
-            expected_durations_ql=expected_durations_ql,
-            rests=ablated[0].rests if ablated else None,
-            diagnostics=ablated[0].diagnostics if ablated else None,
-            total_cost=ablated[0].total_cost if ablated else None,
-        )
-
-    if include_timing_ablation:
-        # Timing-only ablation (design 37): realization stays on so the
-        # output remains comparable, but every notation-complexity weight
-        # is zeroed so note ends follow offset/IOI evidence alone.
-        w = profile.weights
-        timing_only_profile = replace(
-            profile,
-            weights=replace(
-                w,
-                symbol=0.0,
-                tie=0.0,
-                first_dot=0.0,
-                second_dot=0.0,
-                tuplet_group=0.0,
-                tuplet_atom=0.0,
-                mode_switch=0.0,
-                tiny_rest=0.0,
-                weak_boundary_crossing=0.0,
-                strong_boundary_crossing=0.0,
-            ),
-        )
-        timing = quantize_events(
-            events, warp, meter_map, timing_only_profile, search_alignment=True
-        )
-        results["HSQ-timing"] = onset_metrics(
-            "HSQ-timing",
-            timing[0].notes if timing else (),
-            expected_onsets_ql,
-            expected_durations_ql=expected_durations_ql,
-            rests=timing[0].rests if timing else None,
-            diagnostics=timing[0].diagnostics if timing else None,
-            total_cost=timing[0].total_cost if timing else None,
-        )
-
-    if include_music21:
-        from hornscribe.rhythm.music21_baseline import quantize_with_music21
-
-        results["music21"] = onset_metrics(
-            "music21",
-            quantize_with_music21(
-                normalized, snap_grid_ql=profile.min_note_value_ql
-            ),
-            expected_onsets_ql,
-            expected_durations_ql=expected_durations_ql,
-        )
-
+    for name, thunk in thunks:
+        if name == "B2":
+            try:
+                results[name] = thunk()
+            except ImportError:
+                continue  # optional baseline: music21 unavailable
+        else:
+            results[name] = thunk()
     return results
 
 
-__all__ = ["OnsetMetrics", "benchmark_onsets", "onset_metrics"]
+def benchmark_methods(
+    events: Sequence[RawNoteEvent],
+    warp: TimeWarp,
+    expected_onsets_ql: Sequence[Fraction],
+    *,
+    expected_durations_ql: Sequence[Fraction] | None = None,
+    expected_rest_spans_ql: Sequence[tuple[Fraction, Fraction]] | None = None,
+    expected_tuplet_groups: int | None = None,
+    meter_map: MeterMap | None = None,
+    profile: QuantizationProfile | None = None,
+    baseline_shift_sec: float = 0.0,
+    arms: Sequence[str] = DEFAULT_ARMS,
+) -> dict[str, MethodRun]:
+    """Same arms as :func:`benchmark_onsets`, plus per-method wall-clock
+    runtime — the committed-artifact variant (issue metrics: runtime).
+
+    Runtime is measured with :func:`time.perf_counter` around each arm's
+    full call, so HSQ arms include their alignment search. The quality
+    metrics inside each :class:`MethodRun` are identical to
+    :func:`benchmark_onsets` output for the same inputs.
+    """
+    thunks = _arm_thunks(
+        events,
+        warp,
+        expected_onsets_ql,
+        expected_durations_ql=expected_durations_ql,
+        expected_rest_spans_ql=expected_rest_spans_ql,
+        expected_tuplet_groups=expected_tuplet_groups,
+        meter_map=meter_map,
+        profile=profile
+        if profile is not None
+        else QuantizationProfile.standard(),
+        baseline_shift_sec=baseline_shift_sec,
+        arms=arms,
+    )
+    results: dict[str, MethodRun] = {}
+    for name, thunk in thunks:
+        if name == "B2":
+            try:
+                start = time.perf_counter()
+                metrics = thunk()
+                runtime = time.perf_counter() - start
+            except ImportError:
+                continue
+        else:
+            start = time.perf_counter()
+            metrics = thunk()
+            runtime = time.perf_counter() - start
+        results[name] = MethodRun(metrics=metrics, runtime_sec=runtime)
+    return results
+
+
+__all__ = [
+    "ABLATION_ARMS",
+    "BASELINE_ARMS",
+    "DEFAULT_ARMS",
+    "MethodRun",
+    "OnsetMetrics",
+    "benchmark_methods",
+    "benchmark_onsets",
+    "onset_metrics",
+]

@@ -42,7 +42,7 @@ def test_weights_match_design_initial_values() -> None:
     assert weights.tiny_rest == 0.75
     assert weights.weak_boundary_crossing == 0.90
     assert weights.strong_boundary_crossing == 1.40
-    assert weights.weights_version == 0
+    assert weights.weights_version == 1  # QNT-007: v1 is the frozen standard
 
 
 def test_profile_defaults() -> None:

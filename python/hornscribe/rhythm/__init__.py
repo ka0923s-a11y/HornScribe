@@ -26,7 +26,16 @@ from hornscribe.rhythm.beatmap import (
     BeatSource,
     InvalidBeatMapError,
 )
-from hornscribe.rhythm.benchmark import OnsetMetrics, benchmark_onsets, onset_metrics
+from hornscribe.rhythm.benchmark import (
+    ABLATION_ARMS,
+    BASELINE_ARMS,
+    DEFAULT_ARMS,
+    MethodRun,
+    OnsetMetrics,
+    benchmark_methods,
+    benchmark_onsets,
+    onset_metrics,
+)
 from hornscribe.rhythm.contracts import (
     QUANTIZER_ID,
     QUANTIZER_VERSION,
@@ -130,7 +139,12 @@ __all__ = [
     "TripletRegion",
     "TripletRegionEvidence",
     "UnsupportedMeterError",
+    "ABLATION_ARMS",
+    "BASELINE_ARMS",
+    "DEFAULT_ARMS",
+    "MethodRun",
     "assemble_score_document",
+    "benchmark_methods",
     "benchmark_onsets",
     "confidence_weight",
     "enabled_triplet_regions",
