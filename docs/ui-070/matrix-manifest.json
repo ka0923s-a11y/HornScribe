@@ -1,0 +1,234 @@
+{
+  "generatedAt": "2026-09-22T07:59:40.247Z",
+  "viewport": "1920x1080@100",
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "goldens": [
+    {
+      "file": "empty-light.png",
+      "state": "empty",
+      "label": "空状態",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "b2de52a11e23eb202d0820b9be2db41a7f6516f5a1374595e9345d536884075a"
+    },
+    {
+      "file": "audio-ready-light.png",
+      "state": "audio-ready",
+      "label": "音源読込",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "dc6029344ad25d318b60817f6cd3ba069a8d95cd3e8e794e4f95701706b32dbd"
+    },
+    {
+      "file": "transcribing-light.png",
+      "state": "transcribing",
+      "label": "採譜中",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "9c3c24b4b121eae798481f77b5f6b82ea4b46ab6e44fe71ffec892e3dd97687a"
+    },
+    {
+      "file": "audio-error-light.png",
+      "state": "audio-error",
+      "label": "音源エラー",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "f5ea40dc2be67ac788f5d33315a858010ca3158cd17e5e3df9dbebfd46b80855"
+    },
+    {
+      "file": "source-missing-light.png",
+      "state": "source-missing",
+      "label": "音源移動",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "a37fd3f6af0acaf2df10d2004a299262d99bc02a3ebb85a9e6b2c6559cf06e92"
+    },
+    {
+      "file": "transcription-error-light.png",
+      "state": "transcription-error",
+      "label": "worker crash",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "7dc3057ac7146cbd74887e325ca9bf3ccd67795ad980c0174152d024b345a034"
+    },
+    {
+      "file": "score-ready-light.png",
+      "state": "score-ready",
+      "label": "採譜完了",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "7bc64f90dc96085ce76bd922ee8d5f18bcdad04775f0b7f0efa65d5d62a39b2a"
+    },
+    {
+      "file": "score-hornf-light.png",
+      "state": "score-hornf",
+      "label": "F管表示",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "4e42291bc49c35650e6051887d64dbaa6b794278f117192aa1dc2adbf5984795"
+    },
+    {
+      "file": "score-selection-light.png",
+      "state": "score-selection",
+      "label": "音符選択",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "ccef3a9a45b8e5a280cef32370bbc6d38ae655b885fa92b97dd5e2e9c08c6bcc"
+    },
+    {
+      "file": "reviewing-light.png",
+      "state": "reviewing",
+      "label": "要確認",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "dd61816f111b8843f22d46ca8bf0643c0add9b24a07205a21a3541e0bcaf4484"
+    },
+    {
+      "file": "export-dialog-light.png",
+      "state": "export-dialog",
+      "label": "書き出し",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "a4400de729053be4645d16d1bb7ec6b0b4185b603c8ee1637f44e774e42da852"
+    },
+    {
+      "file": "export-musescore-missing-light.png",
+      "state": "export-musescore-missing",
+      "label": "MuseScore不足",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "af69114cbc218e35a6dab70dfaba770f8e6a1b4afea74543d36fadc03c9e5e1c"
+    },
+    {
+      "file": "settings-light.png",
+      "state": "settings",
+      "label": "設定",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "1ca895abfef6a0a424d31639497936c04fd11447cf0c617d4d183325f4196d5f"
+    },
+    {
+      "file": "focus-visible-light.png",
+      "state": "focus-visible",
+      "label": "focus-visible",
+      "theme": "light",
+      "viewport": "1920x1080@100",
+      "sha256": "580c5b38d27086f61a6a052308aec1aa8d2c80996bba4fb86bc0d48887a39e00"
+    },
+    {
+      "file": "empty-dark.png",
+      "state": "empty",
+      "label": "空状態",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "1d1c0a57910fc24c20e4fabfb6e4ae9d7a6eb8317e5e30bf195b65c551dcfd8b"
+    },
+    {
+      "file": "audio-ready-dark.png",
+      "state": "audio-ready",
+      "label": "音源読込",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "9747fd3c686ab91e226b7e893b15c9b1277da0d550937c841d681e6ad8cbc050"
+    },
+    {
+      "file": "transcribing-dark.png",
+      "state": "transcribing",
+      "label": "採譜中",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "327fe93b31a75b3ef1be2b5ecc0a11abaa1228d4ff1f82bfc362c078377808c5"
+    },
+    {
+      "file": "audio-error-dark.png",
+      "state": "audio-error",
+      "label": "音源エラー",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "a0ef0f39b1f7b3bd96d1501d81f785fd2c31130b90fb260755d04c5906e3c513"
+    },
+    {
+      "file": "source-missing-dark.png",
+      "state": "source-missing",
+      "label": "音源移動",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "1eb4a12123152d38a38f11cbc0d138ef5a0f09042a99afb1f12c203de00ba76f"
+    },
+    {
+      "file": "transcription-error-dark.png",
+      "state": "transcription-error",
+      "label": "worker crash",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "dbe2639c6dde7312a5f9e3ed0eea5658d09529d576d289e35dbc52e5b34bb1ec"
+    },
+    {
+      "file": "score-ready-dark.png",
+      "state": "score-ready",
+      "label": "採譜完了",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "19ed8e3a7de05e1f5622a07b73c31feb62a3e76c450ed998a01bb7a64a5bd807"
+    },
+    {
+      "file": "score-hornf-dark.png",
+      "state": "score-hornf",
+      "label": "F管表示",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "66111212bb65ee8f97f8a032c506c7a3d91f7d94a5e56c2022e74b3bb6895153"
+    },
+    {
+      "file": "score-selection-dark.png",
+      "state": "score-selection",
+      "label": "音符選択",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "3dd73975b80aaafaa96344e2a819201586153398c49d11edcbb8c24fb5a5d4b2"
+    },
+    {
+      "file": "reviewing-dark.png",
+      "state": "reviewing",
+      "label": "要確認",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "5acb45d098e0ff0c632a0568287284e29cc20e6db8b296c6a9a0ea12b1e5046a"
+    },
+    {
+      "file": "export-dialog-dark.png",
+      "state": "export-dialog",
+      "label": "書き出し",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "c7783b1a8dbadcbdb143050dfcd3c15c132bd785a9c1c4f6c79631b4941a6ce3"
+    },
+    {
+      "file": "export-musescore-missing-dark.png",
+      "state": "export-musescore-missing",
+      "label": "MuseScore不足",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "ee55fe76381bcba32401f8dc84a2ad1d3f7feaf7344fb1d67514bcc6b5cf0829"
+    },
+    {
+      "file": "settings-dark.png",
+      "state": "settings",
+      "label": "設定",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "b697f0f1af5d2ca02a9c9da53c11e588886133752f1ffb35ac8593fc6f9b485d"
+    },
+    {
+      "file": "focus-visible-dark.png",
+      "state": "focus-visible",
+      "label": "focus-visible",
+      "theme": "dark",
+      "viewport": "1920x1080@100",
+      "sha256": "662cfbdd110cd19e5953aeefedf78e6415101243d22902a31614149c7effa1f8"
+    }
+  ]
+}

@@ -82,6 +82,13 @@ export class ScoreRenderer {
     const mod: VerovioModule = await createVerovioModule();
     this.toolkit = new VerovioToolkit(mod);
     this.toolkit.setOptions(this.options());
+    // UI-070 gate hook: lets the scripted perf run assert zero renderToSVG
+    // calls on the playback/highlight path (UI-005 criterion). Dev-only —
+    // never populated in packaged builds.
+    if (import.meta.env.DEV && typeof window !== "undefined") {
+      (window as unknown as { __hsRenderStats?: typeof renderStats })
+        .__hsRenderStats = renderStats;
+    }
   }
 
   private options(): Record<string, unknown> {

@@ -680,9 +680,10 @@ body {
   background: var(--hs-status-error-subtle);
   border-color: color-mix(in srgb, currentColor 35%, transparent);
 }
-/* §15: the 要確認 marker adds a dotted underline — review is never red. */
+/* §15: the 要確認 marker adds a dotted underline — review is never red.
+   On the warning-subtle badge fill this uses the tint-context ink. */
 .hs-badge--needs-review .hs-badge__label {
-  border-bottom: 2px dotted var(--hs-review-marker);
+  border-bottom: 2px dotted var(--hs-review-ink);
 }
 
 /* ---- HsPanel (§8): flat separation by border; elevated for floats ---- */
@@ -828,7 +829,7 @@ body {
 }
 /* Text badge (§15: never color-only — a labelled glyph + dotted edge). */
 .hs-score-reviewbar__badge {
-  border: 1px dashed var(--hs-review-marker);
+  border: 1px dashed var(--hs-review-ink);
   border-radius: var(--hs-radius-sm);
   padding: 0 var(--hs-space-xs);
   font-weight: 600;
@@ -915,9 +916,12 @@ body {
 .hs-score-pages g.hs-measure-active > rect.hs-measure-wash {
   fill: var(--hs-score-current-measure);
 }
-/* Playback caret (§10 hierarchy level 1): thin bar at the sounding onset. */
+/* Playback caret (§10 hierarchy level 1): thin bar at the sounding onset.
+   Uses --hs-score-caret (paper-safe in both themes), not --hs-playhead —
+   the playhead token is a chrome color and fails 3:1 on light paper in
+   dark mode (UI-070 gate finding). */
 .hs-score-pages rect.hs-score-caret {
-  fill: var(--hs-playhead);
+  fill: var(--hs-score-caret);
 }
 .hs-score-pages rect.hs-measure-wash,
 .hs-score-pages rect.hs-score-caret {
@@ -1043,7 +1047,7 @@ body {
 .hs-properties__issue {
   padding: var(--hs-space-xs) var(--hs-space-sm);
   border: 1px solid var(--hs-border-subtle);
-  border-left: 3px solid var(--hs-review-marker);
+  border-left: 3px solid var(--hs-review-ink);
   border-radius: var(--hs-radius-input);
   background: var(--hs-review-tint);
 }
@@ -1059,8 +1063,8 @@ body {
   flex: 0 0 auto;
   padding: 0 var(--hs-space-xs);
   border-radius: var(--hs-radius-input);
-  border: 1px dotted var(--hs-review-marker);
-  color: var(--hs-review-marker);
+  border: 1px dotted var(--hs-review-ink);
+  color: var(--hs-review-ink);
   font-size: var(--hs-font-size-caption);
   font-weight: var(--hs-font-weight-emphasis);
 }

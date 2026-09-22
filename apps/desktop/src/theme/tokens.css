@@ -113,7 +113,10 @@
   --hs-focus: #000000;
 
   --hs-status-info: #0f6cbd;
-  --hs-status-warning: #986f0b;
+  /* UI-070 gate fix: #986f0b measured 4.14:1 on --hs-status-warning-subtle
+     (needs ≥4.5 for text). #8a6308 reaches 4.92:1 on the tint and 4.88:1
+     on --hs-surface-app. */
+  --hs-status-warning: #8a6308;
   --hs-status-error: #c50f1f;
   --hs-status-success: #107c10;
   /* Tinted surfaces behind status text/badges (≥4.5:1 with the matching
@@ -135,6 +138,12 @@
   /* §15: 要確認 cue = warning tint, never error red. */
   --hs-review-tint: #fff4ce;
 
+  /* UI-070: review ink is the text/border color ON review-tint surfaces
+     (issue badge label, dashed borders); --hs-review-marker below is the
+     on-paper mark color. Both must exist because the paper is light in
+     both themes while the tint is dark in dark mode. */
+  --hs-review-ink: #8a6308;
+
   --hs-waveform: #5f6b73;
   --hs-waveform-played: rgba(15, 108, 189, 0.75);
   --hs-waveform-selection: rgba(15, 108, 189, 0.22);
@@ -145,10 +154,17 @@
   --hs-score-ink: #1a1a1a;
   --hs-score-staff: #333333;
   --hs-score-paper-border: #d4d4d4;
-  --hs-score-selection: rgba(15, 108, 189, 0.25);
+  /* UI-070 gate fix: the 25% wash composited to 1.44:1 on paper — below
+     the 3:1 non-text floor for a state cue. Solid #4f86c6 measures 3.8:1
+     while staying visually distinct from --hs-score-active-note. */
+  --hs-score-selection: #4f86c6;
   --hs-score-active-note: #0f6cbd;
   --hs-score-current-measure: rgba(0, 0, 0, 0.05);
-  --hs-review-marker: #986f0b;
+  --hs-review-marker: #8a6308;
+  /* Playback caret sits on the light paper even in dark mode, so it keeps
+     a paper-safe dark value in both themes (was --hs-playhead, which is
+     a chrome color and fails 3:1 on paper in dark mode). */
+  --hs-score-caret: #0c3b5e;
 
   /* ---- Elevation (§8): reserved for menu/popover/sheet/drag; the
      persistent workspace itself stays flat and separates by border. ---- */
@@ -213,6 +229,8 @@
   --hs-danger-foreground: #ffffff;
 
   --hs-review-tint: #443a08;
+  /* Light ink on the dark tint (the marker value would measure 2.1:1). */
+  --hs-review-ink: #fee06e;
 
   --hs-waveform: #9eaab2;
   --hs-waveform-played: rgba(71, 158, 245, 0.8);
@@ -223,10 +241,11 @@
   --hs-score-ink: #1a1a1a;
   --hs-score-staff: #333333;
   --hs-score-paper-border: #c9c9c9;
-  --hs-score-selection: rgba(15, 108, 189, 0.25);
+  --hs-score-selection: #4f86c6;
   --hs-score-active-note: #0f6cbd;
   --hs-score-current-measure: rgba(0, 0, 0, 0.06);
   --hs-review-marker: #8a6308;
+  --hs-score-caret: #0c3b5e;
 
   --hs-elevation-menu:
     0 4px 8px rgba(0, 0, 0, 0.4),

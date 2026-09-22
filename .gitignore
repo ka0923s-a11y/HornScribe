@@ -24,3 +24,6 @@ cache/
 benchmarks/local/
 *.tmp
 *.recovery
+
+# UI-070 gate outputs (screenshots/measurements — goldens live in docs/ui-070)
+apps/desktop/measurements/
