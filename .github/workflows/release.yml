@@ -1,0 +1,86 @@
+name: Release
+
+# Tag push (v*) or manual dispatch builds the desktop app on a hosted
+# Windows runner (MSVC toolchain is preinstalled there) and publishes the
+# NSIS installer + a portable exe zip to a GitHub Release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Verify tag matches app version
+        shell: bash
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="${TAG#v}"
+          PKG=$(node -p "require('./package.json').version")
+          CONF=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          [ "$TAG" = "$PKG" ] && [ "$TAG" = "$CONF" ] || {
+            echo "::error::tag v$TAG != package.json $PKG / tauri.conf.json $CONF — bump versions first"
+            exit 1
+          }
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Typecheck + unit tests
+        run: npx tsc --noEmit && npx vitest run
+
+      - name: Build NSIS installer
+        run: npm run tauri build
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/release/hornscribe-desktop.exe"
+          $zip = "src-tauri/target/release/HornScribe_${{ inputs.tag || github.ref_name }}_x64-portable.zip"
+          Compress-Archive -Path $exe -DestinationPath $zip -Force
+          Get-Item $zip | Select-Object Name, Length
+
+      - name: Publish release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          INSTALLER=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe)
+          PORTABLE=$(ls src-tauri/target/release/*-portable.zip)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$INSTALLER" "$PORTABLE" --clobber
+          else
+            gh release create "$TAG" "$INSTALLER" "$PORTABLE" \
+              --title "HornScribe $TAG" \
+              --notes-file ../../.github/RELEASE_NOTES.md \
+              --prerelease
+          fi
