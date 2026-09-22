@@ -67,10 +67,11 @@ import {
 } from "./playbackTable";
 import { ScoreCursorClock, type ClockSnapshot, type TransportClock } from "./clock";
 import {
-  issuesForCanonical,
+  allIssuesForCanonical,
   markedCanonicalIds,
-  openIssues,
 } from "./review";
+import { ReviewSession, type ReviewEdit } from "./reviewSession";
+import { ReviewBar } from "./ReviewBar";
 import {
   buildNoteInspector,
   buildScoreInspector,
@@ -103,6 +104,15 @@ interface Props {
     readonly positionSec: number;
     readonly rate?: number;
   } | null;
+  /** [UI-050] 元音源を再生 / jump-to-issue: drive the real media transport
+   *  (seek + A-B loop on the issue's source range) when audio is loaded.
+   *  When absent, the score clock plays the range so the passage is still
+   *  indicated on the score (dev/fixture playback). */
+  sourceControl?: {
+    seekTo(sec: number): void;
+    play(): void;
+    setLoop(range: { start: number; end: number } | null): void;
+  } | null;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -113,6 +123,12 @@ function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return true;
 }
 
+/** Reason-code → copy deck. `ReviewReason` is forward-compatible
+ *  (`string & {}`), so index through a plain record — unknown engine codes
+ *  land on `other`. */
+const REASON_DECK: Record<string, { readonly title: string; readonly detail: string }> =
+  ja.reviewReasons;
+
 /** Inspector copy — bound to ja.ts so Japanese text stays in one place. */
 function inspectorCopy(): InspectorCopy {
   const j = ja.inspector;
@@ -121,10 +137,8 @@ function inspectorCopy(): InspectorCopy {
       // `?? other`: engine reason codes may be newer than this UI's copy
       // deck — the issue stays visible with generic copy (sidecar/review.ts
       // uses the same fallback policy).
-      reasonTitle: (r) =>
-        (ja.reviewReasons[r] ?? ja.reviewReasons.other).title,
-      reasonDetail: (r) =>
-        (ja.reviewReasons[r] ?? ja.reviewReasons.other).detail,
+      reasonTitle: (r) => (REASON_DECK[r] ?? ja.reviewReasons.other).title,
+      reasonDetail: (r) => (REASON_DECK[r] ?? ja.reviewReasons.other).detail,
       severityLabel: (s) => ja.reviewSeverity[s] ?? ja.reviewSeverity.info,
       statusLabel: (s) => ja.reviewStatus[s] ?? ja.reviewStatus.open,
     },
@@ -147,6 +161,7 @@ export function ScoreReadyWorkspace({
   controllerRef,
   announce,
   transport,
+  sourceControl = null,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<ScoreRenderer | null>(null);
@@ -201,9 +216,28 @@ export function ScoreReadyWorkspace({
   const reviewIndexRef = useRef(0);
   const reviewOpenRef = useRef(false);
   const pendingScrollRef = useRef<{ ratio: number } | null>(null);
-  const openReviewIssues = useMemo(
-    () => openIssues(scoreDoc.reviewIssues()),
-    [scoreDoc],
+
+  /* ---- UI-050 review session ----
+   * The document owns decisions + note edits (revision-bound); the session
+   * owns the undo/redo command stack. `docVersion` bumps after every
+   * mutation so memos/effects that read the document recompute. */
+  const sessionRef = useRef<ReviewSession | null>(null);
+  if (sessionRef.current === null) {
+    sessionRef.current = new ReviewSession(scoreDoc);
+  }
+  const session = sessionRef.current;
+  const [docVersion, setDocVersion] = useState(0);
+  const bumpDoc = useCallback(() => setDocVersion((v) => v + 1), []);
+
+  const allIssues = useMemo(
+    () => session.issues(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session, docVersion],
+  );
+  const pendingCount = useMemo(
+    () => session.pendingCount(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session, docVersion],
   );
   const copy = useMemo(inspectorCopy, []);
 
@@ -351,7 +385,9 @@ export function ScoreReadyWorkspace({
     }
     // viewMode/currentPage swap the rendered DOM in page mode — the element
     // index must be rebuilt or marks would land on detached nodes.
-  }, [pages, scoreDoc, viewMode, currentPage]);
+    // docVersion re-applies review marks after a decision resolves an issue
+    // without re-rendering the SVG.
+  }, [pages, scoreDoc, viewMode, currentPage, docVersion]);
 
   /* ------------------------------ init ----------------------------------- */
 
@@ -480,7 +516,7 @@ export function ScoreReadyWorkspace({
     if (!docs) return;
     if (!sel) {
       onInspectorChange(
-        buildScoreInspector(scoreDoc.meta, openReviewIssues.length, copy),
+        buildScoreInspector(scoreDoc.meta, pendingCount, copy),
       );
       return;
     }
@@ -501,11 +537,16 @@ export function ScoreReadyWorkspace({
         concert: concertFrags,
         written: hornFrags,
         onsetMs,
-        issues: canonical ? issuesForCanonical(scoreDoc.reviewIssues(), canonical) : [],
+        // UI-050: all issues for the note (open AND decided) — the status
+        // label column keeps resolved rows readable in the inspector.
+        issues: canonical
+          ? allIssuesForCanonical(scoreDoc.reviewIssues(), canonical)
+          : [],
         copy,
       }),
     );
-  }, [scoreDoc, openReviewIssues.length, copy, onInspectorChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoreDoc, pendingCount, docVersion, copy, onInspectorChange]);
 
   /** Select by export id; canonical notes also seek the transport to the
    *  note onset (§10: 原音位置と対応). */
@@ -616,32 +657,206 @@ export function ScoreReadyWorkspace({
   );
 
   /* ------------------------------ review --------------------------------- */
+  /* UI-050: the cursor walks the FULL issue list (resolved issues stay
+   *  reachable so their status/decision can be revisited and undone);
+   *  markers + pendingCount come from the still-open subset. */
+
+  const issueAtCursor = useCallback(
+    () => allIssues[reviewIndexRef.current] ?? null,
+    [allIssues],
+  );
 
   const gotoIssue = useCallback(
     (index: number) => {
-      const issues = openReviewIssues;
+      const issues = allIssues;
       if (issues.length === 0) return;
       const i = ((index % issues.length) + issues.length) % issues.length;
       reviewIndexRef.current = i;
       setReviewIndex(i);
-      const canonicalId = issues[i].canonicalNoteIds[0];
+      const issue = issues[i];
       const table = tableRef.current;
-      const exportId = table?.exportIdsByCanonical.get(canonicalId)?.[0];
-      if (exportId) selectExportId(exportId, { scroll: true });
-      announce(ja.scoreView.reviewPosition(i + 1, issues.length));
+      const canonicalId = issue.canonicalNoteIds[0];
+      const exportId = canonicalId
+        ? table?.exportIdsByCanonical.get(canonicalId)?.[0]
+        : undefined;
+      if (exportId) {
+        // Page mode: jump to the containing page first — the layout effect
+        // re-applies the selection mark on the freshly shown page.
+        if (viewModeRef.current === "page") {
+          const r = rendererRef.current;
+          const page = r ? r.pageWithElement(exportId) : 0;
+          if (page > 0 && page !== currentPageRef.current) {
+            setCurrentPage(page);
+          }
+        }
+        selectExportId(exportId, {
+          scroll: viewModeRef.current !== "page",
+        });
+        // Select ALL associated canonical notes visually — an issue may
+        // span several (e.g. a tie chain); the first stays the canonical
+        // selection for the inspector.
+        const idx = indexRef.current;
+        if (idx && issue.canonicalNoteIds.length > 1) {
+          markCanonicalSet(idx, new Set(issue.canonicalNoteIds), SELECTED_CLASS);
+        }
+      }
+      // Position the source cursor at the issue's range start so
+      // 元音源を再生 is immediate (acceptance: replay without extra steps).
+      const startSec = issue.timeRange?.startSec;
+      if (startSec != null) sourceControl?.seekTo(startSec);
+      announce(ja.review.position(i + 1, issues.length));
     },
-    [openReviewIssues, selectExportId, announce],
+    [allIssues, selectExportId, sourceControl, announce],
   );
 
   const openReview = useCallback(() => {
-    if (openReviewIssues.length === 0) return;
+    if (allIssues.length === 0) {
+      announce(ja.review.feedback.noIssues);
+      return;
+    }
+    reviewOpenRef.current = true;
     setReviewOpen(true);
-    gotoIssue(0);
-  }, [openReviewIssues.length, gotoIssue]);
+    // Enter on the first still-open issue; when everything is resolved the
+    // bar shows the all-done state at the top of the list.
+    const firstOpen = allIssues.findIndex((i) => i.status === "open");
+    gotoIssue(firstOpen >= 0 ? firstOpen : 0);
+  }, [allIssues, gotoIssue, announce]);
 
   const exitReview = useCallback(() => {
+    reviewOpenRef.current = false;
     setReviewOpen(false);
-  }, []);
+    announce(ja.review.feedback.exited);
+  }, [announce]);
+
+  /** Re-parse presentations + re-render after a note edit (pitch/delete):
+   *  inspector labels and the playback table both derive from the XML. */
+  const reloadEditedScore = useCallback(() => {
+    const concert = parseScoreDoc(scoreDoc.musicXml("concert"));
+    const horn = parseScoreDoc(scoreDoc.musicXml("hornF"));
+    docsRef.current = {
+      concert,
+      horn,
+      concertByCanonical: notesByCanonical(concert),
+      hornByCanonical: notesByCanonical(horn),
+      concertByExport: notesByExportId(concert),
+      hornByExport: notesByExportId(horn),
+    };
+    renderScore(pitchRef.current, { keepScroll: true });
+    const r = rendererRef.current;
+    if (r) tableRef.current = buildPlaybackTable(r.timemap());
+  }, [scoreDoc, renderScore]);
+
+  /** Apply a session action: bump the document version so derived views
+   *  (markers, inspector, counts) refresh; reload the score when the edit
+   *  changed notation. Returns false on a no-op (caller announces). */
+  const runReviewEdit = useCallback(
+    (
+      edit: ReviewEdit | null,
+      feedback: string,
+      opts: { reload?: boolean } = {},
+    ): boolean => {
+      if (!edit) return false;
+      bumpDoc();
+      if (opts.reload ?? edit.noteChanges.length > 0) reloadEditedScore();
+      reportInspector();
+      announce(feedback);
+      return true;
+    },
+    [bumpDoc, reloadEditedScore, reportInspector, announce],
+  );
+
+  const reviewAccept = useCallback(() => {
+    const issue = issueAtCursor();
+    if (!issue) return;
+    if (!runReviewEdit(session.decide(issue.id, "accepted"), ja.review.feedback.accepted)) {
+      announce(ja.review.feedback.already(ja.reviewStatus.accepted));
+    }
+  }, [issueAtCursor, session, runReviewEdit, announce]);
+
+  const reviewDismiss = useCallback(() => {
+    const issue = issueAtCursor();
+    if (!issue) return;
+    if (!runReviewEdit(session.decide(issue.id, "dismissed"), ja.review.feedback.dismissed)) {
+      announce(ja.review.feedback.already(ja.reviewStatus.dismissed));
+    }
+  }, [issueAtCursor, session, runReviewEdit, announce]);
+
+  const reviewPitch = useCallback(
+    (delta: number) => {
+      const issue = issueAtCursor();
+      if (!issue) return;
+      if (!runReviewEdit(session.adjustPitch(issue.id, delta), ja.review.feedback.pitchFixed, { reload: true })) {
+        announce(ja.review.feedback.noIssues);
+      }
+    },
+    [issueAtCursor, session, runReviewEdit, announce],
+  );
+
+  const reviewDeleteOrRestore = useCallback(() => {
+    const issue = issueAtCursor();
+    if (!issue || issue.canonicalNoteIds.length === 0) return;
+    const deleted = session.isDeleted(issue.canonicalNoteIds[0]);
+    runReviewEdit(
+      session.setNoteDeleted(issue.id, !deleted),
+      deleted ? ja.review.feedback.noteRestored : ja.review.feedback.noteDeleted,
+      { reload: true },
+    );
+  }, [issueAtCursor, session, runReviewEdit]);
+
+  const reviewUndo = useCallback(() => {
+    const edit = session.undo();
+    if (!edit) {
+      announce(ja.review.feedback.nothingToUndo);
+      return;
+    }
+    bumpDoc();
+    if (edit.noteChanges.length > 0) reloadEditedScore();
+    reportInspector();
+    announce(ja.review.feedback.undone);
+  }, [session, bumpDoc, reloadEditedScore, reportInspector, announce]);
+
+  const reviewRedo = useCallback(() => {
+    const edit = session.redo();
+    if (!edit) {
+      announce(ja.review.feedback.nothingToRedo);
+      return;
+    }
+    bumpDoc();
+    if (edit.noteChanges.length > 0) reloadEditedScore();
+    reportInspector();
+    announce(ja.review.feedback.redone);
+  }, [session, bumpDoc, reloadEditedScore, reportInspector, announce]);
+
+  /** 元音源を再生 — loop the issue's source range. The media transport is
+   *  driven when a source is loaded (sourceControl); the score clock loop
+   *  arms either way so the passage indication (LOOP_CLASS) shows which
+   *  notes the audio range covers. */
+  const playSource = useCallback(() => {
+    const issue = issueAtCursor();
+    if (!issue) return;
+    let startSec = issue.timeRange?.startSec;
+    let endSec = issue.timeRange?.endSec;
+    if (startSec == null || endSec == null) {
+      // No explicit range: loop the canonical note's notated span.
+      const table = tableRef.current;
+      const first = issue.canonicalNoteIds[0];
+      const onset = first ? table?.onsetMsByCanonical.get(first) : undefined;
+      if (!table || onset == null) return;
+      startSec = onset / 1000;
+      endSec = nearestOffset(table, onset) / 1000;
+    }
+    const clock = clockRef.current;
+    clock?.setLoop({ startMs: startSec * 1000, endMs: endSec * 1000 });
+    if (sourceControl) {
+      sourceControl.setLoop({ start: startSec, end: endSec });
+      sourceControl.seekTo(startSec);
+      sourceControl.play();
+    } else {
+      clock?.seek(startSec * 1000);
+      clock?.play();
+    }
+    announce(ja.review.feedback.playingSource);
+  }, [issueAtCursor, sourceControl, announce]);
 
   /* --------------------------- controller -------------------------------- */
 
@@ -696,6 +911,14 @@ export function ScoreReadyWorkspace({
       openReview: () => openReview(),
       reviewNext: () => gotoIssue(reviewIndexRef.current + 1),
       reviewPrevious: () => gotoIssue(reviewIndexRef.current - 1),
+      reviewAccept: () => reviewAccept(),
+      reviewDismiss: () => reviewDismiss(),
+      reviewPlaySource: () => playSource(),
+      reviewPitch: (delta) => reviewPitch(delta),
+      reviewDeleteOrRestore: () => reviewDeleteOrRestore(),
+      exitReview: () => exitReview(),
+      undo: () => reviewUndo(),
+      redo: () => reviewRedo(),
     };
     controllerRef(controller);
     return () => controllerRef(null);
@@ -708,6 +931,13 @@ export function ScoreReadyWorkspace({
     resumeFollow,
     openReview,
     gotoIssue,
+    reviewAccept,
+    reviewDismiss,
+    playSource,
+    reviewPitch,
+    reviewDeleteOrRestore,
+    reviewUndo,
+    reviewRedo,
   ]);
 
 
@@ -725,6 +955,9 @@ export function ScoreReadyWorkspace({
       followSuspended,
       reviewOpen,
       zoomPct: zoom,
+      canUndo: session.canUndo,
+      canRedo: session.canRedo,
+      openIssueCount: pendingCount,
     });
   }, [
     selection,
@@ -734,6 +967,9 @@ export function ScoreReadyWorkspace({
     reviewOpen,
     zoom,
     onStateChange,
+    session,
+    pendingCount,
+    docVersion,
   ]);
 
   // Initial inspector = score summary (§22 "Nothing selected").
@@ -809,20 +1045,46 @@ export function ScoreReadyWorkspace({
       </div>
 
       {reviewOpen && (
-        <div className="hs-score-reviewbar" role="group" aria-label={ja.commandBar.review}>
-          <strong aria-live="polite">
-            {s.reviewPosition(reviewIndex + 1, openReviewIssues.length)}
-          </strong>
-          <HsButton size="small" onClick={() => gotoIssue(reviewIndexRef.current - 1)}>
-            {ja.common.prev}
-          </HsButton>
-          <HsButton size="small" onClick={() => gotoIssue(reviewIndexRef.current + 1)}>
-            {ja.common.next}
-          </HsButton>
-          <HsButton size="small" onClick={exitReview}>
-            {s.reviewExit}
-          </HsButton>
-        </div>
+        <ReviewBar
+          index={Math.min(reviewIndex, Math.max(0, allIssues.length - 1))}
+          total={allIssues.length}
+          pending={pendingCount}
+          issue={allIssues[reviewIndex] ?? null}
+          copy={
+            allIssues[reviewIndex]
+              ? {
+                  reasonTitle: copy.review.reasonTitle(
+                    allIssues[reviewIndex].reason,
+                  ),
+                  reasonDetail: copy.review.reasonDetail(
+                    allIssues[reviewIndex].reason,
+                  ),
+                  severityLabel: copy.review.severityLabel(
+                    allIssues[reviewIndex].severity,
+                  ),
+                  statusLabel: copy.review.statusLabel(
+                    allIssues[reviewIndex].status,
+                  ),
+                }
+              : null
+          }
+          noteDeleted={
+            allIssues[reviewIndex]?.canonicalNoteIds[0] != null &&
+            session.isDeleted(allIssues[reviewIndex].canonicalNoteIds[0])
+          }
+          canUndo={session.canUndo}
+          canRedo={session.canRedo}
+          onPrev={() => gotoIssue(reviewIndexRef.current - 1)}
+          onNext={() => gotoIssue(reviewIndexRef.current + 1)}
+          onPlaySource={playSource}
+          onAccept={reviewAccept}
+          onDismiss={reviewDismiss}
+          onPitch={reviewPitch}
+          onDeleteOrRestore={reviewDeleteOrRestore}
+          onUndo={reviewUndo}
+          onRedo={reviewRedo}
+          onExit={exitReview}
+        />
       )}
 
       {loading && <div className="hs-score-loading">{s.loading}</div>}

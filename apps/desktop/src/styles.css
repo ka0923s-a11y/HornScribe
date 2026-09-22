@@ -799,16 +799,61 @@ body {
   color: var(--hs-text-secondary);
 }
 
-/* 要確認 review strip (§12 header, non-modal). */
+/* 要確認 review strip (§12 header, non-modal; UI-050 two-row layout:
+   status/reason row + action toolbar row + shortcut hint). */
 .hs-score-reviewbar {
   display: flex;
-  align-items: center;
-  gap: var(--hs-space-sm);
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--hs-space-xs);
   padding: var(--hs-space-xs) var(--hs-space-ms);
   background: var(--hs-review-tint);
   border-bottom: 1px solid var(--hs-border-subtle);
   font-size: var(--hs-font-size-compact);
   color: var(--hs-text-primary);
+}
+.hs-score-reviewbar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-xs);
+  flex-wrap: wrap;
+}
+.hs-score-reviewbar__position {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hs-score-reviewbar__remaining {
+  color: var(--hs-text-secondary);
+  white-space: nowrap;
+}
+/* Text badge (§15: never color-only — a labelled glyph + dotted edge). */
+.hs-score-reviewbar__badge {
+  border: 1px dashed var(--hs-review-marker);
+  border-radius: var(--hs-radius-sm);
+  padding: 0 var(--hs-space-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.hs-score-reviewbar__reason {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.hs-score-reviewbar__detail {
+  color: var(--hs-text-secondary);
+}
+.hs-score-reviewbar__meta {
+  color: var(--hs-text-secondary);
+  white-space: nowrap;
+}
+.hs-score-reviewbar__spacer {
+  flex: 1 1 auto;
+}
+.hs-score-reviewbar__row--hint {
+  padding-top: 0;
+}
+.hs-score-reviewbar__hint {
+  color: var(--hs-text-tertiary);
+  font-size: var(--hs-font-size-caption, 11px);
 }
 
 /* Scroll surface — continuous mode stacks pages vertically; page mode

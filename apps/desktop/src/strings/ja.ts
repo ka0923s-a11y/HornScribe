@@ -364,6 +364,14 @@ export const ja = {
     openReview: "要確認箇所を見る",
     reviewNext: "次の要確認箇所へ",
     reviewPrevious: "前の要確認箇所へ",
+    /* UI-050 要確認ワークスペース (§12) */
+    reviewPlaySource: "元音源を再生",
+    reviewAccept: "問題なし",
+    reviewDismiss: "対応不要にする",
+    reviewPitchUp: "半音上げる",
+    reviewPitchDown: "半音下げる",
+    reviewDeleteOrRestore: "削除 / 復元",
+    reviewExit: "要確認を終了",
     undo: "元に戻す",
     redo: "やり直し",
     export: "書き出し",
@@ -387,6 +395,8 @@ export const ja = {
     pitchHornF: "F管ホルン表示に切り替えました",
     notImplemented: "この操作はスパイク版ではまだ実行できません",
     disabled: "この操作は現在実行できません",
+    nothingToUndo: "元に戻す操作はありません",
+    nothingToRedo: "やり直す操作はありません",
     focusMoved: (zoneName: string) => `${zoneName}に移動しました`,
     zoneNames: {
       commandbar: "コマンドバー",
@@ -965,7 +975,8 @@ export const ja = {
   },
 
   /** ReviewIssue.reason → Japanese copy (domain/review.py reason codes;
-   *  GUI_UX_SPEC §12 理由例). */
+   *  GUI_UX_SPEC §12 理由例, JAPANESE_UI_COPY §6/§14). The deck is a
+   *  superset of the current engine enum — newer codes land on `other`. */
   reviewReasons: {
     low_model_confidence: {
       title: "音高を確認してください",
@@ -976,7 +987,7 @@ export const ja = {
       detail: "ごく短い音として検出されました。意図した音か確認してください。",
     },
     overlapping_candidates: {
-      title: "音高を確認してください",
+      title: "音の重なりを確認してください",
       detail: "複数の候補が重なって検出されました。",
     },
     quantization_ambiguous: {
@@ -994,6 +1005,48 @@ export const ja = {
     structural_measure_conflict: {
       title: "拍位置を確認してください",
       detail: "小節内の拍位置が合っていない可能性があります。",
+    },
+    /* ---- UI-050: product-level reason keys from JAPANESE_UI_COPY §14 /
+       sidecar REVIEW_REASON_COPY_KEYS ---- */
+    beat_alignment_uncertain: {
+      title: "拍位置を確認してください",
+      detail: "音の開始位置が拍の格子からずれている可能性があります。",
+    },
+    beat_map_uncertain: {
+      title: "テンポと拍位置を確認してください",
+      detail: "テンポと拍の対応が曖昧です。",
+    },
+    possible_triplet: {
+      title: "三連符の可能性があります",
+      detail: "三連符として解釈できる箇所があります。",
+    },
+    possible_grace_note: {
+      title: "装飾音の可能性があります",
+      detail: "装飾音として解釈できる箇所があります。",
+    },
+    offset_ambiguous: {
+      title: "音の長さを確認してください",
+      detail: "音の終了位置が曖昧です。",
+    },
+    pickup_ambiguous: {
+      title: "弱起を確認してください",
+      detail: "弱起（アウフタクト）として解釈できる箇所があります。",
+    },
+    meter_conflict: {
+      title: "拍子を確認してください",
+      detail: "小節内の音価と拍子が合っていない可能性があります。",
+    },
+    onset_uncertain: {
+      title: "音の開始位置を確認してください",
+      detail: "音の開始位置が曖昧です。",
+    },
+    pitch_uncertain: {
+      title: "音高を確認してください",
+      detail: "検出された音高が曖昧です。",
+    },
+    multiple_candidates: {
+      title: "複数の候補があります",
+      detail: "同じ箇所に複数の解釈候補があります。",
     },
     /** Engine reason codes newer than this UI version (sidecar/review.ts
      *  falls back to `other` the same way). */
@@ -1014,6 +1067,50 @@ export const ja = {
     accepted: "確認済み",
     dismissed: "対応不要",
     fixed: "修正済み",
+  },
+
+  /* ============================ UI-050 ============================
+   * 要確認ワークスペース (issue #28, GUI_UX_SPEC §12, JAPANESE_UI_COPY §6).
+   * ヘッダー: 「要確認 n / total」＋ 前へ / 元音源を再生 / 問題なし / 次へ。
+   * キーボード中心フロー — P4 プロトタイプ (src/prototype) の検証済み
+   * キー割り当てをそのまま本実装へ持ち込む。
+   */
+  review: {
+    regionLabel: "要確認ワークスペース",
+    position: (index: number, total: number) => `要確認 ${index} / ${total}`,
+    remaining: (count: number) => `残り ${count} か所`,
+    allDone: "すべての要確認箇所を確認しました",
+    actionsLabel: "要確認の操作",
+    playSource: "元音源を再生",
+    markOk: "問題なし",
+    dismiss: "対応不要にする",
+    pitchUp: "半音上げる",
+    pitchDown: "半音下げる",
+    deleteNote: "削除",
+    restoreNote: "復元",
+    undo: "元に戻す",
+    redo: "やり直し",
+    exit: "要確認を終了",
+    /** モデル確信度は根拠（evidence）としてのみ表示 — 正しい確率とは
+     *  書かない (JAPANESE_UI_COPY §6, acceptance criterion). */
+    confidence: (percent: number) => `モデル確信度: ${percent}%`,
+    hint: "← → で移動、R で元音源を再生、O で問題なし、Alt+↑↓ で音高修正、Delete で削除、Ctrl+Z で元に戻す、Esc で終了",
+    feedback: {
+      accepted: "確認済みにしました",
+      dismissed: "対応不要にしました",
+      reopened: "未確認に戻しました",
+      pitchFixed: "音高を修正しました",
+      noteDeleted: "音符を削除しました",
+      noteRestored: "音符を復元しました",
+      undone: "元に戻しました",
+      redone: "やり直しました",
+      nothingToUndo: "元に戻す操作はありません",
+      nothingToRedo: "やり直す操作はありません",
+      already: (label: string) => `すでに${label}です`,
+      playingSource: "元音源を再生しています",
+      exited: "要確認を終了しました",
+      noIssues: "要確認箇所はありません",
+    },
   },
 
   /* ============================ UI-060 ============================

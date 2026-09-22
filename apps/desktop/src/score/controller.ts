@@ -32,6 +32,24 @@ export interface ScoreWorkspaceController {
   openReview(): void;
   reviewNext(): void;
   reviewPrevious(): void;
+
+  // ---- review decisions & corrections (UI-050, §12/§13) ----
+  /** 問題なし — mark the focused issue accepted. */
+  reviewAccept(): void;
+  /** 対応不要にする — dismiss the focused issue. */
+  reviewDismiss(): void;
+  /** 元音源を再生 — loop-play the issue's source range. */
+  reviewPlaySource(): void;
+  /** 音高修正: shift the issue's note(s) by ±1 semitone. */
+  reviewPitch(delta: number): void;
+  /** 削除/復元: toggle deletion of the issue's note(s). */
+  reviewDeleteOrRestore(): void;
+  /** Leave the review workspace (→ SCORE_READY, §27). */
+  exitReview(): void;
+
+  // ---- undo/redo (§14: review decisions and corrections are commands) ----
+  undo(): void;
+  redo(): void;
 }
 
 /** Live workspace state mirrored up to the app for command predicates and
@@ -46,4 +64,9 @@ export interface ScoreWorkspaceState {
   readonly followSuspended: boolean;
   readonly reviewOpen: boolean;
   readonly zoomPct: number;
+  /** UI-050: undo/redo availability + live open-issue count so the command
+   *  bar (要確認（n）) and Ctrl+Z/Y enablement track review decisions. */
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
+  readonly openIssueCount: number;
 }

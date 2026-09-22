@@ -7,15 +7,33 @@
  * never interprets raw backend confidence as a universal probability.
  */
 
-/** Engine-side reason codes (stable API; keep in sync with ReviewReason). */
+/**
+ * Engine-side reason codes (stable API; keep in sync with ReviewReason in
+ * python/hornscribe/domain/review.py) plus the product-level reason keys the
+ * copy deck defines (sidecar/review.ts REVIEW_REASON_COPY_KEYS). `(string &
+ * {})` keeps autocomplete for the known codes while allowing newer engine
+ * codes through verbatim — the copy layer maps them to `reviewReasons.other`.
+ */
 export type ReviewReason =
   | "low_model_confidence"
   | "very_short_detection"
   | "overlapping_candidates"
   | "quantization_ambiguous"
+  | "possible_triplet"
   | "pitch_spelling_ambiguous"
   | "outside_preferred_horn_range"
-  | "structural_measure_conflict";
+  | "structural_measure_conflict"
+  | "beat_alignment_uncertain"
+  | "beat_map_uncertain"
+  | "possible_grace_note"
+  | "offset_ambiguous"
+  | "pickup_ambiguous"
+  | "meter_conflict"
+  | "onset_uncertain"
+  | "pitch_uncertain"
+  | "multiple_candidates"
+  | "other"
+  | (string & {});
 
 export type ReviewSeverity = "info" | "caution" | "warning";
 export type ReviewIssueStatus = "open" | "accepted" | "dismissed" | "fixed";
@@ -47,6 +65,16 @@ export function issuesForCanonical(
   return issues.filter(
     (i) => i.status === "open" && i.canonicalNoteIds.includes(canonicalId),
   );
+}
+
+/** All issues touching `canonicalId` regardless of status — the inspector
+ *  shows resolved rows too (with their status label) so a reviewed note
+ *  keeps its history visible (UI-050). */
+export function allIssuesForCanonical(
+  issues: readonly ScoreReviewIssue[],
+  canonicalId: string,
+): ScoreReviewIssue[] {
+  return issues.filter((i) => i.canonicalNoteIds.includes(canonicalId));
 }
 
 /** Canonical ids carrying at least one open issue — drives score markers. */

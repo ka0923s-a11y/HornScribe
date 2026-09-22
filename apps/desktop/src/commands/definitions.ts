@@ -13,6 +13,13 @@
  *   Home / End      start/end           Ctrl++ Ctrl+-   score zoom
  *   Ctrl+L          loop toggle         Ctrl+0          zoom to width
  *   Ctrl+1 / Ctrl+2 concert / F-horn    Esc             clear selection
+ *
+ * UI-050 review workspace (§12 — active while reviewOpen; the P4-validated
+ * key set, so ← → are owned by issue navigation until per-note arrow
+ * navigation lands and must share them through one command):
+ *   ← / →           previous/next issue Alt+↑ / Alt+↓  pitch ±1 semitone
+ *   R               replay source       Delete          delete/restore note
+ *   O / Shift+O     accept / dismiss    Esc             exit review
  */
 
 import { ja } from "../strings/ja";
@@ -169,7 +176,7 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.setPitchView("hornF"),
     },
 
-    // ---- review (§12) ----
+    // ---- review (§12, UI-050 keyboard-first flow) ----
     {
       id: "review.open",
       title: ja.commands.openReview,
@@ -182,6 +189,9 @@ export function createCommandDefinitions(): readonly Command[] {
       id: "review.next",
       title: ja.commands.reviewNext,
       section: "review",
+      // §12 header has a 次へ button too — the arrow keys keep review
+      // processing menu-free (acceptance: 20 items without menus).
+      shortcuts: ["ArrowRight"],
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewNext(),
@@ -190,9 +200,74 @@ export function createCommandDefinitions(): readonly Command[] {
       id: "review.previous",
       title: ja.commands.reviewPrevious,
       section: "review",
+      shortcuts: ["ArrowLeft"],
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewPrevious(),
+    },
+    {
+      id: "review.playSource",
+      title: ja.commands.reviewPlaySource,
+      section: "review",
+      shortcuts: ["R"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewPlaySource?.(),
+    },
+    {
+      id: "review.accept",
+      title: ja.commands.reviewAccept,
+      section: "review",
+      shortcuts: ["O"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewAccept?.(),
+    },
+    {
+      id: "review.dismiss",
+      title: ja.commands.reviewDismiss,
+      section: "review",
+      shortcuts: ["Shift+O"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewDismiss?.(),
+    },
+    {
+      id: "review.pitchUp",
+      title: ja.commands.reviewPitchUp,
+      section: "review",
+      shortcuts: ["Alt+ArrowUp"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewPitchUp?.(),
+    },
+    {
+      id: "review.pitchDown",
+      title: ja.commands.reviewPitchDown,
+      section: "review",
+      shortcuts: ["Alt+ArrowDown"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewPitchDown?.(),
+    },
+    {
+      id: "review.deleteOrRestore",
+      title: ja.commands.reviewDeleteOrRestore,
+      section: "review",
+      shortcuts: ["Delete", "Backspace"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewDeleteOrRestore?.(),
+    },
+    {
+      id: "review.exit",
+      title: ja.commands.reviewExit,
+      section: "review",
+      // Esc is bound to edit.clearSelection, which exits review first —
+      // this command exists so button/menu surfaces share one label.
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.exitReview?.(),
     },
 
     // ---- edit (§14: every fix is a command) ----
@@ -217,7 +292,11 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.clearSelection,
       section: "edit",
       shortcuts: ["Escape"],
-      isEnabled: (s) => s.hasSelection,
+      // Esc exits the review workspace before it clears a selection (§12
+      // review exit, controller.clearSelection owns the order) — so it
+      // must stay enabled with the review bar up even when nothing is
+      // selected (e.g. all issues resolved).
+      isEnabled: (s) => s.hasSelection || s.reviewOpen,
       run: (ctx) => ctx.clearSelection(),
     },
 

@@ -304,16 +304,19 @@ export default function App() {
     [inspectorModel],
   );
   const propertiesVisible = regions.properties && layout.propertiesOpen;
-  // Open-issue count prefers the live score document (real markers); the
-  // job result count covers the window before the document mounts; the
+  // Open-issue count prefers the live workspace mirror (UI-050: it tracks
+  // decisions as they resolve); then the document's static list; then the
+  // job result count for the window before the document mounts; the
   // dev-state REVIEWING placeholder stays so its surfaces can be reviewed.
-  const reviewCount = scoreDocument
-    ? openIssues(scoreDocument.reviewIssues()).length
-    : sessionSnap.reviewIssueCount > 0
-      ? sessionSnap.reviewIssueCount
-      : screen === "reviewing"
-        ? 12
-        : 0;
+  const reviewCount =
+    scoreState?.openIssueCount ??
+    (scoreDocument
+      ? openIssues(scoreDocument.reviewIssues()).length
+      : sessionSnap.reviewIssueCount > 0
+        ? sessionSnap.reviewIssueCount
+        : screen === "reviewing"
+          ? 12
+          : 0);
 
   // The registry is static: predicates read the snapshot, not React state.
   const registry = useMemo(() => createCommandRegistry(), []);
@@ -332,8 +335,9 @@ export default function App() {
       loopEnabled:
         transportSnap?.loop != null || (scoreState?.loopEnabled ?? false),
       pitch,
-      canUndo: false,
-      canRedo: false,
+      // UI-050: undo/redo reach the score workspace's review/edit history.
+      canUndo: scoreState?.canUndo ?? false,
+      canRedo: scoreState?.canRedo ?? false,
       hasSelection: scoreState?.hasSelection ?? false,
       reviewOpen: scoreState?.reviewOpen ?? screen === "reviewing",
       reviewCount,
@@ -464,8 +468,25 @@ export default function App() {
       openReview: () => scoreCtlRef.current?.openReview(),
       reviewNext: () => scoreCtlRef.current?.reviewNext(),
       reviewPrevious: () => scoreCtlRef.current?.reviewPrevious(),
-      undo: () => setStatusMessage(ja.commandFeedback.notImplemented),
-      redo: () => setStatusMessage(ja.commandFeedback.notImplemented),
+      // UI-050 review actions — all live in the score workspace session.
+      reviewAccept: () => scoreCtlRef.current?.reviewAccept(),
+      reviewDismiss: () => scoreCtlRef.current?.reviewDismiss(),
+      reviewPlaySource: () => scoreCtlRef.current?.reviewPlaySource(),
+      reviewPitchUp: () => scoreCtlRef.current?.reviewPitch(1),
+      reviewPitchDown: () => scoreCtlRef.current?.reviewPitch(-1),
+      reviewDeleteOrRestore: () =>
+        scoreCtlRef.current?.reviewDeleteOrRestore(),
+      exitReview: () => scoreCtlRef.current?.exitReview(),
+      undo: () => {
+        const c = scoreCtlRef.current;
+        if (c) c.undo();
+        else setStatusMessage(ja.commandFeedback.nothingToUndo);
+      },
+      redo: () => {
+        const c = scoreCtlRef.current;
+        if (c) c.redo();
+        else setStatusMessage(ja.commandFeedback.nothingToRedo);
+      },
       openExport: () => setExportOpen(true),
       zoomScoreIn: () => scoreCtlRef.current?.zoomIn(),
       zoomScoreOut: () => scoreCtlRef.current?.zoomOut(),
@@ -603,6 +624,20 @@ export default function App() {
       unlisten?.();
     };
   }, []);
+
+  // §27 SCORE_READY ⇄ REVIEWING (UI-050): the review bar lives inside the
+  // score workspace, so the screen machine mirrors its open flag — region
+  // chrome, command predicates (reviewOpen) and the dev-state surface all
+  // read the same truth. Transitions are deliberately limited to the
+  // scoreReady/reviewing pair so EXPORTING is never hijacked.
+  const scoreReviewOpen = scoreState?.reviewOpen;
+  useEffect(() => {
+    if (screen === "scoreReady" && scoreReviewOpen === true) {
+      setScreen("reviewing");
+    } else if (screen === "reviewing" && scoreReviewOpen === false) {
+      setScreen("scoreReady");
+    }
+  }, [screen, scoreReviewOpen]);
 
   // Prove the JS↔Rust IPC channel early; populates the status area.
   useEffect(() => {
@@ -809,6 +844,19 @@ export default function App() {
                           isPlaying: transportSnap.status === "playing",
                           positionSec: transportSnap.time,
                           rate: transportSnap.rate,
+                        }
+                      : null
+                  }
+                  sourceControl={
+                    // UI-050 元音源を再生 — real audio clock when a source is
+                    // loaded; the score clock covers fixture/dev playback.
+                    mediaLive
+                      ? {
+                          seekTo: (s: number) =>
+                            void transport.seek(s).catch(() => undefined),
+                          play: () =>
+                            void transport.play().catch(() => undefined),
+                          setLoop: (r) => transport.setLoop(r),
                         }
                       : null
                   }

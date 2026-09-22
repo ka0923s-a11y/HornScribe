@@ -19,7 +19,12 @@ import hornXml from "./fixtures/score_horn_in_f.musicxml?raw";
 import type { PitchViewSetting } from "../commands/types";
 import type { ScoreDocumentMeta, ScoreDocumentPort } from "./document";
 import { parseScoreDoc } from "./scoreDoc";
-import type { ScoreReviewIssue } from "./review";
+import type { ReviewIssueStatus, ScoreReviewIssue } from "./review";
+import {
+  applyNoteEdits,
+  isEmptyNoteEdit,
+  type ScoreNoteEdit,
+} from "./scoreEdits";
 
 /** Deterministic revision id for the bundled fixture document. */
 const FIXTURE_REVISION = "rev-fixture0000001";
@@ -72,6 +77,13 @@ class FixtureScoreDocument implements ScoreDocumentPort {
   readonly revisionId: string;
   readonly meta: ScoreDocumentMeta;
   private readonly issues: readonly ScoreReviewIssue[];
+  /** UI-050 document model: review decisions and note corrections live on
+   *  the document, keyed to `revisionId` — a new score revision (re-
+   *  transcription / re-quantization) constructs a fresh document, so
+   *  stale decisions are never silently carried across revisions. */
+  private readonly decisions = new Map<string, ReviewIssueStatus>();
+  private readonly edits = new Map<string, ScoreNoteEdit>();
+  private editCounter = 0;
 
   constructor(overrides?: FixtureDocumentOverrides) {
     const doc = parseScoreDoc(concertXml);
@@ -88,12 +100,35 @@ class FixtureScoreDocument implements ScoreDocumentPort {
     };
   }
 
+  get editVersion(): number {
+    return this.editCounter;
+  }
+
   musicXml(view: PitchViewSetting): string {
-    return view === "hornF" ? hornXml : concertXml;
+    const base = view === "hornF" ? hornXml : concertXml;
+    return applyNoteEdits(base, this.edits);
   }
 
   reviewIssues(): readonly ScoreReviewIssue[] {
-    return this.issues;
+    return this.issues.map((issue) => {
+      const decided = this.decisions.get(issue.id);
+      return decided !== undefined ? { ...issue, status: decided } : issue;
+    });
+  }
+
+  recordReviewDecision(issueId: string, status: ReviewIssueStatus): void {
+    this.decisions.set(issueId, status);
+    this.editCounter += 1;
+  }
+
+  noteEdits(): ReadonlyMap<string, ScoreNoteEdit> {
+    return this.edits;
+  }
+
+  setNoteEdit(canonicalId: string, edit: ScoreNoteEdit | null): void {
+    if (edit == null || isEmptyNoteEdit(edit)) this.edits.delete(canonicalId);
+    else this.edits.set(canonicalId, edit);
+    this.editCounter += 1;
   }
 }
 

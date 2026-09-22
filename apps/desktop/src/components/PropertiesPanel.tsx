@@ -197,6 +197,7 @@ function NoteBody({
                 <p className="hs-properties__issue-detail">{issue.reasonDetail}</p>
                 <p className="hs-properties__issue-meta">
                   {issue.severityLabel}
+                  {` ・ ${issue.statusLabel}`}
                   {issue.confidencePct != null &&
                     ` ・ ${f.confidence} ${issue.confidencePct}%`}
                 </p>

@@ -80,6 +80,18 @@ export interface CommandContext {
   openReview(): void;
   reviewNext(): void;
   reviewPrevious(): void;
+  /**
+   * UI-050 review-workspace actions (GUI_UX_SPEC §12). Optional like
+   * `cancelTranscription` so leaner test contexts keep compiling — an
+   * absent implementation is a no-op.
+   */
+  reviewAccept?(): void;
+  reviewDismiss?(): void;
+  reviewPlaySource?(): void;
+  reviewPitchUp?(): void;
+  reviewPitchDown?(): void;
+  reviewDeleteOrRestore?(): void;
+  exitReview?(): void;
   undo(): void;
   redo(): void;
   openExport(): void;

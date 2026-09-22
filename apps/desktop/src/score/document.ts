@@ -14,7 +14,8 @@
  * - `reviewIssues()` mirrors `ReviewIssue.to_dict()` (domain/review.py).
  */
 import type { PitchViewSetting } from "../commands/types";
-import type { ScoreReviewIssue } from "./review";
+import type { ReviewIssueStatus, ScoreReviewIssue } from "./review";
+import type { ScoreNoteEdit } from "./scoreEdits";
 
 export interface ScoreDocumentMeta {
   /** Document title (MusicXML movement/work title). */
@@ -32,11 +33,27 @@ export interface ScoreDocumentMeta {
 }
 
 export interface ScoreDocumentPort {
-  /** `rev-<sha256[:16]>` — content-derived score revision id. */
+  /** `rev-<sha256[:16]>` — content-derived score revision id. A new
+   *  transcription/quantization produces a new revision; review decisions
+   *  and note edits are bound to it and never silently carried across
+   *  (domain/review.py contract). */
   readonly revisionId: string;
+  /** Bumped on every user edit/decision so views can invalidate. */
+  readonly editVersion: number;
   readonly meta: ScoreDocumentMeta;
-  /** MusicXML 4.0 string for the given pitch presentation. */
+  /** MusicXML 4.0 string for the given pitch presentation — includes any
+   *  user note edits (UI-050), so export sees the corrected document. */
   musicXml(view: PitchViewSetting): string;
-  /** Review issues for this score revision (any status). */
+  /** Review issues for this score revision (any status), with user
+   *  decisions recorded via `recordReviewDecision` already applied. */
   reviewIssues(): readonly ScoreReviewIssue[];
+  /**
+   * Persist a review decision against (issueId, this revision) — the
+   * document-model record the project-file adapter will later serialize.
+   */
+  recordReviewDecision(issueId: string, status: ReviewIssueStatus): void;
+  /** Current canonical-note edits (`sn-*` id → edit). */
+  noteEdits(): ReadonlyMap<string, ScoreNoteEdit>;
+  /** Set or clear (`null` / empty edit) a canonical note's correction. */
+  setNoteEdit(canonicalId: string, edit: ScoreNoteEdit | null): void;
 }

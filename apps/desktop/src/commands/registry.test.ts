@@ -87,8 +87,16 @@ describe("command definitions", () => {
       "transport.toggleLoop",
       "view.concertPitch",
       "view.hornF",
+      "review.open",
       "review.next",
       "review.previous",
+      "review.playSource",
+      "review.accept",
+      "review.dismiss",
+      "review.pitchUp",
+      "review.pitchDown",
+      "review.deleteOrRestore",
+      "review.exit",
       "edit.undo",
       "edit.redo",
       "export.open",
@@ -132,6 +140,15 @@ describe("command definitions", () => {
     expect(shortcutOf("view.hornF")).toContain("Ctrl+2");
     expect(shortcutOf("edit.undo")).toContain("Ctrl+Z");
     expect(shortcutOf("edit.redo")).toContain("Ctrl+Shift+Z");
+    // UI-050 review keys (P4-validated set).
+    expect(shortcutOf("review.next")).toContain("ArrowRight");
+    expect(shortcutOf("review.previous")).toContain("ArrowLeft");
+    expect(shortcutOf("review.playSource")).toContain("R");
+    expect(shortcutOf("review.accept")).toContain("O");
+    expect(shortcutOf("review.dismiss")).toContain("Shift+O");
+    expect(shortcutOf("review.pitchUp")).toContain("Alt+ArrowUp");
+    expect(shortcutOf("review.pitchDown")).toContain("Alt+ArrowDown");
+    expect(shortcutOf("review.deleteOrRestore")).toContain("Delete");
     expect(shortcutOf("export.open")).toContain("Ctrl+E");
     expect(shortcutOf("score.zoomIn")).toEqual(
       expect.arrayContaining(["Ctrl+=", "Ctrl++"]),

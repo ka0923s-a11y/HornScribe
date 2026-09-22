@@ -53,6 +53,7 @@ export function ScoreWorkspace({
   scoreControllerRef,
   announce,
   transport = null,
+  sourceControl = null,
 }: {
   screen: ScreenState;
   importView: ImportView;
@@ -80,6 +81,14 @@ export function ScoreWorkspace({
     readonly isPlaying: boolean;
     readonly positionSec: number;
     readonly rate?: number;
+  } | null;
+  /** [UI-050] drive the media transport for 元音源を再生 / jump-to-issue
+   *  (seek + A-B loop on the issue's source range); null when no source
+   *  is loaded — the score clock covers that case. */
+  sourceControl?: {
+    seekTo(sec: number): void;
+    play(): void;
+    setLoop(range: { start: number; end: number } | null): void;
   } | null;
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -145,6 +154,7 @@ export function ScoreWorkspace({
             controllerRef={(c) => scoreControllerRef?.(c)}
             announce={(m) => announce?.(m)}
             transport={transport}
+            sourceControl={sourceControl}
           />
         ) : (
           <div className="hs-score-paper" aria-hidden="true">
