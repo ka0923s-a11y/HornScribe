@@ -42,13 +42,14 @@ fn shell_info(app: tauri::AppHandle) -> ShellInfo {
     ShellInfo {
         app_name: pkg.name.clone(),
         version: pkg.version.to_string(),
-        rust_target_env: if cfg!(target_env = "msvc") {
+        rust_target_env: (if cfg!(target_env = "msvc") {
             "msvc"
         } else if cfg!(target_env = "gnu") {
             "gnu"
         } else {
             "other"
-        },
+        })
+        .to_string(),
     }
 }
 
