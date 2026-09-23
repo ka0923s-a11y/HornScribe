@@ -20,6 +20,28 @@ export type AudioFileRef =
   | { kind: "file"; file: File; name: string };
 
 /**
+ * FEAT-001 (#60): 録音由来の疑似ファイル参照。
+ * `kind: "recording"` はディスク上の実ファイルではなく、メモリ上の
+ * 録音バッファを表す。`mediaSource.blob` に録音結果が入るので、
+ * `LoadedAudio` としては既存経路と同じ振る舞いをする。
+ */
+export type RecordedAudioRef = {
+  kind: "recording";
+  /** UI 表示用の仮想ファイル名(例: "録音_20260922_153000.wav")。 */
+  name: string;
+  /** "loopback" | "microphone" — どこから録ったか。 */
+  source: "loopback" | "microphone";
+  /** Tauri: appDataDir/recordings/ に保存済みの実ファイルパス(#70)。
+   *  ある場合は内容がディスク上に永続化されており、プロジェクトの
+   *  sourceAudio(originalPath/contentHash)に載せられる。 */
+  path?: string;
+  /** path を持つ録音の SHA-256(FND-001 の contentHash 契約)。 */
+  contentHash?: string;
+  /** ブラウザ dev 等、実ファイルが無い場合の録音バイト列。 */
+  blob?: Blob;
+};
+
+/**
  * What the UI-004 TransportController contract can load — mirrors the
  * spike's `AudioSource` (url | blob). We always hand over a blob: either
  * the dropped `File` itself or a Blob built from `read_audio_bytes`, so the
@@ -30,7 +52,7 @@ export type MediaSource = { kind: "url"; url: string } | { kind: "blob"; blob: B
 /** Fully decoded audio ready for the AUDIO_READY state (GUI_UX_SPEC §4). */
 export interface LoadedAudio {
   /** Where the bytes came from (kept for relink/re-open bookkeeping). */
-  ref: AudioFileRef;
+  ref: AudioFileRef | RecordedAudioRef;
   fileName: string;
   format: AudioFormat;
   sizeBytes: number;

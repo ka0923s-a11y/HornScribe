@@ -66,6 +66,7 @@ import {
   type PlaybackTable,
 } from "./playbackTable";
 import { ScoreCursorClock, type ClockSnapshot, type TransportClock } from "./clock";
+import { ScorePlaybackSynth } from "./playbackSynth";
 import {
   allIssuesForCanonical,
   markedCanonicalIds,
@@ -188,6 +189,11 @@ export function ScoreReadyWorkspace({
     rate: 1,
     loop: null,
   });
+  // FEAT-001: score audition engine. Lazily created when the user turns
+  // the audition toggle on; synced with the score clock below.
+  const synthRef = useRef<ScorePlaybackSynth | null>(null);
+  const [auditionEnabled, setAuditionEnabled] = useState(false);
+  const auditionRef = useRef(false);
 
   // Parsed presentations — identical canonical ids, different spelling.
   const docsRef = useRef<{
@@ -419,6 +425,17 @@ export function ScoreReadyWorkspace({
         const clock = new ScoreCursorClock(tableRef.current.durationMs);
         clockRef.current = clock;
         clock.subscribe(setClockSnap);
+        // FEAT-001: audition engine follows the score clock. It consumes
+        // the same PlaybackTable + the CONCERT ParsedNote map (sounding
+        // pitch — the written horn view never drives pitch, because the
+        // audition exists to check the transcribed *sounding* result).
+        const synth = new ScorePlaybackSynth();
+        synthRef.current = synth;
+        synth.load(tableRef.current, notesByCanonical(concert));
+        clock.subscribe((s) => {
+          synth.setLoop(s.loop ? { startMs: s.loop.startMs, endMs: s.loop.endMs } : null);
+          synth.sync(s.positionMs, s.isPlaying, s.rate);
+        });
       })
       .catch((e: unknown) =>
         setInitError(e instanceof Error ? e.message : String(e)),
@@ -427,6 +444,8 @@ export function ScoreReadyWorkspace({
       cancelled = true;
       clockRef.current?.dispose();
       clockRef.current = null;
+      synthRef.current?.dispose();
+      synthRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -908,6 +927,20 @@ export function ScoreReadyWorkspace({
           setFollowSuspended(false);
         }
       },
+      // FEAT-001: audition toggle — driven from the transport bar.
+      toggleAudition: () => {
+        const synth = synthRef.current;
+        if (!synth) return;
+        const next = !auditionRef.current;
+        auditionRef.current = next;
+        setAuditionEnabled(next);
+        synth.setEnabled(next);
+        announce(
+          next
+            ? "楽譜の自動演奏をオンにしました"
+            : "楽譜の自動演奏をオフにしました",
+        );
+      },
       openReview: () => openReview(),
       reviewNext: () => gotoIssue(reviewIndexRef.current + 1),
       reviewPrevious: () => gotoIssue(reviewIndexRef.current - 1),
@@ -938,6 +971,7 @@ export function ScoreReadyWorkspace({
     reviewDeleteOrRestore,
     reviewUndo,
     reviewRedo,
+    announce,
   ]);
 
 
@@ -958,6 +992,7 @@ export function ScoreReadyWorkspace({
       canUndo: session.canUndo,
       canRedo: session.canRedo,
       openIssueCount: pendingCount,
+      auditionEnabled,
     });
   }, [
     selection,
@@ -970,6 +1005,7 @@ export function ScoreReadyWorkspace({
     session,
     pendingCount,
     docVersion,
+    auditionEnabled,
   ]);
 
   // Initial inspector = score summary (§22 "Nothing selected").

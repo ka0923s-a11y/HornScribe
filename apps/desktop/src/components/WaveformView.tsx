@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { ja } from "../strings/ja";
 import { resizeKeyDelta, startPointerResize } from "../workspace/layout";
 import type { LoadedAudio } from "../import/types";
+import type { CaptureState } from "../capture/controller";
+import { formatTimecode } from "../import/format";
 
 /** Peak-column path for the strip: one <path> keeps redraw cost flat —
  *  vertical bars centred on the midline (the UI-004 wavesurfer adapter
@@ -37,6 +39,7 @@ export function WaveformView({
   loading = false,
   positionSec,
   onSeek,
+  captureState,
 }: {
   height: number;
   min: number;
@@ -54,6 +57,9 @@ export function WaveformView({
   positionSec?: number;
   /** §8 click → seek: receives the target time in seconds. */
   onSeek?(seconds: number): void;
+  /** FEAT-001 (#60): recording state — while a capture runs the strip
+   *  shows the live recording status instead of a file's peaks. */
+  captureState?: CaptureState | null;
 }) {
   const path = useMemo(
     () => (audio ? peaksPath(audio.peaks) : ""),
@@ -85,6 +91,33 @@ export function WaveformView({
       {loading ? (
         <span className="hs-waveform__placeholder">
           {ja.import.waveform.loading}
+        </span>
+      ) : captureState?.phase === "recording" ? (
+        <span
+          className="hs-waveform__recording"
+          role="status"
+          aria-live="polite"
+        >
+          {captureState.source === "loopback"
+            ? ja.transport.recordingLoopbackLabel
+            : ja.transport.recordingLabel}
+          {" — "}
+          {formatTimecode(captureState.elapsedSeconds)}
+          {captureState.deviceName ? ` · ${captureState.deviceName}` : ""}
+          {/* #71: 入力レベルの簡易メーター(0-1 のピーク)。 */}
+          <span
+            className="hs-waveform__level"
+            aria-hidden="true"
+          >
+            <span
+              className="hs-waveform__level-fill"
+              style={{
+                width: `${Math.round(
+                  Math.min(1, Math.max(0, captureState.level ?? 0)) * 100,
+                )}%`,
+              }}
+            />
+          </span>
         </span>
       ) : audio ? (
         <>

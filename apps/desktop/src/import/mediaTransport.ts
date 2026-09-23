@@ -39,6 +39,8 @@ export interface TransportSnapshot {
   duration: number;
   rate: number;
   loop: TimeRange | null;
+  /** 元音源のミュート(#72)。楽譜の演奏だけを聴く用途で使う。 */
+  muted: boolean;
   /** Monotonic counter bumped on every emitted snapshot. */
   revision: number;
 }
@@ -70,6 +72,7 @@ export interface MediaPort {
   seekTo(seconds: number): void;
   setRate(rate: number): void;
   setPreservePitch(on: boolean): void;
+  setMuted(on: boolean): void;
   getTime(): number;
   getDuration(): number;
   subscribe(handlers: MediaPortHandlers): Unsubscribe;
@@ -149,6 +152,9 @@ class AudioElementMediaPort implements MediaPort {
     el.mozPreservesPitch = on;
     el.webkitPreservesPitch = on;
   }
+  setMuted(on: boolean): void {
+    this.el.muted = on;
+  }
   getTime(): number {
     return this.el.currentTime;
   }
@@ -168,6 +174,7 @@ export class MediaElementTransport {
   private status: TransportStatus = "empty";
   private rate = 1;
   private loop: TimeRange | null = null;
+  private muted = false;
   private revision = 0;
   private readonly listeners = new Set<TransportListener>();
 
@@ -263,6 +270,16 @@ export class MediaElementTransport {
     this.emit();
   }
 
+  /** 元音源のミュート(#72)。ミュートはメディア要素側の属性なので、
+      ループバック録音中でも録音対象の音は止まらない — モニターの
+      聴こえ方だけを切る。 */
+  setMuted(on: boolean): void {
+    if (this.muted === on) return;
+    this.muted = on;
+    this.port.setMuted(on);
+    this.emit();
+  }
+
   /** Arm (TimeRange) or clear (null) the A-B loop. Degenerate/inverted
       ranges and ranges past the media end are rejected (clamped). */
   setLoop(range: TimeRange | null): void {
@@ -294,6 +311,7 @@ export class MediaElementTransport {
       duration: this.port.getDuration(),
       rate: this.rate,
       loop: this.loop ? { ...this.loop } : null,
+      muted: this.muted,
       revision: this.revision,
     };
   }

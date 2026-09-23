@@ -26,6 +26,8 @@ const SNAPSHOT_EMPTY: CommandSnapshot = {
   hasSelection: false,
   reviewOpen: false,
   reviewCount: 0,
+      isRecording: false,
+      auditionEnabled: false,
   view: "workspace",
 };
 
@@ -37,6 +39,8 @@ const SNAPSHOT_SCORE: CommandSnapshot = {
   canRedo: true,
   hasSelection: true,
   reviewCount: 3,
+      isRecording: false,
+      auditionEnabled: false,
 };
 
 function mockContext(): CommandContext & { calls: string[] } {

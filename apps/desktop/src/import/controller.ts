@@ -36,6 +36,7 @@ import type {
   LoadedAudio,
   ProjectSummary,
   RecentProjectEntry,
+  RecordedAudioRef,
   SourceMissingInfo,
 } from "./types";
 
@@ -127,6 +128,54 @@ export class ImportController {
       return;
     }
     await this.importAudioRef(ref, format);
+  }
+
+  /**
+   * FEAT-001 (#60): 録音バッファを直接取り込む(PC音源/マイク録音)。
+   * `ref` は `kind:"recording"` で、`blob` は WAV または MediaRecorder
+   * 出力(ブラウザ dev)。拡張子は常に `.wav`/`.webm` を仮定するため
+   * `audioFormatOf` の allowlist を迂回して良い(録音由来なので形式は
+   * 自明)。失敗時は openFailed に落とす。
+   */
+  async importRecording(ref: RecordedAudioRef): Promise<void> {
+    const gen = this.begin("audio", ref.name);
+    try {
+      // Tauri 録音は保存済みファイルを読む(#70: 実ファイル=リリンク可能)。
+      const blob = ref.blob ?? (await this.ports.readAudioBytes(ref.path!));
+      const contentHash = ref.path
+        ? await this.ports.sha256Hex(blob)
+        : undefined;
+      const decoded = await this.ports.decodeAudio(blob, ref.name);
+      if (!this.isCurrent(gen)) return;
+      const audio: LoadedAudio = {
+        ref: { ...ref, contentHash },
+        fileName: ref.name,
+        // 録音物は decode 可能なコンテナなので拡張子は実質 wav。
+        format: "wav",
+        sizeBytes: blob.size,
+        durationSeconds: decoded.durationSeconds,
+        sampleRate: decoded.sampleRate,
+        peaks: decoded.peaks,
+        mediaSource: { kind: "blob", blob },
+      };
+      this.setState({
+        phase: "ready",
+        openingLabel: null,
+        openingKind: null,
+        audio,
+        issue: null,
+        sourceMissing: null,
+      });
+      this.events.onAudioReady(audio);
+      this.events.announce(
+        ref.source === "loopback"
+          ? `PCの音を取り込みました(${ref.name})`
+          : `録音を取り込みました(${ref.name})`,
+      );
+    } catch {
+      if (!this.isCurrent(gen)) return;
+      this.fail({ kind: "openFailed", fileName: ref.name });
+    }
   }
 
   /** OPENING_AUDIO → AUDIO_READY, or AUDIO_ERROR. */

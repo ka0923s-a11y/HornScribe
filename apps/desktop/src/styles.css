@@ -240,6 +240,77 @@ body {
   pointer-events: none;
 }
 
+/* FEAT-001 (#60): live capture indicator on the waveform strip. */
+.hs-waveform__recording {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  padding: 0 var(--hs-space-ms);
+  color: var(--hs-status-error);
+  font-size: var(--hs-font-size-compact);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.hs-waveform__recording::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hs-status-error);
+  /* subtle pulse so the recording state reads as live, not stuck. */
+  animation: hs-recording-pulse 1.4s ease-in-out infinite;
+}
+/* #71: live input level next to the recording label — a thin track
+   filled by the packet peak (decays on the Rust side). */
+.hs-waveform__level {
+  display: inline-block;
+  width: 72px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hs-status-neutral-subtle);
+  overflow: hidden;
+}
+.hs-waveform__level-fill {
+  display: block;
+  height: 100%;
+  background: var(--hs-status-success);
+  transition: width 120ms linear;
+}
+@keyframes hs-recording-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* FEAT-001 (#60): capture entry points inside the EMPTY state. */
+.hs-empty__capture {
+  margin-top: var(--hs-space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hs-space-sm);
+}
+.hs-empty__capture-error {
+  margin: 0;
+  color: var(--hs-status-error);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-empty__capture-title {
+  margin: 0;
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-empty__capture-actions {
+  display: flex;
+  gap: var(--hs-space-sm);
+}
+.hs-empty__capture-hint {
+  margin: 0;
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+  max-width: 34em;
+  text-align: center;
+}
+
 /* Shared separator affordance: quiet until hover/focus (§8 elevation —
    workspace stays flat, so the grip uses a translucent accent wash). */
 .hs-waveform__resizer:hover,

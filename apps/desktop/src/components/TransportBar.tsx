@@ -9,6 +9,9 @@ import {
   Next24Regular,
   ArrowRepeatAll24Regular,
   SlideTextSparkle24Regular,
+  MusicNote2PlayRegular,
+  Speaker224Regular,
+  SpeakerMute24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -40,6 +43,7 @@ export function TransportBar({
   followEnabled,
   followSuspended,
   onToggleFollow,
+  auditionEnabled,
 }: {
   commands: CommandSurface;
   live?: {
@@ -47,6 +51,8 @@ export function TransportBar({
     positionSec: number;
     durationSec: number;
     rate: number;
+    /** 元音源ミュート状態(#72)。 */
+    muted?: boolean;
   };
   /** 再生速度 button — cycles SUPPORTED_RATES when the transport is live. */
   onCycleRate?(): void;
@@ -58,6 +64,8 @@ export function TransportBar({
   /** [UI-030] Manual scroll suspended follow — button resumes it. */
   followSuspended?: boolean;
   onToggleFollow?(): void;
+  /** FEAT-001 (#60): 楽譜の自動演奏がオンか(score clock がある時のみ)。 */
+  auditionEnabled?: boolean;
 }) {
   // All transport commands share the hasAudio gate (see definitions).
   const enabled = commands.isEnabled("transport.playPause");
@@ -215,6 +223,42 @@ export function TransportBar({
           aria-pressed={followEnabled === true && !followSuspended}
           disabled={!enabled}
           onClick={onToggleFollow}
+        />
+      </Tooltip>
+      {/* FEAT-001: 楽譜の自動演奏。スコアがある時だけ有効。 */}
+      <Tooltip
+        content={
+          auditionEnabled ? ja.transport.auditionOn : ja.transport.auditionOff
+        }
+        relationship="label"
+      >
+        <ToolbarButton
+          icon={<MusicNote2PlayRegular />}
+          aria-label={
+            auditionEnabled
+              ? ja.transport.auditionOn
+              : ja.transport.auditionOff
+          }
+          aria-pressed={auditionEnabled === true}
+          disabled={!commands.isEnabled("transport.toggleAudition")}
+          onClick={() => commands.invoke("transport.toggleAudition")}
+        />
+      </Tooltip>
+      {/* #72: 元音源のミュート — 楽譜の演奏だけを聴く用途。 */}
+      <Tooltip
+        content={
+          live?.muted ? ja.transport.unmuteSource : ja.transport.muteSource
+        }
+        relationship="label"
+      >
+        <ToolbarButton
+          icon={live?.muted ? <SpeakerMute24Regular /> : <Speaker224Regular />}
+          aria-label={
+            live?.muted ? ja.transport.unmuteSource : ja.transport.muteSource
+          }
+          aria-pressed={live?.muted === true}
+          disabled={!commands.isEnabled("transport.toggleSourceMute")}
+          onClick={() => commands.invoke("transport.toggleSourceMute")}
         />
       </Tooltip>
     </Toolbar>

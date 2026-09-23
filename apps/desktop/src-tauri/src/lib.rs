@@ -13,6 +13,8 @@
 
 use serde::Serialize;
 
+mod capture;
+
 /// Audio containers the import UX advertises (GUI_UX_SPEC §3 formats line).
 /// The frontend rejects other extensions before reaching this command; the
 /// allowlist here is the Rust-side backstop so the command cannot be turned
@@ -104,7 +106,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             shell_info,
             read_audio_bytes,
-            read_project_file
+            read_project_file,
+            capture::capture_start,
+            capture::capture_stop,
+            capture::capture_cancel,
+            capture::capture_status,
+            capture::capture_devices,
         ])
         .run(tauri::generate_context!())
         .expect("error while running HornScribe shell");

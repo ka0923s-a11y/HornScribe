@@ -16,6 +16,8 @@ import {
   FolderOpen24Regular,
   History24Regular,
   Play24Regular,
+  Mic24Regular,
+  Speaker2Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import { HsButton } from "../components/primitives/Button";
@@ -32,6 +34,7 @@ import type {
   SourceMissingInfo,
   TranscriptionOptions,
 } from "./types";
+import { issueText, type CaptureState } from "../capture/controller";
 
 /** Everything the import-owned bodies need — assembled once in App and
  *  handed down through ScoreWorkspace (keeps that shared file's diff small
@@ -51,6 +54,9 @@ export interface ImportView {
   onPickRelink(): void;
   onDismissError(): void;
   onOptionsChange(next: TranscriptionOptions): void;
+  /** FEAT-001 (#60): capture controls on the EMPTY state. */
+  captureState?: CaptureState | null;
+  onStartCapture?(source: "loopback" | "microphone"): void;
 }
 
 /** Routes the import-owned screen states to their bodies. */
@@ -95,6 +101,43 @@ function EmptyStateBody({ view }: { view: ImportView }) {
         {ja.emptyState.open}
       </HsButton>
       <p className="hs-empty__formats">{ja.emptyState.formats}</p>
+      {/* FEAT-001: 録音による取り込み — ファイルを持たない入力経路。 */}
+      {view.onStartCapture ? (
+        <div className="hs-empty__capture">
+          <p className="hs-empty__capture-title">
+            {ja.emptyState.captureTitle}
+          </p>
+          <div className="hs-empty__capture-actions">
+            <HsButton
+              variant="secondary"
+              icon={<Speaker2Regular />}
+              disabled={view.captureState?.phase === "recording"}
+              onClick={() => view.onStartCapture!("loopback")}
+            >
+              {ja.emptyState.captureLoopback}
+            </HsButton>
+            <HsButton
+              variant="secondary"
+              icon={<Mic24Regular />}
+              disabled={view.captureState?.phase === "recording"}
+              onClick={() => view.onStartCapture!("microphone")}
+            >
+              {ja.emptyState.captureMic}
+            </HsButton>
+          </div>
+          <p className="hs-empty__capture-hint">
+            {ja.emptyState.captureHint}
+          </p>
+          {/* 録音開始の失敗(デバイス無し等)はここに表示する —
+              ステータス行だけでは EMPTY 画面で見落とされる。 */}
+          {view.captureState?.phase === "error" &&
+          view.captureState.issue ? (
+            <p className="hs-empty__capture-error" role="alert">
+              {issueText(view.captureState.issue)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <p className="hs-empty__privacy">{ja.emptyState.privacy}</p>
       {/* §3: 履歴がある場合のみ「最近使ったプロジェクト」 */}
       {view.recentProjects.length > 0 ? (

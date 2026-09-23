@@ -8,6 +8,10 @@ import {
   MoreHorizontal24Regular,
   PanelRight24Regular,
   Wrench24Regular,
+  Mic24Regular,
+  Speaker2Regular,
+  Stop24Regular,
+  Dismiss24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -17,6 +21,17 @@ import {
   hasWorkspaceRegions,
   type ScreenState,
 } from "../workspace/screen";
+import type { CaptureState } from "../capture/controller";
+import type {
+  CaptureDeviceList,
+  CaptureSource,
+} from "../capture/types";
+import { formatTimecode } from "../import/format";
+
+/** 録音経過の短い表示(0:00 形式)。 */
+function formatElapsed(seconds: number): string {
+  return formatTimecode(seconds);
+}
 
 /** Tooltip text: Japanese title plus its canonical shortcut, e.g.
  *  「書き出し（Ctrl+E）」 — shortcut hinting is spec'd on §9 controls. */
@@ -46,6 +61,11 @@ export function CommandBar({
   compact,
   propertiesOpen,
   onToggleProperties,
+  captureState,
+  captureDevices,
+  captureSelectedDevice,
+  onSelectCaptureDevice,
+  onCaptureMenuOpen,
 }: {
   commands: CommandSurface;
   pitch: PitchView;
@@ -55,6 +75,15 @@ export function CommandBar({
   compact: boolean;
   propertiesOpen: boolean;
   onToggleProperties(): void;
+  /** FEAT-001 (#60): live capture state for the recording affordance. */
+  captureState?: CaptureState | null;
+  /** #73: 取り込みデバイス一覧(メニュー開時に最新化される)。 */
+  captureDevices?: CaptureDeviceList | null;
+  /** 選択中のデバイス ID(null = 既定)。 */
+  captureSelectedDevice?(source: CaptureSource): string | null;
+  onSelectCaptureDevice?(source: CaptureSource, id: string | null): void;
+  /** メニューが開いた時にデバイス一覧を取り直す。 */
+  onCaptureMenuOpen?(): void;
 }) {
   // 採譜 ↔ 採譜し直す — same command slot, label follows score presence
   // (the registry hides retranscribe until a score exists).
@@ -104,6 +133,71 @@ export function CommandBar({
     },
   ];
 
+  // FEAT-001: capture menu lives next to 開く — sources of new audio.
+  // #73: 各ソースの下にそのソースのデバイス選択を並べる。選択中は ✓。
+  const deviceItems = (
+    source: CaptureSource,
+    devices: readonly { id: string; name: string; isDefault: boolean }[],
+  ): HsMenuItem[] => {
+    // デバイスが1台も無いソース(ブラウザ dev の loopback 等)は
+    // セクション自体を出さない — 既定しか選べない行は誤解を招く。
+    if (devices.length === 0) return [];
+    const selected = captureSelectedDevice?.(source) ?? null;
+    const sectionLabel =
+      source === "loopback"
+        ? ja.capture.loopbackDeviceLabel
+        : ja.capture.microphoneDeviceLabel;
+    const items: HsMenuItem[] = [
+      { key: source + "-hdr", label: sectionLabel, disabled: true },
+      {
+        key: source + ":default",
+        label:
+          selected === null
+            ? "\u2713 " + ja.capture.defaultDevice
+            : ja.capture.defaultDevice,
+      },
+    ];
+    for (const d of devices) {
+      items.push({
+        key: source + ":" + d.id,
+        label: selected === d.id ? "\u2713 " + d.name : d.name,
+      });
+    }
+    return items;
+  };
+  const captureMenuItems: HsMenuItem[] = [
+    {
+      key: "loopback",
+      label: commands.title("media.captureSystemAudio"),
+      icon: <Speaker2Regular />,
+      disabled: !commands.isEnabled("media.captureSystemAudio"),
+    },
+    {
+      key: "microphone",
+      label: commands.title("media.captureMicrophone"),
+      icon: <Mic24Regular />,
+      disabled: !commands.isEnabled("media.captureMicrophone"),
+    },
+    // デバイスセクションは一覧が取れた時だけ出す(ブラウザ dev では
+    // loopback は空、mic のみ)。両方空なら区切り線ごと出さない。
+    ...(captureDevices &&
+    (captureDevices.loopback.length > 0 ||
+      captureDevices.microphone.length > 0)
+      ? ([
+          { key: "devices-divider", divider: true },
+          ...deviceItems("loopback", captureDevices.loopback),
+          ...deviceItems("microphone", captureDevices.microphone),
+        ] satisfies HsMenuItem[])
+      : []),
+  ];
+  const recording = captureState?.phase === "recording";
+  const captureLabel =
+    recording && captureState?.source === "loopback"
+      ? ja.transport.recordingLoopbackLabel
+      : recording
+        ? ja.transport.recordingLabel
+        : "取り込み";
+
   return (
     <Toolbar
       className="hs-commandbar"
@@ -139,6 +233,62 @@ export function CommandBar({
       {loaded ? <span className="hs-commandbar__spacer" /> : null}
       {loaded ? <PitchSegmented value={pitch} onChange={onPitch} /> : null}
       <span className="hs-commandbar__spacer" />
+
+      {/* FEAT-001: 録音ソース — EMPTY/READY どちらでも新しい音源を取り込める。
+          録音中は「停止して取り込む」「やめる」の 2 操作に切り替わる。 */}
+      {!recording ? (
+        <HsMenu
+          trigger={
+            <ToolbarButton icon={<Mic24Regular />} aria-label={captureLabel}>
+              <span className="hs-commandbar__label">{captureLabel}</span>
+            </ToolbarButton>
+          }
+          items={captureMenuItems}
+          ariaLabel={captureLabel}
+          onOpenChange={(open) => {
+            if (open) onCaptureMenuOpen?.();
+          }}
+          onSelect={(key) => {
+            if (key === "loopback") commands.invoke("media.captureSystemAudio");
+            else if (key === "microphone") commands.invoke("media.captureMicrophone");
+            else if (key === "loopback:default")
+              onSelectCaptureDevice?.("loopback", null);
+            else if (key === "microphone:default")
+              onSelectCaptureDevice?.("microphone", null);
+            else if (key.startsWith("loopback:"))
+              onSelectCaptureDevice?.("loopback", key.slice("loopback:".length));
+            else if (key.startsWith("microphone:"))
+              onSelectCaptureDevice?.(
+                "microphone",
+                key.slice("microphone:".length),
+              );
+          }}
+        />
+      ) : (
+        <>
+          <Tooltip content={commands.title("media.stopCapture")} relationship="label">
+            <ToolbarButton
+              icon={<Stop24Regular />}
+              appearance="primary"
+              aria-keyshortcuts="Ctrl+Enter"
+              onClick={() => commands.invoke("media.stopCapture")}
+            >
+              <span className="hs-commandbar__label">
+                {commands.title("media.stopCapture")}
+                {captureState?.elapsedSeconds != null
+                  ? ` ${formatElapsed(captureState.elapsedSeconds)}`
+                  : ""}
+              </span>
+            </ToolbarButton>
+          </Tooltip>
+          <Tooltip content={commands.title("media.cancelCapture")} relationship="label">
+            <ToolbarButton
+              icon={<Dismiss24Regular />}
+              onClick={() => commands.invoke("media.cancelCapture")}
+            />
+          </Tooltip>
+        </>
+      )}
 
       {loaded ? (
         <Tooltip content={reviewLabel} relationship="label">

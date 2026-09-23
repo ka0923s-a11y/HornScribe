@@ -29,6 +29,8 @@ const EMPTY: CommandSnapshot = {
   hasSelection: false,
   reviewOpen: false,
   reviewCount: 0,
+      isRecording: false,
+      auditionEnabled: false,
   view: "workspace",
 };
 

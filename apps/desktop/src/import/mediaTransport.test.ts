@@ -45,6 +45,10 @@ class FakePort implements MediaPort {
   setPreservePitch(on: boolean): void {
     this.preservePitch = on;
   }
+  muted = false;
+  setMuted(on: boolean): void {
+    this.muted = on;
+  }
   getTime(): number {
     return this.time;
   }

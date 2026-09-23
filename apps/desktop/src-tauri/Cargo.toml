@@ -26,6 +26,21 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# FEAT-001 (#60): PC再生音源(ループバック)とマイク録音。WebView2 では
+# getDisplayMedia が使えないため、WASAPI を直接叩く app-defined commands
+# で実装する。`windows` crate は Tauri 経由で既に lock されている
+# (0.61.3) ため追加パッケージは増やさない。Win32_Media_Audio /
+# SystemCom / Devices_Enum を有効化する。
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_Devices_Properties",
+  "Win32_Devices_FunctionDiscovery",
+  "Win32_UI_Shell_PropertiesSystem",
+] }
 
 [profile.release]
 # Spike defaults: keep symbols for profiling startup/memory.

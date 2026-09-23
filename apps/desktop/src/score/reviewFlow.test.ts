@@ -160,6 +160,8 @@ function setup(count = 20) {
     hasSelection: false,
     reviewOpen: h.open,
     reviewCount: session.pendingCount(),
+      isRecording: false,
+      auditionEnabled: false,
     view: "workspace",
   });
 

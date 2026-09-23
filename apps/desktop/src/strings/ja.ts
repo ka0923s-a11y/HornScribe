@@ -86,6 +86,14 @@ export const ja = {
     rate: "再生速度",
     position: "現在位置",
     volume: "音量",
+    /* FEAT-001 (#60): 録音中/楽譜演奏の表示 */
+    recordingLabel: "録音中",
+    recordingLoopbackLabel: "取り込み中",
+    auditionOn: "楽譜の演奏: オン",
+    auditionOff: "楽譜の演奏: オフ",
+    /* #72: 元音源(取り込んだ音声)のミュート — 楽譜の演奏だけ聴く用途。 */
+    muteSource: "元音源をミュート",
+    unmuteSource: "元音源のミュートを解除",
   },
 
   status: {
@@ -108,6 +116,12 @@ export const ja = {
     open: "音声ファイルを開く",
     formats: "WAV・MP3・FLAC・M4A・OGG",
     privacy: "すべての解析はこのPC上で実行されます。",
+    /* FEAT-001 (#60): 録音による取り込み */
+    captureTitle: "このPCの音を取り込む",
+    captureLoopback: "PCで再生中の音を録音",
+    captureMic: "マイクで録音",
+    captureHint:
+      "録音はこのPCの中だけで行われ、外部に送信されません。連続録音は30分までです。",
   },
 
   /** 要確認バッジ (GUI_UX_SPEC §12, copy deck review.status.*) */
@@ -383,6 +397,13 @@ export const ja = {
     previousRegion: "前の領域へ移動",
     settings: "設定",
     diagnostics: "診断情報",
+    /* FEAT-001 (#60): capture + score audition */
+    captureSystemAudio: "PCの音を取り込む",
+    captureMicrophone: "マイクで録音",
+    stopCapture: "録音を終了して取り込む",
+    cancelCapture: "録音をやめる",
+    toggleAudition: "楽譜を演奏",
+    toggleSourceMute: "元音源のミュート",
   },
 
   /**
@@ -393,6 +414,8 @@ export const ja = {
   commandFeedback: {
     pitchConcert: "コンサートピッチに切り替えました",
     pitchHornF: "F管ホルン表示に切り替えました",
+    mutedSource: "元音源をミュートしました",
+    unmutedSource: "元音源のミュートを解除しました",
     notImplemented: "この操作はスパイク版ではまだ実行できません",
     disabled: "この操作は現在実行できません",
     nothingToUndo: "元に戻す操作はありません",
@@ -1164,6 +1187,24 @@ export const ja = {
   /** Status-bar notifications (deck: notifications.*). */
   notifications: {
     exportDone: "書き出しが完了しました",
+  },
+
+  /** FEAT-001 follow-ups: 取り込みメニュー + 置き換え確認(#70-#76)。 */
+  capture: {
+    /** 取り込みメニューのデバイス選択セクション。 */
+    loopbackDeviceLabel: "出力先(PCの音)",
+    microphoneDeviceLabel: "マイク",
+    defaultDevice: "既定のデバイス",
+    noDevices: "利用できるデバイスがありません",
+    /** #76: 録音は現在の音源を置き換えるので、既に音源/楽譜がある時は
+     *  開始前に確認する(alert = 破壊的操作の確認)。 */
+    replaceTitle: "現在の音源を置き換えますか?",
+    replaceBodyWithScore:
+      "新しく取り込むと、現在の音源と楽譜は置き換えられます。続けますか?",
+    replaceBody:
+      "新しく取り込むと、現在の音源は置き換えられます。続けますか?",
+    replaceConfirm: "取り込む",
+    replaceCancel: "キャンセル",
   },
 } as const;
 

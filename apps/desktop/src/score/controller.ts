@@ -28,6 +28,10 @@ export interface ScoreWorkspaceController {
   /** 再生位置追従 on/off (§18 playback setting; off clears any suspension). */
   setFollowEnabled(on: boolean): void;
 
+  // ---- FEAT-001 (#60): score audition ----
+  /** "楽譜を演奏" toggle. When on, the score clock drives WebAudio. */
+  toggleAudition(): void;
+
   // ---- review (§12 minimal: navigate open issues on the score) ----
   openReview(): void;
   reviewNext(): void;
@@ -69,4 +73,6 @@ export interface ScoreWorkspaceState {
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly openIssueCount: number;
+  /** FEAT-001: score audition enabled (drives the transport toggle). */
+  readonly auditionEnabled: boolean;
 }

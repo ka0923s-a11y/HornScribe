@@ -50,6 +50,10 @@ export interface CommandSnapshot {
   /** 要確認 workspace state. */
   readonly reviewOpen: boolean;
   readonly reviewCount: number;
+  /** FEAT-001: a recording session is in progress (loopback/mic). */
+  readonly isRecording: boolean;
+  /** FEAT-001: score audition (auto-playback of the score) is on. */
+  readonly auditionEnabled: boolean;
   /** Active top-level view. */
   readonly view: AppView;
 }
@@ -76,6 +80,20 @@ export interface CommandContext {
   seekToStart(): void;
   seekToEnd(): void;
   toggleLoop(): void;
+  /**
+   * FEAT-001 (#60): PC再生音源/マイク録音と楽譜自動演奏。
+   * Optional so older test contexts keep compiling.
+   */
+  captureSystemAudio?(): void;
+  captureMicrophone?(): void;
+  /** 録音中なら停止して取り込む / 録音していなければ何もしない。 */
+  stopCapture?(): void;
+  /** 録音を中止して破棄する。 */
+  cancelCapture?(): void;
+  /** 楽譜の自動演奏トグル(スコアクロックに同期して発音)。 */
+  toggleScoreAudition?(): void;
+  /** 元音源のミュート切替(#72)。楽譜の演奏だけを聴く用途。 */
+  toggleSourceMute?(): void;
   setPitchView(view: PitchViewSetting): void;
   openReview(): void;
   reviewNext(): void;

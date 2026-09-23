@@ -41,6 +41,9 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.openAudio,
       section: "file",
       shortcuts: ["Ctrl+O"],
+      // 録音中に別の音源を開くと、完了した録音が取り込み先を失って
+      // 黙って上書きする — 録音中は無効化する。
+      isEnabled: (s) => !s.isRecording,
       run: (ctx) => ctx.openAudio(),
     },
 
@@ -50,7 +53,8 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.transcribe,
       section: "score",
       // §5: rewriting the canonical score mid-transcription is forbidden.
-      isEnabled: (s) => s.hasAudio && !s.isTranscribing,
+      // 録音中は音声ソースが確定していないので採譜を始めさせない。
+      isEnabled: (s) => s.hasAudio && !s.isTranscribing && !s.isRecording,
       run: (ctx) => ctx.transcribe(),
     },
     {
@@ -58,7 +62,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.retranscribe,
       section: "score",
       // Same action as 採譜 once a score exists; the command bar relabels.
-      isEnabled: (s) => s.hasScore && !s.isTranscribing,
+      isEnabled: (s) => s.hasScore && !s.isTranscribing && !s.isRecording,
       isVisible: (s) => s.hasScore,
       run: (ctx) => ctx.transcribe(),
     },
@@ -158,6 +162,60 @@ export function createCommandDefinitions(): readonly Command[] {
       shortcuts: ["Ctrl+L"],
       isEnabled: hasAudio,
       run: (ctx) => ctx.toggleLoop(),
+    },
+    {
+      id: "transport.toggleAudition",
+      title: ja.commands.toggleAudition,
+      shortcuts: ["P"],
+      section: "transport",
+      // 楽譜の演奏はスコアがある時だけ意味を持つ。録音中は鳴らさない
+      // (#72): ループバック録音に演奏音が混入する + マイク録音でも
+      // スピーカー音を拾うため。
+      isEnabled: (s) => hasScore(s) && !s.isRecording,
+      run: (ctx) => ctx.toggleScoreAudition?.(),
+    },
+    {
+      id: "transport.toggleSourceMute",
+      title: ja.commands.toggleSourceMute,
+      section: "transport",
+      // #72: 元音源だけをミュートして楽譜の演奏を確認する用途。
+      // ミュートはメディア要素の属性なので録音中でも有効(録音対象の
+      // ループバック音は止まらない)が、混乱を避け録音中も許可する。
+      isEnabled: hasAudio,
+      run: (ctx) => ctx.toggleSourceMute?.(),
+    },
+
+    // ---- capture (FEAT-001 #60) ----
+    {
+      id: "media.captureSystemAudio",
+      title: ja.commands.captureSystemAudio,
+      section: "file",
+      // 録音は audio 無しでも始められる(結果が新しい audio になる)。
+      isEnabled: (s) => !s.isTranscribing && !s.isRecording,
+      run: (ctx) => ctx.captureSystemAudio?.(),
+    },
+    {
+      id: "media.captureMicrophone",
+      title: ja.commands.captureMicrophone,
+      section: "file",
+      isEnabled: (s) => !s.isTranscribing && !s.isRecording,
+      run: (ctx) => ctx.captureMicrophone?.(),
+    },
+    {
+      id: "media.stopCapture",
+      title: ja.commands.stopCapture,
+      section: "file",
+      isEnabled: (s) => s.isRecording,
+      isVisible: (s) => s.isRecording,
+      run: (ctx) => ctx.stopCapture?.(),
+    },
+    {
+      id: "media.cancelCapture",
+      title: ja.commands.cancelCapture,
+      section: "file",
+      isEnabled: (s) => s.isRecording,
+      isVisible: (s) => s.isRecording,
+      run: (ctx) => ctx.cancelCapture?.(),
     },
 
     // ---- view (§7: explicit pair, not a toggle) ----

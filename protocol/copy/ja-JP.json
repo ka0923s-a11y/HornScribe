@@ -37,6 +37,8 @@
     "file": {
       "label": "ファイル",
       "openAudio": "音声ファイルを開く",
+      "captureSystemAudio": "PCの音を取り込む",
+      "captureMicrophone": "マイクで録音",
       "openProject": "プロジェクトを開く",
       "recentProjects": "最近使ったプロジェクト",
       "saveProject": "プロジェクトを保存",
@@ -112,7 +114,9 @@
     "toStart": "先頭へ（Home）",
     "toEnd": "末尾へ（End）",
     "loop": "ループを切り替える（Ctrl+L）",
-    "follow": "再生位置を追従",
+    "toggleAudition": "楽譜を演奏",
+    "toggleSourceMute": "元音源のミュート",
+      "follow": "再生位置を追従",
     "scoreZoomIn": "楽譜を拡大（Ctrl++）",
     "scoreZoomOut": "楽譜を縮小（Ctrl+-）",
     "scoreFitWidth": "楽譜を画面幅に合わせる（Ctrl+0）",
@@ -145,7 +149,9 @@
     "timeDisplayAria": "現在位置と総時間",
     "playSelection": "選択範囲を再生",
     "zoomToSelection": "選択範囲へズーム",
-    "setLoopToSelection": "選択範囲をループ"
+    "setLoopToSelection": "選択範囲をループ",
+    "muteSource": "元音源をミュート",
+    "unmuteSource": "元音源のミュートを解除"
   },
   "waveform": {
     "regionAria": "波形",
@@ -718,5 +724,16 @@
     "reviewMarker": "要確認箇所",
     "rangeSelectionStart": "選択範囲の開始",
     "rangeSelectionEnd": "選択範囲の終了"
+  },
+  "capture": {
+    "loopbackDeviceLabel": "出力先(PCの音)",
+    "microphoneDeviceLabel": "マイク",
+    "defaultDevice": "既定のデバイス",
+    "noDevices": "利用できるデバイスがありません",
+    "replaceTitle": "現在の音源を置き換えますか?",
+    "replaceBodyWithScore": "新しく取り込むと、現在の音源と楽譜は置き換えられます。続けますか?",
+    "replaceBody": "新しく取り込むと、現在の音源は置き換えられます。続けますか?",
+    "replaceConfirm": "取り込む",
+    "replaceCancel": "キャンセル"
   }
 }

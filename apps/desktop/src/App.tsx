@@ -55,6 +55,9 @@ import { createImportPorts } from "./import/runtimePorts";
 import { issueCopy, type ImportView } from "./import/ImportStates";
 import { listenNativeDrop } from "./import/nativeDrop";
 import { baseName } from "./import/formats";
+import { CaptureController, type CaptureState } from "./capture/controller";
+import { createCapturePort } from "./capture/runtimePorts";
+import type { CaptureDeviceList, CaptureSource } from "./capture/types";
 import {
   MediaElementTransport,
   SUPPORTED_RATES,
@@ -270,6 +273,15 @@ export default function App() {
   const [nativeDrag, setNativeDrag] = useState(false);
   const [transcriptionOptions, setTranscriptionOptions] =
     useState<TranscriptionOptions>(DEFAULT_TRANSCRIPTION_OPTIONS);
+  // FEAT-001 (#60): capture session state (loopback / microphone).
+  const [captureState, setCaptureState] =
+    useState<CaptureState | null>(null);
+  // #76: 録音開始前の「現在の音源を置き換える」確認ダイアログ。
+  const [pendingCapture, setPendingCapture] =
+    useState<CaptureSource | null>(null);
+  // #73: 取り込みデバイス選択(capture_devices の結果)。
+  const [captureDevices, setCaptureDevices] =
+    useState<CaptureDeviceList | null>(null);
 
   const importer = useMemo(
     () =>
@@ -291,6 +303,75 @@ export default function App() {
       ),
     [transport],
   );
+
+  // FEAT-001: the capture controller pushes recorded audio straight into
+  // the import flow — a finished take lands as AUDIO_READY exactly like a
+  // picked file (single-document app: the new source replaces the old).
+  const capture = useMemo(
+    () =>
+      new CaptureController(createCapturePort(), {
+        onState: (s) => setCaptureState(s),
+        announce: setStatusMessage,
+        onCaptureComplete: ({ path, bytes, fileName, source, mimeType }) => {
+          // Tauri: 録音は appDataDir/recordings/ に保存済み(#70)なので
+          // path を渡し、import 側で読み直す。ブラウザ dev 等で path が
+          // 無い場合は bytes → Blob を渡す。
+          const blob = bytes
+            ? new Blob(
+                [
+                  new Uint8Array(
+                    new Uint8Array(
+                      bytes.buffer,
+                      bytes.byteOffset,
+                      bytes.byteLength,
+                    ),
+                  ),
+                ],
+                { type: mimeType ?? "audio/wav" },
+              )
+            : undefined;
+          void importer.importRecording({
+            kind: "recording",
+            name: fileName,
+            source,
+            path,
+            blob,
+          });
+        },
+      }),
+    [importer],
+  );
+  useEffect(() => () => capture.dispose(), [capture]);
+
+  // #73: デバイス一覧はメニューを開く度に取り直す(抜き差しに追従)。
+  const refreshCaptureDevices = useCallback(() => {
+    void capture
+      .listDevices()
+      .then(setCaptureDevices)
+      .catch(() => setCaptureDevices(null));
+  }, [capture]);
+
+  // #76: 録音は現在の音源(と楽譜)を置き換える単一ドキュメントのため、
+  // 既に音源がある時は開始前に確認する。録音中に演奏が鳴っていると
+  // ループバック/マイクに混入するので、開始時に audition は切る。
+  const requestCapture = useCallback(
+    (source: CaptureSource) => {
+      if (importState.audio || scoreDocument) {
+        setPendingCapture(source);
+        return;
+      }
+      if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
+      void capture.start(source);
+    },
+    [capture, importState.audio, scoreDocument, scoreState?.auditionEnabled],
+  );
+  const confirmCapture = useCallback(() => {
+    const source = pendingCapture;
+    setPendingCapture(null);
+    if (!source) return;
+    if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
+    void capture.start(source);
+  }, [capture, pendingCapture, scoreState?.auditionEnabled]);
 
   const regions = regionVisibility(screen);
 
@@ -342,8 +423,11 @@ export default function App() {
       reviewOpen: scoreState?.reviewOpen ?? screen === "reviewing",
       reviewCount,
       view,
+      // FEAT-001: recording + audition gates for the command registry.
+      isRecording: captureState?.phase === "recording",
+      auditionEnabled: scoreState?.auditionEnabled ?? false,
     }),
-    [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view],
+    [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view, captureState],
   );
 
   // Whether the media transport carries a loaded source — then it is the
@@ -457,6 +541,32 @@ export default function App() {
         if (c) c.toggleLoop();
         else setStatusMessage(ja.commandFeedback.notImplemented);
       },
+      // FEAT-001: capture + score audition commands.
+      captureSystemAudio: () => {
+        requestCapture("loopback");
+      },
+      captureMicrophone: () => {
+        requestCapture("microphone");
+      },
+      stopCapture: () => {
+        void capture.stop();
+      },
+      cancelCapture: () => {
+        void capture.cancel();
+      },
+      toggleScoreAudition: () => {
+        const c = scoreCtlRef.current;
+        if (c) c.toggleAudition();
+        else setStatusMessage(ja.commandFeedback.notImplemented);
+      },
+      toggleSourceMute: () => {
+        transport.setMuted(!(transportSnap?.muted ?? false));
+        setStatusMessage(
+          transportSnap?.muted
+            ? ja.commandFeedback.unmutedSource
+            : ja.commandFeedback.mutedSource,
+        );
+      },
       setPitchView: (v) => {
         setPitch(v);
         setStatusMessage(
@@ -513,7 +623,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session],
+    [importer, transport, seekBy, session, capture, requestCapture, transportSnap],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -711,8 +821,13 @@ export default function App() {
       onPickRelink: () => void importer.pickRelinkSource(),
       onDismissError: () => importer.dismiss(),
       onOptionsChange: setTranscriptionOptions,
+      // FEAT-001: EMPTY state capture entry points.
+      captureState,
+      onStartCapture: (source) => {
+        requestCapture(source);
+      },
     }),
-    [importState, recentProjects, transcriptionOptions, importer],
+    [importState, recentProjects, transcriptionOptions, importer, captureState, requestCapture],
   );
 
   const theme = resolved === "dark" ? hsDarkTheme : hsLightTheme;
@@ -760,6 +875,18 @@ export default function App() {
                 onToggleProperties={() =>
                   layout.setPropertiesOpen(!layout.propertiesOpen)
                 }
+                captureState={captureState}
+                captureDevices={captureDevices}
+                captureSelectedDevice={(source) =>
+                  capture.selectedDeviceId(source)
+                }
+                onSelectCaptureDevice={(source, id) => {
+                  capture.selectDevice(source, id);
+                  // 選択は localStorage 側に持つので React state は
+                  // 変わらない — ✓ を即座に反映するため再描画を起こす。
+                  setCaptureDevices((d) => (d ? { ...d } : d));
+                }}
+                onCaptureMenuOpen={refreshCaptureDevices}
               />
               {regions.waveform ? (
                 <WaveformView
@@ -774,6 +901,7 @@ export default function App() {
                   onSeek={(s) => {
                     void transport.seek(s).catch(() => undefined);
                   }}
+                  captureState={captureState}
                 />
               ) : null}
               <div className="hs-main">
@@ -782,13 +910,17 @@ export default function App() {
                   importView={importView}
                   externalDragActive={nativeDrag}
                   onDropFiles={(files) =>
-                    void importer.importRefs(
-                      files.map<AudioFileRef>((file) => ({
-                        kind: "file",
-                        file,
-                        name: file.name,
-                      })),
-                    )
+                    // 録音中のドロップは取り込み済み録音を黙って上書きする
+                    // ので受け付けない(file.openAudio と同じゲート)。
+                    captureState?.phase === "recording"
+                      ? undefined
+                      : void importer.importRefs(
+                          files.map<AudioFileRef>((file) => ({
+                            kind: "file",
+                            file,
+                            name: file.name,
+                          })),
+                        )
                   }
                   onTranscribe={transcribeClicked}
                   transcribingBody={
@@ -886,6 +1018,7 @@ export default function App() {
                           positionSec: transportSnap.time,
                           durationSec: transportSnap.duration,
                           rate: transportSnap.rate,
+                          muted: transportSnap.muted,
                         }
                       : undefined
                   }
@@ -910,6 +1043,7 @@ export default function App() {
                     if (scoreState?.followSuspended) c.resumeFollow();
                     else c.setFollowEnabled(!(scoreState?.followEnabled ?? true));
                   }}
+                  auditionEnabled={scoreState?.auditionEnabled}
                 />
               ) : null}
             </>
@@ -921,6 +1055,35 @@ export default function App() {
           />
           {/* Re-import failure over a live workspace (§20): the audio session
               is kept, the failure surfaces as a dialog — never a dead end. */}
+          {/* #76: 録音は現在の音源(と楽譜)を置き換えるため、開始前に確認。
+              alert 型 = 破壊的操作の確認(JAPANESE_UI_COPY §8)。 */}
+          <HsDialog
+            open={pendingCapture !== null}
+            modalType="alert"
+            title={ja.capture.replaceTitle}
+            onOpenChange={(open) => {
+              if (!open) setPendingCapture(null);
+            }}
+            actions={
+              <>
+                <HsButton variant="danger" onClick={confirmCapture}>
+                  {ja.capture.replaceConfirm}
+                </HsButton>
+                <HsButton
+                  variant="secondary"
+                  onClick={() => setPendingCapture(null)}
+                >
+                  {ja.capture.replaceCancel}
+                </HsButton>
+              </>
+            }
+          >
+            <p style={{ margin: 0 }}>
+              {scoreDocument
+                ? ja.capture.replaceBodyWithScore
+                : ja.capture.replaceBody}
+            </p>
+          </HsDialog>
           {importState.audio && importState.issue
             ? (() => {
                 const copy = issueCopy(importState.issue);
