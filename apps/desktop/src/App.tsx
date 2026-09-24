@@ -409,6 +409,22 @@ export default function App() {
     [transport],
   );
 
+  // #128 (§26 last project): on launch, reopen the project at the top
+  // of the MRU — the same entry the 最近のプロジェクト list shows
+  // first. Runs once on the initial empty screen; browser dev has no
+  // durable project paths so it skips quietly there.
+  const restoredProjectRef = useRef(false);
+  useEffect(() => {
+    if (restoredProjectRef.current) return;
+    restoredProjectRef.current = true;
+    if (!isTauriRuntime()) return;
+    if (screen !== "empty") return;
+    const last = recentProjects[0];
+    if (!last?.path) return;
+    void importer.openProject(last);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- launch-only restore
+  }, []);
+
   // FEAT-001: the capture controller pushes recorded audio straight into
   // the import flow — a finished take lands as AUDIO_READY exactly like a
   // picked file (single-document app: the new source replaces the old).

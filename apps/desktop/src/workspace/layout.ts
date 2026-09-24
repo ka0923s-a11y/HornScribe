@@ -88,6 +88,8 @@ interface PersistedLayout {
   /** §26 session restore: last score zoom (%) and view mode. */
   scoreZoomPct?: number;
   scoreViewMode?: "continuous" | "page";
+  /** §26: per-source waveform zoom windows, keyed by clip identity. */
+  waveformViews?: Record<string, { startSec: number; endSec: number }>;
 }
 
 function loadLayout(): PersistedLayout {
@@ -138,6 +140,67 @@ export function writeScoreSessionView(patch: {
   const next = { ...loadLayout() };
   if (patch.zoomPct !== undefined) next.scoreZoomPct = patch.zoomPct;
   if (patch.viewMode !== undefined) next.scoreViewMode = patch.viewMode;
+  saveLayout(next);
+}
+
+/* §26 waveform zoom: the view window is per-source — reopening the same
+ * clip restores where the user was looking, a different clip starts
+ * full. Identity is fileName + duration (what the audio payload carries);
+ * entries are capped LRU-ish so a busy library cannot grow the record. */
+const MAX_WAVEFORM_VIEWS = 16;
+
+function waveformViewKey(fileName: string, durationSec: number): string {
+  return fileName + "|" + durationSec.toFixed(3);
+}
+
+export function readWaveformView(
+  fileName: string,
+  durationSec: number,
+): { startSec: number; endSec: number } | null {
+  const stored = loadLayout().waveformViews?.[
+    waveformViewKey(fileName, durationSec)
+  ];
+  if (
+    !stored ||
+    !Number.isFinite(stored.startSec) ||
+    !Number.isFinite(stored.endSec) ||
+    stored.endSec <= stored.startSec ||
+    stored.startSec < 0 ||
+    stored.startSec >= durationSec
+  ) {
+    return null;
+  }
+  return {
+    startSec: stored.startSec,
+    endSec: Math.min(stored.endSec, durationSec),
+  };
+}
+
+export function writeWaveformView(
+  fileName: string,
+  durationSec: number,
+  view: { startSec: number; endSec: number } | null,
+): void {
+  const next = { ...loadLayout() };
+  const views = { ...(next.waveformViews ?? {}) };
+  const key = waveformViewKey(fileName, durationSec);
+  if (view === null) {
+    delete views[key];
+  } else {
+    // Delete-then-set moves an existing key to the end so the cap
+    // evicts the least-recently-touched clip, not a hot one.
+    delete views[key];
+    views[key] = { startSec: view.startSec, endSec: view.endSec };
+    // Evict the oldest entries past the cap (insertion order — the
+    // just-written key is last, so the front is the stalest).
+    const keys = Object.keys(views);
+    if (keys.length > MAX_WAVEFORM_VIEWS) {
+      for (const stale of keys.slice(0, keys.length - MAX_WAVEFORM_VIEWS)) {
+        delete views[stale];
+      }
+    }
+  }
+  next.waveformViews = views;
   saveLayout(next);
 }
 

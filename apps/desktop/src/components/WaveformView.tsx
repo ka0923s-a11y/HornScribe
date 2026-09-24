@@ -8,7 +8,12 @@ import {
   ZoomFit24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
-import { resizeKeyDelta, startPointerResize } from "../workspace/layout";
+import {
+  readWaveformView,
+  resizeKeyDelta,
+  startPointerResize,
+  writeWaveformView,
+} from "../workspace/layout";
 import type { LoadedAudio } from "../import/types";
 import type { CaptureState } from "../capture/controller";
 import { formatTimecode } from "../import/format";
@@ -164,8 +169,31 @@ export function WaveformView({
   const audioRef = useRef(audio);
   if (audioRef.current !== audio) {
     audioRef.current = audio;
-    setView(fullView(duration));
+    // §26 session restore: reopening the same clip brings back the
+    // zoomed window the user left; a different clip starts full.
+    const restored =
+      audio != null
+        ? readWaveformView(audio.fileName, audio.durationSeconds)
+        : null;
+    setView(restored ?? fullView(duration));
   }
+
+  // Persist the zoom window per source (debounced — wheel zooms fire in
+  // bursts). A full view clears the stored entry so a re-open starts
+  // full instead of restoring a stale window.
+  useEffect(() => {
+    if (audio == null || duration <= 0) return;
+    const fileName = audio.fileName;
+    const durationSeconds = audio.durationSeconds;
+    const timer = window.setTimeout(() => {
+      writeWaveformView(
+        fileName,
+        durationSeconds,
+        isFullView(view, durationSeconds) ? null : view,
+      );
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [audio, view, duration]);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef(view);
