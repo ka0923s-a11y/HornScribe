@@ -26,6 +26,7 @@ import { ExportDialog } from "./export/ExportDialog";
 import { DiagnosticsSheet } from "./diagnostics/DiagnosticsSheet";
 import { createDefaultExportPort } from "./export/port";
 import type { ExportSource } from "./export/tauriPort";
+import { exportErrorCode } from "./export/types";
 import { createDefaultDiagnosticsPort } from "./diagnostics/port";
 import { useAppSettings, type SettingsCategory } from "./settings/store";
 import type { PitchView } from "./components/PitchSegmented";
@@ -819,6 +820,22 @@ export default function App() {
         else setStatusMessage(ja.commandFeedback.nothingToRedo);
       },
       openExport: () => setExportOpen(true),
+      // §13 高度編集: open the live score (current pitch view, edits
+      // included) in the MuseScore GUI. The port resolves the detected/
+      // user-pinned executable; missing MuseScore announces the 設定 →
+      // ツール recovery path instead of a dead menu item.
+      openInMuseScore: () => {
+        void exportPort
+          .openInMuseScore?.(pitch, toolOverrides)
+          .then(() => setStatusMessage(ja.commandFeedback.museScoreOpened))
+          .catch((err: unknown) =>
+            setStatusMessage(
+              exportErrorCode(err) === "MUSESCORE_UNAVAILABLE"
+                ? ja.commandFeedback.museScoreMissing
+                : ja.commandFeedback.museScoreFailed,
+            ),
+          );
+      },
       // #100: プロジェクトを保存 — pick a path (Tauri) then hand the
       // schema-v1 document to the engine's project.save. In a plain
       // browser there is no save picker, so the command announces the
@@ -867,7 +884,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions, settings.skipSeconds, settings.backend, saveProjectFlow],
+    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions, settings.skipSeconds, settings.backend, saveProjectFlow, pitch, toolOverrides, exportPort],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see

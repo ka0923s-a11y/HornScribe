@@ -374,6 +374,53 @@ pub fn render_pdf(
     }
 }
 
+/// `open_in_musescore`: stage the score as a temp MusicXML and launch the
+/// MuseScore GUI on it (spec 13: 高度編集 → MuseScoreで開く). Unlike
+/// `render_pdf` the process is not awaited — the user keeps working in
+/// MuseScore — so the staged file is left for the OS temp cleaner.
+/// A millisecond suffix keeps successive opens (edited score re-opens)
+/// from overwriting a file the GUI may still hold.
+#[tauri::command]
+pub fn open_in_musescore(
+    musescore_path: String,
+    music_xml: String,
+    basename: String,
+) -> Result<String, String> {
+    let exe = PathBuf::from(&musescore_path);
+    if !exe.is_file() {
+        return Err("MUSESCORE_UNAVAILABLE".to_string());
+    }
+    let stem_raw: String = basename
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let stem: &str = if stem_raw.is_empty() { "score" } else { &stem_raw };
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let staging = std::env::temp_dir().join(format!(
+        "hornscribe-open-{}-{}.musicxml",
+        stem,
+        millis
+    ));
+    std::fs::write(&staging, music_xml.as_bytes())
+        .map_err(|e| format!("stage {}: {e}", staging.display()))?;
+    std::process::Command::new(&exe)
+        .arg(&staging)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("spawn {}: {e}", exe.display()))?;
+    Ok(staging.to_string_lossy().into_owned())
+}
+
 /// Minimal RFC 4648 decoder — avoids a base64 dependency for a
 /// few-hundred-KB worst-case payload.
 fn decode_base64(input: &str) -> Result<Vec<u8>, String> {

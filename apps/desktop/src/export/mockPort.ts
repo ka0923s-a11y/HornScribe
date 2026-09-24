@@ -170,4 +170,21 @@ export class MockExportPort implements ExportPort {
     // No OS bridge in a browser — honest false; the dialog announces it.
     return false;
   }
+
+  /** §13 高度編集: the mock honours the same MuseScore-missing dev flag
+   *  so the recovery announce is reviewable in `vite dev`; otherwise it
+   *  resolves a fake staged path (no GUI exists in a browser). */
+  async openInMuseScore(): Promise<string> {
+    await this.delay();
+    const missing =
+      this.options.museScore != null &&
+      this.options.museScore.status !== "found";
+    if (missing) {
+      throw new ExportError(
+        "MUSESCORE_UNAVAILABLE",
+        "MuseScore not found (mock)",
+      );
+    }
+    return "C:\\Temp\\hornscribe-open-mock.musicxml";
+  }
 }

@@ -258,4 +258,34 @@ export class TauriExportPort implements ExportPort {
       return false;
     }
   }
+
+  /** §13 高度編集: hand the live score to the MuseScore GUI. The view
+   *  argument picks concert vs F管 written pitch — the same document the
+   *  user is looking at, edits included. */
+  async openInMuseScore(
+    view: "concert" | "hornF",
+    overrides?: ToolPathOverrides,
+  ): Promise<string> {
+    const source = this.source();
+    if (!source?.doc) {
+      throw new ExportError("EXPORT_FAILED", "no score document to open");
+    }
+    const caps = await this.capabilities(overrides ?? this.overrides);
+    const exe = caps.museScore.status === "found" ? caps.museScore.path : null;
+    if (!exe) {
+      throw new ExportError(
+        "MUSESCORE_UNAVAILABLE",
+        "MuseScore not found; set its path in 設定 → ツール",
+      );
+    }
+    try {
+      return await invoke<string>("open_in_musescore", {
+        musescorePath: exe,
+        musicXml: source.doc.musicXml(view),
+        basename: source.basename || source.doc.meta.title,
+      });
+    } catch (err) {
+      throw mapInvokeError(err);
+    }
+  }
 }

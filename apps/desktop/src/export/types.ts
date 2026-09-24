@@ -169,4 +169,16 @@ export interface ExportPort {
    * the failure instead of pretending.
    */
   revealInExplorer(path: string): Promise<boolean>;
+  /**
+   * §13 高度編集: open the live score (user edits included) in the
+   * MuseScore GUI — stages the current view's MusicXML to a temp file
+   * and launches the detected/user-pinned executable. Resolves the
+   * staged path; rejects with ExportError(MUSESCORE_UNAVAILABLE) when
+   * no MuseScore is usable. Optional so browser/mock ports and leaner
+   * test doubles keep compiling — an absent implementation is a no-op.
+   */
+  openInMuseScore?(
+    view: "concert" | "hornF",
+    overrides?: ToolPathOverrides,
+  ): Promise<string>;
 }

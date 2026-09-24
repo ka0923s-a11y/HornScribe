@@ -122,6 +122,10 @@ export interface CommandContext {
   undo(): void;
   redo(): void;
   openExport(): void;
+  /** §13 高度編集: open the live score in the MuseScore GUI (async —
+   *  the implementation announces success/failure itself). Optional:
+   *  absent = no-op. */
+  openInMuseScore?(): void;
   /** #100: プロジェクトを保存 — opens the save-file picker and writes
    *  .hornscribe.json through the engine. Optional like the other
    *  late-binding commands; absent = no-op. */

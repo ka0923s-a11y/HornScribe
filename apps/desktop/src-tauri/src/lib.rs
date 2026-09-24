@@ -133,6 +133,7 @@ pub fn run() {
             export::reveal_in_explorer,
             export::render_pdf,
             export::project_save_path,
+            export::open_in_musescore,
         ])
         .build(tauri::generate_context!())
         .expect("error while building HornScribe shell")

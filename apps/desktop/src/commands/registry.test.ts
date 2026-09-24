@@ -67,6 +67,7 @@ function mockContext(): CommandContext & { calls: string[] } {
     undo: spy("undo"),
     redo: spy("redo"),
     openExport: spy("openExport"),
+    openInMuseScore: spy("openInMuseScore"),
     zoomScoreIn: spy("zoomScoreIn"),
     zoomScoreOut: spy("zoomScoreOut"),
     zoomScoreFit: spy("zoomScoreFit"),
@@ -107,6 +108,7 @@ describe("command definitions", () => {
       "edit.undo",
       "edit.redo",
       "export.open",
+      "export.openInMuseScore",
       "score.zoomIn",
       "score.zoomOut",
       "score.zoomFit",
@@ -270,6 +272,7 @@ describe("invoke", () => {
       ["transport.toggleLoop", "toggleLoop"],
       ["edit.undo", "undo"],
       ["export.open", "openExport"],
+      ["export.openInMuseScore", "openInMuseScore"],
       ["review.next", null], // needs reviewOpen — stays disabled
     ] as const) {
       const ran = registry.invoke(id, ctx, SNAPSHOT_SCORE);

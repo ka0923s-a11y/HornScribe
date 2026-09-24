@@ -8,6 +8,7 @@ import {
   MoreHorizontal24Regular,
   PanelRight24Regular,
   Wrench24Regular,
+  Open24Regular,
   Mic24Regular,
   Speaker2Regular,
   Stop24Regular,
@@ -125,6 +126,18 @@ export function CommandBar({
       label: propertiesOpen ? ja.properties.close : ja.properties.show,
       icon: <PanelRight24Regular />,
     },
+    // §13 高度編集: hand the live score to MuseScore (score only — the
+    // item hides on import screens like the 書き出し button does).
+    ...(hasScore
+      ? [
+          {
+            key: "musescore",
+            label: commands.title("export.openInMuseScore"),
+            icon: <Open24Regular />,
+            disabled: !commands.isEnabled("export.openInMuseScore"),
+          } satisfies HsMenuItem,
+        ]
+      : []),
     { key: "overflow-divider", divider: true },
     // §16: diagnostics lives in the overflow, never on the command bar.
     {
@@ -365,6 +378,8 @@ export function CommandBar({
         onSelect={(key) => {
           if (key === "settings") commands.invoke("app.settings");
           else if (key === "properties") onToggleProperties();
+          else if (key === "musescore")
+            commands.invoke("export.openInMuseScore");
           else if (key === "diagnostics") commands.invoke("app.diagnostics");
         }}
       />

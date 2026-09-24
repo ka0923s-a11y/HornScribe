@@ -453,6 +453,14 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: hasScore,
       run: (ctx) => ctx.openExport(),
     },
+    {
+      id: "export.openInMuseScore",
+      title: ja.commands.openInMuseScore,
+      section: "export",
+      // No shortcut: an app-launch action stays menu-only (§13).
+      isEnabled: hasScore,
+      run: (ctx) => ctx.openInMuseScore?.(),
+    },
 
     // ---- project save (#100) ----
     {

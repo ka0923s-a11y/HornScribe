@@ -420,6 +420,7 @@ export const ja = {
     undo: "元に戻す",
     redo: "やり直し",
     export: "書き出し",
+    openInMuseScore: "MuseScoreで開く",
     zoomScoreIn: "楽譜を拡大",
     zoomScoreOut: "楽譜を縮小",
     zoomScoreFit: "楽譜を幅に合わせる",
@@ -465,6 +466,10 @@ export const ja = {
     disabled: "この操作は現在実行できません",
     nothingToUndo: "元に戻す操作はありません",
     nothingToRedo: "やり直す操作はありません",
+    museScoreOpened: "MuseScoreで開きました",
+    museScoreMissing:
+      "MuseScoreが見つかりません。設定 → ツールで場所を指定してください",
+    museScoreFailed: "MuseScoreで開けませんでした",
     // #113: media A-B loop arming (transport.toggleLoop on AUDIO_READY).
     loopOn: "ループをオンにしました",
     loopOff: "ループをオフにしました",
