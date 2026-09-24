@@ -134,6 +134,15 @@ export class ScoreRenderer {
     return this.tk().getPageCount();
   }
 
+  /** Render one page (1-based). #247: page mode renders only the
+   *  visible page — a long score's untouched pages never hit
+   *  renderToSVG on load, zoom, or the Concert↔F管 switch. */
+  renderPage(page: number): string {
+    const svg = this.tk().renderToSVG(page);
+    renderStats.renderToSVGCalls += 1;
+    return svg;
+  }
+
   /** Render every page; page index is 1-based like `renderToSVG`.
    *  Page 1 is rendered first so the layout (and therefore `getPageCount`)
    *  reflects the current options before counting. */

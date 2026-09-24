@@ -271,6 +271,11 @@ export function ScoreReadyWorkspace({
   const tableRef = useRef<PlaybackTable | null>(null);
 
   const [pages, setPages] = useState<RenderedPage[]>([]);
+  /** #247: total page count for the current render config — kept
+   *  separate from `pages`, which in page mode only ever holds the
+   *  lazily rendered visible page. */
+  const [pageCount, setPageCount] = useState(0);
+  const pageCountRef = useRef(0);
   /* §26: restore the previous session's score view (zoom + mode); the
    * settings "initial view" only applies when no session state exists. */
   const sessionViewRef = useRef(readScoreSessionView());
@@ -326,6 +331,15 @@ export function ScoreReadyWorkspace({
    *  `pitch` prop to detect a real view switch (the prop ref alone is
    *  updated every render and would mask the change). */
   const renderedPitchRef = useRef<PitchViewSetting | null>(null);
+  /** #247: per-render-config page SVG cache (page mode). Keyed by
+   *  page number; a fresh Map per renderScore call invalidates it on
+   *  any XML/pitch/zoom/mode change, and the key is only trusted
+   *  because renderScore re-loads the toolkit first. */
+  const pageCacheRef = useRef<Map<number, string> | null>(null);
+  /** #247: the page number currently published in `pages` (page
+   *  mode) — lets ensurePage skip redundant setPages on cache hits
+   *  while still swapping the DOM when a prefetched page is visited. */
+  const shownPageRef = useRef(0);
   const reviewIndexRef = useRef(0);
   const reviewOpenRef = useRef(false);
   const pendingScrollRef = useRef<{ ratio: number } | null>(null);
@@ -409,6 +423,7 @@ export function ScoreReadyWorkspace({
   zoomRef.current = zoom;
   viewModeRef.current = viewMode;
   currentPageRef.current = currentPage;
+  pageCountRef.current = pageCount;
   pitchRef.current = pitch;
   reviewIndexRef.current = reviewIndex;
   reviewOpenRef.current = reviewOpen;
@@ -471,6 +486,57 @@ export function ScoreReadyWorkspace({
 
   /* ------------------------------ rendering ------------------------------ */
 
+  /** #247: render a page into the current cache + state if it is not
+   *  there yet. No-op outside page mode or before the first
+   *  renderScore populated the cache. */
+  const ensurePage = useCallback(
+    (page: number) => {
+      const r = rendererRef.current;
+      const cache = pageCacheRef.current;
+      if (!r || !cache || viewModeRef.current !== "page") return;
+      // Verovio answers out-of-range pages with an empty stub SVG —
+      // never let a prefetch past the last page pollute the cache.
+      if (page < 1 || page > pageCountRef.current) return;
+      if (!cache.has(page)) {
+        try {
+          cache.set(page, r.renderPage(page));
+        } catch {
+          return;
+        }
+      }
+      // Only swap the DOM when the page the user is looking at just
+      // resolved — prefetch fills the cache without touching `pages`.
+      // The cache-hit path still must publish the page: navigating to
+      // a prefetched neighbour would otherwise leave the old page
+      // on screen.
+      if (
+        page === currentPageRef.current &&
+        shownPageRef.current !== page
+      ) {
+        shownPageRef.current = page;
+        setPages([{ page, svg: cache.get(page)! }]);
+      }
+    },
+    [],
+  );
+
+  /** #247: idle prefetch of the neighbouring pages so the next/prev
+   *  pager step is instant without eager-rendering the whole score. */
+  const schedulePagePrefetch = useCallback(
+    (center: number) => {
+      const run = () => {
+        ensurePage(center - 1);
+        ensurePage(center + 1);
+      };
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(run, { timeout: 2000 });
+      } else {
+        setTimeout(run, 0);
+      }
+    },
+    [ensurePage],
+  );
+
   /** (Re)load + re-render the current presentation. Preserves the viewport
    *  ratio so the Concert↔F管 switch keeps an equivalent scroll position. */
   const renderScore = useCallback(
@@ -497,16 +563,54 @@ export function ScoreReadyWorkspace({
           throw new Error("score load produced no content");
         }
         renderedPitchRef.current = view;
-        setPages(r.renderAllPages());
+        if (viewModeRef.current === "page") {
+          // #247: page mode renders only the visible page. The layout
+          // pass happens on load, so getPageCount is already correct;
+          // the clamped single renderToSVG replaces the old
+          // render-every-page-then-show-one path.
+          const cache = new Map<number, string>();
+          pageCacheRef.current = cache;
+          let count = r.pageCount();
+          const target = Math.min(
+            Math.max(1, currentPageRef.current),
+            Math.max(1, count),
+          );
+          cache.set(target, r.renderPage(target));
+          const recount = r.pageCount();
+          if (recount !== count) {
+            count = recount;
+            const retarget = Math.min(target, Math.max(1, count));
+            if (!cache.has(retarget)) {
+              cache.set(retarget, r.renderPage(retarget));
+            }
+          }
+          const shown = Math.min(target, Math.max(1, count));
+          if (shown !== currentPageRef.current) setCurrentPage(shown);
+          shownPageRef.current = shown;
+          pageCountRef.current = count;
+          setPageCount(count);
+          setPages([{ page: shown, svg: cache.get(shown)! }]);
+          schedulePagePrefetch(shown);
+        } else {
+          pageCacheRef.current = null;
+          shownPageRef.current = 0;
+          const all = r.renderAllPages();
+          pageCountRef.current = all.length;
+          setPageCount(all.length);
+          setPages(all);
+        }
         setRenderError(false);
         setLoading(false);
       } catch {
         setPages([]);
+        pageCountRef.current = 0;
+        setPageCount(0);
+        shownPageRef.current = 0;
         setRenderError(true);
         setLoading(false);
       }
     },
-    [scoreDoc],
+    [scoreDoc, schedulePagePrefetch],
   );
 
   /** After every (re)render of the SVG: rebuild the element index and
@@ -541,9 +645,9 @@ export function ScoreReadyWorkspace({
     // (zoom / view switch can change the page count).
     if (
       viewModeRef.current === "page" &&
-      currentPageRef.current > pages.length
+      currentPageRef.current > pageCount
     ) {
-      setCurrentPage(pages.length);
+      setCurrentPage(pageCount);
     }
 
     // Equivalent viewport position (issue §Context preservation): a
@@ -565,7 +669,7 @@ export function ScoreReadyWorkspace({
     // index must be rebuilt or marks would land on detached nodes.
     // docVersion re-applies review marks after a decision resolves an issue
     // without re-rendering the SVG.
-  }, [pages, scoreDoc, viewMode, currentPage, docVersion]);
+  }, [pages, pageCount, scoreDoc, viewMode, currentPage, docVersion]);
 
   /* ------------------------------ init ----------------------------------- */
 
@@ -1753,6 +1857,15 @@ const setKey = useCallback(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
+  // #247: page navigation lazily renders the target page (cache hit
+  // for prefetched neighbours, one renderToSVG otherwise), then
+  // queues the next pair of neighbours for idle prefetch.
+  useEffect(() => {
+    if (viewMode !== "page" || loading) return;
+    ensurePage(currentPage);
+    schedulePagePrefetch(currentPage);
+  }, [viewMode, currentPage, loading, ensurePage, schedulePagePrefetch]);
+
   /* ------------------------------- render -------------------------------- */
 
   const visiblePages =
@@ -1784,7 +1897,7 @@ const setKey = useCallback(
           onChange={(v) => changeViewMode(v)}
           ariaLabel={s.viewModeLabel}
         />
-        {viewMode === "page" && pages.length > 1 && (
+        {viewMode === "page" && pageCount > 1 && (
           <span className="hs-score-toolbar__pages">
             <HsButton
               size="small"
@@ -1794,14 +1907,14 @@ const setKey = useCallback(
               {s.prevPage}
             </HsButton>
             <span aria-live="polite">
-              {s.pagePosition(currentPage, pages.length)}
+              {s.pagePosition(currentPage, pageCount)}
             </span>
             <HsButton
               size="small"
               onClick={() =>
-                setCurrentPage((p) => Math.min(pages.length, p + 1))
+                setCurrentPage((p) => Math.min(pageCount, p + 1))
               }
-              disabled={currentPage >= pages.length}
+              disabled={currentPage >= pageCount}
             >
               {s.nextPage}
             </HsButton>
