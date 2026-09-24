@@ -32,8 +32,10 @@ Responsibilities:
   and the ``instrument.Horn`` that produces ``<transpose>-4/-7`` metadata
 * tempo map -> ``MetronomeMark`` placement
 
-Non-responsibilities: enharmonic respelling beyond music21's defaults
-(dev plan §11 keeps that as a later, user-adjustable stage).
+Non-responsibilities: free enharmonic respelling beyond the key-aware
+default in hornscribe.notation.tone_spelling (#165) — chromatic notes the
+key cannot disambiguate surface as pitch_spelling_ambiguous review
+issues (#166) and the user toggles the spelling with the E key.
 """
 
 from __future__ import annotations
@@ -59,6 +61,7 @@ from music21.stream import enums as stream_enums
 
 from hornscribe.domain.ids import musicxml_note_id
 from hornscribe.domain.score import (
+    KeyChange,
     MeasureSpan,
     PitchSpace,
     QuantizedNote,
@@ -72,6 +75,7 @@ from hornscribe.domain.score import (
     primary_beat_beats,
 )
 from hornscribe.instruments import horn_f
+from hornscribe.notation.tone_spelling import fifths_at_beat, spell_name
 
 
 class NotationError(ValueError):
@@ -340,6 +344,8 @@ def _render_entries(
     beat_ql: Fraction,
     strict: bool,
     presentation: PitchSpace,
+    head_fifths: int,
+    key_changes: tuple[KeyChange, ...],
 ) -> None:
     """Insert a measure's elements (committed atoms or legacy fragments).
 
@@ -385,7 +391,17 @@ def _render_entries(
                 m21_note.duration = duration.Duration(
                     quarterLength=e.dur_beats * beat_ql
                 )
-            m21_note.pitch = pitch.Pitch(midi=_pitch_midi(e.note_, presentation))
+            # #165: spell against the key active at this note's onset.
+            # Concert pitch spells against the concert key; the written
+            # horn view spells against the written key (concert +1 fifth).
+            fifths = fifths_at_beat(
+                head_fifths, key_changes, e.note_.start_beat
+            )
+            if presentation is PitchSpace.WRITTEN_HORN_F:
+                fifths += 1
+            m21_note.pitch = pitch.Pitch(
+                spell_name(_pitch_midi(e.note_, presentation), fifths)
+            )
             m21_note.id = musicxml_note_id(e.note_.id)
             if e.atom is not None:
                 is_last = e.atom_index == len(e.note_.atoms) - 1
@@ -557,6 +573,8 @@ def _build_part_measures(
             beat_ql,
             strict,
             presentation,
+            payload.key_signature.fifths,
+            payload.key_changes,
         )
 
         # Declared partial measures (anacrusis, meter-change clips, a short

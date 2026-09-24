@@ -41,12 +41,13 @@ from hornscribe.domain.review import (
     Severity,
     TimeRange,
 )
-from hornscribe.domain.score import QuantizedNote
+from hornscribe.domain.score import KeyChange, QuantizedNote
 from hornscribe.export.musicxml import (
     export_concert_musicxml,
     export_horn_in_f_musicxml,
 )
 from hornscribe.instruments.horn_f import HornRangeStatus, sounding_range_status
+from hornscribe.notation.tone_spelling import fifths_at_beat, is_diatonic
 from hornscribe.rhythm.issues import generate_review_issues
 from hornscribe.rhythm.meter import MeterMap, MeterSegment, UnsupportedMeterError
 from hornscribe.rhythm.quantizer import quantize_events
@@ -220,6 +221,59 @@ def _extra_issues(
                 )
             )
     return issues[:MAX_EXTRA_ISSUES]
+
+
+# #166: chromatic pitch classes whose enharmonic spelling the key cannot
+# decide — one issue per pitch class, capped so a chromatic-heavy piece
+# cannot flood the review list.
+_MAX_SPELLING_ISSUES = 8
+_MAX_SPELLING_NOTE_IDS = 6
+
+
+def _spelling_issues(
+    payload_notes: tuple[QuantizedNote, ...],
+    head_fifths: int,
+    key_changes: tuple[KeyChange, ...],
+    onsets_sec: dict[ScoreNoteId, float],
+    score_revision: ScoreRevisionId,
+) -> list[ReviewIssue]:
+    """Flag chromatic notes whose enharmonic spelling is ambiguous (#166).
+
+    The notation layer already spells every note against the active key
+    (#165); a pitch class outside that key has two defensible spellings
+    (raised-below vs lowered-above), so the note is surfaced for review
+    rather than guessed silently — the contract clean.py documents.
+    Grouped by pitch class so a repeated chromatic tone raises one
+    issue, not one per occurrence.
+    """
+    by_pc: dict[int, list[QuantizedNote]] = {}
+    for n in payload_notes:
+        fifths = fifths_at_beat(head_fifths, key_changes, n.start_beat)
+        if not is_diatonic(n.pitch_midi, fifths):
+            by_pc.setdefault(n.pitch_midi % 12, []).append(n)
+    issues: list[ReviewIssue] = []
+    for pc, notes in sorted(by_pc.items()):
+        if len(issues) >= _MAX_SPELLING_ISSUES:
+            break
+        first = min(notes, key=lambda n: n.start_beat)
+        onset = onsets_sec.get(first.id, 0.0)
+        issues.append(
+            ReviewIssue(
+                id="",
+                score_revision=score_revision,
+                canonical_note_ids=tuple(
+                    n.id for n in notes[:_MAX_SPELLING_NOTE_IDS]
+                ),
+                time_range=TimeRange(start_sec=onset, end_sec=onset + 0.05),
+                reason=ReviewReason.PITCH_SPELLING_AMBIGUOUS,
+                severity=Severity.INFO,
+                evidence={
+                    "pitchClass": pc,
+                    "occurrences": len(notes),
+                },
+            )
+        )
+    return issues
 
 
 def run_transcription_job(
@@ -543,6 +597,17 @@ def run_transcription_job(
                 built.note_confidence,
                 built.note_onset_sec,
                 event_by_id,
+                score_revision,
+            )
+        )
+        # #166: chromatic notes whose enharmonic spelling the active key
+        # cannot decide — surfaced for review instead of guessed.
+        issues.extend(
+            _spelling_issues(
+                tuple(n for p in built.payload.parts for n in p.notes),
+                payload.key_signature.fifths,
+                payload.key_changes,
+                built.note_onset_sec,
                 score_revision,
             )
         )
