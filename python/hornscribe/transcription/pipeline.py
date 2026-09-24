@@ -71,7 +71,12 @@ from .backend import (
     predict_note_events_pyin,
     require_module,
 )
-from .clean import clean_monophonic, clip_to_range, split_voices
+from .clean import (
+    MERGE_GAP_SEC,
+    clean_monophonic,
+    clip_to_range,
+    split_voices,
+)
 from .key import estimate_key, estimate_key_segments
 from .meter import estimate_meter
 from .options import TranscriptionParams
@@ -387,18 +392,31 @@ def run_transcription_job(
             raw_events, params.selection_start_sec, params.selection_end_sec
         )
         prefer = "top" if params.texture == "melody" else "onset"
+        # #180: pyin already bridges tracker dropouts and splits real
+        # re-articulations at onset times — re-merging same-pitch
+        # neighbours inside clean_monophonic would undo that split.
+        clean_merge_gap = (
+            0.0 if params.backend == "pyin" else MERGE_GAP_SEC
+        )
         voice_split = None
         if params.texture == "voices":
             # #85: keep up to three detected lines as separate parts —
             # a triad survives as three voices instead of dropping the
             # lowest note.
             voice_split = split_voices(ranged, max_voices=3)
-            cleaned = clean_monophonic(voice_split.voices[0])
+            cleaned = clean_monophonic(
+                voice_split.voices[0], merge_gap_sec=clean_merge_gap
+            )
             cleaned_lowers = [
-                clean_monophonic(v) for v in voice_split.voices[1:]
+                clean_monophonic(v, merge_gap_sec=clean_merge_gap)
+                for v in voice_split.voices[1:]
             ]
         else:
-            cleaned = clean_monophonic(ranged, prefer=prefer)
+            cleaned = clean_monophonic(
+                ranged,
+                merge_gap_sec=clean_merge_gap,
+                prefer=prefer,
+            )
             cleaned_lowers = []
         # #148: remember when auto detected a mix — the overlap warning
         # then suggests re-transcribing with the voices texture so the
@@ -411,7 +429,11 @@ def run_transcription_job(
                 and overlap_ratio >= AUTO_TEXTURE_OVERLAP_RATIO
             ):
                 # Mix detected — keep the melody line instead of clipping it.
-                cleaned = clean_monophonic(ranged, prefer="top")
+                cleaned = clean_monophonic(
+                    ranged,
+                    merge_gap_sec=clean_merge_gap,
+                    prefer="top",
+                )
                 auto_mix_detected = True
         if not cleaned.events:
             emit(

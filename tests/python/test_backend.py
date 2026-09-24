@@ -160,3 +160,32 @@ class TestFramesToNoteEvents:
     def test_unvoiced_only(self):
         f0, t, v, p = self._frames([60] * 10, voiced=[False] * 10)
         assert frames_to_note_events(f0, t, v, p) == []
+
+    def test_onset_splits_same_pitch_run(self):
+        # #180: re-articulated notes — an onset mid-run with a prob
+        # dip splits one glued run into two notes.
+        f0, t, v, p = self._frames([60] * 40)
+        p[20] = 0.3  # voiced-prob dip at the attack
+        ev = frames_to_note_events(f0, t, v, p, onset_sec=[0.2])
+        assert len(ev) == 2
+        assert ev[0][1] == 0.2  # first note ends at the split frame
+        assert ev[1][0] == 0.2
+
+    def test_onset_without_prob_dip_does_not_split(self):
+        # A solidly voiced frame at the onset = accent inside a held
+        # note (consonant, accompaniment peak) — keep it one note.
+        f0, t, v, p = self._frames([60] * 40)
+        ev = frames_to_note_events(f0, t, v, p, onset_sec=[0.2])
+        assert len(ev) == 1
+
+    def test_onset_too_close_to_edges_ignored(self):
+        f0, t, v, p = self._frames([60] * 40)
+        p[3] = 0.3
+        # 30ms in — the left piece would be shorter than min_note_sec.
+        ev = frames_to_note_events(f0, t, v, p, onset_sec=[0.03])
+        assert len(ev) == 1
+
+    def test_onset_outside_run_ignored(self):
+        f0, t, v, p = self._frames([60] * 40)
+        ev = frames_to_note_events(f0, t, v, p, onset_sec=[2.0])
+        assert len(ev) == 1

@@ -27,6 +27,7 @@ Backend tuning for a monophonic horn line (accuracy pass, ENG-002):
 
 from __future__ import annotations
 
+import bisect
 import contextlib
 import importlib.util
 import io
@@ -104,6 +105,8 @@ def frames_to_note_events(
     voiced_prob: Any,
     *,
     min_note_sec: float = 0.07,
+    onset_sec: Any = (),
+    split_prob_drop: float = 0.85,
 ) -> list[tuple[float, float, float, float, list[int]]]:
     """librosa.pyin frame output -> Basic-Pitch-style note tuples (#175).
 
@@ -118,6 +121,16 @@ def frames_to_note_events(
     quantized median pitch and bends are the per-frame MIDI pitch-bend
     units of the continuous f0 measured from that note pitch, so
     note + bend reproduces the tracked contour (vibrato, scoops).
+
+    onset_sec (#180) lists detected attack times. A voiced run is
+    split at an onset that falls strictly inside it — this is how
+    re-articulated same-pitch notes (tonguing, repeated lyrics) become
+    separate notes instead of one glued note. A candidate split is
+    skipped when it would leave either side shorter than min_note_sec,
+    or when the voiced probability around the split frame stays above
+    split_prob_drop times the run maximum (a solidly voiced frame
+    means the tracker heard no break, so the onset was probably a
+    consonant or accompaniment accent).
     """
     f0 = [float(x) for x in f0_hz]
     times = [float(x) for x in times_sec]
@@ -166,6 +179,42 @@ def frames_to_note_events(
             merged[-1].extend(run)
         else:
             merged.append(list(run))
+
+    # #180: split runs at detected onsets — pyin has no onset notion, so
+    # re-articulated same-pitch notes would otherwise glue into one.
+    onsets = sorted(float(t) for t in onset_sec)
+    if onsets:
+        split_runs: list[list[int]] = []
+        for run in merged:
+            piece_start = 0
+            end = run[-1]
+            for t in onsets:
+                if t <= times[run[piece_start]] or t >= times[end]:
+                    continue
+                i = bisect.bisect_left(times, t, run[piece_start], end)
+                # i is a global frame index; convert to the position
+                # inside run (works for non-contiguous runs too).
+                k = bisect.bisect_left(run, i)
+                if (
+                    times[i] - times[run[piece_start]] < min_note_sec
+                    or times[end] + frame_dt - times[i] < min_note_sec
+                ):
+                    continue
+                # Dip guard: require the voiced probability around the
+                # split frame to sag below split_prob_drop of the run
+                # max, so accents inside a held note do not split it.
+                run_max = max(
+                    (prob[j] for j in run if not math.isnan(prob[j])),
+                    default=1.0,
+                )
+                window = [prob[j] for j in range(i - 1, min(i + 2, n))]
+                finite = [p for p in window if not math.isnan(p)]
+                if finite and min(finite) >= run_max * split_prob_drop:
+                    continue
+                split_runs.append(run[piece_start:k])
+                piece_start = k
+            split_runs.append(run[piece_start:])
+        merged = split_runs
 
     out: list[tuple[float, float, float, float, list[int]]] = []
     for run in merged:
@@ -364,11 +413,26 @@ def predict_note_events_pyin(
 
     try:
         samples, sr = librosa.load(audio_path, sr=22050, mono=True)
+        # #180: HPSS strips drums/percussion so the f0 track and the
+        # onset detector both work on the harmonic line — important on
+        # JPOP mixes where the band would otherwise mask attacks.
+        harmonic = librosa.effects.harmonic(samples)
         f0, voiced_flag, voiced_prob = librosa.pyin(
-            samples,
+            harmonic,
             fmin=min_frequency_hz,
             fmax=max_frequency_hz,
             sr=sr,
+        )
+        # Conservative attack detector: delta/wait bias toward real
+        # note attacks; the dip guard in frames_to_note_events rejects
+        # accents inside held notes.
+        onset_times = librosa.onset.onset_detect(
+            y=harmonic,
+            sr=sr,
+            units="time",
+            backtrack=True,
+            delta=0.4,
+            wait=3,
         )
     except Exception as exc:
         raise ValueError(f"pyin inference failed: {exc}") from exc
@@ -376,6 +440,7 @@ def predict_note_events_pyin(
     note_events = frames_to_note_events(
         f0, times, voiced_flag, voiced_prob,
         min_note_sec=MINIMUM_NOTE_LENGTH_MS / 1000.0,
+        onset_sec=onset_times,
     )
 
     allocator = IdAllocator("rne")
