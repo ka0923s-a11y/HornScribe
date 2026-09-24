@@ -2,19 +2,23 @@
 //! and relay its NDJSON protocol to the frontend over a Tauri channel.
 //!
 //! Security model (same pattern as lib.rs's self-limiting commands): the
-//! spawned process is always the fixed module `hornscribe.worker` — the
-//! frontend cannot choose the program, the arguments, or the cwd. The
-//! interpreter itself resolves in this order:
+//! spawned process is always the fixed `hornscribe.worker` protocol —
+//! the frontend cannot choose the program, the arguments, or the cwd.
+//! The engine resolves in this order (#83):
 //!
-//! 1. `HORNSCRIBE_PYTHON` env var (explicit operator override);
-//! 2. repo-local virtualenvs found by walking ancestors of
+//! 1. `HORNSCRIBE_ENGINE` — path to a frozen engine binary
+//!    (explicit operator override, speaks NDJSON directly);
+//! 2. `HORNSCRIBE_PYTHON` — interpreter override (dev/debug);
+//! 3. a bundled `engine/hornscribe-engine[.exe]` next to the app
+//!    resources or the executable (packaged builds);
+//! 4. repo-local virtualenvs found by walking ancestors of
 //!    `CARGO_MANIFEST_DIR` for `.venv-*/Scripts/python.exe` /
 //!    `.venv/Scripts/python.exe` (dev checkouts);
-//! 3. `python`/`py -3` on PATH (system installs / frozen layouts).
+//! 5. `python`/`py -3` on PATH (system installs).
 //!
 //! `HORNSCRIBE_PYTHONPATH` overrides the module search path; otherwise the
 //! repo's `python/` directory (the `hornscribe` package root) is injected
-//! when it exists.
+//! when it exists. Frozen binaries ignore PYTHONPATH entirely.
 //!
 //! Channel protocol (one JSON object per send):
 //!   `{kind:"line",   line}`   — one stdout NDJSON frame
@@ -27,7 +31,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 
 use serde_json::json;
-use tauri::ipc::Channel;
+use tauri::{ipc::Channel, Manager};
 
 /// The single in-flight engine process. One sidecar per app — the worker
 /// itself enforces one job at a time (PROTOCOL.md).
@@ -40,18 +44,39 @@ struct EngineState {
 
 static ENGINE: Mutex<Option<EngineState>> = Mutex::new(None);
 
+/// How the engine process is launched (#83). A frozen binary speaks the
+/// worker NDJSON protocol directly; a Python interpreter is invoked as
+/// `python -m hornscribe.worker` with an optional PYTHONPATH.
+enum SpawnTarget {
+    Binary(PathBuf),
+    Python { exe: PathBuf, pythonpath: Option<PathBuf> },
+}
+
 /// `engine_spawn`: start the sidecar; stream frames over `channel`.
 /// Fails with a human-readable string when no usable Python is found.
 #[tauri::command]
-pub fn engine_spawn(channel: Channel<serde_json::Value>) -> Result<(), String> {
+pub fn engine_spawn(
+    channel: Channel<serde_json::Value>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     let mut guard = ENGINE.lock().map_err(|_| "engine lock")?;
     if guard.is_some() {
         return Err("ENGINE_ALREADY_RUNNING".to_string());
     }
-    let (python, pythonpath) = resolve_python()?;
+    let target = resolve_engine(&app)?;
 
-    let mut cmd = Command::new(&python);
-    cmd.args(["-m", "hornscribe.worker"])
+    let mut cmd = match &target {
+        SpawnTarget::Binary(exe) => Command::new(exe),
+        SpawnTarget::Python { exe, pythonpath } => {
+            let mut c = Command::new(exe);
+            c.args(["-m", "hornscribe.worker"]);
+            if let Some(pp) = pythonpath {
+                c.env("PYTHONPATH", pp);
+            }
+            c
+        }
+    };
+    cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -59,9 +84,6 @@ pub fn engine_spawn(channel: Channel<serde_json::Value>) -> Result<(), String> {
         // progress frames flowing without relying on flush timing.
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONUTF8", "1");
-    if let Some(pp) = pythonpath {
-        cmd.env("PYTHONPATH", pp);
-    }
     // No console window flash on Windows for the spawned interpreter.
     #[cfg(windows)]
     {
@@ -72,7 +94,12 @@ pub fn engine_spawn(channel: Channel<serde_json::Value>) -> Result<(), String> {
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("spawn {}: {e}", python.display()))?;
+        .map_err(|e| {
+            let exe = match &target {
+                SpawnTarget::Binary(p) | SpawnTarget::Python { exe: p, .. } => p.clone(),
+            };
+            format!("spawn {}: {e}", exe.display())
+        })?;
     let stdin = child
         .stdin
         .take()
@@ -210,38 +237,95 @@ pub fn kill_engine_on_exit() {
     }
 }
 
-/// Resolve the Python interpreter + module path.
-/// Returns `(python_exe, PYTHONPATH)` — the latter is `None` when the
-/// interpreter already has `hornscribe` importable (venv installs).
-fn resolve_python() -> Result<(PathBuf, Option<PathBuf>), String> {
+/// Resolve how to launch the engine (#83). Returns either a frozen
+/// binary or a Python interpreter + module path. The `pythonpath` is
+/// `None` when the interpreter already has `hornscribe` importable
+/// (venv installs) — frozen binaries never see it.
+fn resolve_engine(app: &tauri::AppHandle) -> Result<SpawnTarget, String> {
     let repo_python_dir = find_repo_python_dir();
+
+    // #83: explicit frozen-engine override wins — a packaged layout can
+    // also point at a portable binary via env without rebuilding.
+    if let Ok(explicit) = std::env::var("HORNSCRIBE_ENGINE") {
+        let p = PathBuf::from(explicit);
+        if p.is_file() {
+            return Ok(SpawnTarget::Binary(p));
+        }
+        return Err(format!("HORNSCRIBE_ENGINE is not a file: {}", p.display()));
+    }
 
     if let Ok(explicit) = std::env::var("HORNSCRIBE_PYTHON") {
         let p = PathBuf::from(explicit);
         if p.is_file() {
-            return Ok((p, repo_python_dir));
+            return Ok(SpawnTarget::Python {
+                exe: p,
+                pythonpath: repo_python_dir,
+            });
         }
         return Err(format!("HORNSCRIBE_PYTHON is not a file: {}", p.display()));
+    }
+
+    // #83: bundled frozen engine (packaged builds). Checked before the
+    // dev venvs so an installed app never reaches into a source checkout.
+    for candidate in bundled_engine_paths(app) {
+        if candidate.is_file() {
+            return Ok(SpawnTarget::Binary(candidate));
+        }
     }
 
     // Repo-local venvs (dev checkouts and the bundled `engine/` layout).
     for candidate in local_venv_pythons() {
         if candidate.is_file() {
-            return Ok((candidate, repo_python_dir.clone()));
+            return Ok(SpawnTarget::Python {
+                exe: candidate,
+                pythonpath: repo_python_dir.clone(),
+            });
         }
     }
 
     // PATH fallbacks: `python` then the `py` launcher.
     for exe in ["python", "py"] {
         if which_exists(exe) {
-            return Ok((PathBuf::from(exe), repo_python_dir));
+            return Ok(SpawnTarget::Python {
+                exe: PathBuf::from(exe),
+                pythonpath: repo_python_dir,
+            });
         }
     }
     Err(
-        "no Python interpreter found (set HORNSCRIBE_PYTHON or install the \
-         engine environment)"
+        "no engine runtime found (bundle engine/hornscribe-engine, set \
+         HORNSCRIBE_ENGINE/HORNSCRIBE_PYTHON, or install the engine environment)"
             .to_string(),
     )
+}
+
+/// Candidate locations for the frozen engine binary (#83).
+///
+/// Packaged builds ship `engine/hornscribe-engine[.exe]` as a Tauri
+/// resource (see scripts/build_engine.py + tauri.conf.json). The exact
+/// resource_dir layout varies by installer, so we probe the resource
+/// dir, its `resources/` child, and the executable's own directory —
+/// the last also covers portable-zip layouts without an installer.
+fn bundled_engine_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    const EXE: &str = if cfg!(windows) {
+        "hornscribe-engine.exe"
+    } else {
+        "hornscribe-engine"
+    };
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(dir) = app.path().resource_dir() {
+        roots.push(dir.clone());
+        roots.push(dir.join("resources"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            roots.push(dir.to_path_buf());
+        }
+    }
+    roots
+        .into_iter()
+        .map(|root| root.join("engine").join(EXE))
+        .collect()
 }
 
 /// `<repo>/python` — the hornscribe package root — found by walking up

@@ -27,3 +27,6 @@ benchmarks/local/
 
 # UI-070 gate outputs (screenshots/measurements — goldens live in docs/ui-070)
 apps/desktop/measurements/
+
+# #83: built frozen engine binary (rebuilt via scripts/build_engine.py)
+apps/desktop/src-tauri/resources/engine/hornscribe-engine*
