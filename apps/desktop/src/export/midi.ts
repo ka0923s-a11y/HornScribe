@@ -26,6 +26,16 @@ interface MidiNote {
   midi: number;
 }
 
+/** Tempo/meter meta mark at an absolute tick (#160). */
+interface TempoMark {
+  tick: number;
+  bpm: number;
+}
+interface MeterMark {
+  tick: number;
+  meter: string;
+}
+
 const STEP_TO_SEMITONE: Record<string, number> = {
   C: 0,
   D: 2,
@@ -93,33 +103,56 @@ export function midiNotesFromMusicXml(xml: string): {
   notes: MidiNote[];
   tempoBpm: number;
   meter: string | null;
+  tempoMarks: TempoMark[];
+  meterMarks: MeterMark[];
 } {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.querySelector("parsererror")) {
     throw new Error("MusicXML parse failed");
   }
-  const tempoText = doc.querySelector("sound[tempo]")?.getAttribute("tempo");
-  const tempoBpm =
-    tempoText != null && Number.isFinite(Number(tempoText)) && Number(tempoText) > 0
-      ? Number(tempoText)
-      : 120;
-  const beats = doc.querySelector("time > beats")?.textContent?.trim();
-  const beatType = doc.querySelector("time > beat-type")?.textContent?.trim();
-  const meter = beats && beatType ? `${beats}/${beatType}` : null;
-
   const notes: MidiNote[] = [];
-  // pitch → open tie note (start/stop chains merge into one event).
-  const openTies = new Map<number, MidiNote>();
+  const tempoMarks: TempoMark[] = [];
+  const meterMarks: MeterMark[] = [];
   // Per-part walk so <backup> only rewinds its own part's cursor.
   for (const part of Array.from(doc.querySelectorAll("part"))) {
     let divisions = 1; // quarter-note units per <duration> tick
     let cursor = 0;   // divisions
+    // pitch -> open tie note, PER PART (#160): a shared map let part 2
+    // notes merge into part 1's open ties on the same pitch.
+    const openTies = new Map<number, MidiNote>();
     for (const measure of Array.from(part.querySelectorAll(":scope > measure"))) {
       for (const el of Array.from(measure.children)) {
         if (el.tagName === "attributes") {
           const d = el.querySelector("divisions")?.textContent;
           if (d != null && Number.isFinite(Number(d)) && Number(d) > 0) {
             divisions = Number(d);
+          }
+          // #160: meter changes live inside <attributes><time>.
+          const beats = el.querySelector("time > beats")?.textContent?.trim();
+          const beatType = el
+            .querySelector("time > beat-type")
+            ?.textContent?.trim();
+          if (beats && beatType) {
+            meterMarks.push({
+              tick: Math.round((cursor * TICKS_PER_QUARTER) / divisions),
+              meter: beats + "/" + beatType,
+            });
+          }
+          continue;
+        }
+        // #160: tempo marks ride <direction><sound tempo> children (or
+        // bare measure-level <sound>) at the cursor position — a
+        // tracked-tempo piece emits one mark per changed boundary.
+        if (el.tagName === "direction" || el.tagName === "sound") {
+          const snd =
+            el.tagName === "sound" ? el : el.querySelector("sound[tempo]");
+          const t = snd?.getAttribute("tempo");
+          const bpm = t != null ? Number(t) : NaN;
+          if (Number.isFinite(bpm) && bpm > 0) {
+            tempoMarks.push({
+              tick: Math.round((cursor * TICKS_PER_QUARTER) / divisions),
+              bpm,
+            });
           }
           continue;
         }
@@ -165,21 +198,53 @@ export function midiNotesFromMusicXml(xml: string): {
     }
   }
   notes.sort((a, b) => a.on - b.on || a.midi - b.midi);
-  return { notes, tempoBpm, meter };
+  // Multi-part exports repeat the same marks in every part — dedupe.
+  const seenT = new Set<string>();
+  const tempos = tempoMarks.filter(
+    (m) => !seenT.has(m.tick + "@" + m.bpm) && seenT.add(m.tick + "@" + m.bpm),
+  );
+  const seenM = new Set<string>();
+  const meters = meterMarks.filter(
+    (m) =>
+      !seenM.has(m.tick + "@" + m.meter) && seenM.add(m.tick + "@" + m.meter),
+  );
+  // A mark after <backup> can collect out of order — sort by tick.
+  tempos.sort((a, b) => a.tick - b.tick);
+  meters.sort((a, b) => a.tick - b.tick);
+  return {
+    notes,
+    tempoBpm: tempos[0]?.bpm ?? 120,
+    meter: meters[0]?.meter ?? null,
+    tempoMarks: tempos,
+    meterMarks: meters,
+  };
 }
 
 /** Serialize parsed notes into an SMF format-0 byte array. */
 export function buildMidiFile(xml: string): Uint8Array {
-  const { notes, tempoBpm, meter } = midiNotesFromMusicXml(xml);
+  const { notes, tempoBpm, meter, tempoMarks, meterMarks } =
+    midiNotesFromMusicXml(xml);
 
   // Flatten into (tick, order, bytes) events; note-offs sort before
   // note-ons at the same tick so a boundary never overlaps itself.
   interface Ev { tick: number; order: number; bytes: number[] }
   const events: Ev[] = [];
-  const meta = [tempoMeta(tempoBpm), timeSigMeta(meter)].filter(
-    (m): m is number[] => m !== null,
-  );
-  for (const m of meta) events.push({ tick: 0, order: 0, bytes: m });
+  // #160: every collected mark becomes a meta event at its tick; the
+  // head fallbacks keep a markless document playable at 120bpm.
+  if (tempoMarks.length === 0) {
+    events.push({ tick: 0, order: 0, bytes: tempoMeta(tempoBpm) });
+  }
+  if (meter != null && meterMarks.length === 0) {
+    const m = timeSigMeta(meter);
+    if (m) events.push({ tick: 0, order: 0, bytes: m });
+  }
+  for (const mark of meterMarks) {
+    const m = timeSigMeta(mark.meter);
+    if (m) events.push({ tick: mark.tick, order: 0, bytes: m });
+  }
+  for (const mark of tempoMarks) {
+    events.push({ tick: mark.tick, order: 0, bytes: tempoMeta(mark.bpm) });
+  }
   events.push({ tick: 0, order: 1, bytes: [0xc0, HORN_PROGRAM] });
   for (const n of notes) {
     events.push({

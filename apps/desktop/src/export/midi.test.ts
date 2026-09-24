@@ -95,3 +95,96 @@ describe("buildMidiFile", () => {
     expect(noteOffs.length).toBe(3);
   });
 });
+
+// #160: mid-piece tempo/meter changes + per-part ties.
+const DRIFT_XML = [
+  '<?xml version="1.0"?>',
+  '<score-partwise><part-list><score-part id="P1"><part-name>x</part-name></score-part></part-list>',
+  '<part id="P1">',
+  '  <measure number="1"><attributes><divisions>1</divisions>',
+  '    <time><beats>4</beats><beat-type>4</beat-type></time></attributes>',
+  '    <direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>120</per-minute></metronome></direction-type><sound tempo="120"/></direction>',
+  '    <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note>',
+  '  </measure>',
+  '  <measure number="2"><attributes>',
+  '    <time><beats>3</beats><beat-type>4</beat-type></time></attributes>',
+  '    <direction><sound tempo="60"/></direction>',
+  '    <note><pitch><step>E</step><octave>4</octave></pitch><duration>3</duration></note>',
+  '  </measure>',
+  '</part></score-partwise>',
+].join("");
+
+const TWOPART_TIE_XML = [
+  '<?xml version="1.0"?>',
+  '<score-partwise><part-list>',
+  '  <score-part id="P1"><part-name>a</part-name></score-part>',
+  '  <score-part id="P2"><part-name>b</part-name></score-part></part-list>',
+  '<part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>',
+  '  <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><tie type="start"/></note>',
+  '  <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><tie type="stop"/></note>',
+  '</measure></part>',
+  '<part id="P2"><measure number="1"><attributes><divisions>1</divisions></attributes>',
+  '  <note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration></note>',
+  '</measure></part>',
+ '</score-partwise>',
+].join("");
+
+/** Decode SMF events as (absoluteTick, bytes) pairs for assertions. */
+function smfEvents(bytes: Uint8Array): { tick: number; bytes: number[] }[] {
+  const body = Array.from(bytes.slice(22));
+  const out: { tick: number; bytes: number[] }[] = [];
+  let i = 0;
+  let tick = 0;
+  while (i < body.length) {
+    let delta = 0;
+    let b = body[i++];
+    while (b & 0x80) {
+      delta = (delta << 7) | (b & 0x7f);
+      b = body[i++];
+    }
+    delta = (delta << 7) | (b & 0x7f);
+    tick += delta;
+    const status = body[i];
+    const len =
+      status === 0xff ? 3 + body[i + 2] : (status & 0xf0) === 0xc0 ? 2 : 3;
+    out.push({ tick, bytes: body.slice(i, i + len) });
+    i += len;
+  }
+  return out;
+}
+
+describe("mid-piece marks (#160)", () => {
+  it("collects tempo marks at their ticks", () => {
+    const { tempoMarks, meterMarks } = midiNotesFromMusicXml(DRIFT_XML);
+    expect(tempoMarks).toEqual([
+      { tick: 0, bpm: 120 },
+      { tick: 1920, bpm: 60 },
+    ]);
+    expect(meterMarks).toEqual([
+      { tick: 0, meter: "4/4" },
+      { tick: 1920, meter: "3/4" },
+    ]);
+  });
+
+  it("emits a set_tempo per mark in the SMF", () => {
+    const events = smfEvents(buildMidiFile(DRIFT_XML));
+    const tempos = events.filter(
+      (e) => e.bytes[0] === 0xff && e.bytes[1] === 0x51,
+    );
+    expect(tempos.map((e) => e.tick)).toEqual([0, 1920]);
+    const meters = events.filter(
+      (e) => e.bytes[0] === 0xff && e.bytes[1] === 0x58,
+    );
+    expect(meters.map((e) => e.tick)).toEqual([0, 1920]);
+  });
+
+  it("does not merge ties across parts", () => {
+    const { notes } = midiNotesFromMusicXml(TWOPART_TIE_XML);
+    // Part 1's tied D4 (0..960) and part 2's untied D4 (0..960) must
+    // both survive — a shared openTies map would drop one.
+    expect(notes).toEqual([
+      { on: 0, off: 960, midi: 62 },
+      { on: 0, off: 960, midi: 62 },
+    ]);
+  });
+});

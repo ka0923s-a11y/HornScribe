@@ -146,22 +146,27 @@ export function ExportDialog({
   // #87: the audio bundle needs a real path — browser-held bytes and
   // pathless recordings keep the checkbox off with an honest tooltip.
   const audioBlocked = caps != null && !caps.audioAvailable;
-  const anyChecked = Object.values(selected).some(Boolean);
   const running = phase === "running";
+  // Formats that will actually export — checked AND not blocked.
+  // anyChecked alone let submit run with an empty list when every
+  // checked format was blocked (e.g. PDF-only selection + no MuseScore).
+  const effectiveFormats = (
+    Object.keys(selected) as ExportFormatId[]
+  ).filter(
+    (f) =>
+      selected[f] &&
+      !(blocked && EXPORT_FORMAT_GROUPS[f] === "pdf") &&
+      !(audioBlocked && f === "sourceAudio"),
+  );
 
   const submit = useCallback(async () => {
     const gen = ++generation.current;
     setPhase("running");
-    const formats = (
-      Object.keys(selected) as ExportFormatId[]
-    ).filter(
-      (f) =>
-        selected[f] &&
-        !(blocked && EXPORT_FORMAT_GROUPS[f] === "pdf") &&
-        !(audioBlocked && f === "sourceAudio"),
-    );
     try {
-      const res = await port.export({ formats, destination });
+      const res = await port.export({
+        formats: effectiveFormats,
+        destination,
+      });
       if (generation.current !== gen) return;
       setResult(res);
       setPhase("done");
@@ -180,7 +185,7 @@ export function ExportDialog({
       );
       setPhase("error");
     }
-  }, [selected, blocked, audioBlocked, port, destination, onAnnounce]);
+  }, [effectiveFormats, port, destination, onAnnounce]);
 
   const pickDestination = useCallback(async () => {
     try {
@@ -266,7 +271,7 @@ export function ExportDialog({
             <HsButton onClick={close}>{ja.common.cancel}</HsButton>
             <HsButton
               variant="primary"
-              disabled={!anyChecked || running || !destination}
+              disabled={effectiveFormats.length === 0 || running || !destination}
               loading={running}
               onClick={() => void submit()}
             >
