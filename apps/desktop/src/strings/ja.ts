@@ -1085,6 +1085,7 @@ export const ja = {
       tempo: "テンポ",
       meter: "拍子",
       key: "調",
+      feel: "リズムの感じ",
       measures: "小節数",
       notes: "音符数",
       openIssues: "要確認",
@@ -1096,6 +1097,8 @@ export const ja = {
     noteCountLabel: (n: number) => `${n} 音`,
     openIssuesLabel: (n: number) => `${n} 件`,
     keyLabel: (fifthsLabel: string) => fifthsLabel,
+    /** #134: the score carries a swing marking (<sound><swing>). */
+    feelSwing: "スウィング",
   },
 
   /** ReviewIssue.reason → Japanese copy (domain/review.py reason codes;
@@ -1162,7 +1165,7 @@ export const ja = {
     },
     swing_feel: {
       title: "スウィングの可能性があります",
-      detail: "八分の裏拍が三連符の3つ目に寄っています（シャッフル系）。記譜は通常の八分または三連符になっているため、元音源と聴き比べてください。",
+      detail: "八分の裏拍が三連符の3つ目に寄っています（シャッフル系）。記譜にスウィングの指示を付けました。再生が元音源と合うか確認してください。",
     },
     onset_uncertain: {
       title: "音の開始位置を確認してください",

@@ -66,6 +66,8 @@ export interface ScoreInspectorModel {
   /** Number of key-signature boundaries; >1 means the piece modulates
    *  and the summary shows transitions instead of an editable field. */
   readonly keyChangeCount: number;
+  /** #134: the score carries a swing marking — shown as a feel row. */
+  readonly swingFeel: boolean;
   readonly measureLabel: string;
   readonly noteLabel: string;
   readonly openIssueLabel: string;
@@ -183,6 +185,7 @@ export function buildScoreInspector(
           : null,
     keyFifths: meta.keyFifths,
     keyChangeCount: meta.keyChanges.length,
+    swingFeel: meta.swingFeel,
     measureLabel: copy.measureCount(meta.measureCount),
     noteLabel: copy.noteCount(meta.noteCount),
     openIssueLabel: copy.openIssues(openIssueCount),

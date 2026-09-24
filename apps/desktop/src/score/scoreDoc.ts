@@ -34,6 +34,9 @@ export interface ScoreDoc {
   /** #146: key changes with their measure numbers, head first. Empty
    *  or single-entry = the piece stays in keyFifths. */
   keyChanges: { measure: number; fifths: number }[];
+  /** #134: a <sound><swing> direction exists — the piece is marked
+   *  as swung (straight eighths play in the detected ratio). */
+  swingFeel: boolean;
 }
 
 const TYPE_JA: Record<string, string> = {
@@ -91,6 +94,8 @@ export function parseScoreDoc(xml: string): ScoreDoc {
   const fifthsText = doc.querySelector("key > fifths")?.textContent;
   const keyFifths =
     fifthsText != null && Number.isFinite(Number(fifthsText)) ? Number(fifthsText) : null;
+  // #134: the engine emits <sound><swing> on swing-detected scores.
+  const swingFeel = doc.querySelector("sound > swing") !== null;
 
   const notes: ParsedNote[] = [];
   let measureCount = 0;
@@ -142,7 +147,7 @@ export function parseScoreDoc(xml: string): ScoreDoc {
       });
     }
   }
-  return { title, notes, measureCount, tempoBpm, meter, keyFifths, keyChanges };
+  return { title, notes, measureCount, tempoBpm, meter, keyFifths, keyChanges, swingFeel };
 }
 
 /** canonical id → parsed fragments (both tie fragments and chords land here). */

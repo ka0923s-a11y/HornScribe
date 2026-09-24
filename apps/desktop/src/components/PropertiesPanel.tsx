@@ -210,6 +210,9 @@ function ScoreBody({
           model.keyLabel && <Row label={f.key} value={model.keyLabel} />
         )}
         <Row label={f.measures} value={model.measureLabel} />
+        {model.swingFeel ? (
+          <Row label={f.feel} value={ja.inspector.feelSwing} />
+        ) : null}
         <Row label={f.notes} value={model.noteLabel} />
         <Row label={f.openIssues} value={model.openIssueLabel} />
       </dl>

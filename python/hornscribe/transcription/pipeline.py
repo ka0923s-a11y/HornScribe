@@ -490,6 +490,18 @@ def run_transcription_job(
             )
             key_changes = ()
         tempo_map = tempo_map_from_estimate(estimate, meter)
+        shift = best.diagnostics.alignment_shift_sec
+        # #134 swing feel: census the normalized offbeat onsets — a
+        # dominant 2/3-of-beat cluster with a quiet 1/3 cluster reads
+        # as shuffle, not triplets. The estimate lands on the payload
+        # (notation emits a swing direction) AND feeds a review issue.
+        normalized = normalize_to_score_time(
+            cleaned.events, estimate.warp, alignment_shift_sec=shift
+        )
+        swing_est = detect_swing(
+            tuple(n.onset_ql for n in normalized),
+            Fraction(4, meter.denominator),
+        )
         built = build_score(
             best,
             meter,
@@ -505,15 +517,14 @@ def run_transcription_job(
                 tuple(alts[0] for alts in lower_alternatives)
             ),
             key_changes=key_changes,
+            swing_feel=(
+                swing_est.mean_phase if swing_est.detected else None
+            ),
         )
         payload = built.payload
         score_revision = payload.revision_id()
 
         # Review issues: quantizer reasons + confidence/range/length.
-        shift = best.diagnostics.alignment_shift_sec
-        normalized = normalize_to_score_time(
-            cleaned.events, estimate.warp, alignment_shift_sec=shift
-        )
         issues = list(
             generate_review_issues(
                 alternatives,
@@ -604,14 +615,8 @@ def run_transcription_job(
                     },
                 )
             )
-        # #134 swing feel: census the normalized offbeat onsets — a
-        # dominant 2/3-of-beat cluster with a quiet 1/3 cluster reads
-        # as shuffle, not triplets. Report-only for now: the score is
-        # left as written and the issue tells the user to check.
-        swing_est = detect_swing(
-            tuple(n.onset_ql for n in normalized),
-            Fraction(4, meter.denominator),
-        )
+        # #134 swing issue — the estimate was computed above (it also
+        # lands on the payload as swing_feel for the notation).
         if swing_est.detected:
             issues.append(
                 ReviewIssue(

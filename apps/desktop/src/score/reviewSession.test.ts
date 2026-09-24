@@ -263,6 +263,7 @@ describe("ReviewSession docSwap (#115 rhythm edits)", () => {
         meter: null,
         keyFifths: null,
         keyChanges: [],
+        swingFeel: false,
         measureCount: 0,
         noteCount: 0,
       },

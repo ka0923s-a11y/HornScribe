@@ -77,7 +77,7 @@ def export_musicxml(
     m21_score = build_music21_score(score, presentation)
     raw = GeneralObjectExporter().parse(m21_score)
     text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
-    return _normalize_musicxml(text, presentation)
+    return _normalize_musicxml(text, presentation, score.payload.swing_feel)
 
 
 def export_concert_musicxml(score: ScoreDocument) -> str:
@@ -108,7 +108,11 @@ def write_musicxml(
 _STEP_PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
-def _normalize_musicxml(xml_text: str, presentation: PitchSpace) -> str:
+def _normalize_musicxml(
+    xml_text: str,
+    presentation: PitchSpace,
+    swing_feel: Fraction | None = None,
+) -> str:
     root = ET.fromstring(xml_text)
     if root.tag != "score-partwise":
         raise ExportError(f"expected score-partwise root, got {root.tag!r}")
@@ -117,6 +121,8 @@ def _normalize_musicxml(xml_text: str, presentation: PitchSpace) -> str:
     _strip_volatile_metadata(root)
     _normalize_part_and_instrument_ids(root)
     _assign_note_ids(root)
+    if swing_feel is not None:
+        _insert_swing_direction(root, swing_feel)
 
     if presentation is PitchSpace.WRITTEN_HORN_F:
         for part_el in root.findall("part"):
@@ -128,6 +134,42 @@ def _normalize_musicxml(xml_text: str, presentation: PitchSpace) -> str:
     ET.indent(root, space="  ")
     body = ET.tostring(root, encoding="unicode")
     return f"{_XML_DECL}\n{_MUSICXML_DOCTYPE}\n{body}\n"
+
+
+def _insert_swing_direction(root: ET.Element, swing_feel: Fraction) -> None:
+    # #134: emit the swing marking music21 cannot express. Each part's
+    # first measure gets a <direction> carrying visible words plus a
+    # <sound><swing> playback hint. swing_feel is the detected offbeat
+    # phase (fraction of a beat): 2/3 -> first=2 second=1, a softer
+    # ~0.6 -> first=3 second=2.
+    feel = swing_feel.limit_denominator(8)
+    first = feel.numerator
+    second = feel.denominator - feel.numerator
+    for part_el in root.findall("part"):
+        measure = part_el.find("measure")
+        if measure is None:
+            continue
+        direction = ET.Element("direction")
+        direction.set("placement", "above")
+        dtype = ET.SubElement(direction, "direction-type")
+        words = ET.SubElement(dtype, "words")
+        words.text = "Swing"
+        sound = ET.SubElement(direction, "sound")
+        swing = ET.SubElement(sound, "swing")
+        straight = ET.SubElement(swing, "straight")
+        straight.text = "eighth"
+        first_el = ET.SubElement(swing, "first")
+        first_el.text = str(first)
+        second_el = ET.SubElement(swing, "second")
+        second_el.text = str(second)
+        # Directions precede notes; insert after <attributes> when the
+        # measure opens with one so the order stays schema-conformant.
+        insert_at = 0
+        for i, child in enumerate(list(measure)):
+            if child.tag == "attributes":
+                insert_at = i + 1
+                break
+        measure.insert(insert_at, direction)
 
 
 def _strip_volatile_metadata(root: ET.Element) -> None:

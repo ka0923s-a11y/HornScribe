@@ -452,6 +452,11 @@ class ScoreRevisionPayload:
     entry at beat 0 carrying the payload key_signature, strictly
     increasing starts). Empty = single-key legacy path."""
     key_changes: tuple[KeyChange, ...] = ()
+    """#134: detected swing feel — the offbeat phase (fraction of a
+    notated beat) the piece swings to, e.g. 2/3 for a hard shuffle.
+    None = straight. Notation renders a swing direction + playback
+    hint; the written rhythm itself is left alone."""
+    swing_feel: Fraction | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "tempo_map", tuple(self.tempo_map))
@@ -459,6 +464,13 @@ class ScoreRevisionPayload:
         object.__setattr__(self, "meter_changes", tuple(self.meter_changes))
         object.__setattr__(self, "key_changes", tuple(self.key_changes))
         object.__setattr__(self, "pickup_beats", _unfrac(self.pickup_beats))
+        if self.swing_feel is not None:
+            object.__setattr__(self, "swing_feel", _unfrac(self.swing_feel))
+            if not (Fraction(0) < self.swing_feel < Fraction(1)):
+                raise ValueError(
+                    f"swing_feel must be a beat fraction in (0, 1), got "
+                    f"{self.swing_feel}"
+                )
         if self.pickup_beats < 0:
             raise ValueError(f"pickup_beats must be >= 0, got {self.pickup_beats}")
         ts0 = self.time_signature
@@ -542,6 +554,8 @@ class ScoreRevisionPayload:
             data["meterChanges"] = [m.to_dict() for m in self.meter_changes]
         if self.key_changes:
             data["keyChanges"] = [k.to_dict() for k in self.key_changes]
+        if self.swing_feel is not None:
+            data["swingFeel"] = _frac(self.swing_feel)
         return data
 
     @classmethod
@@ -558,6 +572,11 @@ class ScoreRevisionPayload:
             ),
             key_changes=tuple(
                 KeyChange.from_dict(k) for k in data.get("keyChanges", ())
+            ),
+            swing_feel=(
+                _unfrac(data["swingFeel"])
+                if data.get("swingFeel") is not None
+                else None
             ),
         )
 

@@ -65,6 +65,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       meter: doc.meter,
       keyFifths: doc.keyFifths,
       keyChanges: doc.keyChanges,
+      swingFeel: doc.swingFeel,
       measureCount: doc.measureCount,
       noteCount: canonical.size,
     };

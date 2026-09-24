@@ -101,6 +101,7 @@ def build_score(
     extra_voices: tuple[QuantizationAlternative, ...] = (),
     voice_names: tuple[str, ...] = (),
     key_changes: tuple[KeyChange, ...] = (),
+    swing_feel: Fraction | None = None,
 ) -> BuiltScore:
     """Assemble the canonical payload + document for rank-1 output.
 
@@ -184,6 +185,7 @@ def build_score(
         quantization_settings=settings,
         meter_changes=meter_changes,
         key_changes=key_changes,
+        swing_feel=swing_feel,
     )
     document = ScoreDocument(
         project_id=project_id or derive_project_id({"audio": source_audio_path}),

@@ -302,6 +302,57 @@ def test_overlapping_notes_rejected() -> None:
         export_concert_musicxml(score)
 
 
+def test_swing_direction_exported() -> None:
+    # #134: a swing_feel payload renders the marking music21 cannot
+    # express — visible words plus the <sound><swing> playback hint
+    # with the detected ratio, on every part.
+    doc = make_score()
+    swung = replace(
+        doc,
+        payload=replace(doc.payload, swing_feel=Fraction(2, 3)),
+    )
+    xml = export_concert_musicxml(swung)
+    root = _root(xml)
+    direction = root.find("part/measure/direction")
+    assert direction is not None
+    assert direction.findtext("direction-type/words") == "Swing"
+    swing = direction.find("sound/swing")
+    assert swing is not None
+    assert swing.findtext("straight") == "eighth"
+    assert swing.findtext("first") == "2"
+    assert swing.findtext("second") == "1"
+    # No swing feel -> no direction, and the export stays identical to
+    # a payload that never carried one.
+    plain = export_concert_musicxml(doc)
+    assert "<swing>" not in plain
+
+def test_swing_direction_soft_ratio() -> None:
+    # A softer detected feel rounds to a small-integer ratio (3:2).
+    doc = make_score()
+    swung = replace(
+        doc,
+        payload=replace(doc.payload, swing_feel=Fraction(3, 5)),
+    )
+    swing = _root(export_concert_musicxml(swung)).find(
+        "part/measure/direction/sound/swing"
+    )
+    assert swing is not None
+    assert swing.findtext("first") == "3"
+    assert swing.findtext("second") == "2"
+
+def test_swing_feel_roundtrips_payload() -> None:
+    # score.edit rebuilds the payload via to_dict/from_dict — the
+    # swing feel must survive that round-trip.
+    doc = make_score()
+    swung = replace(
+        doc,
+        payload=replace(doc.payload, swing_feel=Fraction(2, 3)),
+    )
+    from hornscribe.domain.score import ScoreRevisionPayload
+    back = ScoreRevisionPayload.from_dict(swung.payload.to_dict())
+    assert back.swing_feel == Fraction(2, 3)
+    assert back == swung.payload
+
 def test_tempo_mark_exported() -> None:
     xml = export_concert_musicxml(make_score(bpm=96.0))
     assert 'tempo="96"' in xml

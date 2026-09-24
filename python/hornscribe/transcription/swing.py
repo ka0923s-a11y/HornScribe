@@ -49,6 +49,10 @@ class SwingEstimate:
     swing: int
     triplet: int
     straight: int
+    mean_phase: Fraction | None = None
+    """Mean phase (fraction of a beat) of the onsets that landed in the
+    swing cluster — the detected swing amount, e.g. 2/3 for a hard
+    shuffle or ~0.6 for a softer feel. None when nothing clustered."""
 
     @property
     def detected(self) -> bool:
@@ -77,6 +81,7 @@ def detect_swing(
     """
     offbeats = swing = triplet = straight = 0
     unit = float(beat_ql)
+    swing_phases: list[Fraction] = []
     for onset in onsets_ql:
         phase = float(onset) / unit % 1.0
         # Fold the tiny pre-beat tail (phase ~1.0) onto the downbeat.
@@ -87,10 +92,20 @@ def detect_swing(
         offbeats += 1
         if abs(phase - _SWING_PHASE) <= _PHASE_WINDOW:
             swing += 1
+            swing_phases.append(Fraction(phase).limit_denominator(24))
         elif abs(phase - _TRIPLET_PHASE) <= _PHASE_WINDOW:
             triplet += 1
         elif abs(phase - _STRAIGHT_PHASE) <= _PHASE_WINDOW:
             straight += 1
+    mean_phase = (
+        sum(swing_phases, Fraction(0)) / len(swing_phases)
+        if swing_phases
+        else None
+    )
     return SwingEstimate(
-        offbeats=offbeats, swing=swing, triplet=triplet, straight=straight
+        offbeats=offbeats,
+        swing=swing,
+        triplet=triplet,
+        straight=straight,
+        mean_phase=mean_phase,
     )

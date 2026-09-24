@@ -674,6 +674,7 @@ class TestSwing:
         assert est.detected
         assert est.offbeats == 20
         assert est.swing == 20
+        assert est.mean_phase == Fraction(2, 3)
 
     def test_straight_eighths_not_swing(self) -> None:
         onsets = [Fraction(i, 2) for i in range(80)]  # eighths on the half beat
@@ -700,6 +701,34 @@ class TestSwing:
         assert log[-1]["phase"] == "completed"
         reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
         assert "swing_feel" in reasons
+
+    def test_pipeline_writes_swing_notation(
+        self, tmp_path: Path
+    ) -> None:
+        # #134: a detected shuffle lands on the payload (swingFeel) and
+        # the MusicXML carries a swing direction with the detected
+        # ratio as the playback hint.
+        onsets = [
+            i * 0.5 + (2.0 / 3.0) * 0.5 if i % 2 else i * 0.5
+            for i in range(40)
+        ]
+        log = run(tmp_path, self._events(onsets))
+        result = log[-1]["result"]
+        assert result["scoreDocument"]["content"]["swingFeel"] == "2/3"
+        xml = result["musicXmlConcert"]
+        assert "<swing>" in xml
+        assert "<first>2</first>" in xml
+        assert "<second>1</second>" in xml
+        # The horn presentation carries the same marking.
+        assert "<swing>" in result["musicXmlHornF"]
+
+    def test_pipeline_straight_no_swing_notation(
+        self, tmp_path: Path
+    ) -> None:
+        log = run(tmp_path, self._events([i * 0.25 for i in range(40)]))
+        result = log[-1]["result"]
+        assert "swingFeel" not in result["scoreDocument"]["content"]
+        assert "<swing>" not in result["musicXmlConcert"]
 
     def test_pipeline_straight_no_issue(self, tmp_path: Path) -> None:
         log = run(tmp_path, self._events([i * 0.25 for i in range(40)]))

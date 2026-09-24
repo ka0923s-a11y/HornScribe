@@ -17,6 +17,7 @@ function fakeDoc(overrides: Partial<ScoreDocumentPort> = {}): ScoreDocumentPort 
       meter: "4/4",
       keyFifths: 0,
       keyChanges: [],
+      swingFeel: false,
       measureCount: 1,
       noteCount: 1,
     },

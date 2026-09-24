@@ -29,6 +29,8 @@ export interface ScoreDocumentMeta {
   /** #146: key changes with measure numbers (head first); empty or
    *  single-entry = the piece stays in keyFifths. */
   readonly keyChanges: readonly { measure: number; fifths: number }[];
+  /** #134: the score carries a swing marking (<sound><swing>). */
+  readonly swingFeel: boolean;
   /** Number of measures in the score. */
   readonly measureCount: number;
   /** Number of canonical `sn-*` notes (rests excluded). */
