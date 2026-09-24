@@ -454,6 +454,17 @@ def run_transcription_job(
                     prefer="top",
                 )
                 auto_mix_detected = True
+        # #200: a mono-declared job with the same overlap signature
+        # probably means the audio was not actually monophonic — the
+        # voices re-run remedy applies there too (melody intentionally
+        # folds accompaniment into the top line, so it stays exempt).
+        mix_suggest_voices = auto_mix_detected or (
+            params.texture == "mono"
+            and cleaned.events
+            and cleaned.polyphonic_overlaps >= AUTO_TEXTURE_MIN_OVERLAPS
+            and cleaned.polyphonic_overlaps / len(cleaned.events)
+            >= AUTO_TEXTURE_OVERLAP_RATIO
+        )
         if not cleaned.events:
             emit(
                 "failed",
@@ -741,7 +752,7 @@ def run_transcription_job(
                         # #148: auto detected a real mix — the voices
                         # texture would keep those lines as separate
                         # parts, so the UI offers a one-click re-run.
-                        "suggestVoicesTexture": auto_mix_detected,
+                        "suggestVoicesTexture": mix_suggest_voices,
                     },
                 )
             )

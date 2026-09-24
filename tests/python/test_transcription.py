@@ -1133,8 +1133,9 @@ class TestPipeline:
     ) -> None:
         # #148: auto detected a dense mix — the overlap warning carries
         # suggestVoicesTexture so the UI can offer a one-click re-run
-        # with the voices texture. An explicit mono choice gets the same
-        # warning but no suggestion (the user already picked a mode).
+        # with the voices texture. #200: an explicit mono choice with
+        # the same overlap density gets the suggestion too — declaring
+        # mono on a real mix is exactly the case the remedy exists for.
         events: list[RawNoteEvent] = []
         for i in range(8):
             events.append(
@@ -1176,7 +1177,22 @@ class TestPipeline:
             and "polyphonicOverlaps" in i["evidence"]
         ]
         assert merged_mono
-        assert merged_mono[0]["evidence"]["suggestVoicesTexture"] is False
+        assert merged_mono[0]["evidence"]["suggestVoicesTexture"] is True
+
+        # #200: melody intentionally folds accompaniment into the top
+        # line — the voices suggestion would contradict the declared
+        # intent, so it stays off there.
+        melody = run(tmp_path, tuple(events), {"texture": "melody"})[-1][
+            "result"
+        ]
+        merged_melody = [
+            i
+            for i in melody["reviewIssues"]
+            if i["reason"] == "overlapping_candidates"
+            and "polyphonicOverlaps" in i["evidence"]
+        ]
+        assert merged_melody
+        assert merged_melody[0]["evidence"]["suggestVoicesTexture"] is False
 
     def test_voices_texture_keeps_two_parts(self, tmp_path: Path) -> None:
         # #85: a duet — sustained lower line under a melody — becomes a
