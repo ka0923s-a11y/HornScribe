@@ -35,6 +35,10 @@ export interface ScoreDocumentMeta {
   readonly measureCount: number;
   /** Number of canonical `sn-*` notes (rests excluded). */
   readonly noteCount: number;
+  /** #272: review issues detected by the engine but omitted by the
+   *  surfacing cap — the review bar shows them so a truncated list
+   *  is never silent. */
+  readonly omittedIssueCount: number;
 }
 
 export interface ScoreDocumentPort {

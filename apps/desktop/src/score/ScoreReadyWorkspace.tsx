@@ -69,7 +69,11 @@ import {
   segmentAt,
   type PlaybackTable,
 } from "./playbackTable";
-import { ScoreCursorClock, type ClockSnapshot, type TransportClock } from "./clock";
+import {
+  ScoreCursorClock,
+  type ClockSnapshot,
+  type TransportClock,
+} from "./clock";
 import { ScorePlaybackSynth, velocityByCanonicalId } from "./playbackSynth";
 import { bendsByCanonicalId } from "./playbackSynth";
 import { buildSwingWarp } from "./swingWarp";
@@ -101,7 +105,10 @@ import {
   type InspectorCopy,
   type InspectorModel,
 } from "./inspector";
-import type { ScoreWorkspaceController, ScoreWorkspaceState } from "./controller";
+import type {
+  ScoreWorkspaceController,
+  ScoreWorkspaceState,
+} from "./controller";
 import { SegmentedControl } from "../components/primitives/SegmentedControl";
 import { HsButton } from "../components/primitives/Button";
 
@@ -166,8 +173,10 @@ function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 /** Reason-code → copy deck. `ReviewReason` is forward-compatible
  *  (`string & {}`), so index through a plain record — unknown engine codes
  *  land on `other`. */
-const REASON_DECK: Record<string, { readonly title: string; readonly detail: string }> =
-  ja.reviewReasons;
+const REASON_DECK: Record<
+  string,
+  { readonly title: string; readonly detail: string }
+> = ja.reviewReasons;
 
 /** Inspector copy — bound to ja.ts so Japanese text stays in one place. */
 function inspectorCopy(): InspectorCopy {
@@ -255,9 +264,7 @@ export function ScoreReadyWorkspace({
     sessionViewRef.current.viewMode ?? initialViewMode,
   );
   const [currentPage, setCurrentPage] = useState(1);
-  const [zoom, setZoom] = useState(
-    sessionViewRef.current.zoomPct ?? 100,
-  );
+  const [zoom, setZoom] = useState(sessionViewRef.current.zoomPct ?? 100);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [loading, setLoading] = useState(true);
   const [renderError, setRenderError] = useState(false);
@@ -378,25 +385,29 @@ export function ScoreReadyWorkspace({
     markCanonicalSet(idx, canonicals, LOOP_CLASS);
   }, []);
 
-  const scrollCanonicalIntoView = useCallback((canonicals: ReadonlySet<string>) => {
-    const idx = indexRef.current;
-    if (!idx || canonicals.size === 0) return;
-    const table = tableRef.current;
-    let target: Element | null = null;
-    if (table) {
-      // Earliest onset leads the scroll target.
-      let best = Number.POSITIVE_INFINITY;
-      for (const id of canonicals) {
-        const onset = table.onsetMsByCanonical.get(id) ?? Number.POSITIVE_INFINITY;
-        if (onset < best) {
-          best = onset;
-          target = idx.byCanonical.get(id)?.[0] ?? null;
+  const scrollCanonicalIntoView = useCallback(
+    (canonicals: ReadonlySet<string>) => {
+      const idx = indexRef.current;
+      if (!idx || canonicals.size === 0) return;
+      const table = tableRef.current;
+      let target: Element | null = null;
+      if (table) {
+        // Earliest onset leads the scroll target.
+        let best = Number.POSITIVE_INFINITY;
+        for (const id of canonicals) {
+          const onset =
+            table.onsetMsByCanonical.get(id) ?? Number.POSITIVE_INFINITY;
+          if (onset < best) {
+            best = onset;
+            target = idx.byCanonical.get(id)?.[0] ?? null;
+          }
         }
       }
-    }
-    target ??= idx.byCanonical.get([...canonicals][0])?.[0] ?? null;
-    target?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, []);
+      target ??= idx.byCanonical.get([...canonicals][0])?.[0] ?? null;
+      target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    },
+    [],
+  );
 
   /* ------------------------------ rendering ------------------------------ */
 
@@ -408,7 +419,10 @@ export function ScoreReadyWorkspace({
       const container = scrollRef.current;
       if (!r) return;
       if (opts.keepScroll && container) {
-        const denom = Math.max(1, container.scrollHeight - container.clientHeight);
+        const denom = Math.max(
+          1,
+          container.scrollHeight - container.clientHeight,
+        );
         pendingScrollRef.current = { ratio: container.scrollTop / denom };
       }
       try {
@@ -451,7 +465,9 @@ export function ScoreReadyWorkspace({
     if (sel?.canonicalId) {
       markCanonical(indexRef.current, sel.canonicalId, SELECTED_CLASS);
     } else if (sel) {
-      indexRef.current.byExportId.get(sel.exportId)?.classList.add(SELECTED_CLASS);
+      indexRef.current.byExportId
+        .get(sel.exportId)
+        ?.classList.add(SELECTED_CLASS);
     }
     markCanonicalSet(indexRef.current, activeRef.current, ACTIVE_CLASS);
     markCanonicalSet(indexRef.current, loopCanonicalsRef.current, LOOP_CLASS);
@@ -463,7 +479,10 @@ export function ScoreReadyWorkspace({
 
     // Page mode: clamp the current page when the document repaginates
     // (zoom / view switch can change the page count).
-    if (viewModeRef.current === "page" && currentPageRef.current > pages.length) {
+    if (
+      viewModeRef.current === "page" &&
+      currentPageRef.current > pages.length
+    ) {
       setCurrentPage(pages.length);
     }
 
@@ -476,7 +495,10 @@ export function ScoreReadyWorkspace({
         .get(sel.canonicalId)?.[0]
         ?.scrollIntoView({ block: "nearest", inline: "nearest" });
     } else if (pending && viewModeRef.current === "continuous") {
-      const denom = Math.max(1, container.scrollHeight - container.clientHeight);
+      const denom = Math.max(
+        1,
+        container.scrollHeight - container.clientHeight,
+      );
       container.scrollTop = pending.ratio * denom;
     }
     // viewMode/currentPage swap the rendered DOM in page mode — the element
@@ -516,8 +538,7 @@ export function ScoreReadyWorkspace({
         // timemap ignores <swing>).
         tableRef.current = buildPlaybackTable(
           r.timemap(),
-          buildSwingWarp(scoreDoc.canonicalDocument?.() ?? null) ??
-            undefined,
+          buildSwingWarp(scoreDoc.canonicalDocument?.() ?? null) ?? undefined,
         );
         const clock = new ScoreCursorClock(tableRef.current.durationMs);
         clockRef.current = clock;
@@ -535,7 +556,9 @@ export function ScoreReadyWorkspace({
           bendsByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
         );
         clock.subscribe((s) => {
-          synth.setLoop(s.loop ? { startMs: s.loop.startMs, endMs: s.loop.endMs } : null);
+          synth.setLoop(
+            s.loop ? { startMs: s.loop.startMs, endMs: s.loop.endMs } : null,
+          );
           synth.sync(s.positionMs, s.isPlaying, s.rate);
         });
       })
@@ -622,7 +645,9 @@ export function ScoreReadyWorkspace({
     const table = tableRef.current;
     if (!table) return;
     const loop = clockSnap.loop;
-    const set = loop ? canonicalsInRange(table, loop.startMs, loop.endMs) : new Set<string>();
+    const set = loop
+      ? canonicalsInRange(table, loop.startMs, loop.endMs)
+      : new Set<string>();
     if (!sameSet(set, loopCanonicalsRef.current)) {
       loopCanonicalsRef.current = set;
       applyLoopDom(set);
@@ -636,16 +661,16 @@ export function ScoreReadyWorkspace({
     const sel = selectionRef.current;
     if (!docs) return;
     if (!sel) {
-      onInspectorChange(
-        buildScoreInspector(scoreDoc.meta, pendingCount, copy),
-      );
+      onInspectorChange(buildScoreInspector(scoreDoc.meta, pendingCount, copy));
       return;
     }
     const canonical = sel.canonicalId;
     const concertFrags = canonical
       ? (docs.concertByCanonical.get(canonical) ?? [])
-      : [docs.concertByExport.get(sel.exportId) ?? docs.hornByExport.get(sel.exportId)]
-          .filter((n): n is ParsedNote => n != null);
+      : [
+          docs.concertByExport.get(sel.exportId) ??
+            docs.hornByExport.get(sel.exportId),
+        ].filter((n): n is ParsedNote => n != null);
     const hornFrags = canonical
       ? (docs.hornByCanonical.get(canonical) ?? [])
       : concertFrags;
@@ -721,7 +746,11 @@ export function ScoreReadyWorkspace({
   const suspendFollow = useCallback(() => {
     // Only meaningful while playback is actually following (§11); a paused
     // score can scroll freely without nagging the user.
-    if (!followRef.current || suspendedRef.current || !clockRef.current?.isPlaying()) {
+    if (
+      !followRef.current ||
+      suspendedRef.current ||
+      !clockRef.current?.isPlaying()
+    ) {
       return;
     }
     suspendedRef.current = true;
@@ -764,7 +793,9 @@ export function ScoreReadyWorkspace({
     if (!container || !svg) return;
     const width = svg.getBoundingClientRect().width;
     if (width <= 0) return;
-    const target = Math.floor((container.clientWidth - 32) * (zoomRef.current / width));
+    const target = Math.floor(
+      (container.clientWidth - 32) * (zoomRef.current / width),
+    );
     changeZoom(target);
   }, [changeZoom]);
 
@@ -820,7 +851,11 @@ export function ScoreReadyWorkspace({
         // selection for the inspector.
         const idx = indexRef.current;
         if (idx && issue.canonicalNoteIds.length > 1) {
-          markCanonicalSet(idx, new Set(issue.canonicalNoteIds), SELECTED_CLASS);
+          markCanonicalSet(
+            idx,
+            new Set(issue.canonicalNoteIds),
+            SELECTED_CLASS,
+          );
         }
       }
       // Position the source cursor at the issue's range start so
@@ -869,8 +904,7 @@ export function ScoreReadyWorkspace({
     if (r) {
       tableRef.current = buildPlaybackTable(
         r.timemap(),
-        buildSwingWarp(scoreDoc.canonicalDocument?.() ?? null) ??
-          undefined,
+        buildSwingWarp(scoreDoc.canonicalDocument?.() ?? null) ?? undefined,
       );
       // #170: the edit changed the notated content — refresh the audition
       // note list and the score clock's total span so the heard score and
@@ -897,7 +931,10 @@ export function ScoreReadyWorkspace({
     ): boolean => {
       if (!edit) return false;
       bumpDoc();
-      if (opts.reload ?? (edit.noteChanges.length > 0 || edit.docSwap != null)) {
+      if (
+        opts.reload ??
+        (edit.noteChanges.length > 0 || edit.docSwap != null)
+      ) {
         reloadEditedScore();
       }
       reportInspector();
@@ -910,7 +947,12 @@ export function ScoreReadyWorkspace({
   const reviewAccept = useCallback(() => {
     const issue = issueAtCursor();
     if (!issue) return;
-    if (!runReviewEdit(session.decide(issue.id, "accepted"), ja.review.feedback.accepted)) {
+    if (
+      !runReviewEdit(
+        session.decide(issue.id, "accepted"),
+        ja.review.feedback.accepted,
+      )
+    ) {
       announce(ja.review.feedback.already(ja.reviewStatus.accepted));
     }
   }, [issueAtCursor, session, runReviewEdit, announce]);
@@ -918,7 +960,12 @@ export function ScoreReadyWorkspace({
   const reviewDismiss = useCallback(() => {
     const issue = issueAtCursor();
     if (!issue) return;
-    if (!runReviewEdit(session.decide(issue.id, "dismissed"), ja.review.feedback.dismissed)) {
+    if (
+      !runReviewEdit(
+        session.decide(issue.id, "dismissed"),
+        ja.review.feedback.dismissed,
+      )
+    ) {
       announce(ja.review.feedback.already(ja.reviewStatus.dismissed));
     }
   }, [issueAtCursor, session, runReviewEdit, announce]);
@@ -927,7 +974,13 @@ export function ScoreReadyWorkspace({
     (delta: number) => {
       const issue = issueAtCursor();
       if (!issue) return;
-      if (!runReviewEdit(session.adjustPitch(issue.id, delta), ja.review.feedback.pitchFixed, { reload: true })) {
+      if (
+        !runReviewEdit(
+          session.adjustPitch(issue.id, delta),
+          ja.review.feedback.pitchFixed,
+          { reload: true },
+        )
+      ) {
         announce(ja.review.feedback.noIssues);
       }
     },
@@ -940,7 +993,9 @@ export function ScoreReadyWorkspace({
     const deleted = session.isDeleted(issue.canonicalNoteIds[0]);
     runReviewEdit(
       session.setNoteDeleted(issue.id, !deleted),
-      deleted ? ja.review.feedback.noteRestored : ja.review.feedback.noteDeleted,
+      deleted
+        ? ja.review.feedback.noteRestored
+        : ja.review.feedback.noteDeleted,
       { reload: true },
     );
   }, [issueAtCursor, session, runReviewEdit]);
@@ -959,10 +1014,12 @@ export function ScoreReadyWorkspace({
       const cur = selectionRef.current?.canonicalId ?? null;
       let next: string;
       if (cur == null) {
-        next = direction === 1 ? canonicals[0] : canonicals[canonicals.length - 1];
+        next =
+          direction === 1 ? canonicals[0] : canonicals[canonicals.length - 1];
       } else {
         const i = canonicals.indexOf(cur);
-        const j = i < 0 ? (direction === 1 ? 0 : canonicals.length - 1) : i + direction;
+        const j =
+          i < 0 ? (direction === 1 ? 0 : canonicals.length - 1) : i + direction;
         if (j < 0 || j >= canonicals.length) return; // stay at the edges
         next = canonicals[j];
       }
@@ -997,7 +1054,9 @@ export function ScoreReadyWorkspace({
     const deleted = session.isDeleted(canonicalId);
     runReviewEdit(
       session.editNote(canonicalId, { deleted: !deleted }),
-      deleted ? ja.review.feedback.noteRestored : ja.review.feedback.noteDeleted,
+      deleted
+        ? ja.review.feedback.noteRestored
+        : ja.review.feedback.noteDeleted,
       { reload: true },
     );
   }, [session, runReviewEdit]);
@@ -1097,20 +1156,17 @@ export function ScoreReadyWorkspace({
     (power: number) => {
       const canonicalId = selectionRef.current?.canonicalId;
       if (!canonicalId) return;
-      applyRhythmEdit(
-        (canonical) => {
-          const note = findCanonicalNote(canonical, canonicalId);
-          if (!note) return null;
-          const next = scaleFraction(note.durationBeats, power);
-          if (!next) return null;
-          return {
-            kind: "setDuration",
-            noteId: canonicalId,
-            durationBeats: formatFraction(next),
-          };
-        },
-        ja.commandFeedback.rhythmEdited,
-      );
+      applyRhythmEdit((canonical) => {
+        const note = findCanonicalNote(canonical, canonicalId);
+        if (!note) return null;
+        const next = scaleFraction(note.durationBeats, power);
+        if (!next) return null;
+        return {
+          kind: "setDuration",
+          noteId: canonicalId,
+          durationBeats: formatFraction(next),
+        };
+      }, ja.commandFeedback.rhythmEdited);
     },
     [applyRhythmEdit],
   );
@@ -1274,7 +1330,8 @@ export function ScoreReadyWorkspace({
       return;
     }
     bumpDoc();
-    if (edit.noteChanges.length > 0 || edit.docSwap != null) reloadEditedScore();
+    if (edit.noteChanges.length > 0 || edit.docSwap != null)
+      reloadEditedScore();
     reportInspector();
     announce(ja.review.feedback.undone);
   }, [session, bumpDoc, reloadEditedScore, reportInspector, announce]);
@@ -1286,7 +1343,8 @@ export function ScoreReadyWorkspace({
       return;
     }
     bumpDoc();
-    if (edit.noteChanges.length > 0 || edit.docSwap != null) reloadEditedScore();
+    if (edit.noteChanges.length > 0 || edit.docSwap != null)
+      reloadEditedScore();
     reportInspector();
     announce(ja.review.feedback.redone);
   }, [session, bumpDoc, reloadEditedScore, reportInspector, announce]);
@@ -1455,8 +1513,6 @@ export function ScoreReadyWorkspace({
     announce,
   ]);
 
-
-
   /* --------------------------- state mirror ------------------------------ */
 
   useEffect(() => {
@@ -1518,7 +1574,11 @@ export function ScoreReadyWorkspace({
 
   return (
     <div className="hs-score-workspace">
-      <div className="hs-score-toolbar" role="toolbar" aria-label={s.regionLabel}>
+      <div
+        className="hs-score-toolbar"
+        role="toolbar"
+        aria-label={s.regionLabel}
+      >
         <SegmentedControl
           options={[
             { value: "continuous", label: s.continuous },
@@ -1537,10 +1597,14 @@ export function ScoreReadyWorkspace({
             >
               {s.prevPage}
             </HsButton>
-            <span aria-live="polite">{s.pagePosition(currentPage, pages.length)}</span>
+            <span aria-live="polite">
+              {s.pagePosition(currentPage, pages.length)}
+            </span>
             <HsButton
               size="small"
-              onClick={() => setCurrentPage((p) => Math.min(pages.length, p + 1))}
+              onClick={() =>
+                setCurrentPage((p) => Math.min(pages.length, p + 1))
+              }
               disabled={currentPage >= pages.length}
             >
               {s.nextPage}
@@ -1553,13 +1617,23 @@ export function ScoreReadyWorkspace({
           </span>
         )}
         <span className="hs-score-toolbar__spacer" />
-        <HsButton size="small" onClick={() => changeZoom(zoom - SCORE_ZOOM_STEP_PCT)}>
+        <HsButton
+          size="small"
+          onClick={() => changeZoom(zoom - SCORE_ZOOM_STEP_PCT)}
+        >
           {s.zoomOut}
         </HsButton>
-        <span className="hs-score-toolbar__zoom" aria-live="polite" aria-label={s.zoomLabel}>
+        <span
+          className="hs-score-toolbar__zoom"
+          aria-live="polite"
+          aria-label={s.zoomLabel}
+        >
           {zoom}%
         </span>
-        <HsButton size="small" onClick={() => changeZoom(zoom + SCORE_ZOOM_STEP_PCT)}>
+        <HsButton
+          size="small"
+          onClick={() => changeZoom(zoom + SCORE_ZOOM_STEP_PCT)}
+        >
           {s.zoomIn}
         </HsButton>
         <HsButton size="small" onClick={zoomFit}>
@@ -1572,6 +1646,7 @@ export function ScoreReadyWorkspace({
           index={Math.min(reviewIndex, Math.max(0, allIssues.length - 1))}
           total={allIssues.length}
           pending={pendingCount}
+          omitted={scoreDoc.meta.omittedIssueCount}
           issue={allIssues[reviewIndex] ?? null}
           copy={
             allIssues[reviewIndex]
@@ -1683,8 +1758,7 @@ export function ScoreReadyWorkspace({
               // #198: scaleTempo, not setTempo — the engine doubles/
               // halves note values with the tempo so playback seconds
               // stay invariant. Direction evidence says which way.
-              const factor =
-                issue.evidence["direction"] === "halve" ? 0.5 : 2;
+              const factor = issue.evidence["direction"] === "halve" ? 0.5 : 2;
               // #204: applyRhythmEdit's after-hook marks the issue
               // fixed only when the engine edit actually landed.
               return () => {
@@ -1750,7 +1824,9 @@ export function ScoreReadyWorkspace({
         <div className="hs-score-error" role="alert">
           <h2>{s.renderErrorTitle}</h2>
           <p>{s.renderErrorBody}</p>
-          <HsButton onClick={() => renderScore(pitchRef.current)}>{ja.common.retry}</HsButton>
+          <HsButton onClick={() => renderScore(pitchRef.current)}>
+            {ja.common.retry}
+          </HsButton>
         </div>
       )}
       {!renderError && (

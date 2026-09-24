@@ -31,6 +31,9 @@ export interface ReviewBarProps {
   readonly total: number;
   /** Issues still open. */
   readonly pending: number;
+  /** #272: issues the engine detected but the surfacing cap omitted —
+   *  shown so a truncated list is never silent (0 = hide). */
+  readonly omitted?: number;
   readonly issue: ScoreReviewIssue | null;
   readonly copy: ReviewBarCopy | null;
   /** True when the focused issue's primary note is currently deleted. */
@@ -61,6 +64,7 @@ export function ReviewBar({
   index,
   total,
   pending,
+  omitted = 0,
   issue,
   copy,
   noteDeleted,
@@ -83,7 +87,11 @@ export function ReviewBar({
   const allDone = pending === 0;
   const confidence = issue ? issueConfidence(issue) : null;
   return (
-    <div className="hs-score-reviewbar" role="region" aria-label={r.regionLabel}>
+    <div
+      className="hs-score-reviewbar"
+      role="region"
+      aria-label={r.regionLabel}
+    >
       <div className="hs-score-reviewbar__row hs-score-reviewbar__row--status">
         <strong className="hs-score-reviewbar__position" aria-live="polite">
           {allDone ? r.allDone : r.position(index + 1, total)}
@@ -93,16 +101,26 @@ export function ReviewBar({
             {r.remaining(pending)}
           </span>
         )}
+        {omitted > 0 && (
+          <span className="hs-score-reviewbar__omitted">
+            {r.omitted(omitted)}
+          </span>
+        )}
         {issue && copy && (
           <>
             <span className="hs-score-reviewbar__badge">
               {ja.reviewBadge.needsReview}
             </span>
-            <span className="hs-score-reviewbar__reason">{copy.reasonTitle}</span>
-            <span className="hs-score-reviewbar__detail">{copy.reasonDetail}</span>
+            <span className="hs-score-reviewbar__reason">
+              {copy.reasonTitle}
+            </span>
+            <span className="hs-score-reviewbar__detail">
+              {copy.reasonDetail}
+            </span>
             <span className="hs-score-reviewbar__meta">
               {copy.severityLabel}・{copy.statusLabel}
-              {confidence != null && `・${r.confidence(Math.round(confidence * 100))}`}
+              {confidence != null &&
+                `・${r.confidence(Math.round(confidence * 100))}`}
             </span>
           </>
         )}
@@ -118,7 +136,11 @@ export function ReviewBar({
           </HsButton>
         </HsTooltip>
         <HsTooltip content={withKey(r.playSource, "R")}>
-          <HsButton size="small" disabled={issue == null} onClick={onPlaySource}>
+          <HsButton
+            size="small"
+            disabled={issue == null}
+            onClick={onPlaySource}
+          >
             {r.playSource}
           </HsButton>
         </HsTooltip>

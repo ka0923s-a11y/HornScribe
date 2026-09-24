@@ -7,7 +7,9 @@ import {
   isSaveableRevision,
 } from "./project";
 
-function fakeDoc(overrides: Partial<ScoreDocumentPort> = {}): ScoreDocumentPort {
+function fakeDoc(
+  overrides: Partial<ScoreDocumentPort> = {},
+): ScoreDocumentPort {
   return {
     revisionId: "rev-0123456789abcdef",
     editVersion: 0,
@@ -18,6 +20,7 @@ function fakeDoc(overrides: Partial<ScoreDocumentPort> = {}): ScoreDocumentPort 
       keyFifths: 0,
       keyChanges: [],
       swingFeel: false,
+      omittedIssueCount: 0,
       measureCount: 1,
       noteCount: 1,
     },

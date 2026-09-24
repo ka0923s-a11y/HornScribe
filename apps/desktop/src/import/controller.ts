@@ -20,15 +20,8 @@
 import type { ScreenState } from "../workspace/screen";
 import { ja } from "../strings/ja";
 import { type ImportPorts } from "./ports";
-import {
-  audioFormatOf,
-  baseName,
-  projectDisplayName,
-} from "./formats";
-import {
-  recordRecentProject,
-  loadRecentProjects,
-} from "./recentProjects";
+import { audioFormatOf, baseName, projectDisplayName } from "./formats";
+import { recordRecentProject, loadRecentProjects } from "./recentProjects";
 import type {
   AudioFileRef,
   AudioFormat,
@@ -41,11 +34,7 @@ import type {
 } from "./types";
 
 export type ImportPhase =
-  | "idle"
-  | "opening"
-  | "ready"
-  | "error"
-  | "sourceMissing";
+  "idle" | "opening" | "ready" | "error" | "sourceMissing";
 
 export interface ImportState {
   readonly phase: ImportPhase;
@@ -85,7 +74,13 @@ export interface ImportEvents {
    *  a re-transcription. Fires after the usual state/screen updates. */
   onProjectScoreReady?(
     result: unknown,
-    project: { projectId: string; sourceHash: string | null },
+    project: {
+      projectId: string;
+      sourceHash: string | null;
+      // #265: the recorded source path — the host keeps it so a
+      // SOURCE_MISSING save preserves the relink target.
+      sourcePath: string | null;
+    },
   ): void;
 }
 
@@ -132,8 +127,7 @@ export class ImportController {
     // import — the dialog's "all files" escape hatch can hand one over.
     const projRef = refs.find((r) => r.name.endsWith(".hornscribe.json"));
     if (projRef) {
-      const bytes =
-        projRef.kind === "file" ? projRef.file : undefined;
+      const bytes = projRef.kind === "file" ? projRef.file : undefined;
       await this.openProject(
         {
           name: projectDisplayName(projRef.name),
@@ -248,10 +242,7 @@ export class ImportController {
    * `bytes` carries a browser-dev File ref (no durable path — the
    * project is opened but not recorded in the recents list).
    */
-  async openProject(
-    entry: RecentProjectEntry,
-    bytes?: Blob,
-  ): Promise<void> {
+  async openProject(entry: RecentProjectEntry, bytes?: Blob): Promise<void> {
     const gen = this.begin("project", entry.name);
     try {
       const blob = bytes ?? (await this.ports.readProjectBytes(entry.path));
@@ -375,6 +366,7 @@ export class ImportController {
         this.events.onProjectScoreReady?.(sm.project.scoreResult, {
           projectId: sm.project.projectId,
           sourceHash: sm.project.sourceHash,
+          sourcePath: sm.project.sourcePath,
         });
         this.events.announce(ja.import.feedback.projectOpened(sm.project.name));
       } else {
@@ -443,10 +435,7 @@ export class ImportController {
     }
   }
 
-  private enterSourceMissing(
-    project: ProjectSummary,
-    mismatch: boolean,
-  ): void {
+  private enterSourceMissing(project: ProjectSummary, mismatch: boolean): void {
     this.setState({
       phase: "sourceMissing",
       openingLabel: null,
@@ -461,6 +450,7 @@ export class ImportController {
       this.events.onProjectScoreReady?.(project.scoreResult, {
         projectId: project.projectId,
         sourceHash: project.sourceHash,
+        sourcePath: project.sourcePath,
       });
     }
   }
@@ -469,7 +459,11 @@ export class ImportController {
     project: ProjectSummary,
     ref: AudioFileRef,
     blob: Blob,
-    decoded: { durationSeconds: number; sampleRate: number; peaks: readonly number[] },
+    decoded: {
+      durationSeconds: number;
+      sampleRate: number;
+      peaks: readonly number[];
+    },
   ): void {
     const format = audioFormatOf(ref.name) ?? "wav";
     const audio: LoadedAudio = {
@@ -500,6 +494,7 @@ export class ImportController {
       this.events.onProjectScoreReady?.(project.scoreResult, {
         projectId: project.projectId,
         sourceHash: project.sourceHash,
+        sourcePath: project.sourcePath,
       });
       this.events.announce(ja.import.feedback.projectOpened(project.name));
     } else {
@@ -609,7 +604,9 @@ function scoreResultFromProject(
     musicXmlConcert: concert,
     musicXmlHornF: horn,
     scoreRevision:
-      score && typeof score.revision === "string" ? score.revision : "rev-project",
+      score && typeof score.revision === "string"
+        ? score.revision
+        : "rev-project",
     reviewIssues: Array.isArray(data.reviewIssues) ? data.reviewIssues : [],
     scoreDocument: data.scoreDocument ?? null,
     meta: data.meta ?? {},

@@ -4,8 +4,8 @@
  * docs/JAPANESE_UI_COPY.md と protocol/copy/ja-JP.json（UI-006 copy deck）
  * に従い、頻出用語・ステータス文を一箇所に集約して表記ゆれを防ぐ。
  * ユーザー向けUIは日本語のみ（言語切替は実装しない）。
-* 固有名詞（MusicXML, MIDI, FFmpeg, MuseScore 等）は原表記を維持する。
-*/
+ * 固有名詞（MusicXML, MIDI, FFmpeg, MuseScore 等）は原表記を維持する。
+ */
 /* #175/#189: shared pYIN explanation — used by the settings backend
  * selector and the import-screen per-job engine select. */
 const BACKEND_HINT_PYIN =
@@ -218,8 +218,7 @@ export const ja = {
     recordingsRetentionNever: "削除しない",
     recordingsRetentionDays: (n: number) => `${n} 日たったら削除`,
     recordingsPruned: (n: number) => `古い録音を ${n} 件削除しました`,
-    recordingsUnavailable:
-      "録音の管理はデスクトップアプリで利用できます。",
+    recordingsUnavailable: "録音の管理はデスクトップアプリで利用できます。",
     /* #147: managed 音源 appDataDir/sources/ — プロジェクト保存時に
      *  録音をコピーした永続領域 (#132)。保持ポリシー対象外なので
      *  容量管理はここで行う。 */
@@ -730,6 +729,9 @@ export const ja = {
         `要確認 ${current} / ${total}`,
       remaining: (count: number) => `残り ${count} か所`,
       allDone: "すべての要確認箇所を確認しました",
+      /* #272: issues dropped by the surfacing cap — the header shows
+       * the count so the truncation is never silent. */
+      omitted: (count: number) => `（他 ${count} 件を省略）`,
       playSource: "元音源を再生",
       markOk: "問題なし",
       fixPitch: "音高修正",
@@ -1081,7 +1083,8 @@ export const ja = {
     resumeFollow: "追従を再開",
     follow: "再生位置を追従",
     deselected: "選択を解除しました",
-    reviewPosition: (index: number, total: number) => `要確認 ${index} / ${total}`,
+    reviewPosition: (index: number, total: number) =>
+      `要確認 ${index} / ${total}`,
     reviewExit: "要確認を終了",
     measureNth: (n: number) => `第${n}小節`,
     noteSelected: "音符を選択しました",
@@ -1192,19 +1195,22 @@ export const ja = {
     },
     swing_feel: {
       title: "スウィングの可能性があります",
-      detail: "八分の裏拍が三連符の3つ目に寄っています（シャッフル系）。記譜にスウィングの指示を付けました。再生が元音源と合うか確認してください。",
+      detail:
+        "八分の裏拍が三連符の3つ目に寄っています（シャッフル系）。記譜にスウィングの指示を付けました。再生が元音源と合うか確認してください。",
     },
     // #181: pYIN is monophonic — warn when the texture asked for
     // (or allowed) polyphony so the missing voices are not silent.
     monophonic_backend: {
       title: "単音エンジンで採譜しました",
-      detail: "pYINは単一旋律専用のエンジンです。和音や伴奏を含む音源では他の声部が結果に反映されません。多声部を採りたい場合は、設定の採譜エンジンをBasic Pitchに変更してください。",
+      detail:
+        "pYINは単一旋律専用のエンジンです。和音や伴奏を含む音源では他の声部が結果に反映されません。多声部を採りたい場合は、設定の採譜エンジンをBasic Pitchに変更してください。",
     },
     // #188: the tracked tempo reads as a half/double pick — the
     // action applies scaleTempo so note values rescale with the BPM.
     tempo_uncertain: {
       title: "テンポを確認してください",
-      detail: "自動推定されたテンポが、実際の半分または2倍の可能性があります。修正ボタンを押すと音符の長さも一緒に直ります（再生の速さは変わりません）。",
+      detail:
+        "自動推定されたテンポが、実際の半分または2倍の可能性があります。修正ボタンを押すと音符の長さも一緒に直ります（再生の速さは変わりません）。",
     },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
@@ -1244,16 +1250,26 @@ export const ja = {
   reviewEvidence: {
     secondVoice: (kept: number, dropped: number) =>
       dropped > 0
-        ? "重なった音を追加の声部として " + kept + " 個残しました。声部数を超えた " + dropped + " 個は省略されました"
+        ? "重なった音を追加の声部として " +
+          kept +
+          " 個残しました。声部数を超えた " +
+          dropped +
+          " 個は省略されました"
         : "重なった音を追加の声部として " + kept + " 個残しました",
     mergedOverlaps: (count: number) =>
-      count + " 箇所の音の重なりを検出し、1つの旋律にまとめました（別の声部が失われた可能性があります）",
+      count +
+      " 箇所の音の重なりを検出し、1つの旋律にまとめました（別の声部が失われた可能性があります）",
     /** #148: same warning plus the voices-retry pointer — shown when
      *  auto texture detected a real mix. */
     mergedOverlapsSuggest: (count: number) =>
-      count + " 箇所の音の重なりを検出し、1つの旋律にまとめました。「複数声部として採譜」で重なった音を別の声部として採譜し直せます",
+      count +
+      " 箇所の音の重なりを検出し、1つの旋律にまとめました。「複数声部として採譜」で重なった音を別の声部として採譜し直せます",
     swingFeel: (offbeats: number, swing: number) =>
-      "裏拍の音 " + offbeats + " 個中 " + swing + " 個が三連符の3つ目の位置に寄っています",
+      "裏拍の音 " +
+      offbeats +
+      " 個中 " +
+      swing +
+      " 個が三連符の3つ目の位置に寄っています",
   },
 
   /* #130 (§14): re-quantize dialog — change the quantization settings
@@ -1277,6 +1293,8 @@ export const ja = {
     position: (index: number, total: number) => `要確認 ${index} / ${total}`,
     remaining: (count: number) => `残り ${count} か所`,
     allDone: "すべての要確認箇所を確認しました",
+    /* #272: issues dropped by the surfacing cap — never silent. */
+    omitted: (count: number) => `（他 ${count} 件を省略）`,
     actionsLabel: "要確認の操作",
     playSource: "元音源を再生",
     markOk: "問題なし",
@@ -1292,8 +1310,7 @@ export const ja = {
     retranscribeBasicPitchTip:
       "多声部に対応したエンジンで採譜し直します（現在の編集は破棄されます）",
     /** #188: apply the suggested BPM on the tempo-uncertain issue. */
-    applyTempoSuggestion: (bpm: number) =>
-      `♩=${Math.round(bpm)}に修正`,
+    applyTempoSuggestion: (bpm: number) => `♩=${Math.round(bpm)}に修正`,
     /** #209: meter_conflict cannot auto-resolve — open the meter
      *  select in the properties panel instead. */
     openMeterEditor: "プロパティで拍子を変更",
@@ -1358,8 +1375,7 @@ export const ja = {
     museScoreMissingNote:
       "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。",
     pdfDisabledTooltip: "MuseScoreが見つからないためPDFを書き出せません",
-    audioDisabledTooltip:
-      "元の音声がディスク上にないため同梱できません",
+    audioDisabledTooltip: "元の音声がディスク上にないため同梱できません",
     specifyMuseScore: "MuseScoreの場所を指定",
     completeTitle: "書き出しが完了しました",
     completeCount: "{count}件のファイルを書き出しました",
@@ -1390,12 +1406,14 @@ export const ja = {
     /* #100: project save */
     projectSaved: "プロジェクトを保存しました",
     projectSaveFailed: "プロジェクトを保存できませんでした",
-      projectSaveUnsupported: "この楽譜はプロジェクトとして保存できません（採譜結果のみ保存できます）",
-      /** #234: 採譜中は音源・プロジェクトの差し替えを受け付けない。 */
-      importWhileTranscribing: "採譜の実行中です。完了またはキャンセルしてから開いてください",
-      /** #219: SOURCE_MISSING でも採譜は開けるが、元音源依存の操作は不可。 */
-      transcribeRequiresAudio: "元音源がありません。音源を指定すると採譜できます",
-    },
+    projectSaveUnsupported:
+      "この楽譜はプロジェクトとして保存できません（採譜結果のみ保存できます）",
+    /** #234: 採譜中は音源・プロジェクトの差し替えを受け付けない。 */
+    importWhileTranscribing:
+      "採譜の実行中です。完了またはキャンセルしてから開いてください",
+    /** #219: SOURCE_MISSING でも採譜は開けるが、元音源依存の操作は不可。 */
+    transcribeRequiresAudio: "元音源がありません。音源を指定すると採譜できます",
+  },
 
   /** FEAT-001 follow-ups: 取り込みメニュー + 置き換え確認(#70-#76)。 */
   capture: {
@@ -1409,8 +1427,7 @@ export const ja = {
     replaceTitle: "現在の音源を置き換えますか?",
     replaceBodyWithScore:
       "新しく取り込むと、現在の音源と楽譜は置き換えられます。続けますか?",
-    replaceBody:
-      "新しく取り込むと、現在の音源は置き換えられます。続けますか?",
+    replaceBody: "新しく取り込むと、現在の音源は置き換えられます。続けますか?",
     replaceConfirm: "取り込む",
     replaceCancel: "キャンセル",
     /** #80: 一時停止中の表示/アナウンス。 */
@@ -1418,7 +1435,8 @@ export const ja = {
     pausedAnnounce: "録音を一時停止しました。再開するまで音は記録されません。",
     resumedAnnounce: "録音を再開しました",
     /** #79: 録音中にデバイスが切断・拒否された時の説明。 */
-    interruptedAnnounce: "録音デバイスとの接続が切れました。録音をやり直してください。",
+    interruptedAnnounce:
+      "録音デバイスとの接続が切れました。録音をやり直してください。",
   },
 } as const;
 

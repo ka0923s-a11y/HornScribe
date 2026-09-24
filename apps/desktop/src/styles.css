@@ -1096,6 +1096,13 @@ body {
   color: var(--hs-text-secondary);
   white-space: nowrap;
 }
+/* #272: the omitted-by-cap counter — same subdued treatment as the
+ *  remaining count so it reads as metadata, not a warning. */
+.hs-score-reviewbar__omitted {
+  color: var(--hs-text-secondary);
+  white-space: nowrap;
+  font-size: var(--hs-font-size-sm);
+}
 /* Text badge (§15: never color-only — a labelled glyph + dotted edge). */
 .hs-score-reviewbar__badge {
   border: 1px dashed var(--hs-review-ink);

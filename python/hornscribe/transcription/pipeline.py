@@ -230,7 +230,10 @@ def _extra_issues(
                     evidence={},
                 )
             )
-    return issues[:MAX_EXTRA_ISSUES]
+    # #272: return every detected issue; the caller applies the
+    # severity-priority cap so a flood of early low-severity notes
+    # cannot silently drop later warnings.
+    return issues
 
 
 # #166: chromatic pitch classes whose enharmonic spelling the key cannot
@@ -674,6 +677,7 @@ def run_transcription_job(
                 beat_ql=beat_ql,
             )
         )
+        quantizer_issues_count = len(issues)
         issues.extend(
             _extra_issues(
                 tuple(
@@ -685,6 +689,28 @@ def run_transcription_job(
                 score_revision,
             )
         )
+        # #272: severity-priority cap — warnings surface before
+        # cautions before infos, ties broken by time. A flood of
+        # early low-severity detections can no longer silently drop
+        # a later warning; the omitted count lands in reviewSummary.
+        _severity_rank = {
+            Severity.WARNING: 0,
+            Severity.CAUTION: 1,
+            Severity.INFO: 2,
+        }
+        extras = issues[quantizer_issues_count:]
+        extras.sort(
+            key=lambda i: (
+                _severity_rank.get(i.severity, 3),
+                i.time_range.start_sec,
+            )
+        )
+        omitted_extras = extras[MAX_EXTRA_ISSUES:]
+        issues = issues[: len(issues) - len(extras)] + extras[:MAX_EXTRA_ISSUES]
+        omitted_by_severity: dict[str, int] = {}
+        for i in omitted_extras:
+            sev = i.severity.value
+            omitted_by_severity[sev] = omitted_by_severity.get(sev, 0) + 1
         # #166: chromatic notes whose enharmonic spelling the active key
         # cannot decide — surfaced for review instead of guessed.
         issues.extend(
@@ -931,6 +957,13 @@ def run_transcription_job(
                     "pickupBeats": str(payload.pickup_beats),
                     "alignmentShiftSec": round(shift, 4),
                     "reviewReasons": list(best.diagnostics.review_reasons),
+                    # #272: the surfacing cap is never silent — how
+                    # many detected issues were left out, by severity.
+                    "reviewSummary": {
+                        "surfaced": len(issues),
+                        "omitted": len(omitted_extras),
+                        "omittedBySeverity": omitted_by_severity,
+                    },
                     "cleaning": (
                         voice_split.stats()
                         if voice_split is not None

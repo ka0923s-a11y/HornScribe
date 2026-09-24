@@ -65,7 +65,10 @@ import {
   type ImportState,
 } from "./import/controller";
 import { INITIAL_IMPORT_STATE } from "./import/controller";
-import { loadRecentProjects, recordRecentProject } from "./import/recentProjects";
+import {
+  loadRecentProjects,
+  recordRecentProject,
+} from "./import/recentProjects";
 import { createImportPorts } from "./import/runtimePorts";
 import { issueCopy, type ImportView } from "./import/ImportStates";
 import { listenNativeDrop } from "./import/nativeDrop";
@@ -153,8 +156,7 @@ function screenFromHash(hash: string): ScreenState | null {
 function audioIdentityOf(audio: LoadedAudio | null): string | null {
   if (!audio) return null;
   const ref = audio.ref;
-  const hash =
-    "contentHash" in ref && ref.contentHash ? ref.contentHash : null;
+  const hash = "contentHash" in ref && ref.contentHash ? ref.contentHash : null;
   if (hash) return `hash:${hash}`;
   if (ref.kind === "path") return `path:${ref.path}`;
   if (ref.kind === "recording" && ref.path) return `path:${ref.path}`;
@@ -283,8 +285,9 @@ export default function App() {
   // completes — identity + review issues come from the job result
   // (score/jobResult.ts); the notation body stays on the committed fixture
   // until the engine ships MusicXML through the same port.
-  const [scoreDocument, setScoreDocument] =
-    useState<ScoreDocumentPort | null>(null);
+  const [scoreDocument, setScoreDocument] = useState<ScoreDocumentPort | null>(
+    null,
+  );
   // #234/#240: the score belongs to a specific source identity and a
   // specific successful result — tracked separately from both the
   // in-flight job and the audio slot so a source switch or a failed
@@ -292,13 +295,21 @@ export default function App() {
   const scoreAudioIdentityRef = useRef<string | null>(null);
   const jobAudioIdentityRef = useRef<string | null>(null);
   const audioIdentityRef = useRef<string | null>(null);
-  const [scoreProvenance, setScoreProvenance] =
-    useState<unknown | null>(null);
+  const [scoreProvenance, setScoreProvenance] = useState<unknown | null>(null);
   const projectIdRef = useRef<string | null>(null);
+  /** #265: the opened project's recorded source ref — kept separately
+   *  from importState.audio so a SOURCE_MISSING save preserves the
+   *  originalPath/contentHash a later relink verifies against. */
+  const projectSourceRef = useRef<{
+    originalPath: string;
+    contentHash: string;
+  } | null>(null);
   const [inspectorModel, setInspectorModel] = useState<InspectorModel>({
     kind: "empty",
   });
-  const [scoreState, setScoreState] = useState<ScoreWorkspaceState | null>(null);
+  const [scoreState, setScoreState] = useState<ScoreWorkspaceState | null>(
+    null,
+  );
   const scoreCtlRef = useRef<ScoreWorkspaceController | null>(null);
 
   // §27 transitions driven by the job lifecycle. Terminal phases are
@@ -359,8 +370,9 @@ export default function App() {
   // The transport adapter (UI-004 contract) is created once per app; the
   // import controller feeds it decoded media sources on AUDIO_READY.
   const transport = useMemo(() => new MediaElementTransport(), []);
-  const [transportSnap, setTransportSnap] =
-    useState<TransportSnapshot | null>(null);
+  const [transportSnap, setTransportSnap] = useState<TransportSnapshot | null>(
+    null,
+  );
   const [importState, setImportState] =
     useState<ImportState>(INITIAL_IMPORT_STATE);
   const [recentProjects, setRecentProjects] = useState(() =>
@@ -428,11 +440,11 @@ export default function App() {
   }, [scoreDocument, importState.audio]);
 
   // FEAT-001 (#60): capture session state (loopback / microphone).
-  const [captureState, setCaptureState] =
-    useState<CaptureState | null>(null);
+  const [captureState, setCaptureState] = useState<CaptureState | null>(null);
   // #76: 録音開始前の「現在の音源を置き換える」確認ダイアログ。
-  const [pendingCapture, setPendingCapture] =
-    useState<CaptureSource | null>(null);
+  const [pendingCapture, setPendingCapture] = useState<CaptureSource | null>(
+    null,
+  );
   // #73: 取り込みデバイス選択(capture_devices の結果)。
   const [captureDevices, setCaptureDevices] =
     useState<CaptureDeviceList | null>(null);
@@ -466,6 +478,7 @@ export default function App() {
               setScoreDocument(null);
               setScoreProvenance(null);
               projectIdRef.current = null;
+              projectSourceRef.current = null;
               scoreAudioIdentityRef.current = null;
             }
           },
@@ -493,6 +506,13 @@ export default function App() {
             // re-save keeps the transcription record and prj- id.
             setScoreProvenance(result);
             projectIdRef.current = project.projectId;
+            projectSourceRef.current =
+              project.sourcePath && project.sourceHash
+                ? {
+                    originalPath: project.sourcePath,
+                    contentHash: project.sourceHash,
+                  }
+                : null;
             scoreAudioIdentityRef.current = project.sourceHash
               ? `hash:${project.sourceHash}`
               : (audioIdentityRef.current ?? "?");
@@ -675,11 +695,9 @@ export default function App() {
       // #219: a source-missing score is viewable/editable but has no
       // audio — audio-gated commands (採譜, source playback) stay
       // off until the relink lands.
-      hasAudio:
-        commandStateFor(screen).hasAudio && importState.audio != null,
+      hasAudio: commandStateFor(screen).hasAudio && importState.audio != null,
       isPlaying:
-        transportSnap?.status === "playing" ||
-        (scoreState?.isPlaying ?? false),
+        transportSnap?.status === "playing" || (scoreState?.isPlaying ?? false),
       loopEnabled:
         transportSnap?.loop != null || (scoreState?.loopEnabled ?? false),
       pitch,
@@ -701,15 +719,25 @@ export default function App() {
         captureState?.phase === "recording" && captureState.paused,
       auditionEnabled: scoreState?.auditionEnabled ?? false,
     }),
-    [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view, captureState, transcriptionOptions, importState.audio],
+    [
+      screen,
+      scoreDocument,
+      transportSnap,
+      scoreState,
+      pitch,
+      reviewCount,
+      view,
+      captureState,
+      transcriptionOptions,
+      importState.audio,
+    ],
   );
 
   // Whether the media transport carries a loaded source — then it is the
   // authoritative clock and the score follows via the transport prop
   // (UI-005 one-clock contract). Otherwise transport commands fall back to
   // the score clock (dev/fixture playback with no audio loaded).
-  const mediaLive =
-    transportSnap != null && transportSnap.status !== "empty";
+  const mediaLive = transportSnap != null && transportSnap.status !== "empty";
 
   // §8 §-seek transport step (GUI_UX_SPEC §9: ←/→ 5 seconds).
   const seekBy = useCallback(
@@ -718,9 +746,7 @@ export default function App() {
         .seek(transport.getCurrentTime() + delta)
         .catch(() => undefined);
       setStatusMessage(
-        ja.import.feedback.position(
-          formatTimecode(transport.getCurrentTime()),
-        ),
+        ja.import.feedback.position(formatTimecode(transport.getCurrentTime())),
       );
     },
     [transport],
@@ -769,6 +795,9 @@ export default function App() {
         // failed re-transcription that cleared session.lastResult.
         result: scoreProvenance,
         projectId: projectIdRef.current,
+        // #265: SOURCE_MISSING save — keep the recorded source ref
+        // instead of writing sourceAudio:null over the relink target.
+        priorSourceAudio: projectSourceRef.current,
       });
       if (!project) {
         setStatusMessage(ja.notifications.projectSaveUnsupported);
@@ -905,18 +934,14 @@ export default function App() {
       seekToStart: () => {
         if (transport.getSnapshot().status !== "empty") {
           void transport.seek(0).catch(() => undefined);
-          setStatusMessage(
-            ja.import.feedback.position(formatTimecode(0)),
-          );
+          setStatusMessage(ja.import.feedback.position(formatTimecode(0)));
         } else {
           scoreCtlRef.current?.seekToStart();
         }
       },
       seekToEnd: () => {
         if (transport.getSnapshot().status !== "empty") {
-          void transport
-            .seek(transport.getDuration())
-            .catch(() => undefined);
+          void transport.seek(transport.getDuration()).catch(() => undefined);
           setStatusMessage(
             ja.import.feedback.position(
               formatTimecode(transport.getDuration()),
@@ -1014,8 +1039,7 @@ export default function App() {
       reviewPlaySource: () => scoreCtlRef.current?.reviewPlaySource(),
       reviewPitchUp: () => scoreCtlRef.current?.reviewPitch(1),
       reviewPitchDown: () => scoreCtlRef.current?.reviewPitch(-1),
-      reviewDeleteOrRestore: () =>
-        scoreCtlRef.current?.reviewDeleteOrRestore(),
+      reviewDeleteOrRestore: () => scoreCtlRef.current?.reviewDeleteOrRestore(),
       exitReview: () => scoreCtlRef.current?.exitReview(),
       undo: () => {
         const c = scoreCtlRef.current;
@@ -1078,16 +1102,13 @@ export default function App() {
         scoreCtlRef.current?.noteDurationScale?.(power),
       shiftSelectedOnset: (steps) =>
         scoreCtlRef.current?.shiftSelectedOnset?.(steps),
-      toggleSelectedTie: () =>
-        scoreCtlRef.current?.toggleSelectedTie?.(),
+      toggleSelectedTie: () => scoreCtlRef.current?.toggleSelectedTie?.(),
       // #130 (spec 14): quantization-settings dialog — app-owned
       // surface; the workspace controller applies the requantize edit.
       openRequantizeDialog: () => setRequantizeOpen(true),
       // #131 (spec 13 post-MVP): split/merge via the workspace.
-      splitSelectedNote: () =>
-        scoreCtlRef.current?.splitSelectedNote?.(),
-      mergeSelectedNotes: () =>
-        scoreCtlRef.current?.mergeSelectedNotes?.(),
+      splitSelectedNote: () => scoreCtlRef.current?.splitSelectedNote?.(),
+      mergeSelectedNotes: () => scoreCtlRef.current?.mergeSelectedNotes?.(),
       openSettings: () => {
         setSettingsFocus(undefined);
         setView("settings");
@@ -1109,7 +1130,23 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, transcriptionOptions, settings.skipSeconds, saveProjectFlow, pitch, toolOverrides, exportPort, startTranscriptionJob, screen],
+    [
+      importer,
+      transport,
+      seekBy,
+      session,
+      capture,
+      requestCapture,
+      transportSnap,
+      transcriptionOptions,
+      settings.skipSeconds,
+      saveProjectFlow,
+      pitch,
+      toolOverrides,
+      exportPort,
+      startTranscriptionJob,
+      screen,
+    ],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -1140,7 +1177,7 @@ export default function App() {
   const closeProperties = useCallback(() => {
     const focusInside =
       document
-        .querySelector('.hs-properties')
+        .querySelector(".hs-properties")
         ?.contains(document.activeElement) ?? false;
     layout.setPropertiesOpen(false);
     if (focusInside) {
@@ -1338,7 +1375,15 @@ export default function App() {
         requestCapture(source);
       },
     }),
-    [importState, recentProjects, transcriptionOptions, importer, captureState, requestCapture, screen],
+    [
+      importState,
+      recentProjects,
+      transcriptionOptions,
+      importer,
+      captureState,
+      requestCapture,
+      screen,
+    ],
   );
 
   const theme = resolved === "dark" ? hsDarkTheme : hsLightTheme;
@@ -1421,7 +1466,8 @@ export default function App() {
                           startSec: transcriptionOptions.selectionStartSec ?? 0,
                           endSec:
                             transcriptionOptions.selectionEndSec ??
-                            (importState.audio?.durationSeconds ?? 0),
+                            importState.audio?.durationSeconds ??
+                            0,
                         }
                       : null
                   }
@@ -1486,12 +1532,12 @@ export default function App() {
                             ja.notifications.importWhileTranscribing,
                           )
                         : void importer.importRefs(
-                          files.map<AudioFileRef>((file) => ({
-                            kind: "file",
-                            file,
-                            name: file.name,
-                          })),
-                        )
+                            files.map<AudioFileRef>((file) => ({
+                              kind: "file",
+                              file,
+                              name: file.name,
+                            })),
+                          )
                   }
                   onTranscribe={transcribeClicked}
                   transcribingBody={
@@ -1506,7 +1552,10 @@ export default function App() {
                       diagnostics={() => session.buildDiagnostics()}
                       onPrimary={() => {
                         const failure = sessionSnap.failure;
-                        if (!failure || failure.kind === "transcriptionFailed") {
+                        if (
+                          !failure ||
+                          failure.kind === "transcriptionFailed"
+                        ) {
                           // 再試行 is explicit — never a silent resubmit.
                           session.clearFailure();
                           startTranscriptionJob();
@@ -1563,7 +1612,7 @@ export default function App() {
                             void transport.play().catch(() => undefined),
                           setLoop: (r) => transport.setLoop(r),
                         }
-                        : null
+                      : null
                   }
                   onRhythmEdit={applyRhythmEdit}
                   onRetranscribeVoices={
@@ -1571,44 +1620,41 @@ export default function App() {
                     // disappears so the review action hides.
                     importState.audio
                       ? () => {
-                    /* #148: pin the job to voices AND mirror the choice
-                     * into the stored options so the import screen's
-                     * texture select reflects what actually ran. */
-                    setTranscriptionOptions((o) => ({
-                      ...o,
-                      texture: "voices",
-                    }));
-                    startTranscriptionJob({ texture: "voices" });
+                          /* #148: pin the job to voices AND mirror the choice
+                           * into the stored options so the import screen's
+                           * texture select reflects what actually ran. */
+                          setTranscriptionOptions((o) => ({
+                            ...o,
+                            texture: "voices",
+                          }));
+                          startTranscriptionJob({ texture: "voices" });
                         }
                       : undefined
                   }
                   onRetranscribeBasicPitch={
                     importState.audio
                       ? () => {
-                    /* #181: mirror the backend switch into settings so
-                     * the 詳細設定 selector reflects what ran, and pin
-                     * the job itself so a stale settings read cannot
-                     * sneak pYIN back in. */
-                    updateSettings({ backend: "basicPitch" });
-                    /* #189: a per-job pyin pin would outrank the
-                     * backend arg, so pin the job options too. */
-                    setTranscriptionOptions((o) => ({
-                      ...o,
-                      backend: "basicPitch",
-                    }));
-                    startTranscriptionJob({ backend: "basicPitch" });
+                          /* #181: mirror the backend switch into settings so
+                           * the 詳細設定 selector reflects what ran, and pin
+                           * the job itself so a stale settings read cannot
+                           * sneak pYIN back in. */
+                          updateSettings({ backend: "basicPitch" });
+                          /* #189: a per-job pyin pin would outrank the
+                           * backend arg, so pin the job options too. */
+                          setTranscriptionOptions((o) => ({
+                            ...o,
+                            backend: "basicPitch",
+                          }));
+                          startTranscriptionJob({ backend: "basicPitch" });
                         }
                       : undefined
                   }
                   onOpenProperties={() => layout.setPropertiesOpen(true)}
                   banner={
                     importState.sourceMissing ? (
-                      <div
-                        className="hs-source-missing-banner"
-                        role="alert"
-                      >
+                      <div className="hs-source-missing-banner" role="alert">
                         <span>
-                         {importState.sourceMissing.mismatch
+                          {importState.sourceMissing.mismatch
                             ? ja.import.errors.hashMismatchBody
                             : ja.import.errors.sourceMissingBody}
                         </span>
@@ -1646,9 +1692,7 @@ export default function App() {
                     onMeterChange={(b, u) =>
                       scoreCtlRef.current?.setMeter?.(b, u)
                     }
-                    onKeyChange={(f) =>
-                      scoreCtlRef.current?.setKey?.(f)
-                    }
+                    onKeyChange={(f) => scoreCtlRef.current?.setKey?.(f)}
                   />
                 ) : null}
               </div>
@@ -1685,7 +1729,8 @@ export default function App() {
                     const c = scoreCtlRef.current;
                     if (!c) return;
                     if (scoreState?.followSuspended) c.resumeFollow();
-                    else c.setFollowEnabled(!(scoreState?.followEnabled ?? true));
+                    else
+                      c.setFollowEnabled(!(scoreState?.followEnabled ?? true));
                   }}
                   auditionEnabled={scoreState?.auditionEnabled}
                   loopArmed={

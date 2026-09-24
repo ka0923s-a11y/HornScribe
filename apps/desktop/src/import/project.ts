@@ -22,6 +22,13 @@ export interface ProjectSaveInput {
   /** #222: when re-saving an opened project, keep its identity — a
    *  fresh save derives a new prj- id from the source identity. */
   readonly projectId?: string | null;
+  /** #265: the project's recorded source ref — the fallback when no
+   *  audio is loaded (SOURCE_MISSING save must not erase the
+   *  originalPath/contentHash a later relink verifies against). */
+  readonly priorSourceAudio?: {
+    originalPath: string;
+    contentHash: string;
+  } | null;
 }
 
 /** `prj-<16hex>` — deterministic content-derived id (ids.py contract). */
@@ -91,8 +98,7 @@ export async function buildProjectDocument(
   // the canonical payload — prefer that provenance over re-hashing
   // the browser-held bytes a second time.
   const canonical = doc.canonicalDocument?.() as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   const canonicalHash =
     typeof canonical?.sourceAudioHash === "string"
       ? (canonical.sourceAudioHash as string)
@@ -105,7 +111,16 @@ export async function buildProjectDocument(
   // invalid.
   const sourceAudioResolved =
     sourceAudio == null
-      ? null
+      ? // #265: no audio loaded (SOURCE_MISSING) — keep the project's
+        // recorded ref so a save does not erase the relink target.
+        input.priorSourceAudio &&
+        (canonicalHash ?? input.priorSourceAudio.contentHash)
+        ? {
+            originalPath: input.priorSourceAudio.originalPath,
+            contentHash: (canonicalHash ??
+              input.priorSourceAudio.contentHash) as string,
+          }
+        : null
       : (canonicalHash ?? sourceAudio.contentHash)
         ? {
             originalPath: sourceAudio.originalPath,
@@ -204,8 +219,7 @@ export async function buildProjectDocument(
     // document's scoreDocument is newer than the job result's, and saving
     // the stale one would lose the edit on reopen (the XMLs below are
     // already the edited bodies).
-    scoreDocument:
-      doc.canonicalDocument?.() ?? resultObj.scoreDocument ?? null,
+    scoreDocument: doc.canonicalDocument?.() ?? resultObj.scoreDocument ?? null,
     reviewIssues: doc.reviewIssues(),
     musicXmlConcert: doc.musicXml("concert"),
     musicXmlHornF: doc.musicXml("hornF"),

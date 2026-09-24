@@ -32,6 +32,8 @@ export interface XmlScoreDocumentSources {
   /** #115: canonical scoreDocument dict — the base the engine's
    *  `score.edit` re-realizes from (undefined for fixture/dev). */
   readonly canonicalDocument?: unknown;
+  /** #272: issues the engine detected but the surfacing cap omitted. */
+  readonly omittedIssueCount?: number;
 }
 
 export class XmlScoreDocument implements ScoreDocumentPort {
@@ -41,6 +43,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
   private hornXml: string;
   private canonicalDoc: unknown | null;
   private issues: readonly ScoreReviewIssue[];
+  private _omittedIssueCount = 0;
   private decisions = new Map<string, ReviewIssueStatus>();
   /** #225: decisions/issues are revision-bound — a score.edit swap
    *  mints a new revision, so the old revision's set is stashed here
@@ -63,6 +66,8 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     this.hornXml = src.hornXml;
     this.canonicalDoc = src.canonicalDocument ?? null;
     this._meta = XmlScoreDocument.computeMeta(src.concertXml);
+    this._omittedIssueCount = src.omittedIssueCount ?? 0;
+    this._meta = { ...this._meta, omittedIssueCount: this._omittedIssueCount };
   }
 
   private static computeMeta(xml: string): ScoreDocumentMeta {
@@ -79,6 +84,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       swingFeel: doc.swingFeel,
       measureCount: doc.measureCount,
       noteCount: canonical.size,
+      omittedIssueCount: 0,
     };
   }
 
@@ -161,6 +167,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     this._revisionId = next.revisionId;
     this.canonicalDoc = next.canonicalDocument;
     this._meta = XmlScoreDocument.computeMeta(next.concertXml);
+    this._meta = { ...this._meta, omittedIssueCount: this._omittedIssueCount };
     this.editCounter += 1;
   }
 }
@@ -173,6 +180,8 @@ export interface EngineScoreDocumentInput {
   readonly issues: readonly ScoreReviewIssue[];
   /** #115: canonical scoreDocument dict from the job result. */
   readonly canonicalDocument?: unknown;
+  /** #272: issues the engine detected but the surfacing cap omitted. */
+  readonly omittedIssueCount?: number;
 }
 
 /**
@@ -191,6 +200,7 @@ export function createEngineScoreDocument(
       revisionId: input.revisionId,
       issues: input.issues,
       canonicalDocument: input.canonicalDocument,
+      omittedIssueCount: input.omittedIssueCount,
     });
   } catch {
     // parseScoreDoc throws on malformed MusicXML — a corrupt engine
@@ -223,5 +233,14 @@ export function engineDocumentFromResult(
       typeof r.scoreDocument === "object" && r.scoreDocument !== null
         ? r.scoreDocument
         : undefined,
+    // #272: meta.reviewSummary.omitted — the cap never truncates
+    // silently; the review bar shows how many were left out.
+    omittedIssueCount: (() => {
+      const meta = r.meta as Record<string, unknown> | undefined;
+      const summary = meta?.reviewSummary as
+        Record<string, unknown> | undefined;
+      const n = summary?.omitted;
+      return typeof n === "number" && n > 0 ? n : 0;
+    })(),
   };
 }

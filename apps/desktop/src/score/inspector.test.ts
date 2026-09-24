@@ -52,6 +52,7 @@ describe("buildScoreInspector", () => {
         keyFifths: -1,
         keyChanges: [],
         swingFeel: false,
+        omittedIssueCount: 0,
         measureCount: 12,
         noteCount: 40,
       },
@@ -79,6 +80,7 @@ describe("buildScoreInspector", () => {
           { measure: 17, fifths: -5 },
         ],
         swingFeel: false,
+        omittedIssueCount: 0,
         measureCount: 32,
         noteCount: 100,
       },
@@ -91,12 +93,42 @@ describe("buildScoreInspector", () => {
 
 describe("buildNoteInspector", () => {
   const concert = [
-    note({ exportId: "hs-sn-000012", canonicalId: "sn-000012", step: "C", octave: 4, type: "quarter", measure: 4 }),
-    note({ exportId: "hs-sn-000012-2", canonicalId: "sn-000012", step: "C", octave: 4, type: "whole", measure: 5, tied: true }),
+    note({
+      exportId: "hs-sn-000012",
+      canonicalId: "sn-000012",
+      step: "C",
+      octave: 4,
+      type: "quarter",
+      measure: 4,
+    }),
+    note({
+      exportId: "hs-sn-000012-2",
+      canonicalId: "sn-000012",
+      step: "C",
+      octave: 4,
+      type: "whole",
+      measure: 5,
+      tied: true,
+    }),
   ];
   const written = [
-    note({ exportId: "hs-sn-000012", canonicalId: "sn-000012", step: "G", octave: 4, type: "quarter", measure: 4 }),
-    note({ exportId: "hs-sn-000012-2", canonicalId: "sn-000012", step: "G", octave: 4, type: "whole", measure: 5, tied: true }),
+    note({
+      exportId: "hs-sn-000012",
+      canonicalId: "sn-000012",
+      step: "G",
+      octave: 4,
+      type: "quarter",
+      measure: 4,
+    }),
+    note({
+      exportId: "hs-sn-000012-2",
+      canonicalId: "sn-000012",
+      step: "G",
+      octave: 4,
+      type: "whole",
+      measure: 5,
+      tied: true,
+    }),
   ];
   const issues: ScoreReviewIssue[] = [
     {
@@ -146,7 +178,9 @@ describe("buildNoteInspector", () => {
   it("handles rests (no canonical id, no issues)", () => {
     const model = buildNoteInspector({
       canonicalId: null,
-      concert: [note({ canonicalId: null, isRest: true, exportId: "hs-rest-000001" })],
+      concert: [
+        note({ canonicalId: null, isRest: true, exportId: "hs-rest-000001" }),
+      ],
       written: [],
       onsetMs: null,
       issues: [],

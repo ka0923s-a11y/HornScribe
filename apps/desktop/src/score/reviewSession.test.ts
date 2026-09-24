@@ -136,15 +136,15 @@ describe("revision binding (domain/review.py contract)", () => {
     const revA = createFixtureScoreDocument({ revisionId: "rev-aaaa" });
     const sessionA = new ReviewSession(revA);
     sessionA.decide("ri-000001", "accepted");
-    expect(
-      revA.reviewIssues().find((i) => i.id === "ri-000001")!.status,
-    ).toBe("accepted");
+    expect(revA.reviewIssues().find((i) => i.id === "ri-000001")!.status).toBe(
+      "accepted",
+    );
 
     // Re-transcription → new revision id → a NEW document instance.
     const revB = createFixtureScoreDocument({ revisionId: "rev-bbbb" });
-    expect(
-      revB.reviewIssues().find((i) => i.id === "ri-000001")!.status,
-    ).toBe("open");
+    expect(revB.reviewIssues().find((i) => i.id === "ri-000001")!.status).toBe(
+      "open",
+    );
     const sessionB = new ReviewSession(revB);
     expect(sessionB.canUndo).toBe(false);
     expect(openIssues(sessionB.issues())).toHaveLength(3);
@@ -297,6 +297,7 @@ describe("ReviewSession docSwap (#115 rhythm edits)", () => {
         keyFifths: null,
         keyChanges: [],
         swingFeel: false,
+        omittedIssueCount: 0,
         measureCount: 0,
         noteCount: 0,
       },
