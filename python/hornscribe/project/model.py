@@ -74,16 +74,21 @@ class TranscriptionRecord:
     backend_version: str
     settings: dict[str, Any]
     revision: TranscriptionRevisionId
-    raw_result_ref: str  # cache-relative path to raw JSON; evidence, not authority
+    # #223: legacy cache-relative path to a raw JSON artifact. Optional
+    # — evidence now travels inline on the scoreDocument (rawEvidence),
+    # and older writers emitted this ref without ever creating the file.
+    raw_result_ref: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "backend": self.backend,
             "backendVersion": self.backend_version,
             "settings": self.settings,
             "revision": str(self.revision),
-            "rawResultRef": self.raw_result_ref,
         }
+        if self.raw_result_ref is not None:
+            out["rawResultRef"] = self.raw_result_ref
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TranscriptionRecord:
@@ -92,7 +97,11 @@ class TranscriptionRecord:
             backend_version=str(data["backendVersion"]),
             settings=dict(data.get("settings", {})),
             revision=TranscriptionRevisionId(data["revision"]),
-            raw_result_ref=str(data["rawResultRef"]),
+            raw_result_ref=(
+                str(data["rawResultRef"])
+                if data.get("rawResultRef") is not None
+                else None
+            ),
         )
 
 
@@ -101,22 +110,30 @@ class ScoreRef:
     """Pointer to the active canonical score revision."""
 
     revision: ScoreRevisionId
-    score_ref: str  # cache-relative path to the serialized ScoreDocument
     quantization_settings: dict[str, Any]
+    # #223: legacy cache-relative path — optional, same rationale as
+    # TranscriptionRecord.raw_result_ref (inline document is canonical).
+    score_ref: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "revision": str(self.revision),
-            "scoreRef": self.score_ref,
             "quantizationSettings": self.quantization_settings,
         }
+        if self.score_ref is not None:
+            out["scoreRef"] = self.score_ref
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreRef:
         return cls(
             revision=ScoreRevisionId(data["revision"]),
-            score_ref=str(data["scoreRef"]),
             quantization_settings=dict(data.get("quantizationSettings", {})),
+            score_ref=(
+                str(data["scoreRef"])
+                if data.get("scoreRef") is not None
+                else None
+            ),
         )
 
 

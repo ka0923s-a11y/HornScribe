@@ -520,6 +520,11 @@ export const ja = {
     metadataChanged: "譜面情報を更新しました",
     octaveShifted: "実音を1オクターブ変更しました",
     requantized: "採譜設定を適用して楽譜を更新しました",
+    // #226: the document carries no raw transcription evidence (older
+    // projects / imported scores) — the requantize re-rounds the
+    // notation itself instead of replaying the performance, so say so.
+    requantizedSynthetic:
+      "採譜設定を適用して楽譜を整形しました（元の演奏データが無いため簡易モード）",
     noteSplit: "音符を分割しました",
     notesMerged: "音符を結合しました",
     restConverted: "休符を音符に変換しました",

@@ -426,7 +426,8 @@ class Worker:
             ) from exc
         try:
             edit = ScoreEdit.from_dict(edit_raw)
-            new_document = apply_score_edit(document, edit)
+            edit_meta: dict[str, Any] = {}
+            new_document = apply_score_edit(document, edit, out_meta=edit_meta)
         except ScoreEditError as exc:
             raise protocol.ProtocolError(
                 protocol.ERR_INVALID_PARAMS, str(exc)
@@ -435,12 +436,17 @@ class Worker:
             raise protocol.ProtocolError(
                 protocol.ERR_JOB_FAILED, f"score edit failed: {exc}"
             ) from exc
-        return {
+        result: dict[str, Any] = {
             "scoreDocument": new_document.to_dict(),
             "scoreRevision": str(new_document.revision),
             "musicXmlConcert": export_concert_musicxml(new_document),
             "musicXmlHornF": export_horn_in_f_musicxml(new_document),
         }
+        # #226: which requantize path ran — rawEvidence replays the
+        # persisted performance; synthetic re-rounds the notation.
+        if "requantizeMode" in edit_meta:
+            result["requantizeMode"] = edit_meta["requantizeMode"]
+        return result
 
     def _handle_export_midi(self, payload: Any) -> dict[str, Any]:
         """`export.midi` — canonical playback MIDI for a scoreDocument (#256).

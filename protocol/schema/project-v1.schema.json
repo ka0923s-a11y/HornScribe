@@ -20,7 +20,7 @@
     },
     "transcription": {
       "type": ["object", "null"],
-      "required": ["backend", "backendVersion", "revision", "rawResultRef"],
+      "required": ["backend", "backendVersion", "revision"],
       "additionalProperties": false,
       "properties": {
         "backend": {"type": "string"},
@@ -32,7 +32,7 @@
     },
     "score": {
       "type": ["object", "null"],
-      "required": ["revision", "scoreRef"],
+      "required": ["revision"],
       "additionalProperties": false,
       "properties": {
         "revision": {"type": "string", "pattern": "^rev-[0-9a-f]{16}$"},

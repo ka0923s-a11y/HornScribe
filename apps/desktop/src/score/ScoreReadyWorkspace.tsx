@@ -104,6 +104,7 @@ import {
   scaleFraction,
   type RhythmEditInvoker,
   type RhythmEditOp,
+  type ScoreEditResult,
 } from "./rhythmEdits";
 import {
   nextScoreNoteId,
@@ -1283,7 +1284,7 @@ export function ScoreReadyWorkspace({
   const applyRhythmEdit = useCallback(
     (
       buildOp: (canonical: unknown) => RhythmEditOp | null,
-      feedback: string,
+      feedback: string | ((result: ScoreEditResult) => string),
       after?: () => void,
     ) => {
       if (!onRhythmEdit || !scoreDoc.replaceContent) {
@@ -1316,7 +1317,9 @@ export function ScoreReadyWorkspace({
           bumpDoc();
           reloadEditedScore();
           reportInspector();
-          announce(feedback);
+          announce(
+            typeof feedback === "function" ? feedback(result) : feedback,
+          );
           after?.();
         } catch {
           announce(ja.commandFeedback.rhythmEditFailed);
@@ -1547,7 +1550,12 @@ const setKey = useCallback(
     (settings: Record<string, unknown>) => {
       applyRhythmEdit(
         () => ({ kind: "requantize", noteId: "", settings }),
-        ja.commandFeedback.requantized,
+        // #226: raw evidence present → true replay of the performance;
+        // absent → the honest degraded label (re-rounding notation).
+        (result) =>
+          result.requantizeMode === "synthetic"
+            ? ja.commandFeedback.requantizedSynthetic
+            : ja.commandFeedback.requantized,
       );
     },
     [applyRhythmEdit],

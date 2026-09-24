@@ -140,7 +140,6 @@ export async function buildProjectDocument(
               ? meta.settings
               : {},
           revision: transcriptionRevision,
-          rawResultRef: `raw/${transcriptionRevision}.json`,
         }
       : null;
 
@@ -203,9 +202,6 @@ export async function buildProjectDocument(
     transcription,
     score: {
       revision: doc.revisionId,
-      // The score body travels inline (below); this ref names the
-      // canonical cache location a future store would write it to.
-      scoreRef: `scores/${doc.revisionId}.json`,
       quantizationSettings:
         typeof meta.settings === "object" && meta.settings !== null
           ? meta.settings

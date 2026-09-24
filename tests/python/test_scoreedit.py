@@ -12,7 +12,8 @@ from fractions import Fraction
 
 import pytest
 
-from hornscribe.domain.ids import ProjectId, RawNoteEventId, ScoreNoteId
+from hornscribe.domain.events import RawNoteEvent
+from hornscribe.domain.ids import ProjectId, RawNoteEventId, ScoreNoteId, TranscriptionRevisionId
 from hornscribe.domain.score import (
     KeyChange,
     KeySignature,
@@ -778,6 +779,122 @@ class TestRequantize:
                     "settings": {"minDurationQl": "tiny"},
                 }
             )
+
+
+class TestRequantizeEvidence:
+    """#226: documents carrying raw transcription evidence requantize
+    by replaying the persisted performance — not by re-rounding the
+    notation."""
+
+    def _evidence_doc(self, notes: list[QuantizedNote]) -> ScoreDocument:
+        doc = _doc(notes, settings={"minDurationQl": "1/4"})
+        # One long note (0..2s) plus a short ornament (2.0..2.1s) that
+        # a 1/4-ql minimum would have absorbed on the first pass.
+        events = [
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000001"),
+                transcription_revision=TranscriptionRevisionId("tr-" + "0" * 16),
+                pitch_midi=60.0,
+                onset_sec=0.0,
+                offset_sec=2.0,
+                confidence=0.9,
+            ),
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000002"),
+                transcription_revision=TranscriptionRevisionId("tr-" + "0" * 16),
+                pitch_midi=64.0,
+                onset_sec=2.0,
+                offset_sec=2.1,
+                confidence=0.8,
+            ),
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000003"),
+                transcription_revision=TranscriptionRevisionId("tr-" + "0" * 16),
+                pitch_midi=62.0,
+                onset_sec=2.5,
+                offset_sec=3.5,
+                confidence=0.9,
+            ),
+        ]
+        evidence = {
+            "transcriptionRevision": "tr-" + "0" * 16,
+            # 120 ql/min -> 2 ql/s, zero at t=0 — matches the 4/4 tempo
+            # map (the warp's bpm is in quarterLength units per minute).
+            "warp": {"kind": "fixedBpm", "bpm": 120.0, "zeroSec": 0.0},
+            "parts": [{"events": [e.to_dict() for e in events]}],
+        }
+        return replace(doc, raw_evidence=evidence)
+
+    def test_evidence_path_reports_raw_mode(self) -> None:
+        doc = self._evidence_doc([_note(1, 60, "0", "4")])
+        meta: dict = {}
+        apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/8"}),
+            out_meta=meta,
+        )
+        assert meta["requantizeMode"] == "rawEvidence"
+
+    def test_finer_min_duration_recovers_absorbed_note(self) -> None:
+        # The canonical score has ONE note; the raw evidence has three.
+        # A finer min-duration must surface the ornament the first
+        # quantization pass rounded away — the synthetic path could
+        # never invent it.
+        doc = self._evidence_doc([_note(1, 60, "0", "4")])
+        out = apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/8"}),
+        )
+        onsets = sorted(
+            (n.start_beat, n.pitch_midi)
+            for n in out.payload.parts[0].notes
+        )
+        assert len(onsets) == 3
+        assert onsets[0][1] == 60
+        assert onsets[1][1] == 64
+        assert onsets[2][1] == 62
+        # Real source ids — not positional placeholders.
+        assert out.payload.parts[0].notes[1].source_event_ids
+
+    def test_missing_evidence_falls_back_to_synthetic(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        meta: dict = {}
+        apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/2"}),
+            out_meta=meta,
+        )
+        assert meta["requantizeMode"] == "synthetic"
+
+    def test_malformed_evidence_falls_back_to_synthetic(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc,
+            raw_evidence={
+                "warp": {"kind": "beatMap", "anchors": []},
+                "parts": [{"events": "not-a-list"}],
+            },
+        )
+        meta: dict = {}
+        out = apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/2"}),
+            out_meta=meta,
+        )
+        assert meta["requantizeMode"] == "synthetic"
+        assert len(out.payload.parts[0].notes) == 1
+
+    def test_evidence_roundtrips_through_document_dict(self) -> None:
+        doc = self._evidence_doc([_note(1, 60, "0", "4")])
+        restored = ScoreDocument.from_dict(doc.to_dict())
+        assert restored.raw_evidence == doc.raw_evidence
+        meta: dict = {}
+        apply_score_edit(
+            restored,
+            _edit("requantize", "", settings={"minDurationQl": "1/8"}),
+            out_meta=meta,
+        )
+        assert meta["requantizeMode"] == "rawEvidence"
 
 
 class TestEditParsing:

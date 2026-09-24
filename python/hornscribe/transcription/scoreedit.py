@@ -51,6 +51,7 @@ from hornscribe.domain.score import (
     measure_spans,
     note_layers,
 )
+from hornscribe.rhythm.beatmap import BeatAnchor, BeatSource
 from hornscribe.rhythm.contracts import NormalizedNote, RhythmAtom
 from hornscribe.rhythm.meter import MeterMap, MeterSegment
 from hornscribe.rhythm.profile import QuantizationProfile
@@ -1239,29 +1240,216 @@ def _apply_set_meter(
     )
 
 
+def _warp_from_evidence(raw: Any) -> TimeWarp | None:
+    """Rebuild the persisted seconds->ql warp (#226).
+
+    Returns None when the evidence is missing/malformed so the caller
+    can fall back to the synthetic path instead of failing the edit.
+    """
+    if not isinstance(raw, dict):
+        return None
+    kind = raw.get("kind")
+    try:
+        if kind == "fixedBpm":
+            bpm = raw.get("bpm")
+            zero = raw.get("zeroSec")
+            if not isinstance(bpm, (int, float)):
+                return None
+            return TimeWarp.fixed_bpm(
+                float(bpm), float(zero) if isinstance(zero, (int, float)) else 0.0
+            )
+        if kind == "beatMap":
+            anchors_raw = raw.get("anchors")
+            if not isinstance(anchors_raw, list) or len(anchors_raw) < 2:
+                return None
+            anchors = []
+            for a in anchors_raw:
+                anchors.append(
+                    BeatAnchor(
+                        time_sec=float(a["timeSec"]),
+                        score_pos_ql=Fraction(a["posQl"]),
+                        source=BeatSource.BEAT_TRACKER,
+                    )
+                )
+            return TimeWarp.from_anchors(anchors)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return None
+
+
+def _events_from_evidence(
+    raw: dict[str, Any], part_count: int
+) -> list[list[RawNoteEvent]] | None:
+    """Rebuild the per-part cleaned events persisted on the document.
+
+    Returns None when the evidence shape does not match the score's
+    current part count (the caller falls back to the synthetic path).
+    """
+    parts_raw = raw.get("parts")
+    if not isinstance(parts_raw, list) or len(parts_raw) != part_count:
+        return None
+    out: list[list[RawNoteEvent]] = []
+    try:
+        for p in parts_raw:
+            events_raw = p.get("events") if isinstance(p, dict) else None
+            if not isinstance(events_raw, list):
+                return None
+            out.append([RawNoteEvent.from_dict(e) for e in events_raw])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return out
+
+
 def _apply_requantize(
-    payload: ScoreRevisionPayload, overrides: dict[str, Any]
-) -> ScoreRevisionPayload:
+    document: ScoreDocument, overrides: dict[str, Any]
+) -> tuple[ScoreRevisionPayload, str]:
     """Re-quantize every part under changed quantization settings (#130).
 
-    The canonical notes are replayed through quantize_events as synthetic
-    raw events: onset/offset seconds are the note's absolute QL span and
-    the warp is the identity (fixed 60 bpm), so the DP re-searches the
-    grid under the merged profile — a coarser min-duration merges
-    ornament notes, a finer one splits them, and triplet policy changes
-    re-decide the tuplet regions.
+    #226: when the document carries raw transcription evidence (the
+    # cleaned backend events + the original seconds->ql warp, persisted
+    # by #223), the DP replays the REAL performance under the merged
+    # profile — a finer min-duration can recover short notes the first
+    # pass quantized away, and triplet policy changes re-decide tuplet
+    # regions from actual timing. Without evidence (older projects,
+    # hand-built documents) the legacy synthetic path re-rounds the
+    # notation itself.
 
-    Canonical ids are preserved positionally: old and new note lists are
-    each in score order, and index i of the new list inherits old note
-    i's id (and its source_event_ids, so review evidence still resolves).
-    Extra new notes get fresh ids continuing the document's numbering;
-    extra old ids disappear with their notes — review issues pointing at
-    a vanished id are dropped by the caller's issue filtering.
+    Returns ``(payload, mode)`` where mode is ``rawEvidence`` or
+    ``synthetic`` so the worker/UI can surface which path ran.
     """
+    payload = document.payload
     settings = {**payload.quantization_settings, **overrides}
     profile = _profile_from_settings(settings)
     meter_map = _meter_map_from_payload(payload)
     beat_ql = beat_ql_of(payload)
+
+    evidence = document.raw_evidence
+    warp = _warp_from_evidence(evidence.get("warp") if evidence else None)
+    evidence_parts = (
+        _events_from_evidence(evidence, len(payload.parts))
+        if evidence is not None
+        else None
+    )
+    if warp is not None and evidence_parts is not None:
+        return (
+            _requantize_from_events(
+                payload, evidence_parts, warp, meter_map, profile, beat_ql, settings
+            ),
+            "rawEvidence",
+        )
+    return (
+        _requantize_synthetic(payload, meter_map, profile, beat_ql, settings),
+        "synthetic",
+    )
+
+
+def _remap_note_ids(
+    payload: ScoreRevisionPayload,
+    new_parts_notes: list[tuple[tuple[QuantizedNote, ...], tuple[ScoreRest, ...]]],
+    keep_source_ids: bool,
+) -> tuple[Part, ...]:
+    """Positional id preservation shared by both requantize paths.
+
+    Old and new note lists are each in score order; index i of the new
+    list inherits old note i's id. Extra new notes get fresh ids
+    continuing the document's numbering; extra old ids disappear with
+    their notes.
+
+    ``keep_source_ids`` picks the source_event_ids policy: the
+    evidence path keeps the new note's ids (they point at real
+    persisted events), while the synthetic path restores the old
+    note's ids — its synthetic rne-9xxxx ids resolve nowhere, so the
+    old evidence link is the honest one to keep.
+    """
+    next_id = 0
+    for part in payload.parts:
+        for n in part.notes:
+            try:
+                next_id = max(next_id, int(str(n.id)[3:]) + 1)
+            except ValueError:
+                continue
+    new_parts: list[Part] = []
+    for part, (notes, rests) in zip(payload.parts, new_parts_notes, strict=True):
+        old_sorted = sorted(part.notes, key=lambda n: (n.start_beat, str(n.id)))
+        remapped: list[QuantizedNote] = []
+        for i, note in enumerate(notes):
+            if i < len(old_sorted):
+                old = old_sorted[i]
+                remapped.append(
+                    replace(
+                        note,
+                        id=old.id,
+                        source_event_ids=(
+                            note.source_event_ids
+                            if keep_source_ids
+                            else old.source_event_ids
+                        ),
+                    )
+                )
+            else:
+                remapped.append(replace(note, id=ScoreNoteId(f"sn-{next_id:06d}")))
+                next_id += 1
+        new_parts.append(replace(part, notes=tuple(remapped), rests=rests))
+    return tuple(new_parts)
+
+
+def _requantize_from_events(
+    payload: ScoreRevisionPayload,
+    evidence_parts: list[list[RawNoteEvent]],
+    warp: TimeWarp,
+    meter_map: MeterMap,
+    profile: QuantizationProfile,
+    beat_ql: Fraction,
+    settings: dict[str, Any],
+) -> ScoreRevisionPayload:
+    """#226: true requantization — replay the persisted events through
+    the ORIGINAL warp under the merged profile. Mirrors the pipeline:
+    part 1 re-searches its alignment shift; later parts inherit it so
+    the voices cannot drift against each other."""
+    results: list[tuple[tuple[QuantizedNote, ...], tuple[ScoreRest, ...]]] = []
+    shared_shift: float | None = None
+    for events in evidence_parts:
+        if not events:
+            results.append(((), ()))
+            continue
+        alternatives = quantize_events(
+            events,
+            warp,
+            meter_map,
+            profile,
+            alignment_shift_sec=shared_shift,
+        )
+        if not alternatives:
+            results.append(((), ()))
+            continue
+        if shared_shift is None:
+            shared_shift = alternatives[0].diagnostics.alignment_shift_sec
+        event_by_id = {e.id: e for e in events}
+        notes, rests, _conf, _onsets = _part_content(
+            alternatives[0], beat_ql, event_by_id
+        )
+        results.append((tuple(notes), tuple(rests)))
+    if all(not notes for notes, _rests in results):
+        raise ScoreEditError(
+            "re-quantization produced no notes for this score"
+        )
+    return replace(
+        payload,
+        parts=_remap_note_ids(payload, results, keep_source_ids=True),
+        quantization_settings=settings,
+    )
+
+
+def _requantize_synthetic(
+    payload: ScoreRevisionPayload,
+    meter_map: MeterMap,
+    profile: QuantizationProfile,
+    beat_ql: Fraction,
+    settings: dict[str, Any],
+) -> ScoreRevisionPayload:
+    """Legacy path (#130): replay the canonical notes as synthetic raw
+    events through an identity warp (fixed 60 bpm — seconds == ql).
+    Used when the document carries no raw evidence."""
     warp = TimeWarp.fixed_bpm(60.0)  # identity: seconds == quarterLength
     tr_rev = TranscriptionRevisionId(
         str(
@@ -1270,21 +1458,10 @@ def _apply_requantize(
             )
         )
     )
-
-    # Highest existing sn-* index across every part — fresh ids continue
-    # from here so they never collide with a surviving note.
-    next_id = 0
-    for part in payload.parts:
-        for n in part.notes:
-            try:
-                next_id = max(next_id, int(str(n.id)[3:]) + 1)
-            except ValueError:
-                continue
-
-    new_parts: list[Part] = []
+    results: list[tuple[tuple[QuantizedNote, ...], tuple[ScoreRest, ...]]] = []
     for part in payload.parts:
         if not part.notes:
-            new_parts.append(part)
+            results.append(((), ()))
             continue
         events: list[RawNoteEvent] = []
         event_by_id: dict[RawNoteEventId, RawNoteEvent] = {}
@@ -1314,32 +1491,10 @@ def _apply_requantize(
         notes, rests, _conf, _onsets = _part_content(
             alternatives[0], beat_ql, event_by_id
         )
-        old_sorted = sorted(
-            part.notes, key=lambda n: (n.start_beat, str(n.id))
-        )
-        remapped: list[QuantizedNote] = []
-        for i, note in enumerate(notes):
-            if i < len(old_sorted):
-                old = old_sorted[i]
-                remapped.append(
-                    replace(
-                        note,
-                        id=old.id,
-                        source_event_ids=old.source_event_ids,
-                    )
-                )
-            else:
-                remapped.append(
-                    replace(note, id=ScoreNoteId(f"sn-{next_id:06d}"))
-                )
-                next_id += 1
-        new_parts.append(
-            replace(part, notes=tuple(remapped), rests=tuple(rests))
-        )
-
+        results.append((tuple(notes), tuple(rests)))
     return replace(
         payload,
-        parts=tuple(new_parts),
+        parts=_remap_note_ids(payload, results, keep_source_ids=False),
         quantization_settings=settings,
     )
 
@@ -1870,13 +2025,18 @@ def _edit_boundary_beat(
 
 
 def apply_score_edit(
-    document: ScoreDocument, edit: ScoreEdit
+    document: ScoreDocument,
+    edit: ScoreEdit,
+    out_meta: dict[str, Any] | None = None,
 ) -> ScoreDocument:
     """Apply one §13 rhythm edit and return the rebuilt document.
 
     The payload's canonical notes keep their ids — review issues and
     client-side note edits stay attached. A new score revision falls
     out of the changed content automatically (content-derived ids).
+    ``out_meta`` (optional) receives per-edit metadata — requantize
+    reports ``requantizeMode`` (``rawEvidence`` | ``synthetic``) so the
+    worker/UI can tell a true replay from the legacy re-round (#226).
     """
     payload = document.payload
     beat_ql = beat_ql_of(payload)
@@ -1914,7 +2074,9 @@ def apply_score_edit(
     if edit.kind == "requantize":
         if not edit.settings:
             raise ScoreEditError("requantize needs at least one setting")
-        new_payload = _apply_requantize(payload, edit.settings)
+        new_payload, mode = _apply_requantize(document, edit.settings)
+        if out_meta is not None:
+            out_meta["requantizeMode"] = mode
         return replace(document, payload=new_payload)
     if edit.kind == "setKey":
         if edit.fifths is None:

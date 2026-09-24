@@ -102,6 +102,11 @@ export interface ScoreEditResult {
   readonly scoreRevision: string;
   readonly musicXmlConcert: string;
   readonly musicXmlHornF: string;
+  /** #226: which requantize path ran — rawEvidence replays the
+   *  persisted performance under new settings; synthetic re-rounds
+   *  the notation (documents without raw evidence). Absent for
+   *  non-requantize edits. */
+  readonly requantizeMode?: "rawEvidence" | "synthetic";
 }
 
 /** The engine call the workspace delegates to (session.applyScoreEdit). */

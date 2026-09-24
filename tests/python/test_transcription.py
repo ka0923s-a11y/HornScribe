@@ -1489,3 +1489,41 @@ class TestSelectionStaging:
         assert shifted.pitch_bends[0].time_sec == pytest.approx(2.6)
         # Zero offset returns the input untouched.
         assert _shift_event_times((ev,), 0.0) == (ev,)
+
+
+class TestRawEvidence:
+    """#223/#226: the completed scoreDocument carries the raw
+    transcription evidence inline so projects persist it and
+    requantize can replay the real performance."""
+
+    def test_completed_document_carries_raw_evidence(
+        self, tmp_path: Path
+    ) -> None:
+        events = make_events([60, 62, 64])
+        log = run(tmp_path, events)
+        assert log[-1]["phase"] == "completed"
+        doc = log[-1]["result"]["scoreDocument"]
+        evidence = doc.get("rawEvidence")
+        assert isinstance(evidence, dict)
+        assert evidence["transcriptionRevision"].startswith("tr-")
+        # One part, events serialized with absolute source seconds.
+        parts = evidence["parts"]
+        assert len(parts) == 1
+        evs = parts[0]["events"]
+        assert len(evs) == len(events)
+        assert evs[0]["onsetSec"] == pytest.approx(0.0)
+        assert evs[0]["pitchMidi"] == pytest.approx(60.0)
+        # The warp evidence is present and well-formed.
+        assert evidence["warp"]["kind"] in ("fixedBpm", "beatMap")
+
+    def test_evidence_survives_document_round_trip(
+        self, tmp_path: Path
+    ) -> None:
+        from hornscribe.domain.score import ScoreDocument
+
+        log = run(tmp_path, make_events([60, 62]))
+        assert log[-1]["phase"] == "completed"
+        doc = log[-1]["result"]["scoreDocument"]
+        restored = ScoreDocument.from_dict(doc)
+        assert restored.raw_evidence is not None
+        assert len(restored.raw_evidence["parts"][0]["events"]) == 2

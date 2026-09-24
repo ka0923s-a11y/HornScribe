@@ -781,6 +781,11 @@ class ScoreDocument:
     transcription_backend: str | None = None
     transcription_backend_version: str | None = None
     transcription_settings: dict[str, Any] = field(default_factory=dict)
+    # #223/#226: the raw transcription evidence (cleaned backend events
+    # per part + the seconds->ql warp) that produced this score. Kept
+    # inline so the project file is self-contained — requantize replays
+    # the real performance instead of re-rounding the notation.
+    raw_evidence: dict[str, Any] | None = None
     pitch_space: PitchSpace = PitchSpace.CONCERT
 
     @property
@@ -790,7 +795,7 @@ class ScoreDocument:
     def to_dict(self) -> dict[str, Any]:
         if self.pitch_space is not PitchSpace.CONCERT:
             raise ValueError("canonical ScoreDocument must be concert pitch")
-        return {
+        out: dict[str, Any] = {
             "projectId": str(self.project_id),
             "revision": str(self.revision),
             "title": self.title,
@@ -804,6 +809,9 @@ class ScoreDocument:
             "pitchSpace": self.pitch_space.value,
             "content": self.payload.to_dict(),
         }
+        if self.raw_evidence is not None:
+            out["rawEvidence"] = self.raw_evidence
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreDocument:
@@ -827,6 +835,11 @@ class ScoreDocument:
             transcription_backend=data.get("transcriptionBackend"),
             transcription_backend_version=data.get("transcriptionBackendVersion"),
             transcription_settings=dict(data.get("transcriptionSettings", {})),
+            raw_evidence=(
+                dict(data["rawEvidence"])
+                if isinstance(data.get("rawEvidence"), dict)
+                else None
+            ),
             pitch_space=space,
         )
         declared = data.get("revision")

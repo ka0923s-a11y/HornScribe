@@ -78,6 +78,39 @@ def test_round_trip_serialization(tmp_path: Path) -> None:
     assert loaded.to_dict() == project.to_dict()
 
 
+def test_optional_refs_round_trip(tmp_path: Path) -> None:
+    """#223: refs are legacy-optional — a project written without
+    rawResultRef/scoreRef (evidence travels inline on scoreDocument)
+    parses and serializes cleanly, and old files carrying the refs
+    still load with them preserved."""
+    store = ProjectStore(tmp_path)
+    path = tmp_path / "no-refs.hornscribe.json"
+    project = _sample()
+    no_refs = HornScribeProject(
+        schema_version=project.schema_version,
+        project_id=project.project_id,
+        source_audio=project.source_audio,
+        transcription=TranscriptionRecord(
+            backend="basic_pitch",
+            backend_version="0.4.0",
+            settings={},
+            revision=TranscriptionRevisionId("tr-" + "2" * 16),
+        ),
+        score=ScoreRef(
+            revision=ScoreRevisionId("rev-" + "3" * 16),
+            quantization_settings={},
+        ),
+    )
+    store.save(no_refs, path)
+    loaded = store.load(path)
+    assert loaded == no_refs
+    d = loaded.to_dict()
+    assert "rawResultRef" not in d["transcription"]
+    assert "scoreRef" not in d["score"]
+    # Legacy refs still round-trip when present.
+    assert _sample().to_dict()["transcription"]["rawResultRef"]
+
+
 def test_committed_fixture_loads() -> None:
     from hornscribe.domain.ids import is_project_id
 

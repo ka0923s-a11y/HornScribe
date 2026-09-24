@@ -56,7 +56,11 @@ from hornscribe.notation.tone_spelling import fifths_at_beat, is_diatonic
 from hornscribe.rhythm.issues import generate_review_issues
 from hornscribe.rhythm.meter import MeterMap, MeterSegment, UnsupportedMeterError
 from hornscribe.rhythm.quantizer import quantize_events
-from hornscribe.rhythm.timewarp import normalize_to_score_time
+from hornscribe.rhythm.timewarp import (
+    TimeWarp,
+    TimeWarpMode,
+    normalize_to_score_time,
+)
 from hornscribe.worker.protocol import (
     ERR_ENGINE_DEPENDENCY_MISSING,
     ERR_JOB_FAILED,
@@ -152,6 +156,32 @@ def _track_beats(
         times.append(ft)
         strengths.append(strength)
     return tuple(times), tuple(strengths)
+
+
+def _warp_evidence(warp: TimeWarp) -> dict[str, Any]:
+    """Serialize the seconds->ql warp for later requantization (#226).
+
+    A beat-map warp stores its anchors (absolute source seconds ->
+    score position); a fixed-BPM warp stores bpm/zero_sec. Rebuilding
+    the warp from this evidence reproduces the exact grid the original
+    quantization ran on.
+    """
+    if warp.mode is TimeWarpMode.BEAT_MAP and warp.beat_map is not None:
+        return {
+            "kind": "beatMap",
+            "anchors": [
+                {
+                    "timeSec": a.time_sec,
+                    "posQl": str(a.score_pos_ql),
+                }
+                for a in warp.beat_map.anchors
+            ],
+        }
+    return {
+        "kind": "fixedBpm",
+        "bpm": warp.bpm,
+        "zeroSec": warp.zero_sec,
+    }
 
 
 def _shift_event_times(
@@ -797,6 +827,33 @@ def run_transcription_job(
             transcription_backend=backend_id,
             transcription_backend_version=backend_version,
         )
+        # #223/#226: persist the raw transcription evidence inline on
+        # the document — the cleaned events per part plus the warp that
+        # mapped them. A later requantize replays the real performance
+        # under new settings instead of re-rounding the notation, and
+        # the evidence survives project saves/restarts (the document is
+        # already stored inside the project file).
+        evidence_parts = (
+            [
+                sorted(
+                    [e for c in (cleaned, *cleaned_lowers) for e in c.events],
+                    key=lambda e: (e.onset_sec, e.pitch_midi, str(e.id)),
+                )
+            ]
+            if params.texture == "chords"
+            else [list(c.events) for c in (cleaned, *cleaned_lowers)]
+        )
+        document = replace(
+            built.document,
+            raw_evidence={
+                "transcriptionRevision": str(revision),
+                "warp": _warp_evidence(estimate.warp),
+                "parts": [
+                    {"events": [e.to_dict() for e in evs]}
+                    for evs in evidence_parts
+                ],
+            },
+        )
         payload = built.payload
         score_revision = payload.revision_id()
 
@@ -1022,8 +1079,8 @@ def run_transcription_job(
 
         # ---- rendering -------------------------------------------------
         stage(6, 0.96)
-        musicxml_concert = export_concert_musicxml(built.document)
-        musicxml_horn = export_horn_in_f_musicxml(built.document)
+        musicxml_concert = export_concert_musicxml(document)
+        musicxml_horn = export_horn_in_f_musicxml(document)
 
         # The export path is verified, not trusted: read the emitted
         # MusicXML back and compare committed rhythm per part (multi-
@@ -1035,7 +1092,7 @@ def run_transcription_job(
             f"part {pi}: {p}"
             for pi in range(len(payload.parts))
             for p in verify_rhythm_roundtrip(
-                built.document, musicxml_concert, part_index=pi
+                document, musicxml_concert, part_index=pi
             )
         ]
         if rhythm_problems:
@@ -1067,7 +1124,7 @@ def run_transcription_job(
             progress=1.0,
             result={
                 "scoreRevision": str(score_revision),
-                "scoreDocument": built.document.to_dict(),
+                "scoreDocument": document.to_dict(),
                 "reviewIssues": [i.to_dict() for i in issues],
                 "musicXmlConcert": musicxml_concert,
                 "musicXmlHornF": musicxml_horn,
