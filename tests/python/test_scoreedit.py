@@ -247,6 +247,127 @@ class TestSetTempo:
         assert out.payload.parts[0].notes == doc.payload.parts[0].notes
 
 
+class TestTempoMapEdits:
+    """#249: tempoChangeAt/removeTempoChange — the auto-tracked mid-piece
+    tempo map is editable segment by segment."""
+
+    def _map_doc(self) -> ScoreDocument:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "8", "1")])
+        return replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                tempo_map=doc.payload.tempo_map
+                + (TempoSegment(start_beat=Fraction(8), bpm=96.0),),
+            ),
+        )
+
+    def test_change_at_inserts_boundary(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "8", "1")])
+        out = apply_score_edit(
+            doc, _edit("tempoChangeAt", "", bpm=90.0, startBeat="8/1")
+        )
+        assert out.payload.tempo_map == (
+            TempoSegment(Fraction(0), 120.0),
+            TempoSegment(Fraction(8), 90.0),
+        )
+
+    def test_change_at_snaps_to_measure_start(self) -> None:
+        # Beat 10 sits inside the measure starting at 8 (4/4) — a
+        # user-added mark lands on the barline, like key changes.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "10", "1")])
+        out = apply_score_edit(
+            doc, _edit("tempoChangeAt", "", bpm=88.0, startBeat="10/1")
+        )
+        assert out.payload.tempo_map[-1].start_beat == Fraction(8)
+        assert out.payload.tempo_map[-1].bpm == 88.0
+
+    def test_change_at_exact_beat_edits_in_place(self) -> None:
+        # A tracked mark mid-measure is corrected at its own beat, not
+        # snapped onto the barline.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "10", "1")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                tempo_map=doc.payload.tempo_map
+                + (TempoSegment(start_beat=Fraction(10), bpm=96.0),),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("tempoChangeAt", "", bpm=100.0, startBeat="10/1")
+        )
+        assert out.payload.tempo_map[-1].start_beat == Fraction(10)
+        assert out.payload.tempo_map[-1].bpm == 100.0
+
+    def test_change_at_beat_zero_rewrites_head(self) -> None:
+        doc = self._map_doc()
+        out = apply_score_edit(
+            doc, _edit("tempoChangeAt", "", bpm=110.0, startBeat="0/1")
+        )
+        assert out.payload.tempo_map == (
+            TempoSegment(Fraction(0), 110.0),
+            TempoSegment(Fraction(8), 96.0),
+        )
+
+    def test_change_at_by_measure(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "8", "1")])
+        out = apply_score_edit(
+            doc, _edit("tempoChangeAt", "", bpm=84.0, startMeasure=3)
+        )
+        assert out.payload.tempo_map[-1].start_beat == Fraction(8)
+        assert out.payload.tempo_map[-1].bpm == 84.0
+
+    def test_remove_tempo_change(self) -> None:
+        doc = self._map_doc()
+        out = apply_score_edit(
+            doc, _edit("removeTempoChange", "", startBeat="8/1")
+        )
+        assert out.payload.tempo_map == (
+            TempoSegment(Fraction(0), 120.0),
+        )
+
+    def test_remove_tempo_change_by_measure(self) -> None:
+        doc = self._map_doc()
+        out = apply_score_edit(
+            doc, _edit("removeTempoChange", "", startMeasure=3)
+        )
+        assert out.payload.tempo_map == (
+            TempoSegment(Fraction(0), 120.0),
+        )
+
+    def test_remove_head_rejected(self) -> None:
+        doc = self._map_doc()
+        with pytest.raises(ScoreEditError, match="head tempo"):
+            apply_score_edit(
+                doc, _edit("removeTempoChange", "", startBeat="0/1")
+            )
+
+    def test_remove_missing_rejected(self) -> None:
+        doc = self._map_doc()
+        with pytest.raises(ScoreEditError, match="no tempo change"):
+            apply_score_edit(
+                doc, _edit("removeTempoChange", "", startBeat="4/1")
+            )
+
+    def test_edit_validated(self) -> None:
+        with pytest.raises(ScoreEditError, match="bpm"):
+            _edit("tempoChangeAt", "", startBeat="8/1")
+        with pytest.raises(ScoreEditError, match="startBeat"):
+            _edit("tempoChangeAt", "", bpm=90.0)
+        with pytest.raises(ScoreEditError, match="startBeat"):
+            _edit("removeTempoChange", "")
+        with pytest.raises(ScoreEditError, match="range"):
+            _edit("tempoChangeAt", "", bpm=500.0, startBeat="8/1")
+
+    def test_notes_untouched(self) -> None:
+        doc = self._map_doc()
+        out = apply_score_edit(
+            doc, _edit("tempoChangeAt", "", bpm=80.0, startBeat="8/1")
+        )
+        assert out.payload.parts[0].notes == doc.payload.parts[0].notes
+
+
 class TestSetMeter:
     def test_same_unit_retiles(self) -> None:
         # 4/4 -> 3/4: positions unchanged, atoms re-decomposed to the

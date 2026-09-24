@@ -21,6 +21,7 @@ function fakeDoc(
       meter: "4/4",
       keyFifths: 0,
       keyChanges: [],
+      tempoChanges: [],
       keyMode: null,
       swingFeel: false,
       omittedIssueCount: 0,

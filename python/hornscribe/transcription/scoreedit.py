@@ -124,6 +124,8 @@ class ScoreEdit:
             "setKey",
             "keyChangeAt",
             "removeKeyChange",
+            "tempoChangeAt",
+            "removeTempoChange",
             "restToNote",
             "scaleTempo",
             "applyAlternative",
@@ -136,6 +138,7 @@ class ScoreEdit:
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
                 "setTempo/setMeter/requantize/splitNote/mergeNotes/"
                 "setKey/keyChangeAt/removeKeyChange/restToNote/"
+                "tempoChangeAt/removeTempoChange/"
                 "scaleTempo/applyAlternative/applyTriplet/setMetadata/"
                 "transposeNote/transposeRange, "
                 f"got {kind!r}"
@@ -148,6 +151,8 @@ class ScoreEdit:
             "setKey",
             "keyChangeAt",
             "removeKeyChange",
+            "tempoChangeAt",
+            "removeTempoChange",
             "restToNote",
             "scaleTempo",
             "applyAlternative",
@@ -174,6 +179,8 @@ class ScoreEdit:
                 )
         if kind == "setTempo" and bpm is None:
             raise ScoreEditError("setTempo requires bpm")
+        if kind == "tempoChangeAt" and bpm is None:
+            raise ScoreEditError("tempoChangeAt requires bpm")
         beats_per_measure = _opt_int(data, "beatsPerMeasure")
         beat_unit = _opt_int(data, "beatUnit")
         if kind == "setMeter":
@@ -256,7 +263,12 @@ class ScoreEdit:
                 "edit takes startBeat or startMeasure, not both"
             )
         if (
-            kind in ("keyChangeAt", "removeKeyChange")
+            kind in (
+                "keyChangeAt",
+                "removeKeyChange",
+                "tempoChangeAt",
+                "removeTempoChange",
+            )
             and start_beat is None
             and start_measure is None
         ):
@@ -1619,6 +1631,25 @@ def _apply_set_key(
     )
 
 
+def _snap_to_measure_start(
+    payload: ScoreRevisionPayload, start_beat: Fraction
+) -> Fraction:
+    """Snap a beat to its containing measure's start (#145/#249).
+
+    Boundaries are notated at barlines; a beat past the content end
+    snaps to the final measure's start.
+    """
+    spans = measure_spans(payload)
+    snapped = spans[-1].start_beat if spans else Fraction(0)
+    for span in spans:
+        if span.start_beat <= start_beat < span.end_beat:
+            snapped = span.start_beat
+            break
+    if snapped < 0:
+        snapped = Fraction(0)
+    return snapped
+
+
 def _apply_key_change_at(
     payload: ScoreRevisionPayload, key: KeySignature, start_beat: Fraction
 ) -> ScoreRevisionPayload:
@@ -1630,14 +1661,7 @@ def _apply_key_change_at(
     rewrites the head key signature (the payload contract requires the
     first change to carry it).
     """
-    spans = measure_spans(payload)
-    snapped = spans[-1].start_beat if spans else Fraction(0)
-    for span in spans:
-        if span.start_beat <= start_beat < span.end_beat:
-            snapped = span.start_beat
-            break
-    if snapped < 0:
-        snapped = Fraction(0)
+    snapped = _snap_to_measure_start(payload, start_beat)
 
     changes = list(payload.key_changes)
     if not changes:
@@ -1687,6 +1711,57 @@ def _apply_remove_key_change(
         # Back to a single key — the legacy path (no keyChanges field).
         return replace(payload, key_changes=())
     return replace(payload, key_changes=tuple(kept))
+
+
+def _apply_tempo_change_at(
+    payload: ScoreRevisionPayload, bpm: float, start_beat: Fraction
+) -> ScoreRevisionPayload:
+    """Insert or update a tempo-map segment (#249).
+
+    An exact start_beat match edits that segment in place (auto-tracked
+    marks can sit mid-measure, and the UI names them by their exact
+    beat); otherwise the edit snaps to the containing measure's start
+    so a user-added mark lands on the barline. A change at beat 0 is
+    the head tempo — same slot setTempo rewrites, but this path keeps
+    the rest of the map addressable.
+    """
+    segments = list(payload.tempo_map)
+    for i, seg in enumerate(segments):
+        if seg.start_beat == start_beat:
+            segments[i] = replace(seg, bpm=bpm)
+            return replace(payload, tempo_map=tuple(segments))
+    snapped = _snap_to_measure_start(payload, start_beat)
+    for i, seg in enumerate(segments):
+        if seg.start_beat == snapped:
+            segments[i] = replace(seg, bpm=bpm)
+            return replace(payload, tempo_map=tuple(segments))
+    segments.append(TempoSegment(start_beat=snapped, bpm=bpm))
+    segments.sort(key=lambda s: s.start_beat)
+    return replace(payload, tempo_map=tuple(segments))
+
+
+def _apply_remove_tempo_change(
+    payload: ScoreRevisionPayload, start_beat: Fraction
+) -> ScoreRevisionPayload:
+    """Drop a tempo-map segment (#249); the head tempo cannot go.
+
+    startBeat matches exactly (the UI passes the segment's own beat);
+    startMeasure resolves to that measure's start first, so it only
+    removes a mark sitting on the barline.
+    """
+    segments = list(payload.tempo_map)
+    if not segments:
+        raise ScoreEditError("the score has no tempo changes to remove")
+    if start_beat == segments[0].start_beat:
+        # The map's first segment anchors playback from the start —
+        # removing it would leave the opening with no tempo at all.
+        raise ScoreEditError(
+            "the head tempo cannot be removed — use setTempo to change it"
+        )
+    kept = [s for s in segments if s.start_beat != start_beat]
+    if len(kept) == len(segments):
+        raise ScoreEditError(f"no tempo change at beat {start_beat}")
+    return replace(payload, tempo_map=tuple(kept))
 
 
 def _transposed(note: QuantizedNote, semitones: int) -> QuantizedNote:
@@ -1865,6 +1940,18 @@ def apply_score_edit(
         return replace(document, payload=new_payload)
     if edit.kind == "removeKeyChange":
         new_payload = _apply_remove_key_change(
+            payload, _edit_boundary_beat(payload, edit)
+        )
+        return replace(document, payload=new_payload)
+    if edit.kind == "tempoChangeAt":
+        if edit.bpm is None:
+            raise ScoreEditError("tempoChangeAt requires bpm")
+        new_payload = _apply_tempo_change_at(
+            payload, edit.bpm, _edit_boundary_beat(payload, edit)
+        )
+        return replace(document, payload=new_payload)
+    if edit.kind == "removeTempoChange":
+        new_payload = _apply_remove_tempo_change(
             payload, _edit_boundary_beat(payload, edit)
         )
         return replace(document, payload=new_payload)

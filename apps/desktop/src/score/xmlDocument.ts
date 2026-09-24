@@ -67,7 +67,14 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     this.canonicalDoc = src.canonicalDocument ?? null;
     this._meta = XmlScoreDocument.computeMeta(src.concertXml);
     this._omittedIssueCount = src.omittedIssueCount ?? 0;
-    this._meta = { ...this._meta, omittedIssueCount: this._omittedIssueCount };
+    this._meta = {
+      ...this._meta,
+      tempoChanges: mergeTempoStarts(
+        this._meta.tempoChanges,
+        this.canonicalDoc,
+      ),
+      omittedIssueCount: this._omittedIssueCount,
+    };
   }
 
   private static computeMeta(xml: string): ScoreDocumentMeta {
@@ -83,6 +90,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       meter: doc.meter,
      keyFifths: doc.keyFifths,
      keyChanges: doc.keyChanges,
+      tempoChanges: doc.tempoChanges,
       keyMode: doc.keyMode,
       swingFeel: doc.swingFeel,
       measureCount: doc.measureCount,
@@ -170,9 +178,38 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     this._revisionId = next.revisionId;
     this.canonicalDoc = next.canonicalDocument;
     this._meta = XmlScoreDocument.computeMeta(next.concertXml);
-    this._meta = { ...this._meta, omittedIssueCount: this._omittedIssueCount };
+    this._meta = {
+      ...this._meta,
+      tempoChanges: mergeTempoStarts(
+        this._meta.tempoChanges,
+        this.canonicalDoc,
+      ),
+      omittedIssueCount: this._omittedIssueCount,
+    };
     this.editCounter += 1;
   }
+}
+
+/** #249: attach the canonical tempo segment's exact startBeat to each
+ *  parsed <sound tempo> mark. The notation emits one mark per segment
+ *  in order, so a same-length zip is safe; any mismatch (foreign
+ *  document, hand-edited XML) leaves startBeat undefined and the tempo
+ *  editor degrades to display-only instead of guessing beats. */
+function mergeTempoStarts(
+  marks: readonly { measure: number; bpm: number }[],
+  canonicalDoc: unknown,
+): { measure: number; bpm: number; startBeat?: string }[] {
+  const content = (
+    canonicalDoc as { content?: { tempoMap?: { startBeat?: unknown }[] } }
+  )?.content;
+  const map = Array.isArray(content?.tempoMap) ? content.tempoMap : null;
+  return marks.map((m, i) => {
+    const seg = map && map.length === marks.length ? map[i] : null;
+    const startBeat = seg?.startBeat;
+    return typeof startBeat === "string"
+      ? { ...m, startBeat }
+      : { ...m };
+  });
 }
 
 /** Fields extracted from a completed transcription job's `result`. */

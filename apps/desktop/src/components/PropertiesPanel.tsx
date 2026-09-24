@@ -51,6 +51,8 @@ export function PropertiesPanel({
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
+  onTempoChangeAt,
+  onRemoveTempoChange,
   onMetadataChange,
 }: {
   content: InspectorContent;
@@ -86,6 +88,18 @@ export function PropertiesPanel({
   }): void;
   /** #145 (§14): drop the detected modulation at a measure. */
   onRemoveKeyChange?(startMeasure: number): void;
+  /** #249 (§14): insert/update a tempo-map segment — startBeat edits
+   *  the exact mark, startMeasure adds at a barline. */
+  onTempoChangeAt?(args: {
+    bpm: number;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  /** #249 (§14): drop a mid-piece tempo mark (the head tempo stays). */
+  onRemoveTempoChange?(args: {
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
   /** #271: commit notation metadata — {title, composer, arranger} as
    *  a whole set; the panel sends all three on any field commit. */
   onMetadataChange?(metadata: {
@@ -128,6 +142,8 @@ export function PropertiesPanel({
             onKeyChange={onKeyChange}
             onKeyChangeAt={onKeyChangeAt}
             onRemoveKeyChange={onRemoveKeyChange}
+            onTempoChangeAt={onTempoChangeAt}
+            onRemoveTempoChange={onRemoveTempoChange}
             onMetadataChange={onMetadataChange}
           />
           ) : (
@@ -176,6 +192,8 @@ function InspectorBody({
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
+  onTempoChangeAt,
+  onRemoveTempoChange,
   onMetadataChange,
 }: {
   model: InspectorModel;
@@ -191,6 +209,15 @@ function InspectorBody({
     startMeasure?: number;
   }): void;
   onRemoveKeyChange?(startMeasure: number): void;
+  onTempoChangeAt?(args: {
+    bpm: number;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  onRemoveTempoChange?(args: {
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
   onMetadataChange?(metadata: {
     title?: string;
     composer?: string;
@@ -208,6 +235,8 @@ function InspectorBody({
         onKeyChange={onKeyChange}
         onKeyChangeAt={onKeyChangeAt}
         onRemoveKeyChange={onRemoveKeyChange}
+        onTempoChangeAt={onTempoChangeAt}
+        onRemoveTempoChange={onRemoveTempoChange}
         onMetadataChange={onMetadataChange}
       />
     );
@@ -235,6 +264,8 @@ function ScoreBody({
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
+  onTempoChangeAt,
+  onRemoveTempoChange,
   onMetadataChange,
 }: {
   model: ScoreInspectorModel;
@@ -250,6 +281,15 @@ function ScoreBody({
     startMeasure?: number;
   }): void;
   onRemoveKeyChange?(startMeasure: number): void;
+  onTempoChangeAt?(args: {
+    bpm: number;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  onRemoveTempoChange?(args: {
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
   onMetadataChange?(metadata: {
     title?: string;
     composer?: string;
@@ -311,7 +351,19 @@ function ScoreBody({
             ) : null}
           </>
         )}
-        {model.tempoBpm != null && onTempoChange ? (
+        {model.tempoChanges.length > 1 &&
+        onTempoChangeAt &&
+        onRemoveTempoChange ? (
+          // #249: tracked rit./accel. scores get the tempo-map editor —
+          // every mark editable/removable, new ones addable at a
+          // barline; the head row edits the opening tempo in place.
+          <TempoMapEditor
+            changes={model.tempoChanges}
+            measureCount={model.measureCount}
+            onChange={(args) => onTempoChangeAt(args)}
+            onRemove={(args) => onRemoveTempoChange(args)}
+          />
+        ) : model.tempoBpm != null && onTempoChange ? (
           <TempoField
             bpm={model.tempoBpm}
             onCommit={onTempoChange}
@@ -587,6 +639,164 @@ function KeyMapEditor({
  * field. Commits on blur / Enter / stepper click (not per keystroke, so
  * typing "96" does not fire two engine edits); out-of-range input shows
  * a field error and never reaches the engine. */
+/* #249 (§14) tempo-map editor: tracked rit./accel. scores list every
+ *  detected tempo mark — row 0 is the head tempo (edited in place via
+ *  tempoChangeAt at beat 0, the map survives); later rows edit/delete
+ *  their mark. A new mark can be added at any measure (the engine
+ *  snaps it to the barline). Rows without a canonical startBeat
+ *  (fixture/foreign documents) stay display-only. */
+function TempoMapEditor({
+  changes,
+  measureCount,
+  onChange,
+  onRemove,
+}: {
+  changes: readonly {
+    readonly measure: number;
+    readonly bpm: number;
+    readonly startBeat?: string;
+  }[];
+  measureCount: number;
+  onChange(args: {
+    bpm: number;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  onRemove(args: { startBeat?: string; startMeasure?: number }): void;
+}) {
+  const tm = ja.inspector.tempoMap;
+  const [addMeasure, setAddMeasure] = useState<number | null>(null);
+  const [addBpm, setAddBpm] = useState<number | null>(120);
+  const addValid =
+    addMeasure != null &&
+    addMeasure >= 1 &&
+    addMeasure <= measureCount &&
+    addBpm != null &&
+    addBpm >= TEMPO_MIN_BPM &&
+    addBpm <= TEMPO_MAX_BPM;
+  return (
+    <div className="hs-properties__keymap">
+      {changes.map((c, i) => (
+        <div className="hs-properties__keymap-row" key={i}>
+          <span className="hs-properties__keymap-measure">
+            {i === 0 ? tm.head : tm.measureAt(c.measure)}
+          </span>
+          <TempoMapBpmField
+            label={tm.tempoAt(c.measure)}
+            bpm={c.bpm}
+            disabled={i > 0 && c.startBeat == null}
+            onCommit={(bpm) =>
+              i === 0
+                ? onChange({ bpm, startBeat: "0/1" })
+                : onChange({ bpm, startBeat: c.startBeat })
+            }
+          />
+          {i > 0 && c.startBeat != null ? (
+            <HsIconButton
+              label={tm.remove}
+              icon={<Dismiss16Regular />}
+              size="small"
+              onClick={() => onRemove({ startBeat: c.startBeat })}
+            />
+          ) : null}
+        </div>
+      ))}
+      <div className="hs-properties__keymap-add">
+        <HsNumericField
+          label={tm.measure}
+          value={addMeasure}
+          min={1}
+          max={measureCount}
+          step={1}
+          onChange={(v) => setAddMeasure(v)}
+        />
+        <HsNumericField
+          label={tm.tempo}
+          value={addBpm}
+          min={TEMPO_MIN_BPM}
+          max={TEMPO_MAX_BPM}
+          step={1}
+          unit="BPM"
+          onChange={(v) => setAddBpm(v)}
+        />
+        <HsButton
+          variant="secondary"
+          size="small"
+          disabled={!addValid}
+          onClick={() => {
+            if (!addValid || addMeasure == null || addBpm == null) return;
+            onChange({ bpm: addBpm, startMeasure: addMeasure });
+          }}
+        >
+          {tm.add}
+        </HsButton>
+      </div>
+    </div>
+  );
+}
+
+/** Compact BPM field for one tempo-map row — same commit-on-blur /
+ *  Enter / stepper semantics as TempoField, without the ÷2/×2 buttons
+ *  (those are whole-map corrections, not per-mark). */
+function TempoMapBpmField({
+  label,
+  bpm,
+  disabled,
+  onCommit,
+}: {
+  label: string;
+  bpm: number;
+  disabled?: boolean;
+  onCommit(bpm: number): void;
+}) {
+  const [draft, setDraft] = useState<number | null>(bpm);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(bpm);
+    setError(null);
+  }, [bpm]);
+  const commitValue = (v: number | null) => {
+    if (v == null) {
+      setDraft(bpm);
+      setError(null);
+      return;
+    }
+    if (v < TEMPO_MIN_BPM || v > TEMPO_MAX_BPM) {
+      setError(ja.inspector.tempoRangeError);
+      return;
+    }
+    setError(null);
+    if (v !== bpm) onCommit(v);
+  };
+  return (
+    <div
+      className="hs-properties__tempo"
+      onBlur={() => commitValue(draft)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commitValue(draft);
+        }
+      }}
+    >
+      <HsNumericField
+        label={label}
+        value={draft}
+        min={TEMPO_MIN_BPM}
+        max={TEMPO_MAX_BPM}
+        step={1}
+        unit="BPM"
+        disabled={disabled}
+        error={error ?? undefined}
+        onChange={(v) => {
+          setDraft(v);
+          if (v != null) commitValue(v);
+        }}
+      />
+    </div>
+  );
+}
+
 /* #271: free-text metadata field — commits on blur/Enter (never per
  *  keystroke, so typing never floods the engine queue); the draft
  *  resyncs when the engine's fresh meta lands. */

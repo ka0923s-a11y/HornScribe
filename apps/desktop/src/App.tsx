@@ -1747,6 +1747,12 @@ export default function App() {
                     onRemoveKeyChange={(m) =>
                       scoreCtlRef.current?.removeKeyChange?.(m)
                     }
+                    onTempoChangeAt={(args) =>
+                      scoreCtlRef.current?.tempoChangeAt?.(args)
+                    }
+                    onRemoveTempoChange={(args) =>
+                      scoreCtlRef.current?.removeTempoChange?.(args)
+                    }
                     onMetadataChange={(md) =>
                       scoreCtlRef.current?.setMetadata?.(md)
                     }

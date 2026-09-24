@@ -79,6 +79,13 @@ export interface ScoreInspectorModel {
     readonly fifths: number;
     readonly mode: KeyMode | null;
   }[];
+  /** #249: the tempo map for the boundary editor — one row per mark,
+   *  head first; startBeat is present only for engine-backed docs. */
+  readonly tempoChanges: readonly {
+    readonly measure: number;
+    readonly bpm: number;
+    readonly startBeat?: string;
+  }[];
   /** Raw measure count for the "add key change" field's max. */
   readonly measureCount: number;
   /** #134: the score carries a swing marking — shown as a feel row. */
@@ -255,6 +262,7 @@ export function buildScoreInspector(
       fifths: viewFifths(c.fifths),
       mode: c.mode,
     })),
+    tempoChanges: meta.tempoChanges,
     measureCount: meta.measureCount,
     swingFeel: meta.swingFeel,
     measureLabel: copy.measureCount(meta.measureCount),

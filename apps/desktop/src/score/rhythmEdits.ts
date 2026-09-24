@@ -26,6 +26,8 @@ export type RhythmEditKind =
   | "setKey"
   | "keyChangeAt"
   | "removeKeyChange"
+  | "tempoChangeAt"
+  | "removeTempoChange"
   | "restToNote"
   | "scaleTempo"
   | "applyAlternative"
@@ -43,7 +45,7 @@ export interface RhythmEditOp {
   readonly durationBeats?: string;
   /** shiftOnset only: signed count of minimum-grid steps. */
   readonly steps?: number;
-  /** setTempo only: new head tempo (20-400, engine-validated). */
+  /** setTempo/tempoChangeAt only: new tempo (20-400, engine-validated). */
   readonly bpm?: number;
   /** scaleTempo only (#198): tempo-map multiplier — note values and
    *  every beat-axis boundary scale by the same factor, so playback
@@ -67,9 +69,9 @@ export interface RhythmEditOp {
   readonly fifths?: number;
   /** setKey/keyChangeAt only: major/minor (kept from the score when absent). */
   readonly mode?: "major" | "minor";
-  /** keyChangeAt/removeKeyChange only: boundary beat ("n/d" fraction). */
+  /** *ChangeAt/remove*Change only: boundary beat ("n/d" fraction). */
   readonly startBeat?: string;
-  /** keyChangeAt/removeKeyChange only (#145): boundary measure number
+  /** *ChangeAt/remove*Change only (#145/#249): boundary measure number
    *  — the UI names barlines; the engine resolves the beat. Mutually
    *  exclusive with startBeat. */
   readonly startMeasure?: number;

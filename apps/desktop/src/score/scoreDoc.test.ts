@@ -99,6 +99,30 @@ describe("parseScoreDoc", () => {
     expect(doc.keyChanges).toEqual([{ measure: 1, fifths: -1, mode: null }]);
   });
 
+  it("collects tempo marks with measure numbers (#249)", () => {
+    const doc = parseScoreDoc(XML);
+    expect(doc.tempoChanges).toEqual([{ measure: 1, bpm: 100 }]);
+    const xml = XML.replace(
+      '<measure number="2">',
+      '<measure number="2"><direction><sound tempo="72"/></direction>',
+    );
+    expect(parseScoreDoc(xml).tempoChanges).toEqual([
+      { measure: 1, bpm: 100 },
+      { measure: 2, bpm: 72 },
+    ]);
+  });
+
+  it("collects measure-level <sound tempo> marks too", () => {
+    const xml = XML.replace(
+      '<measure number="2">',
+      '<measure number="2"><sound tempo="88"/>',
+    );
+    expect(parseScoreDoc(xml).tempoChanges).toEqual([
+      { measure: 1, bpm: 100 },
+      { measure: 2, bpm: 88 },
+    ]);
+  });
+
   it("parses pitch, type, dots and measure numbers", () => {
     const n1 = doc.notes.find((n) => n.exportId === "hs-sn-000001");
     expect(n1?.step).toBe("C");

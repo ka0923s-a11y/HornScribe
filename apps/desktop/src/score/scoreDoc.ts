@@ -52,6 +52,9 @@ export interface ScoreDoc {
   /** #146: key changes with their measure numbers, head first. Empty
    *  or single-entry = the piece stays in keyFifths. */
   keyChanges: { measure: number; fifths: number; mode: KeyMode | null }[];
+  /** #249: tempo marks in document order — each <sound tempo> with the
+   *  number of the measure that carries it (head first). */
+  tempoChanges: { measure: number; bpm: number }[];
   /** #134: a <sound><swing> direction exists — the piece is marked
    *  as swung (straight eighths play in the detected ratio). */
   swingFeel: boolean;
@@ -135,11 +138,23 @@ export function parseScoreDoc(xml: string): ScoreDoc {
   const notes: ParsedNote[] = [];
   let measureCount = 0;
   const keyChanges: { measure: number; fifths: number; mode: KeyMode | null }[] = [];
+  const tempoChanges: { measure: number; bpm: number }[] = [];
   const parts = Array.from(doc.querySelectorAll("part"));
   for (const measure of Array.from(
     parts[0]?.querySelectorAll(":scope > measure") ?? [],
   )) {
     const number = Number(measure.getAttribute("number") ?? measureCount + 1);
+    // #249: every tempo mark the measure carries — direct <sound> and
+    // direction-embedded marks alike, in document order (the canonical
+    // tempo map emits one mark per segment in the same order).
+    for (const soundEl of Array.from(
+      measure.querySelectorAll(":scope > sound[tempo], :scope > direction > sound[tempo]"),
+    )) {
+      const t = soundEl.getAttribute("tempo");
+      if (t != null && Number.isFinite(Number(t))) {
+        tempoChanges.push({ measure: number, bpm: Number(t) });
+      }
+    }
     // Mid-piece key changes (#133): every <key> under attributes —
     // a measure can carry more than one (offset insertions share the
     // element), so collect them all.
@@ -186,7 +201,7 @@ export function parseScoreDoc(xml: string): ScoreDoc {
       });
     }
   }
-  return { title, composer, arranger, notes, measureCount, tempoBpm, meter, keyFifths, keyMode, keyChanges, swingFeel };
+  return { title, composer, arranger, notes, measureCount, tempoBpm, meter, keyFifths, keyMode, keyChanges, tempoChanges, swingFeel };
 }
 
 /** canonical id → parsed fragments (both tie fragments and chords land here). */

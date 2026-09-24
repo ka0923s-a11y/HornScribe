@@ -37,6 +37,16 @@ export interface ScoreDocumentMeta {
   /** #146: key changes with measure numbers (head first); empty or
    *  single-entry = the piece stays in keyFifths. */
   readonly keyChanges: readonly { measure: number; fifths: number; mode: KeyMode | null }[];
+  /** #249: tempo-map marks in document order (head first). startBeat
+   *  is the canonical segment's beat when the document carries an
+   *  engine payload - the remove/edit edits need the exact beat; a
+   *  fixture or foreign document leaves it undefined and the tempo
+   *  editor stays display-only. */
+  readonly tempoChanges: readonly {
+    measure: number;
+    bpm: number;
+    startBeat?: string;
+  }[];
   /** #134: the score carries a swing marking (<sound><swing>). */
   readonly swingFeel: boolean;
   /** Number of measures in the score. */

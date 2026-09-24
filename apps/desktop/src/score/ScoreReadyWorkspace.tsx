@@ -1374,6 +1374,41 @@ const setKey = useCallback(
     [applyRhythmEdit],
   );
 
+  /* #249 (spec 14): tempo-map edits — insert/update a segment
+   *  (exact startBeat for tracked marks, startMeasure for a new
+   *  barline mark) or drop one. Same serialized queue + undo stack
+   *  as setTempo. */
+  const tempoChangeAt = useCallback(
+    (args: { bpm: number; startBeat?: string; startMeasure?: number }) => {
+      applyRhythmEdit(
+        () => ({
+          kind: "tempoChangeAt",
+          noteId: "",
+          bpm: args.bpm,
+          startBeat: args.startBeat,
+          startMeasure: args.startMeasure,
+        }),
+        ja.commandFeedback.tempoChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
+  const removeTempoChange = useCallback(
+    (args: { startBeat?: string; startMeasure?: number }) => {
+      applyRhythmEdit(
+        () => ({
+          kind: "removeTempoChange",
+          noteId: "",
+          startBeat: args.startBeat,
+          startMeasure: args.startMeasure,
+        }),
+        ja.commandFeedback.tempoChangeRemoved,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   /* #271: notation metadata — title/composer/arranger rewrite the
    *  MusicXML headers (and therefore the PDF export) without
    *  touching the content-derived revision. */
@@ -1618,6 +1653,8 @@ const setKey = useCallback(
       setKey: (fifths, mode) => setKey(fifths, mode),
       keyChangeAt: (args) => keyChangeAt(args),
       removeKeyChange: (m) => removeKeyChange(m),
+      tempoChangeAt: (args) => tempoChangeAt(args),
+      removeTempoChange: (args) => removeTempoChange(args),
       setMetadata: (md) => setMetadata(md),
       transposeScore: (s) => transposeScore(s),
       requantize: (settings) => requantize(settings),
@@ -1656,6 +1693,8 @@ const setKey = useCallback(
     setKey,
     keyChangeAt,
     removeKeyChange,
+    tempoChangeAt,
+    removeTempoChange,
     setMetadata,
     transposeScore,
     requantize,

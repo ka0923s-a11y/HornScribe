@@ -54,6 +54,23 @@ export interface ScoreWorkspaceController {
   /** #145 (spec 14): drop the key-change boundary at a measure —
    *  the head key cannot be removed (use setKey). */
   removeKeyChange?(startMeasure: number): void;
+  /** #249 (spec 14): insert or update a tempo-map segment —
+   *  startBeat edits the exact segment (auto-tracked marks can sit
+   *  mid-measure); startMeasure names a barline and the engine snaps
+   *  to the measure start. startBeat "0/1" rewrites the head tempo
+   *  while keeping later segments. */
+  tempoChangeAt?(args: {
+    bpm: number;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  /** #249 (spec 14): drop a tempo-map segment — the head tempo
+   *  cannot be removed (use setTempo). startBeat is the segment's
+   *  exact beat; startMeasure resolves to the barline. */
+  removeTempoChange?(args: {
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
   /** #271: notation metadata — title/composer/arranger edited in
    *  the score summary; the engine rewrites the MusicXML headers. */
   setMetadata?(metadata: {

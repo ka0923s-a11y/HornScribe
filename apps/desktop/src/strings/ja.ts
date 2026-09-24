@@ -513,6 +513,7 @@ export const ja = {
     rhythmEditFailed: "この編集は適用できません",
     rhythmEditUnavailable: "この楽譜ではリズム編集を利用できません",
     tempoChanged: "テンポを変更しました",
+    tempoChangeRemoved: "テンポ変化を削除しました",
     meterChanged: "拍子を変更しました",
     keyChanged: "調を変更しました",
     keyChangeRemoved: "転調を削除しました",
@@ -1150,6 +1151,18 @@ export const ja = {
       remove: "この転調を削除",
       unify: "1つの調に統一",
       unifyHint: "全ての転調を解除し、冒頭の調だけにします",
+    },
+    /** #249: tempo-map editor — one row per detected tempo mark plus
+     *  an "add" row; the head row edits the opening tempo without
+     *  dropping the tracked rit./accel. segments. */
+    tempoMap: {
+      measure: "小節",
+      head: "冒頭",
+      measureAt: (n: number) => `第${n}小節`,
+      tempoAt: (n: number) => `第${n}小節のテンポ`,
+      tempo: "テンポ",
+      add: "テンポ変化を追加",
+      remove: "このテンポ変化を削除",
     },
     scoreSeconds: (sec: number) => `スコア ${sec.toFixed(1)} 秒`,
     tieFragments: (count: number) => `タイで分割（${count}分割）`,
