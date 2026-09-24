@@ -655,6 +655,14 @@ def run_transcription_job(
                 tuple(alts[0] for alts in lower_alternatives)
             ),
             merge_voices=params.texture == "chords",
+            voice_names=(
+                # #251: the chords texture is an analytical capture of
+                # simultaneous notes, not a one-player part — the part
+                # name says so wherever the score is exported.
+                ("Horn in F (chords)",)
+                if params.texture == "chords"
+                else ()
+            ),
             key_changes=key_changes,
             swing_feel=(
                 swing_est.mean_phase if swing_est.detected else None

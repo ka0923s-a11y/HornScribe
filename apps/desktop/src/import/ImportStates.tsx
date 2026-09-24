@@ -291,6 +291,7 @@ function AudioReadyBody({
               label={ja.import.audioOptions.texture}
               options={TEXTURE_OPTIONS}
               value={options.texture}
+              hint={ja.import.audioOptions.textureHint(options.texture)}
               onChange={(v) =>
                 set({ texture: v as TranscriptionOptions["texture"] })
               }

@@ -909,6 +909,16 @@ export const ja = {
       textureMelody: "メロディ優先（ミックス音源）",
       textureVoices: "複数声部として採譜（重奏・和音を含む演奏）",
       textureChords: "和音として採譜（同リズムの重音を1パートの和音に）",
+      /* #251: 出力モードの「演奏可能性」を用途ベースで説明する。
+       *  ソロ（auto/mono/melody）= 1人のF管奏者がそのまま演奏できる
+       *  主成果物。voices = 複数奏者向けの重奏譜。chords = 原音の
+       *  重音構造を保存する分析的表現で、1人用の演奏譜ではない。 */
+      textureHint: (texture: string) =>
+        texture === "voices"
+          ? "声部ごとにF管パートを分けます。複数の奏者向けの重奏譜です。"
+          : texture === "chords"
+            ? "同時に鳴る音を1パートの和音として残します。1人で演奏する譜面ではありません。"
+            : "1人のF管奏者がそのまま演奏できる譜面を作ります。",
       /* #189: per-job engine override — "auto" inherits 設定→詳細設定. */
       backend: "採譜エンジン",
       backendAuto: "自動（設定に従う）",

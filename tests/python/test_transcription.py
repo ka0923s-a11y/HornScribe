@@ -1237,6 +1237,42 @@ class TestPipeline:
         reasons = {i["reason"] for i in result["reviewIssues"]}
         assert "overlapping_candidates" in reasons
 
+    def test_chords_texture_names_the_part_as_chords(
+        self, tmp_path: Path
+    ) -> None:
+        # #251: the chords texture is an analytical capture of
+        # simultaneous notes, not a one-player part — the exported
+        # part name must say so instead of claiming a plain solo part.
+        events: list[RawNoteEvent] = []
+        for i in range(8):
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 1:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=76.0,
+                    onset_sec=i * 0.5,
+                    offset_sec=i * 0.5 + 0.45,
+                    confidence=0.9,
+                )
+            )
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 2:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=55.0,
+                    onset_sec=i * 0.5 + 0.2,
+                    offset_sec=i * 0.5 + 0.4,
+                    confidence=0.9,
+                )
+            )
+        log = run(tmp_path, tuple(events), {"texture": "chords"})
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        parts = result["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 1
+        assert parts[0]["name"] == "Horn in F (chords)"
+        assert "Horn in F (chords)" in result["musicXmlConcert"]
+
     def test_voices_texture_keeps_three_parts(self, tmp_path: Path) -> None:
         # #85: a triad texture — melody + mid + bass — becomes a
         # three-part score; nothing past three voices is silently
