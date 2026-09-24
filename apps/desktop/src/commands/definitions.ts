@@ -611,5 +611,13 @@ export function createCommandDefinitions(): readonly Command[] {
       section: "app",
       run: (ctx) => ctx.openDiagnostics(),
     },
+    {
+      // #318: keyboard-shortcuts help — F1 is the platform convention.
+      id: "app.help",
+      title: ja.commands.help,
+      section: "app",
+      shortcuts: ["F1"],
+      run: (ctx) => ctx.openShortcutsHelp?.(),
+    },
   ];
 }

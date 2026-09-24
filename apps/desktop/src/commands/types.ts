@@ -182,6 +182,8 @@ export interface CommandContext {
   openSettings(): void;
   /** Opens the 診断情報 sheet (§19 — separated from the normal UI). */
   openDiagnostics(): void;
+  /** #318: opens the keyboard-shortcuts help overlay (F1). */
+  openShortcutsHelp?(): void;
   /** F6 region navigation — implemented by focus/zones. */
   focusNextRegion(): void;
   focusPreviousRegion(): void;

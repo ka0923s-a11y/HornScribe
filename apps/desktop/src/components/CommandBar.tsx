@@ -20,6 +20,7 @@ import {
   ArrowRight24Regular,
   Link24Regular,
   MusicNote224Regular,
+  QuestionCircle24Regular,
   TableCellsSplit24Regular,
   TableCellsMerge24Regular,
   ArrowSwap24Regular,
@@ -79,6 +80,7 @@ export function CommandBar({
   captureSelectedDevice,
   onSelectCaptureDevice,
   onCaptureMenuOpen,
+  onShortcutsHelp,
 }: {
   commands: CommandSurface;
   pitch: PitchView;
@@ -97,6 +99,8 @@ export function CommandBar({
   onSelectCaptureDevice?(source: CaptureSource, id: string | null): void;
   /** メニューが開いた時にデバイス一覧を取り直す。 */
   onCaptureMenuOpen?(): void;
+  /** #318: open the keyboard-shortcuts help overlay. */
+  onShortcutsHelp?(): void;
 }) {
   // 採譜 ↔ 採譜し直す — same command slot, label follows score presence
   // (the registry hides retranscribe until a score exists).
@@ -234,6 +238,13 @@ export function CommandBar({
         ]
       : []),
     { key: "overflow-divider", divider: true },
+    // #318: keyboard-shortcuts help — discoverability for the ~40
+    // bindings the palette/tooltips can't surface at once.
+    {
+      key: "shortcuts",
+      label: ja.shortcutsHelp.title,
+      icon: <QuestionCircle24Regular />,
+    },
     // §16: diagnostics lives in the overflow, never on the command bar.
     {
       key: "diagnostics",
@@ -472,6 +483,7 @@ export function CommandBar({
         ariaLabel={ja.commandBar.overflow}
         onSelect={(key) => {
           if (key === "settings") commands.invoke("app.settings");
+          else if (key === "shortcuts") onShortcutsHelp?.();
           else if (key === "properties") onToggleProperties();
           else if (key === "save") commands.invoke("project.save");
           else if (key === "save-as") commands.invoke("project.saveAs");

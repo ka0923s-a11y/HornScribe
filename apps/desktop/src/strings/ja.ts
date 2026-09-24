@@ -17,6 +17,23 @@ export const ja = {
     untitled: "名称未設定",
   },
 
+  /** #318: ショートカット一覧ヘルプ — コマンドレジストリから自動生成。 */
+  shortcutsHelp: {
+    title: "キーボードショートカット",
+    empty: "この画面で使えるショートカットはありません",
+    sections: {
+      file: "ファイル",
+      score: "楽譜",
+      transport: "再生",
+      view: "表示",
+      review: "確認",
+      edit: "編集",
+      export: "書き出し",
+      nav: "移動",
+      app: "アプリ",
+    },
+  },
+
   common: {
     cancel: "キャンセル",
     close: "閉じる",
@@ -487,6 +504,8 @@ export const ja = {
      *  F管 written-pitch projection), one canonical edit. */
     scoreOctaveUp: "全曲を1オクターブ上げる",
     scoreOctaveDown: "全曲を1オクターブ下げる",
+    /* #318: F1 keyboard-shortcuts help (matches ja.shortcutsHelp.title). */
+    help: "キーボードショートカット",
   },
 
   /**

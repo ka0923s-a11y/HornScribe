@@ -28,6 +28,7 @@ import { TranscriptionView } from "./components/TranscriptionView";
 import { TranscriptionErrorView } from "./components/TranscriptionErrorView";
 import { ExportDialog } from "./export/ExportDialog";
 import { DiagnosticsSheet } from "./diagnostics/DiagnosticsSheet";
+import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { createDefaultExportPort } from "./export/port";
 import type { ExportSource } from "./export/tauriPort";
 import { exportErrorCode } from "./export/types";
@@ -217,6 +218,8 @@ export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [requantizeOpen, setRequantizeOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  // #318: keyboard-shortcuts help overlay (F1 / overflow menu).
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<
     SettingsCategory | undefined
   >(undefined);
@@ -1486,6 +1489,8 @@ export default function App() {
         setView("settings");
       },
       openDiagnostics: () => setDiagnosticsOpen(true),
+      // #318: F1 / overflow menu → keyboard-shortcuts help overlay.
+      openShortcutsHelp: () => setShortcutsHelpOpen(true),
       // F6 / Shift+F6 region cycling (§22) — owned by focus/zones.ts; these
       // are the only fully-working transport-independent commands so far.
       focusNextRegion: () => {
@@ -1835,6 +1840,7 @@ export default function App() {
                   setCaptureDevices((d) => (d ? { ...d } : d));
                 }}
                 onCaptureMenuOpen={refreshCaptureDevices}
+                onShortcutsHelp={() => setShortcutsHelpOpen(true)}
               />
               {regions.waveform ? (
                 <WaveformView
@@ -2373,6 +2379,13 @@ export default function App() {
             port={diagnosticsPort}
             toolOverrides={toolOverrides}
             onAnnounce={setStatusMessage}
+          />
+          {/* #318: F1 / overflow → shortcut list, generated from the
+              live registry so it can never drift from the bindings. */}
+          <ShortcutsHelp
+            open={shortcutsHelpOpen}
+            onOpenChange={setShortcutsHelpOpen}
+            commands={registry.listVisible(snapshot)}
           />
           {/* #130 (spec 14): quantization settings on the finished
               score — seeded from the canonical payload's stored
