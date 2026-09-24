@@ -1556,13 +1556,33 @@ export function ScoreReadyWorkspace({
           }
           canUndo={session.canUndo}
           canRedo={session.canRedo}
-          actionLabel={
-            allIssues[reviewIndex]?.evidence["suggestVoicesTexture"] ===
-              true && onRetranscribeVoices
-              ? ja.review.retranscribeVoices
-              : null
-          }
-          onAction={onRetranscribeVoices ?? undefined}
+          actionLabel={(() => {
+            const issue = allIssues[reviewIndex];
+            if (!issue) return null;
+            if (
+              issue.evidence["suggestVoicesTexture"] === true &&
+              onRetranscribeVoices
+            ) {
+              return ja.review.retranscribeVoices;
+            }
+            // #176: spelling issues resolve with the enharmonic toggle,
+            // not the pitch +/- buttons (those change sounding pitch).
+            if (issue.reason === "pitch_spelling_ambiguous") {
+              return ja.commands.noteEnharmonic;
+            }
+            return null;
+          })()}
+          onAction={(() => {
+            const issue = allIssues[reviewIndex];
+            if (!issue) return undefined;
+            if (issue.evidence["suggestVoicesTexture"] === true) {
+              return onRetranscribeVoices ?? undefined;
+            }
+            if (issue.reason === "pitch_spelling_ambiguous") {
+              return () => toggleSelectedEnharmonic();
+            }
+            return undefined;
+          })()}
           onPrev={() => gotoIssue(reviewIndexRef.current - 1)}
           onNext={() => gotoIssue(reviewIndexRef.current + 1)}
           onPlaySource={playSource}
