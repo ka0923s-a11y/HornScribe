@@ -124,6 +124,16 @@ describe("importRefs — EMPTY → OPENING_AUDIO → AUDIO_READY", () => {
     expect(h.announcements.at(-1)).toContain("take.wav");
   });
 
+  it("hashes the picked bytes once at import (#243)", async () => {
+    const h = makeHarness();
+    await h.controller.importRefs([fileRef("take.wav", "bytes")]);
+    const ref = h.readyAudios[0]?.ref;
+    // Fake sha256Hex is hash-<text> — the ref now carries the
+    // content identity project save needs.
+    expect(ref && "contentHash" in ref ? ref.contentHash : null)
+      .toBe("hash-bytes");
+  });
+
   it("picks the first supported file when several are dropped", async () => {
     const h = makeHarness();
     await h.controller.importRefs([

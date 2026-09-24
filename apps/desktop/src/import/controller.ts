@@ -83,7 +83,10 @@ export interface ImportEvents {
   /** Optional (#106): the opened project carried a saved score — the
    *  host restores it and jumps to SCORE_READY instead of waiting for
    *  a re-transcription. Fires after the usual state/screen updates. */
-  onProjectScoreReady?(result: unknown): void;
+  onProjectScoreReady?(
+    result: unknown,
+    project: { projectId: string; sourceHash: string | null },
+  ): void;
 }
 
 type RecentStorage = Pick<Storage, "getItem" | "setItem"> | null;
@@ -206,10 +209,14 @@ export class ImportController {
     const gen = this.begin("audio", ref.name);
     try {
       const blob = await this.blobFor(ref);
+      // #243: the content hash is the source identity (FND-001) —
+      // computing it once at import lets project save write a real
+      // contentHash instead of the empty string that broke reopen.
+      const contentHash = await this.ports.sha256Hex(blob);
       const decoded = await this.ports.decodeAudio(blob, ref.name);
       if (!this.isCurrent(gen)) return;
       const audio: LoadedAudio = {
-        ref,
+        ref: { ...ref, contentHash },
         fileName: ref.name,
         format,
         sizeBytes: blob.size,
@@ -339,7 +346,10 @@ export class ImportController {
       if (!this.isCurrent(gen)) return;
       const format = audioFormatOf(ref.name) ?? "wav";
       const audio: LoadedAudio = {
-        ref,
+        // #234: carry the verified hash so the audio identity matches
+        // the project's recorded sourceHash — a relinked source
+        // keeps its restored score instead of invalidating it.
+        ref: { ...ref, contentHash: sm.project.sourceHash ?? hash },
         fileName: ref.name,
         format,
         sizeBytes: blob.size,
@@ -362,7 +372,10 @@ export class ImportController {
       // background) can now land — the relinked audio matches the
       // recorded content hash.
       if (sm.project.scoreResult != null) {
-        this.events.onProjectScoreReady?.(sm.project.scoreResult);
+        this.events.onProjectScoreReady?.(sm.project.scoreResult, {
+          projectId: sm.project.projectId,
+          sourceHash: sm.project.sourceHash,
+        });
         this.events.announce(ja.import.feedback.projectOpened(sm.project.name));
       } else {
         this.events.announce(ja.import.feedback.sourceRelinked);
@@ -445,7 +458,10 @@ export class ImportController {
     // #106: the score survives a missing/moved source — restore it
     // now; the audio can be relinked afterwards.
     if (project.scoreResult != null) {
-      this.events.onProjectScoreReady?.(project.scoreResult);
+      this.events.onProjectScoreReady?.(project.scoreResult, {
+        projectId: project.projectId,
+        sourceHash: project.sourceHash,
+      });
     }
   }
 
@@ -457,7 +473,9 @@ export class ImportController {
   ): void {
     const format = audioFormatOf(ref.name) ?? "wav";
     const audio: LoadedAudio = {
-      ref,
+      // #234: the recorded project hash is this audio's verified
+      // content identity — carry it so identity checks line up.
+      ref: { ...ref, contentHash: project.sourceHash ?? undefined },
       fileName: ref.name,
       format,
       sizeBytes: blob.size,
@@ -479,7 +497,10 @@ export class ImportController {
     // #106: a project saved with score extras skips re-transcription —
     // the host restores the document and lands on SCORE_READY.
     if (project.scoreResult != null) {
-      this.events.onProjectScoreReady?.(project.scoreResult);
+      this.events.onProjectScoreReady?.(project.scoreResult, {
+        projectId: project.projectId,
+        sourceHash: project.sourceHash,
+      });
       this.events.announce(ja.import.feedback.projectOpened(project.name));
     } else {
       this.events.announce(ja.import.feedback.loaded(ref.name));

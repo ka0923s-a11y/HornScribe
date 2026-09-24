@@ -29,6 +29,12 @@ class FakePort implements MediaPort {
     if (this.failLoad) throw new Error("load failed");
     this.loaded = source;
   }
+  unload(): void {
+    this.loaded = null;
+    this.duration = 0;
+    this.time = 0;
+    this.playing = false;
+  }
   async play(): Promise<void> {
     this.playing = true;
   }

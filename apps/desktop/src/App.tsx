@@ -91,6 +91,7 @@ import {
   DEFAULT_TRANSCRIPTION_OPTIONS,
   type AudioFileRef,
   type TranscriptionOptions,
+  type LoadedAudio,
 } from "./import/types";
 import { buildTranscriptionParams } from "./import/transcriptionParams";
 import { stageAudioForEngine } from "./import/staging";
@@ -143,6 +144,21 @@ function screenFromHash(hash: string): ScreenState | null {
   return (SCREEN_STATES as readonly string[]).includes(name)
     ? (name as ScreenState)
     : null;
+}
+
+/** #234: content-derived audio identity for score ownership — the
+ *  import-time SHA-256 when known, else the durable path, else a
+ *  name+size fallback for browser-dev File refs. A score only ever
+ *  belongs to the source identity that produced it. */
+function audioIdentityOf(audio: LoadedAudio | null): string | null {
+  if (!audio) return null;
+  const ref = audio.ref;
+  const hash =
+    "contentHash" in ref && ref.contentHash ? ref.contentHash : null;
+  if (hash) return `hash:${hash}`;
+  if (ref.kind === "path") return `path:${ref.path}`;
+  if (ref.kind === "recording" && ref.path) return `path:${ref.path}`;
+  return `mem:${audio.fileName}:${audio.sizeBytes}`;
 }
 
 /** Japanese display name for a focus zone (for status announcements). */
@@ -226,6 +242,10 @@ export default function App() {
       ? "audioReady"
       : "empty",
   );
+  // Event handlers outside React render (native drop listener) read
+  // the screen through a ref — the listener is subscribed once.
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
   // A canonical score exists — survives failed/cancelled retranscription
   // (issue rule: partial failure never destroys valid state).
   const [hasScore, setHasScore] = useState(false);
@@ -258,6 +278,16 @@ export default function App() {
   // until the engine ships MusicXML through the same port.
   const [scoreDocument, setScoreDocument] =
     useState<ScoreDocumentPort | null>(null);
+  // #234/#240: the score belongs to a specific source identity and a
+  // specific successful result — tracked separately from both the
+  // in-flight job and the audio slot so a source switch or a failed
+  // re-transcription can never mix score A with audio B.
+  const scoreAudioIdentityRef = useRef<string | null>(null);
+  const jobAudioIdentityRef = useRef<string | null>(null);
+  const audioIdentityRef = useRef<string | null>(null);
+  const [scoreProvenance, setScoreProvenance] =
+    useState<unknown | null>(null);
+  const projectIdRef = useRef<string | null>(null);
   const [inspectorModel, setInspectorModel] = useState<InspectorModel>({
     kind: "empty",
   });
@@ -282,7 +312,24 @@ export default function App() {
               issues: handoff?.issues ?? [],
             })
           : null;
-      setScoreDocument(engineDoc ?? createFixtureScoreDocument(handoff));
+      // #234: a stale job result (its source was replaced while it
+      // ran) must not land — the score belongs to the audio that
+      // started the job, not whatever is loaded now.
+      if (
+        jobAudioIdentityRef.current != null &&
+        jobAudioIdentityRef.current !== audioIdentityRef.current
+      ) {
+        session.clearJob();
+        return;
+      }
+      const doc = engineDoc ?? createFixtureScoreDocument(handoff);
+      setScoreDocument(doc);
+      // #240: the completed result is this score's provenance —
+      // kept across later job starts so a failed/cancelled
+      // re-transcription never loses the transcription record.
+      setScoreProvenance(sessionSnap.lastResult);
+      scoreAudioIdentityRef.current =
+        jobAudioIdentityRef.current ?? audioIdentityRef.current;
       setScreen("scoreReady");
       setStatusMessage(ja.transcription.completed);
       session.clearJob();
@@ -341,6 +388,13 @@ export default function App() {
     });
   }, [importState.audio]);
 
+  // #219: when the audio slot empties (SOURCE_MISSING, dismissed
+  // error) the transport must release the previous source — a
+  // restored score must not keep playing the old file's bytes.
+  useEffect(() => {
+    if (importState.audio == null) transport.unload();
+  }, [importState.audio, transport]);
+
   // #99: keep the export port's source getter current — the doc plus a
   // basename derived from the loaded audio's file name (extension
   // stripped), matching the ENG-001 `<basename>_<artifact>` policy.
@@ -386,11 +440,29 @@ export default function App() {
           onRecentChange: (entries) => setRecentProjects([...entries]),
           announce: setStatusMessage,
           onAudioReady: (audio) => {
-            // Fire-and-forget: a media failure flips the transport snapshot
-            // to "error" — the status line already carries the outcome.
+            // Fire-and-forget: a media failure flips the transport
+            // snapshot to "error" — the status line already carries
+            // the outcome.
             void transport.load(audio.mediaSource).catch(() => undefined);
+            // #234: the audio slot changed owners — a score that
+            // belongs to a different source identity is no longer
+            // current (a verified relink keeps the same hash and
+            // survives; a genuinely different file invalidates).
+            const identity = audioIdentityOf(audio);
+            audioIdentityRef.current = identity;
+            if (
+              scoreAudioIdentityRef.current != null &&
+              (scoreAudioIdentityRef.current === "?" ||
+                identity !== scoreAudioIdentityRef.current)
+            ) {
+              setHasScore(false);
+              setScoreDocument(null);
+              setScoreProvenance(null);
+              projectIdRef.current = null;
+              scoreAudioIdentityRef.current = null;
+            }
           },
-          onProjectScoreReady: (result) => {
+          onProjectScoreReady: (result, project) => {
             // #106: the saved extras mirror the completed-job result —
             // rebuild the document and land on SCORE_READY without
             // re-transcribing. Malformed extras fall back to the
@@ -406,10 +478,18 @@ export default function App() {
             if (!doc) return;
             setHasScore(true);
             setScoreDocument(doc);
-            // Keep the SOURCE_MISSING card on screen when the audio
-            // still needs relinking — the score is ready underneath
-            // and lands when the relink succeeds.
-            setScreen((s) => (s === "sourceMissing" ? s : "scoreReady"));
+            // #219: land on the score even when the source is
+            // missing — the SOURCE_MISSING banner below carries the
+            // relink action while score-only operations stay usable.
+            // #240/#222: the saved result is this score's provenance
+            // and the project's identity — both ride along so a
+            // re-save keeps the transcription record and prj- id.
+            setScoreProvenance(result);
+            projectIdRef.current = project.projectId;
+            scoreAudioIdentityRef.current = project.sourceHash
+              ? `hash:${project.sourceHash}`
+              : (audioIdentityRef.current ?? "?");
+            setScreen("scoreReady");
           },
         },
         // Recent-project MRU persists in localStorage (web + webview).
@@ -585,6 +665,11 @@ export default function App() {
     () => ({
       ...commandStateFor(screen),
       hasScore: commandStateFor(screen).hasScore && scoreDocument !== null,
+      // #219: a source-missing score is viewable/editable but has no
+      // audio — audio-gated commands (採譜, source playback) stay
+      // off until the relink lands.
+      hasAudio:
+        commandStateFor(screen).hasAudio && importState.audio != null,
       isPlaying:
         transportSnap?.status === "playing" ||
         (scoreState?.isPlaying ?? false),
@@ -609,7 +694,7 @@ export default function App() {
         captureState?.phase === "recording" && captureState.paused,
       auditionEnabled: scoreState?.auditionEnabled ?? false,
     }),
-    [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view, captureState, transcriptionOptions],
+    [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view, captureState, transcriptionOptions, importState.audio],
   );
 
   // Whether the media transport carries a loaded source — then it is the
@@ -673,7 +758,10 @@ export default function App() {
       const project = await buildProjectDocument({
         audio: audioForProject,
         doc,
-        result: sessionSnap.lastResult,
+        // #240: the score's own provenance — survives a cancelled/
+        // failed re-transcription that cleared session.lastResult.
+        result: scoreProvenance,
+        projectId: projectIdRef.current,
       });
       if (!project) {
         setStatusMessage(ja.notifications.projectSaveUnsupported);
@@ -688,11 +776,17 @@ export default function App() {
       const res = await session.saveProject(path, project);
       const name = res.path.split(/[\\/]/).pop() ?? res.path;
       setRecentProjects(recordRecentProject({ name, path: res.path }));
+      // #222: the saved id becomes this session's project identity —
+      // later saves keep it instead of minting a new prj-.
+      projectIdRef.current =
+        typeof project.projectId === "string"
+          ? project.projectId
+          : projectIdRef.current;
       setStatusMessage(ja.notifications.projectSaved);
     } catch {
       setStatusMessage(ja.notifications.projectSaveFailed);
     }
-  }, [scoreDocument, importState.audio, sessionSnap.lastResult, session]);
+  }, [scoreDocument, importState.audio, scoreProvenance, session]);
 
   // #115 (spec 13): engine rhythm edits — the score workspace delegates
   // to the live engine's score.edit; the same worker that produced the
@@ -712,6 +806,16 @@ export default function App() {
    * without a stale transcriptionOptions read. */
   const startTranscriptionJob = useCallback(
     (overrides?: Partial<TranscriptionOptions>) => {
+      if (!importState.audio) {
+        // #219: a source-missing score can be viewed but not
+        // re-transcribed — the relink banner is the way back.
+        setStatusMessage(ja.notifications.transcribeRequiresAudio);
+        return;
+      }
+      // #234: pin the job to the audio identity that started it — a
+      // completed event only lands when the same source is still
+      // loaded.
+      jobAudioIdentityRef.current = audioIdentityRef.current;
       setScreen("transcribing");
       setStatusMessage(ja.transcription.start);
       void stageAudioForEngine(importState.audio)
@@ -734,7 +838,15 @@ export default function App() {
 
   const ctx = useMemo<CommandContext>(
     () => ({
-      openAudio: () => void importer.openViaDialog(),
+      openAudio: () => {
+        // #234: same gate as the import view — a running job owns
+        // the audio slot.
+        if (screen === "transcribing") {
+          setStatusMessage(ja.notifications.importWhileTranscribing);
+          return;
+        }
+        void importer.openViaDialog();
+      },
       transcribe: (overrides) => startTranscriptionJob(overrides),
       cancelTranscription: () => {
         // Cooperative job.cancel — the terminal `cancelled` event is the
@@ -990,7 +1102,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, transcriptionOptions, settings.skipSeconds, saveProjectFlow, pitch, toolOverrides, exportPort, startTranscriptionJob],
+    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, transcriptionOptions, settings.skipSeconds, saveProjectFlow, pitch, toolOverrides, exportPort, startTranscriptionJob, screen],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -1158,6 +1270,12 @@ export default function App() {
         // 録音中のドロップは onDropFiles と同じゲート — 取り込み済みの
         // 録音を黙って上書きしない。
         if (captureState?.phase === "recording") return;
+        // #234: a running job owns the audio slot — a native drop
+        // during transcription is refused like the open commands.
+        if (screenRef.current === "transcribing") {
+          setStatusMessage(ja.notifications.importWhileTranscribing);
+          return;
+        }
         const refs: AudioFileRef[] = payload.paths.map((path) => ({
           kind: "path",
           path,
@@ -1186,8 +1304,24 @@ export default function App() {
       sourceMissing: importState.sourceMissing,
       recentProjects,
       options: transcriptionOptions,
-      onOpenAudio: () => void importer.openViaDialog(),
-      onOpenProject: (entry) => void importer.openProject(entry),
+      // #234: while a job runs the audio slot is owned by that job —
+      // opening a different source mid-transcription would orphan
+      // the running job's result, so imports are refused with a
+      // status line instead of silently swapping.
+      onOpenAudio: () => {
+        if (screen === "transcribing") {
+          setStatusMessage(ja.notifications.importWhileTranscribing);
+          return;
+        }
+        void importer.openViaDialog();
+      },
+      onOpenProject: (entry) => {
+        if (screen === "transcribing") {
+          setStatusMessage(ja.notifications.importWhileTranscribing);
+          return;
+        }
+        void importer.openProject(entry);
+      },
       onPickRelink: () => void importer.pickRelinkSource(),
       onDismissError: () => importer.dismiss(),
       onOptionsChange: setTranscriptionOptions,
@@ -1197,7 +1331,7 @@ export default function App() {
         requestCapture(source);
       },
     }),
-    [importState, recentProjects, transcriptionOptions, importer, captureState, requestCapture],
+    [importState, recentProjects, transcriptionOptions, importer, captureState, requestCapture, screen],
   );
 
   const theme = resolved === "dark" ? hsDarkTheme : hsLightTheme;
@@ -1340,7 +1474,11 @@ export default function App() {
                     // ので受け付けない(file.openAudio と同じゲート)。
                     captureState?.phase === "recording"
                       ? undefined
-                      : void importer.importRefs(
+                      : screen === "transcribing"
+                        ? setStatusMessage(
+                            ja.notifications.importWhileTranscribing,
+                          )
+                        : void importer.importRefs(
                           files.map<AudioFileRef>((file) => ({
                             kind: "file",
                             file,
@@ -1421,7 +1559,11 @@ export default function App() {
                         : null
                   }
                   onRhythmEdit={applyRhythmEdit}
-                  onRetranscribeVoices={() => {
+                  onRetranscribeVoices={
+                    // #219: no source, no re-transcription — the prop
+                    // disappears so the review action hides.
+                    importState.audio
+                      ? () => {
                     /* #148: pin the job to voices AND mirror the choice
                      * into the stored options so the import screen's
                      * texture select reflects what actually ran. */
@@ -1430,8 +1572,12 @@ export default function App() {
                       texture: "voices",
                     }));
                     startTranscriptionJob({ texture: "voices" });
-                  }}
-                  onRetranscribeBasicPitch={() => {
+                        }
+                      : undefined
+                  }
+                  onRetranscribeBasicPitch={
+                    importState.audio
+                      ? () => {
                     /* #181: mirror the backend switch into settings so
                      * the 詳細設定 selector reflects what ran, and pin
                      * the job itself so a stale settings read cannot
@@ -1444,8 +1590,33 @@ export default function App() {
                       backend: "basicPitch",
                     }));
                     startTranscriptionJob({ backend: "basicPitch" });
-                  }}
+                        }
+                      : undefined
+                  }
                   onOpenProperties={() => layout.setPropertiesOpen(true)}
+                  banner={
+                    importState.sourceMissing ? (
+                      <div
+                        className="hs-source-missing-banner"
+                        role="alert"
+                      >
+                        <span>
+                         {importState.sourceMissing.mismatch
+                            ? ja.import.errors.hashMismatchBody
+                            : ja.import.errors.sourceMissingBody}
+                        </span>
+                        <HsButton
+                          variant="secondary"
+                          size="small"
+                          onClick={() => void importer.pickRelinkSource()}
+                        >
+                          {importState.sourceMissing.mismatch
+                            ? ja.import.errors.specifyAnother
+                            : ja.import.errors.specifySource}
+                        </HsButton>
+                      </div>
+                    ) : null
+                  }
                 />
                 {propertiesVisible ? (
                   <PropertiesPanel

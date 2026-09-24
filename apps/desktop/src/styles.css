@@ -1009,6 +1009,23 @@ body {
   gap: 0;
   overflow: hidden;
 }
+
+/* #219: persistent SOURCE_MISSING strip over a restored score — the
+   relink action lives here while score-only operations stay usable. */
+.hs-source-missing-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-ms);
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  background: var(--hs-surface-warning, var(--hs-surface-panel));
+  border-bottom: 1px solid var(--hs-border-subtle);
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-secondary);
+}
+.hs-source-missing-banner > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .hs-score-workspace {
   position: relative;
   display: flex;

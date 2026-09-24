@@ -19,6 +19,9 @@ export interface ProjectSaveInput {
   readonly doc: ScoreDocumentPort;
   /** Completed job result payload (meta/reviewIssues/scoreDocument). */
   readonly result: unknown;
+  /** #222: when re-saving an opened project, keep its identity — a
+   *  fresh save derives a new prj- id from the source identity. */
+  readonly projectId?: string | null;
 }
 
 /** `prj-<16hex>` — deterministic content-derived id (ids.py contract). */
@@ -55,13 +58,10 @@ function sourceAudioOf(audio: LoadedAudio | null): {
   if (!audio) return null;
   const ref = audio.ref;
   if (ref.kind === "path") {
-    return { originalPath: ref.path, contentHash: "" };
+    return { originalPath: ref.path, contentHash: ref.contentHash ?? "" };
   }
   if (ref.kind === "recording" && ref.path) {
-    return {
-      originalPath: ref.path,
-      contentHash: ref.contentHash ?? "",
-    };
+    return { originalPath: ref.path, contentHash: ref.contentHash ?? "" };
   }
   return null;
 }
@@ -87,7 +87,31 @@ export async function buildProjectDocument(
   const { audio, doc, result } = input;
   if (!isSaveableRevision(doc.revisionId)) return null;
   const meta = resultMeta(result);
+  // #243: the engine already streamed a SHA-256 of the source into
+  // the canonical payload — prefer that provenance over re-hashing
+  // the browser-held bytes a second time.
+  const canonical = doc.canonicalDocument?.() as
+    | Record<string, unknown>
+    | undefined;
+  const canonicalHash =
+    typeof canonical?.sourceAudioHash === "string"
+      ? (canonical.sourceAudioHash as string)
+      : null;
   const sourceAudio = sourceAudioOf(audio);
+  // #243: never write an empty contentHash — a project saved without
+  // a verified source identity cannot reopen or relink. Prefer the
+  // engine-recorded hash, then the import-time hash; if neither
+  // exists the sourceAudio block is omitted rather than written
+  // invalid.
+  const sourceAudioResolved =
+    sourceAudio == null
+      ? null
+      : (canonicalHash ?? sourceAudio.contentHash)
+        ? {
+            originalPath: sourceAudio.originalPath,
+            contentHash: (canonicalHash ?? sourceAudio.contentHash) as string,
+          }
+        : null;
 
   const transcriptionRevision = meta.transcriptionRevision;
   const transcription =
@@ -141,11 +165,16 @@ export async function buildProjectDocument(
       note: null,
     }));
 
-  const projectId = await deriveProjectId({
-    audioPath: sourceAudio?.originalPath ?? null,
-    scoreRevision: doc.revisionId,
-    transcriptionRevision: transcriptionRevision ?? null,
-  });
+  // #222: a project's identity is its source, not the current score
+  // revision — edits must not mint a new project id. Re-saving an
+  // opened project keeps its recorded id verbatim.
+  const projectId =
+    input.projectId ??
+    (await deriveProjectId({
+      audioPath: sourceAudioResolved?.originalPath ?? null,
+      audioHash: sourceAudioResolved?.contentHash ?? null,
+      title: doc.meta.title,
+    }));
 
   const resultObj =
     typeof result === "object" && result !== null
@@ -155,7 +184,7 @@ export async function buildProjectDocument(
   return {
     schemaVersion: 1,
     projectId,
-    sourceAudio,
+    sourceAudio: sourceAudioResolved,
     transcription,
     score: {
       revision: doc.revisionId,

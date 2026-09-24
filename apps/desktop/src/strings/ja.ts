@@ -1390,8 +1390,12 @@ export const ja = {
     /* #100: project save */
     projectSaved: "プロジェクトを保存しました",
     projectSaveFailed: "プロジェクトを保存できませんでした",
-    projectSaveUnsupported: "この楽譜はプロジェクトとして保存できません（採譜結果のみ保存できます）",
-  },
+      projectSaveUnsupported: "この楽譜はプロジェクトとして保存できません（採譜結果のみ保存できます）",
+      /** #234: 採譜中は音源・プロジェクトの差し替えを受け付けない。 */
+      importWhileTranscribing: "採譜の実行中です。完了またはキャンセルしてから開いてください",
+      /** #219: SOURCE_MISSING でも採譜は開けるが、元音源依存の操作は不可。 */
+      transcribeRequiresAudio: "元音源がありません。音源を指定すると採譜できます",
+    },
 
   /** FEAT-001 follow-ups: 取り込みメニュー + 置き換え確認(#70-#76)。 */
   capture: {

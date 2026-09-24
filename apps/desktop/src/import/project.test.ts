@@ -32,7 +32,12 @@ function fakeDoc(overrides: Partial<ScoreDocumentPort> = {}): ScoreDocumentPort 
 
 function fakeAudio(): LoadedAudio {
   return {
-    ref: { kind: "path", path: "C:\\audio\\take.wav", name: "take.wav" },
+    ref: {
+      kind: "path",
+      path: "C:\\audio\\take.wav",
+      name: "take.wav",
+      contentHash: "ab".repeat(32),
+    },
     fileName: "take.wav",
     format: "wav",
     sizeBytes: 100,
@@ -84,7 +89,7 @@ describe("buildProjectDocument", () => {
     expect(doc!.projectId).toMatch(/^prj-/);
     expect(doc!.sourceAudio).toEqual({
       originalPath: "C:\\audio\\take.wav",
-      contentHash: "",
+      contentHash: "ab".repeat(32),
     });
     expect(doc!.transcription).toMatchObject({
       backend: "basic_pitch",
@@ -149,5 +154,59 @@ describe("buildProjectDocument", () => {
       result: RESULT,
     });
     expect(docNoCanon!.scoreDocument).toEqual({ notes: [] });
+  });
+});
+
+describe("#222/#243: identity + source hash", () => {
+  it("keeps the recorded projectId on re-save", async () => {
+    const doc = await buildProjectDocument({
+      audio: fakeAudio(),
+      doc: fakeDoc(),
+      result: RESULT,
+      projectId: "prj-0123456789abcdef",
+    });
+    expect(doc!.projectId).toBe("prj-0123456789abcdef");
+  });
+
+  it("projectId does not follow scoreRevision", async () => {
+    const a = await buildProjectDocument({
+      audio: fakeAudio(),
+      doc: fakeDoc({ revisionId: "rev-0123456789abcdef" }),
+      result: RESULT,
+    });
+    const b = await buildProjectDocument({
+      audio: fakeAudio(),
+      doc: fakeDoc({ revisionId: "rev-ffffffffffffffff" }),
+      result: RESULT,
+    });
+    // Same source + title → same project identity even after the
+    // score revision changed (#222).
+    expect(a!.projectId).toBe(b!.projectId);
+  });
+
+  it("prefers the canonical sourceAudioHash over the ref hash (#243)", async () => {
+    const canonical = { sourceAudioHash: "cd".repeat(32) };
+    const doc = await buildProjectDocument({
+      audio: fakeAudio(),
+      doc: fakeDoc({ canonicalDocument: () => canonical }),
+      result: RESULT,
+    });
+    expect(doc!.sourceAudio).toEqual({
+      originalPath: "C:\\audio\\take.wav",
+      contentHash: "cd".repeat(32),
+    });
+  });
+
+  it("never writes an empty contentHash", async () => {
+    const audio = fakeAudio();
+    (audio.ref as { contentHash?: string }).contentHash = undefined;
+    const doc = await buildProjectDocument({
+      audio,
+      doc: fakeDoc(),
+      result: RESULT,
+    });
+    // No verified hash anywhere → the source block is omitted,
+    // never written as the schema-invalid empty string (#243).
+    expect(doc!.sourceAudio).toBeNull();
   });
 });

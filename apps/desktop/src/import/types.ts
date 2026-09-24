@@ -16,8 +16,8 @@ export type AudioFormat = "wav" | "mp3" | "flac" | "m4a" | "ogg";
  * dev sessions the HTML drop/file-input hands us `File` objects.
  */
 export type AudioFileRef =
-  | { kind: "path"; path: string; name: string }
-  | { kind: "file"; file: File; name: string };
+  | { kind: "path"; path: string; name: string; contentHash?: string }
+  | { kind: "file"; file: File; name: string; contentHash?: string };
 
 /**
  * FEAT-001 (#60): 録音由来の疑似ファイル参照。

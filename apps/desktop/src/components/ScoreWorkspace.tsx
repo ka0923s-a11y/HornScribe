@@ -80,6 +80,7 @@ export function ScoreWorkspace({
   onRetranscribeVoices,
   onRetranscribeBasicPitch,
   onOpenProperties,
+  banner = null,
 }: {
   screen: ScreenState;
   importView: ImportView;
@@ -132,6 +133,9 @@ export function ScoreWorkspace({
   /** #209: review-bar action — open the properties panel so the
    *  meter-conflict issue can reach the meter select. */
   onOpenProperties?(): void;
+  /** #219: persistent notice strip rendered above the score region
+   *  content (SOURCE_MISSING over a restored score). */
+  banner?: ReactNode;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const dragActive = dragOver || externalDragActive;
@@ -166,6 +170,7 @@ export function ScoreWorkspace({
         if (files.length > 0) onDropFiles(files);
       }}
     >
+      {banner}
       {screen === "transcribing" ? (
         // UI-040 owns this body (real job-driven stage/progress/cancel).
         // The fallback is honest too: no stages claimed, indeterminate bar.

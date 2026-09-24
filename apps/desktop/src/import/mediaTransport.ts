@@ -67,6 +67,8 @@ export interface MediaPortHandlers {
  */
 export interface MediaPort {
   load(source: MediaSource): Promise<void>;
+  /** Release the current source — back to the empty state (#219). */
+  unload(): void;
   play(): Promise<void>;
   pause(): void;
   seekTo(seconds: number): void;
@@ -127,6 +129,15 @@ class AudioElementMediaPort implements MediaPort {
       URL.revokeObjectURL(this.objectUrl);
       this.objectUrl = null;
     }
+  }
+
+  unload(): void {
+    this.el.pause();
+    this.revoke();
+    // Detach the source so getDuration() reports 0 — the empty
+    // transport must not keep playing the previous file's bytes.
+    this.el.removeAttribute("src");
+    this.el.load();
   }
 
   play(): Promise<void> {
@@ -229,6 +240,18 @@ export class MediaElementTransport {
       this.emit();
       throw e;
     }
+    this.emit();
+  }
+
+  /** #219: drop the loaded source entirely — a project opened without
+   *  its audio (SOURCE_MISSING) must not keep the previous file's
+   *  transport alive behind the restored score. */
+  unload(): void {
+    if (this.status === "empty") return;
+    this.port.unload();
+    this.status = "empty";
+    this.loop = null;
+    this.playUntil = null;
     this.emit();
   }
 
