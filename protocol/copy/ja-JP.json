@@ -584,6 +584,13 @@
         "diagnostics": "診断情報"
       }
     },
+    "dependencyMissing": {
+      "title": "採譜エンジンの部品が見つかりません",
+      "body": "必要な部品がエンジン環境にありません。アプリを再インストールするか、開発環境では pip install hornscribe[engine] を実行してからもう一度お試しください。",
+      "actions": {
+        "diagnostics": "診断情報を見る"
+      }
+    },
     "exportFailed": {
       "title": "書き出しを完了できませんでした",
       "body": "書き出し先への保存に失敗しました。プロジェクトと楽譜は失われていません。",

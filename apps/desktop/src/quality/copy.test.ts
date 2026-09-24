@@ -49,6 +49,15 @@ const ALLOWED_WORDS = new Set(
     "Windows",
     "Python",
     "wavesurfer",
+    /* #175/#181/#195: engine proper nouns and the documented install
+     *  command — pip install hornscribe[engine] is the recovery path. */
+    "pYIN",
+    "Basic",
+    "Pitch",
+    "pip",
+    "install",
+    "engine",
+    "hornscribe",
   ].map((w) => w.toLowerCase()),
 );
 const ALLOWED_WORDS_CI = new Set(

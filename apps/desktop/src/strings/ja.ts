@@ -4,8 +4,13 @@
  * docs/JAPANESE_UI_COPY.md と protocol/copy/ja-JP.json（UI-006 copy deck）
  * に従い、頻出用語・ステータス文を一箇所に集約して表記ゆれを防ぐ。
  * ユーザー向けUIは日本語のみ（言語切替は実装しない）。
- * 固有名詞（MusicXML, MIDI, FFmpeg, MuseScore 等）は原表記を維持する。
- */
+* 固有名詞（MusicXML, MIDI, FFmpeg, MuseScore 等）は原表記を維持する。
+*/
+/* #175/#189: shared pYIN explanation — used by the settings backend
+ * selector and the import-screen per-job engine select. */
+const BACKEND_HINT_PYIN =
+  "pYINは歌声や単一旋律の採譜に向いています（単音専用）。";
+
 export const ja = {
   app: {
     name: "HornScribe",
@@ -188,7 +193,7 @@ export const ja = {
     backendLabel: "採譜エンジン",
     // #175: pYIN tracks one continuous f0 line — better for a single
     // sung/played melody; Basic Pitch stays the polyphonic default.
-    backendHint: "pYINは歌声や単一旋律の採譜に向いています（単音専用）。",
+    backendHint: BACKEND_HINT_PYIN,
     cache: "キャッシュの場所",
     logs: "ログの場所",
     openLogs: "ログフォルダを開く",
@@ -896,7 +901,7 @@ export const ja = {
       /* #189: per-job engine override — "auto" inherits 設定→詳細設定. */
       backend: "採譜エンジン",
       backendAuto: "自動（設定に従う）",
-      backendHint: "pYINは歌声や単一旋律の採譜に向いています（単音専用）。",
+      backendHint: BACKEND_HINT_PYIN,
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {
@@ -963,6 +968,15 @@ export const ja = {
       body: "現在のプロジェクトと保存済みの採譜結果は失われていません。エンジンを再起動できます。",
       restartEngine: "エンジンを再起動",
       diagnostics: "診断情報",
+    },
+    /* #195: ENGINE_DEPENDENCY_MISSING — retrying can never succeed,
+     * so the surface names the package and leads with diagnostics. */
+    dependencyMissing: {
+      title: "採譜エンジンの部品が見つかりません",
+      body: (pkg: string) =>
+        `必要な部品（${pkg}）がエンジン環境にありません。アプリを再インストールするか、開発環境では pip install hornscribe[engine] を実行してからもう一度お試しください。`,
+      unknownPackage: "名称不明のパッケージ",
+      diagnostics: "診断情報を見る",
     },
     close: "閉じる",
     /* ---- UI-060 export errors (deck: errors.*; the export dialog maps

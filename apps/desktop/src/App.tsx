@@ -1350,6 +1350,8 @@ export default function App() {
                   transcriptionErrorBody={
                     <TranscriptionErrorView
                       kind={sessionSnap.failure?.kind ?? "transcriptionFailed"}
+                      errorCode={sessionSnap.failure?.errorCode}
+                      errorPackage={sessionSnap.failure?.errorPackage}
                       restarting={engineRestarting}
                       diagnostics={() => session.buildDiagnostics()}
                       onPrimary={() => {

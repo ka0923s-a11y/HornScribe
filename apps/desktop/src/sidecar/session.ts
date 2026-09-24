@@ -71,6 +71,9 @@ export interface SessionFailure {
    *  engine messages stay OUT of normal UI copy (JAPANESE_UI_COPY §7). */
   detail: string;
   errorCode?: string;
+  /** ENGINE_DEPENDENCY_MISSING only: the missing package name, carried
+   *  so the error surface can name what to install (#195). */
+  errorPackage?: string;
 }
 
 export interface SessionSnapshot {
@@ -384,6 +387,19 @@ export class TranscriptionSession {
         kind: "transcriptionFailed",
         detail: `${next.error.code}: ${next.error.message}`,
         errorCode: next.error.code,
+        // #195: the dependency-missing surface names the package.
+        errorPackage: (() => {
+          const d = next.error.details;
+          if (
+            next.error.code !== ERR.ENGINE_DEPENDENCY_MISSING ||
+            typeof d !== "object" ||
+            d === null
+          ) {
+            return undefined;
+          }
+          const pkg = (d as Record<string, unknown>).package;
+          return typeof pkg === "string" ? pkg : undefined;
+        })(),
       };
     }
     this.update(patch);

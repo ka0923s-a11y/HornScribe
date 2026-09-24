@@ -18,6 +18,8 @@ import type { FailureKind } from "../sidecar/session";
  */
 export function TranscriptionErrorView({
   kind,
+  errorCode,
+  errorPackage,
   restarting,
   diagnostics,
   onPrimary,
@@ -25,6 +27,11 @@ export function TranscriptionErrorView({
 }: {
   /** Which §20 copy block to render. */
   kind: FailureKind;
+  /** Engine error code — used only to pick the dependency-missing
+   *  copy; the code itself never renders (JAPANESE_UI_COPY §7). */
+  errorCode?: string;
+  /** ENGINE_DEPENDENCY_MISSING: the missing package name (#195). */
+  errorPackage?: string;
   /** エンジンを再起動 in flight — honest pending state on the button. */
   restarting: boolean;
   /** Diagnostics text for the 診断情報 dialog. */
@@ -38,14 +45,26 @@ export function TranscriptionErrorView({
   const [diagOpen, setDiagOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // #195: a missing engine package can never succeed on retry — the
+  // surface names the package and makes diagnostics the lead action.
+  const dependencyMissing = errorCode === "ENGINE_DEPENDENCY_MISSING";
   const copy =
-    kind === "transcriptionFailed"
+    dependencyMissing
+      ? {
+          title: ja.errors.dependencyMissing.title,
+          body: ja.errors.dependencyMissing.body(
+            errorPackage ?? ja.errors.dependencyMissing.unknownPackage,
+          ),
+        }
+      : kind === "transcriptionFailed"
       ? ja.errors.transcriptionFailed
       : kind === "workerCrashed"
         ? ja.errors.workerCrashed
         : ja.errors.workerNotResponding;
   const primaryLabel =
-    kind === "transcriptionFailed"
+    dependencyMissing
+      ? ja.errors.dependencyMissing.diagnostics
+      : kind === "transcriptionFailed"
       ? ja.errors.transcriptionFailed.retry
       : ja.errors.workerCrashed.restartEngine;
 
@@ -69,7 +88,9 @@ export function TranscriptionErrorView({
           <HsButton
             variant="primary"
             loading={restarting}
-            onClick={onPrimary}
+            onClick={
+              dependencyMissing ? () => setDiagOpen(true) : onPrimary
+            }
           >
             {primaryLabel}
           </HsButton>
