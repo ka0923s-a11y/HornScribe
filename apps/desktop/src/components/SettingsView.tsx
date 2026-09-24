@@ -326,6 +326,21 @@ export function SettingsView({
                 </ul>
               </div>
             )}
+            {/* #87: 保持日数ポリシー — 起動時に古いWAVを自動削除。 */}
+            <HsSelect
+              label={s.recordingsRetention}
+              value={String(settings.recordingsRetentionDays)}
+              options={[0, 7, 30, 90].map((d) => ({
+                value: String(d),
+                label:
+                  d === 0
+                    ? s.recordingsRetentionNever
+                    : s.recordingsRetentionDays(d),
+              }))}
+              onChange={(v) =>
+                onSettingsChange({ recordingsRetentionDays: Number(v) })
+              }
+            />
           </>
         );
 

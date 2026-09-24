@@ -125,6 +125,9 @@ export interface TranscriptionOptions {
   triplets: "auto" | "allow" | "none";
   simplicity: "standard" | "simple" | "detailed";
   range: "all" | "selection";
+  /** 範囲指定時の開始/終了（秒）。null = 音声の端まで。 */
+  selectionStartSec: number | null;
+  selectionEndSec: number | null;
 }
 
 export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
@@ -135,4 +138,6 @@ export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   triplets: "auto",
   simplicity: "standard",
   range: "all",
+  selectionStartSec: null,
+  selectionEndSec: null,
 };

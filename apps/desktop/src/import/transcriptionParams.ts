@@ -15,9 +15,8 @@
  *   bytes to a temp file (tracked as a follow-up issue).
  *
  * `tempoBpm` is only sent for manual tempo — auto omits it so the
- * engine runs beat tracking. `range:"selection"` is unreachable from
- * the current UI (the waveform selection control is not wired), but
- * the mapping is honest for when it lands.
+ * engine runs beat tracking. `range:"selection"` sends the user's
+ * start/end seconds, clamped to the clip duration.
  */
 import type {
   AudioFileRef,
@@ -66,11 +65,20 @@ export function buildTranscriptionParams(
   }
   if (options.range === "selection") {
     params.range = "selection";
-    // The UI has no selection surface yet; the engine requires bounds
-    // for selection mode, so send the full duration as the honest
-    // current selection.
-    params.selectionStartSec = 0;
-    params.selectionEndSec = audio?.durationSeconds ?? 0;
+    // The engine requires end > start for selection mode; clamp the
+    // user's seconds into [0, duration] and fall back to the full span
+    // when the pair is empty or inverted.
+    const dur = audio?.durationSeconds ?? 0;
+    let start = options.selectionStartSec ?? 0;
+    let end = options.selectionEndSec ?? dur;
+    start = Math.min(Math.max(start, 0), dur);
+    end = Math.min(Math.max(end, 0), dur);
+    if (end <= start) {
+      start = 0;
+      end = dur;
+    }
+    params.selectionStartSec = start;
+    params.selectionEndSec = end;
   }
   return params;
 }

@@ -60,6 +60,7 @@ import { issueCopy, type ImportView } from "./import/ImportStates";
 import { listenNativeDrop } from "./import/nativeDrop";
 import { baseName } from "./import/formats";
 import { CaptureController, type CaptureState } from "./capture/controller";
+import { pruneRecordings } from "./capture/recordings";
 import { createCapturePort } from "./capture/runtimePorts";
 import type { CaptureDeviceList, CaptureSource } from "./capture/types";
 import {
@@ -355,6 +356,18 @@ export default function App() {
     [importer],
   );
   useEffect(() => () => capture.dispose(), [capture]);
+
+  // #87: 保持日数ポリシー — 起動時に一度だけ古い録音を削除する。
+  // settings.recordingsRetentionDays は起動時の値で確定(途中変更は
+  // 次回起動から有効)。削除件数はステータスバーで知らせる。
+  useEffect(() => {
+    const days = settings.recordingsRetentionDays;
+    if (days <= 0) return;
+    void pruneRecordings(days).then((n) => {
+      if (n > 0) setStatusMessage(ja.settings.recordingsPruned(n));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once
+  }, []);
 
   // #81: 録音中にアプリを閉じると録音は失われる。WebView2/Tauri でも
   // beforeunload の preventDefault は閉じる確認として扱われるため、

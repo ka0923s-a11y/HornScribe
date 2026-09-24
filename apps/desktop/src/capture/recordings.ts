@@ -79,6 +79,24 @@ export async function deleteRecording(name: string): Promise<boolean> {
   }
 }
 
+/** 保持日数ポリシー(#87) — `days` より古い WAV を削除し、削除件数を返す。
+ *  `days <= 0` は無効(何もしない)。アプリ起動時に一度呼ぶ想定。
+ *  削除はユーザーが設定したポリシーの実行であり、確認ダイアログは出さない
+ *  (設定自体が同意)。失敗時は 0 削除として扱う。 */
+export async function pruneRecordings(days: number): Promise<number> {
+  if (!isTauriRuntime() || days <= 0) return 0;
+  const files = await listRecordings();
+  if (!files) return 0;
+  const cutoff = Date.now() / 1000 - days * 86400;
+  let removed = 0;
+  for (const f of files) {
+    if (f.modifiedSec > 0 && f.modifiedSec < cutoff) {
+      if (await deleteRecording(f.name)) removed += 1;
+    }
+  }
+  return removed;
+}
+
 /** バイト数の人間向け表示(日本語 UI: MB 単位中心)。 */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

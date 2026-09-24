@@ -219,9 +219,9 @@ const SIMPLICITY_OPTIONS: readonly HsSelectOption[] = [
 ];
 const RANGE_OPTIONS: readonly HsSelectOption[] = [
   { value: "all", label: ja.import.audioOptions.rangeAll },
-  // Range selection requires a waveform selection — hidden until that
-  // feature lands rather than offering a dead option.
-  { value: "selection", label: ja.import.audioOptions.rangeSelection, disabled: true },
+  // #88: 時刻指定の範囲採譜。波形ドラッグ選択は別issueで検討中だが、
+  // 秒数入力だけでも「ソロ部分だけ採譜」は実用になる。
+  { value: "selection", label: ja.import.audioOptions.rangeSelection },
 ];
 
 function AudioReadyBody({
@@ -327,6 +327,28 @@ function AudioReadyBody({
                 set({ range: v as TranscriptionOptions["range"] })
               }
             />
+            {options.range === "selection" && audio ? (
+              <>
+                <HsNumericField
+                  label={ja.import.audioOptions.rangeStart}
+                  value={options.selectionStartSec}
+                  min={0}
+                  max={audio.durationSeconds}
+                  step={0.5}
+                  unit={ja.import.audioOptions.secondsUnit}
+                  onChange={(v) => set({ selectionStartSec: v })}
+                />
+                <HsNumericField
+                  label={ja.import.audioOptions.rangeEnd}
+                  value={options.selectionEndSec}
+                  min={0}
+                  max={audio.durationSeconds}
+                  step={0.5}
+                  unit={ja.import.audioOptions.secondsUnit}
+                  onChange={(v) => set({ selectionEndSec: v })}
+                />
+              </>
+            ) : null}
           </div>
         </HsPopover>
       </div>

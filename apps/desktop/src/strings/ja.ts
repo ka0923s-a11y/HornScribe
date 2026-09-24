@@ -196,6 +196,10 @@ export const ja = {
     recordingsDeleteConfirmBody: (name: string) =>
       `${name} を削除します。この操作は取り消せません。`,
     recordingsDeleted: "録音を削除しました",
+    recordingsRetention: "古い録音の自動削除",
+    recordingsRetentionNever: "削除しない",
+    recordingsRetentionDays: (n: number) => `${n} 日たったら削除`,
+    recordingsPruned: (n: number) => `古い録音を ${n} 件削除しました`,
     recordingsUnavailable:
       "録音の管理はデスクトップアプリで利用できます。",
   },
@@ -811,6 +815,9 @@ export const ja = {
       range: "採譜範囲",
       rangeAll: "全体",
       rangeSelection: "選択範囲",
+      rangeStart: "開始",
+      rangeEnd: "終了",
+      secondsUnit: "秒",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {

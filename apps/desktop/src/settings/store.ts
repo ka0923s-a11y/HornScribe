@@ -60,6 +60,8 @@ export interface AppSettings {
   readonly ffmpegPath: string;
   /** 詳細設定 → 採譜エンジン. */
   readonly backend: BackendSetting;
+  /** 録音 → 自動削除の保持日数 (0 = 削除しない). */
+  readonly recordingsRetentionDays: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -76,6 +78,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   museScorePath: "",
   ffmpegPath: "",
   backend: "auto",
+  recordingsRetentionDays: 0,
 };
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -138,6 +141,8 @@ export function parseSettings(raw: string | null): AppSettings {
     museScorePath: str(o.museScorePath) ?? d.museScorePath,
     ffmpegPath: str(o.ffmpegPath) ?? d.ffmpegPath,
     backend: oneOf(o.backend, BACKENDS) ?? d.backend,
+    recordingsRetentionDays:
+      num(o.recordingsRetentionDays, 0, 3650) ?? d.recordingsRetentionDays,
   };
 }
 
