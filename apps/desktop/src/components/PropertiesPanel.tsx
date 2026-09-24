@@ -9,6 +9,7 @@ import type { InspectorContent } from "../workspace/inspector";
 import { startPointerResize } from "../workspace/layout";
 import {
   headlinePitch,
+  keyLabelJa,
   type InspectorModel,
   type NoteInspectorModel,
   type ScoreInspectorModel,
@@ -43,6 +44,7 @@ export function PropertiesPanel({
   onClose,
   onTempoChange,
   onMeterChange,
+  onKeyChange,
 }: {
   content: InspectorContent;
   /** UI-030 feature inspector view-model (note/score/range bodies). */
@@ -61,6 +63,8 @@ export function PropertiesPanel({
   onTempoChange?(bpm: number): void;
   /** #129 (§14): commit a new meter via the engine score.edit. */
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
+  /** #145 (§14): commit a new key signature via the engine score.edit. */
+  onKeyChange?(fifths: number): void;
 }) {
   const body =
     model && model.kind !== "empty" ? model.kind : content.kind;
@@ -92,6 +96,7 @@ export function PropertiesPanel({
               pitch={pitch}
               onTempoChange={onTempoChange}
               onMeterChange={onMeterChange}
+              onKeyChange={onKeyChange}
             />
           ) : (
             <p className="hs-properties__placeholder">
@@ -135,11 +140,13 @@ function InspectorBody({
   pitch,
   onTempoChange,
   onMeterChange,
+  onKeyChange,
 }: {
   model: InspectorModel;
   pitch: PitchView;
   onTempoChange?(bpm: number): void;
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
+  onKeyChange?(fifths: number): void;
 }) {
   if (model.kind === "score") {
     return (
@@ -147,6 +154,7 @@ function InspectorBody({
         model={model}
         onTempoChange={onTempoChange}
         onMeterChange={onMeterChange}
+        onKeyChange={onKeyChange}
       />
     );
   }
@@ -168,10 +176,12 @@ function ScoreBody({
   model,
   onTempoChange,
   onMeterChange,
+  onKeyChange,
 }: {
   model: ScoreInspectorModel;
   onTempoChange?(bpm: number): void;
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
+  onKeyChange?(fifths: number): void;
 }) {
   const f = ja.inspector.summaryFields;
   return (
@@ -192,13 +202,54 @@ function ScoreBody({
         ) : (
           model.meterLabel && <Row label={f.meter} value={model.meterLabel} />
         )}
-        {model.keyLabel && <Row label={f.key} value={model.keyLabel} />}
+        {model.keyFifths != null &&
+        model.keyChangeCount <= 1 &&
+        onKeyChange ? (
+          <KeyField fifths={model.keyFifths} onCommit={onKeyChange} />
+        ) : (
+          model.keyLabel && <Row label={f.key} value={model.keyLabel} />
+        )}
         <Row label={f.measures} value={model.measureLabel} />
         <Row label={f.notes} value={model.noteLabel} />
         <Row label={f.openIssues} value={model.openIssueLabel} />
       </dl>
       <p className="hs-properties__placeholder">{ja.inspector.selectHint}</p>
     </>
+  );
+}
+
+/* #145 (§14) key edit: the score summary's key row becomes a select
+ * over the 15 fifths signatures (shown with Japanese key names).
+ * Modulating scores show the transition label instead — a head-key
+ * edit would collapse the detected changes. */
+const KEY_FIFTHS_OPTIONS = [
+  -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7,
+] as const;
+
+function KeyField({
+  fifths,
+  onCommit,
+}: {
+  fifths: number;
+  onCommit(fifths: number): void;
+}) {
+  const f = ja.inspector.summaryFields;
+  return (
+    <div className="hs-properties__meter">
+      <HsSelect
+        label={f.key}
+        value={String(fifths)}
+        options={KEY_FIFTHS_OPTIONS.map((v) => ({
+          value: String(v),
+          label: keyLabelJa(v),
+        }))}
+        onChange={(v) => {
+          const next = Number(v);
+          if (!Number.isFinite(next) || next === fifths) return;
+          onCommit(next);
+        }}
+      />
+    </div>
   );
 }
 

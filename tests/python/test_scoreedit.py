@@ -559,6 +559,121 @@ class TestEditParsing:
             apply_score_edit(doc, _edit("toggleTie", "sn-999999"))
 
 
+class TestSetKey:
+    """#145: key edits — setKey / keyChangeAt / removeKeyChange."""
+
+    def test_set_key_replaces_head_signature(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        out = apply_score_edit(
+            doc, _edit("setKey", "", fifths=-2, mode="major")
+        )
+        assert out.payload.key_signature == KeySignature(-2, "major")
+        assert out.payload.key_changes == ()
+        assert out.revision != doc.revision
+
+    def test_set_key_collapses_existing_changes(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                key_changes=(
+                    KeyChange(Fraction(0), KeySignature(0, "major")),
+                    KeyChange(Fraction(8), KeySignature(-5, "major")),
+                ),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("setKey", "", fifths=1, mode="major")
+        )
+        assert out.payload.key_signature.fifths == 1
+        assert out.payload.key_changes == (
+            KeyChange(Fraction(0), KeySignature(1, "major")),
+        )
+
+    def test_key_change_at_inserts_boundary(self) -> None:
+        doc = _doc(
+            [_note(1, 60, "0", "1"), _note(2, 62, "8", "1")]
+        )
+        out = apply_score_edit(
+            doc,
+            _edit("keyChangeAt", "", fifths=-5, startBeat="8/1"),
+        )
+        assert len(out.payload.key_changes) == 2
+        assert out.payload.key_changes[1].start_beat == Fraction(8)
+        assert out.payload.key_changes[1].key_signature.fifths == -5
+        # Head change carries the payload key (validation contract).
+        assert out.payload.key_changes[0].start_beat == 0
+        assert out.payload.key_changes[0].key_signature.fifths == 0
+
+    def test_key_change_at_snaps_to_measure_start(self) -> None:
+        # Beat 10 sits inside the measure starting at 8 (4/4) — the
+        # boundary lands on the barline, not mid-measure.
+        doc = _doc(
+            [_note(1, 60, "0", "1"), _note(2, 62, "10", "1")]
+        )
+        out = apply_score_edit(
+            doc,
+            _edit("keyChangeAt", "", fifths=2, startBeat="10/1"),
+        )
+        assert out.payload.key_changes[-1].start_beat == Fraction(8)
+
+    def test_key_change_at_beat_zero_updates_head(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        out = apply_score_edit(
+            doc,
+            _edit("keyChangeAt", "", fifths=3, startBeat="0/1"),
+        )
+        assert out.payload.key_signature.fifths == 3
+        # Single key — collapsed to the no-map path.
+        assert out.payload.key_changes == ()
+
+    def test_remove_key_change(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                key_changes=(
+                    KeyChange(Fraction(0), KeySignature(0, "major")),
+                    KeyChange(Fraction(8), KeySignature(-5, "major")),
+                ),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("removeKeyChange", "", startBeat="8/1")
+        )
+        assert out.payload.key_changes == ()
+        assert out.payload.key_signature.fifths == 0
+
+    def test_remove_head_change_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                key_changes=(
+                    KeyChange(Fraction(0), KeySignature(0, "major")),
+                    KeyChange(Fraction(8), KeySignature(-5, "major")),
+                ),
+            ),
+        )
+        with pytest.raises(ScoreEditError, match="head key"):
+            apply_score_edit(
+                doc, _edit("removeKeyChange", "", startBeat="0/1")
+            )
+
+    def test_key_edits_validated(self) -> None:
+        with pytest.raises(ScoreEditError, match="fifths"):
+            _edit("setKey", "")
+        with pytest.raises(ScoreEditError, match="-7"):
+            _edit("setKey", "", fifths=9)
+        with pytest.raises(ScoreEditError, match="startBeat"):
+            _edit("keyChangeAt", "", fifths=0)
+        with pytest.raises(ScoreEditError, match="mode"):
+            _edit("setKey", "", fifths=0, mode="dorian")
+
+
 class TestKeyChanges:
     """#133: the key map on ScoreRevisionPayload."""
 

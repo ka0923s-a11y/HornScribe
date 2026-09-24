@@ -488,6 +488,7 @@ export const ja = {
     rhythmEditUnavailable: "この楽譜ではリズム編集を利用できません",
     tempoChanged: "テンポを変更しました",
     meterChanged: "拍子を変更しました",
+    keyChanged: "調を変更しました",
     requantized: "採譜設定を適用して楽譜を更新しました",
     noteSplit: "音符を分割しました",
     notesMerged: "音符を結合しました",

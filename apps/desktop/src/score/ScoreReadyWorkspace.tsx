@@ -1098,6 +1098,19 @@ export function ScoreReadyWorkspace({
     [applyRhythmEdit],
   );
 
+  /* #145 (spec 14): key edit — replaces the head signature and
+   * collapses detected key changes to the new single key; same
+   * serialized queue + undo stack as the other rhythm edits. */
+  const setKey = useCallback(
+    (fifths: number) => {
+      applyRhythmEdit(
+        () => ({ kind: "setKey", noteId: "", fifths }),
+        ja.commandFeedback.keyChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   /* #130 (spec 14): re-quantize the whole score under changed
    * quantization settings — the engine replays the canonical notes
    * through the DP with the merged profile. */
@@ -1278,6 +1291,7 @@ export function ScoreReadyWorkspace({
       toggleSelectedTie: () => toggleSelectedTie(),
       setTempo: (bpm) => setTempo(bpm),
       setMeter: (bpm_, bu) => setMeter(bpm_, bu),
+      setKey: (fifths) => setKey(fifths),
       requantize: (settings) => requantize(settings),
       splitSelectedNote: () => splitSelectedNote(),
       mergeSelectedNotes: () => mergeSelectedNotes(),
@@ -1309,6 +1323,7 @@ export function ScoreReadyWorkspace({
     toggleSelectedTie,
     setTempo,
     setMeter,
+    setKey,
     requantize,
     splitSelectedNote,
     mergeSelectedNotes,

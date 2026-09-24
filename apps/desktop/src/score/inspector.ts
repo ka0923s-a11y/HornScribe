@@ -61,6 +61,11 @@ export interface ScoreInspectorModel {
   readonly meterBeats: number | null;
   readonly meterUnit: number | null;
   readonly keyLabel: string | null;
+  /** Raw head-key fifths for the editable key field (#145 setKey). */
+  readonly keyFifths: number | null;
+  /** Number of key-signature boundaries; >1 means the piece modulates
+   *  and the summary shows transitions instead of an editable field. */
+  readonly keyChangeCount: number;
   readonly measureLabel: string;
   readonly noteLabel: string;
   readonly openIssueLabel: string;
@@ -176,6 +181,8 @@ export function buildScoreInspector(
         : meta.keyFifths != null
           ? copy.key(meta.keyFifths)
           : null,
+    keyFifths: meta.keyFifths,
+    keyChangeCount: meta.keyChanges.length,
     measureLabel: copy.measureCount(meta.measureCount),
     noteLabel: copy.noteCount(meta.noteCount),
     openIssueLabel: copy.openIssues(openIssueCount),

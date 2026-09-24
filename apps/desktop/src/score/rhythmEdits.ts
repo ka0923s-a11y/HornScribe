@@ -22,7 +22,10 @@ export type RhythmEditKind =
   | "setMeter"
   | "requantize"
   | "splitNote"
-  | "mergeNotes";
+  | "mergeNotes"
+  | "setKey"
+  | "keyChangeAt"
+  | "removeKeyChange";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -41,6 +44,12 @@ export interface RhythmEditOp {
   /** requantize only: quantization-settings overrides merged into the
    *  payload's stored settings (minDurationQl / triplets / simplicity). */
   readonly settings?: Record<string, unknown>;
+  /** setKey/keyChangeAt only: signature fifths (-7..+7). */
+  readonly fifths?: number;
+  /** setKey/keyChangeAt only: major/minor (kept from the score when absent). */
+  readonly mode?: "major" | "minor";
+  /** keyChangeAt/removeKeyChange only: boundary beat ("n/d" fraction). */
+  readonly startBeat?: string;
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

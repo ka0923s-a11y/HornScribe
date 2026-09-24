@@ -30,6 +30,8 @@ from hornscribe.domain.ids import (
     derive_transcription_revision_id,
 )
 from hornscribe.domain.score import (
+    KeyChange,
+    KeySignature,
     MeasureSpan,
     Part,
     QuantizedNote,
@@ -80,6 +82,9 @@ class ScoreEdit:
     beats_per_measure: int | None = None
     beat_unit: int | None = None
     settings: dict[str, Any] | None = None
+    fifths: int | None = None
+    mode: str | None = None
+    start_beat: Fraction | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -93,14 +98,25 @@ class ScoreEdit:
             "requantize",
             "splitNote",
             "mergeNotes",
+            "setKey",
+            "keyChangeAt",
+            "removeKeyChange",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
-                f"setTempo/setMeter/requantize/splitNote/mergeNotes, "
+                "setTempo/setMeter/requantize/splitNote/mergeNotes/"
+                f"setKey/keyChangeAt/removeKeyChange, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
-        if kind in ("setTempo", "setMeter", "requantize"):
+        if kind in (
+            "setTempo",
+            "setMeter",
+            "requantize",
+            "setKey",
+            "keyChangeAt",
+            "removeKeyChange",
+        ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
             raise ScoreEditError("edit.noteId must be a non-empty string")
@@ -136,6 +152,40 @@ class ScoreEdit:
                     f"beatUnit {beat_unit} must be a power of two (1-64)"
                 )
         settings = _requantize_settings(data, kind)
+        fifths = _opt_int(data, "fifths")
+        mode_raw = data.get("mode")
+        mode: str | None = None
+        if mode_raw is not None:
+            if mode_raw not in ("major", "minor"):
+                raise ScoreEditError(
+                    f"edit.mode must be major/minor, got {mode_raw!r}"
+                )
+            mode = str(mode_raw)
+        if kind in ("setKey", "keyChangeAt"):
+            if fifths is None:
+                raise ScoreEditError(f"{kind} requires fifths")
+            if not (-7 <= fifths <= 7):
+                raise ScoreEditError(
+                    f"edit.fifths {fifths} outside the -7..+7 range"
+                )
+        start_beat_raw = data.get("startBeat")
+        start_beat: Fraction | None = None
+        if start_beat_raw is not None:
+            try:
+                start_beat = Fraction(start_beat_raw)
+                if isinstance(start_beat_raw, bool):
+                    raise ValueError("bool")
+            except (TypeError, ValueError, ZeroDivisionError) as exc:
+                raise ScoreEditError(
+                    f"edit.startBeat is not a rational number: "
+                    f"{start_beat_raw!r}"
+                ) from exc
+            if start_beat < 0:
+                raise ScoreEditError(
+                    f"edit.startBeat must be >= 0, got {start_beat}"
+                )
+        if kind in ("keyChangeAt", "removeKeyChange") and start_beat is None:
+            raise ScoreEditError(f"{kind} requires startBeat")
         duration = data.get("durationBeats")
         try:
             duration_beats = (
@@ -159,6 +209,9 @@ class ScoreEdit:
             beats_per_measure=beats_per_measure,
             beat_unit=beat_unit,
             settings=settings,
+            fifths=fifths,
+            mode=mode,
+            start_beat=start_beat,
         )
 
 
@@ -913,6 +966,96 @@ def _apply_set_tempo(
     return replace(payload, tempo_map=tuple(segments))
 
 
+def _apply_set_key(
+    payload: ScoreRevisionPayload, key: KeySignature
+) -> ScoreRevisionPayload:
+    """Set the piece's overall key (#145).
+
+    The head key signature is replaced and any detected key changes are
+    collapsed — 全体の調を変える means the piece now lives in the new
+    key, so leftover boundaries would re-modulate into the old map.
+    """
+    return replace(
+        payload,
+        key_signature=key,
+        key_changes=(
+            (KeyChange(start_beat=Fraction(0), key_signature=key),)
+            if payload.key_changes
+            else ()
+        ),
+    )
+
+
+def _apply_key_change_at(
+    payload: ScoreRevisionPayload, key: KeySignature, start_beat: Fraction
+) -> ScoreRevisionPayload:
+    """Insert or update a key-change boundary (#145).
+
+    start_beat snaps to the containing measure's start — a modulation
+    mid-measure is notated at the barline (matching how the detector
+    only ever emits measure-aligned changes). A change at beat 0 also
+    rewrites the head key signature (the payload contract requires the
+    first change to carry it).
+    """
+    spans = measure_spans(payload)
+    snapped = spans[-1].start_beat if spans else Fraction(0)
+    for span in spans:
+        if span.start_beat <= start_beat < span.end_beat:
+            snapped = span.start_beat
+            break
+    if snapped < 0:
+        snapped = Fraction(0)
+
+    changes = list(payload.key_changes)
+    if not changes:
+        changes = [
+            KeyChange(
+                start_beat=Fraction(0),
+                key_signature=payload.key_signature,
+            )
+        ]
+    head = key if snapped == 0 else changes[0].key_signature
+    rest = [
+        KeyChange(
+            start_beat=c.start_beat,
+            key_signature=key if c.start_beat == snapped else c.key_signature,
+        )
+        for c in changes
+        if c.start_beat != 0
+    ]
+    if snapped != 0 and all(c.start_beat != snapped for c in rest):
+        rest.append(KeyChange(start_beat=snapped, key_signature=key))
+    rest.sort(key=lambda c: c.start_beat)
+    if not rest:
+        # Single remaining key — collapse to the legacy no-map path.
+        return replace(payload, key_signature=head, key_changes=())
+    return replace(
+        payload,
+        key_signature=head,
+        key_changes=(KeyChange(Fraction(0), head), *rest),
+    )
+
+
+def _apply_remove_key_change(
+    payload: ScoreRevisionPayload, start_beat: Fraction
+) -> ScoreRevisionPayload:
+    """Drop a key-change boundary (#145); the head change cannot go."""
+    changes = list(payload.key_changes)
+    if not changes:
+        raise ScoreEditError("the score has no key changes to remove")
+    if start_beat == 0:
+        raise ScoreEditError(
+            "the head key cannot be removed — use setKey to change it"
+        )
+    kept = [c for c in changes if c.start_beat != start_beat]
+    if len(kept) == len(changes):
+        raise ScoreEditError(f"no key change at beat {start_beat}")
+    if len(kept) == 1:
+        # Back to a single key — the legacy path (no keyChanges field).
+        return replace(payload, key_changes=())
+    return replace(payload, key_changes=tuple(kept))
+
+
 def apply_score_edit(
     document: ScoreDocument, edit: ScoreEdit
 ) -> ScoreDocument:
@@ -944,6 +1087,29 @@ def apply_score_edit(
         if not edit.settings:
             raise ScoreEditError("requantize needs at least one setting")
         new_payload = _apply_requantize(payload, edit.settings)
+        return replace(document, payload=new_payload)
+    if edit.kind == "setKey":
+        if edit.fifths is None:
+            raise ScoreEditError("setKey requires fifths")
+        key = KeySignature(
+            fifths=edit.fifths, mode=edit.mode or payload.key_signature.mode
+        )
+        new_payload = _apply_set_key(payload, key)
+        return replace(document, payload=new_payload)
+    if edit.kind == "keyChangeAt":
+        if edit.fifths is None or edit.start_beat is None:
+            raise ScoreEditError(
+                "keyChangeAt requires fifths and startBeat"
+            )
+        key = KeySignature(
+            fifths=edit.fifths, mode=edit.mode or payload.key_signature.mode
+        )
+        new_payload = _apply_key_change_at(payload, key, edit.start_beat)
+        return replace(document, payload=new_payload)
+    if edit.kind == "removeKeyChange":
+        if edit.start_beat is None:
+            raise ScoreEditError("removeKeyChange requires startBeat")
+        new_payload = _apply_remove_key_change(payload, edit.start_beat)
         return replace(document, payload=new_payload)
     # Locate the note across parts (single-part today, but the loop is
     # free).
