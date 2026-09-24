@@ -78,6 +78,7 @@ export function ScoreWorkspace({
   sourceControl = null,
   onRhythmEdit,
   onRetranscribeVoices,
+  onRetranscribeVocalIsolation,
   onRetranscribeBasicPitch,
   onOpenProperties,
   banner = null,
@@ -128,6 +129,9 @@ export function ScoreWorkspace({
   /** #148: review-bar action — re-run the job with the voices texture
    *  when auto detected a mix. Absent for fixture/dev documents. */
   onRetranscribeVoices?(): void;
+  /** #314: review-bar action — re-run with vocal isolation + melody
+   *  for a lead-vocal mix. Absent for fixture/dev documents. */
+  onRetranscribeVocalIsolation?(): void;
   /** #181: review-bar action — re-run the job with the Basic Pitch
    *  backend when pYIN produced a monophonic result. */
   onRetranscribeBasicPitch?(): void;
@@ -207,6 +211,7 @@ export function ScoreWorkspace({
             sourceControl={sourceControl}
             onRhythmEdit={onRhythmEdit}
             onRetranscribeVoices={onRetranscribeVoices}
+            onRetranscribeVocalIsolation={onRetranscribeVocalIsolation}
             onRetranscribeBasicPitch={onRetranscribeBasicPitch}
             onOpenProperties={onOpenProperties}
           />

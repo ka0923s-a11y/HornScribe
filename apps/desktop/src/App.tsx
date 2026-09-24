@@ -2025,6 +2025,24 @@ export default function App() {
                         }
                       : undefined
                   }
+                  onRetranscribeVocalIsolation={
+                    // #314: lead-vocal mix — isolate the vocal and keep
+                    // the melody line. Mirrors voices' prop contract:
+                    // absent without a source so the action hides.
+                    importState.audio
+                      ? () => {
+                          setTranscriptionOptions((o) => ({
+                            ...o,
+                            texture: "melody",
+                            vocalIsolation: true,
+                          }));
+                          startTranscriptionJob({
+                            texture: "melody",
+                            vocalIsolation: true,
+                          });
+                        }
+                      : undefined
+                  }
                   onRetranscribeBasicPitch={
                     importState.audio
                       ? () => {

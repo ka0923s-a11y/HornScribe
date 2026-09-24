@@ -1022,6 +1022,13 @@ def run_transcription_job(
                         # texture would keep those lines as separate
                         # parts, so the UI offers a one-click re-run.
                         "suggestVoicesTexture": mix_suggest_voices,
+                        # #314: for a lead-vocal mix (the common JPOP
+                        # case) the better remedy is isolating the
+                        # vocal first — offered alongside voices only
+                        # when isolation was not already used.
+                        "suggestVocalIsolation": (
+                            mix_suggest_voices and not params.vocal_isolation
+                        ),
                     },
                 )
             )

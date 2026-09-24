@@ -23,6 +23,7 @@ function issue(over: Partial<ScoreReviewIssue> = {}): ScoreReviewIssue {
 function handlers(over: Partial<ReviewActionHandlers> = {}) {
   return {
     retranscribeVoices: vi.fn(),
+    retranscribeVocalIsolation: vi.fn(),
     retranscribeBasicPitch: vi.fn(),
     openProperties: vi.fn(),
     toggleEnharmonic: vi.fn(() => true),
@@ -66,6 +67,29 @@ describe("buildReviewAction", () => {
     const a = buildReviewAction(
       issue({ evidence: { suggestVoicesTexture: true } }),
       handlers({ retranscribeVoices: undefined }),
+    );
+    expect(a).toBeNull();
+  });
+
+  it("#314: vocal-isolation retry wins over voices on a lead-vocal mix", () => {
+    const h = handlers();
+    const a = buildReviewAction(
+      issue({
+        evidence: { suggestVoicesTexture: true, suggestVocalIsolation: true },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.retranscribeVocalIsolation);
+    expect(a?.tooltip).toBe(ja.review.retranscribeVocalIsolationTip);
+    a?.run();
+    expect(h.retranscribeVocalIsolation).toHaveBeenCalledOnce();
+    expect(h.retranscribeVoices).not.toHaveBeenCalled();
+  });
+
+  it("#314: vocal-isolation retry hides without the handler", () => {
+    const a = buildReviewAction(
+      issue({ evidence: { suggestVocalIsolation: true } }),
+      handlers({ retranscribeVocalIsolation: undefined }),
     );
     expect(a).toBeNull();
   });

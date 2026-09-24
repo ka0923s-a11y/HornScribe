@@ -32,6 +32,8 @@ export interface ReviewPrimaryAction {
 export interface ReviewActionHandlers {
   /** #148: re-run the job with the voices texture (mix detected). */
   retranscribeVoices?(): void;
+  /** #314: re-run with vocal isolation + melody (lead-vocal mix). */
+  retranscribeVocalIsolation?(): void;
   /** #181: re-run the job with the Basic Pitch backend. */
   retranscribeBasicPitch?(): void;
   /** #209: open the properties panel (meter select lives there). */
@@ -63,6 +65,20 @@ export function buildReviewAction(
 ): ReviewPrimaryAction | null {
   if (!issue) return null;
   const r = ja.review;
+
+  // #314: a lead-vocal mix (the common JPOP case) wants the melody
+  // isolated, not every detected line — vocal isolation is the
+  // product's primary remedy and wins over the voices offer.
+  if (
+    issue.evidence["suggestVocalIsolation"] === true &&
+    handlers.retranscribeVocalIsolation
+  ) {
+    return {
+      label: r.retranscribeVocalIsolation,
+      tooltip: r.retranscribeVocalIsolationTip,
+      run: () => handlers.retranscribeVocalIsolation?.(),
+    };
+  }
 
   // #148: detected a mix -> retry with the voices texture.
   if (

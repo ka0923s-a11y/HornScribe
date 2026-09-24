@@ -1221,6 +1221,55 @@ class TestPipeline:
         assert merged_melody
         assert merged_melody[0]["evidence"]["suggestVoicesTexture"] is False
 
+    def test_mix_suggests_vocal_isolation_until_used(
+        self, tmp_path: Path
+    ) -> None:
+        # #314: a lead-vocal mix (the common JPOP case) wants the
+        # melody isolated, not every detected line — the overlap
+        # issue also carries suggestVocalIsolation so the UI can
+        # offer the one-click vocal-isolation re-run. It stays off
+        # once isolation already ran (re-suggesting would be noise).
+        events: list[RawNoteEvent] = []
+        for i in range(8):
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 1:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=76.0,
+                    onset_sec=i * 0.5,
+                    offset_sec=i * 0.5 + 0.45,
+                    confidence=0.9,
+                )
+            )
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 2:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=55.0,
+                    onset_sec=i * 0.5 + 0.2,
+                    offset_sec=i * 0.5 + 0.4,
+                    confidence=0.9,
+                )
+            )
+
+        def _issue(res):
+            return [
+                i
+                for i in res["reviewIssues"]
+                if i["reason"] == "overlapping_candidates"
+                and "polyphonicOverlaps" in i["evidence"]
+            ][0]
+
+        plain = run(tmp_path, tuple(events))[-1]["result"]
+        assert _issue(plain)["evidence"]["suggestVocalIsolation"] is True
+
+        isolated = run(
+            tmp_path, tuple(events), {"vocalIsolation": True}
+        )[-1]["result"]
+        assert (
+            _issue(isolated)["evidence"]["suggestVocalIsolation"] is False
+        )
+
     def test_voices_texture_keeps_two_parts(self, tmp_path: Path) -> None:
         # #85: a duet — sustained lower line under a melody — becomes a
         # two-part score instead of collapsing to one line. Canonical

@@ -1388,6 +1388,12 @@ export const ja = {
     retranscribeBasicPitch: "Basic Pitchで採譜し直す",
     retranscribeBasicPitchTip:
       "多声部に対応したエンジンで採譜し直します（現在の編集は破棄されます）",
+    /** #314: one-click remedy on the merged-overlap issue for a
+     *  lead-vocal mix — re-runs with vocal isolation + melody so the
+     *  accompaniment drops out and the lead line survives. */
+    retranscribeVocalIsolation: "ボーカル分離で採譜し直す",
+    retranscribeVocalIsolationTip:
+      "ボーカルを分離して主旋律だけを採譜し直します（現在の編集は破棄されます）",
     /** #188: apply the suggested BPM on the tempo-uncertain issue. */
     applyTempoSuggestion: (bpm: number) => `♩=${Math.round(bpm)}に修正`,
     /** #209: meter_conflict cannot auto-resolve — open the meter

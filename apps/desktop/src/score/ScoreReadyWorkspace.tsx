@@ -169,6 +169,9 @@ interface Props {
   /** #148: re-run the job with the voices texture — offered on the
    *  merged-overlap review issue when auto detected a mix. */
   onRetranscribeVoices?(): void;
+  /** #314: re-run with vocal isolation + melody — the lead-vocal-mix
+   *  remedy, offered alongside voices on the merged-overlap issue. */
+  onRetranscribeVocalIsolation?(): void;
   /** #181: re-run the job with the Basic Pitch backend — offered on
    *  the monophonic-backend review issue. */
   onRetranscribeBasicPitch?(): void;
@@ -262,6 +265,7 @@ export function ScoreReadyWorkspace({
   sourceControl = null,
   onRhythmEdit,
   onRetranscribeVoices,
+  onRetranscribeVocalIsolation,
   onRetranscribeBasicPitch,
   onOpenProperties,
 }: Props) {
@@ -2006,6 +2010,7 @@ const setKey = useCallback(
           }
           action={buildReviewAction(allIssues[reviewIndex] ?? null, {
             retranscribeVoices: onRetranscribeVoices,
+            retranscribeVocalIsolation: onRetranscribeVocalIsolation,
             retranscribeBasicPitch: onRetranscribeBasicPitch,
             openProperties: onOpenProperties,
             toggleEnharmonic: toggleSelectedEnharmonic,

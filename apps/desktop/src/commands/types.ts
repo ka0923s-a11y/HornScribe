@@ -81,6 +81,8 @@ export interface CommandContext {
    *  stored settings first — avoids a stale-options race. */
   transcribe(overrides?: {
     texture?: "auto" | "mono" | "melody" | "voices" | "chords";
+    /** #314: the lead-vocal-mix remedy pins isolation + melody. */
+    vocalIsolation?: boolean;
   }): void;
   /**
    * Cooperative `job.cancel` (UI-040): requests cancellation of the
