@@ -347,9 +347,11 @@ fn find_repo_python_dir() -> Option<PathBuf> {
     None
 }
 
-/// Repo-local virtualenv interpreters, best-first. `basic_pitch` lives
-/// in the `*-bp*` envs in this repo's dev layout; a plain `.venv` still
-/// serves the worker (it reports basicPitchAvailable honestly).
+/// Repo-local virtualenv interpreters, best-first. The worker
+/// hard-requires music21 and benefits from basic_pitch, so envs are
+/// scored by what they can actually run: a stale basic-pitch-only env
+/// (no music21) would crash the worker on import and must rank below a
+/// plain `.venv` that can at least serve the engine honestly.
 fn local_venv_pythons() -> Vec<PathBuf> {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut roots: Vec<PathBuf> = Vec::new();
@@ -364,11 +366,21 @@ fn local_venv_pythons() -> Vec<PathBuf> {
             }
         }
     }
-    // Prefer envs that look like engine envs ("bp" in the name), then
-    // plain .venv; stable order keeps dev runs deterministic.
-    roots.sort_by_key(|p| {
-        let n = p.file_name().unwrap_or_default().to_string_lossy();
-        (!n.contains("bp"), n.len())
+    // Score by installed packages: music21 is a hard import, basic_pitch
+    // unlocks the real model. Best score first; name tiebreak keeps
+    // dev runs deterministic.
+    let site_has = |v: &Path, pkg: &str| {
+        v.join("Lib").join("site-packages").join(pkg).is_dir()
+    };
+    let score = |v: &Path| {
+        (!site_has(v, "music21") as u8) * 2 + (!site_has(v, "basic_pitch") as u8)
+    };
+    roots.sort_by(|a, b| {
+        score(a).cmp(&score(b)).then_with(|| {
+            a.file_name()
+                .unwrap_or_default()
+                .cmp(b.file_name().unwrap_or_default())
+        })
     });
     roots
         .into_iter()

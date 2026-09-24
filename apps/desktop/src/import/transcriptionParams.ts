@@ -9,10 +9,12 @@
  * - `kind:"path"` (native dialog / native drop) -> the path itself;
  * - `kind:"recording"` with `path` (Tauri capture: the WAV was already
  *   persisted under appDataDir/recordings/) -> that path;
- * - `kind:"file"` (browser dev drop) and pathless recordings -> no
- *   audioPath; the mock port ignores params anyway, so dev sessions
- *   still exercise the flow. A future staging step can copy browser
- *   bytes to a temp file (tracked as a follow-up issue).
+ * - `kind:"file"` (browser dev drop) and pathless recordings -> staged
+ *   first via stageAudioForEngine (#86): the dev bridge writes the bytes
+ *   under %TEMP%/hornscribe-dev and the returned path is passed in as
+ *   `stagedAudioPath`, which wins over every ref-derived path. When the
+ *   bridge is unreachable staging returns null and the mock engine
+ *   ignores params anyway, so dev sessions still exercise the flow.
  *
  * `tempoBpm` is only sent for manual tempo — auto omits it so the
  * engine runs beat tracking. `range:"selection"` sends the user's
@@ -46,9 +48,10 @@ export interface TranscriptionJobParams {
 export function buildTranscriptionParams(
   audio: LoadedAudio | null,
   options: TranscriptionOptions,
+  stagedAudioPath: string | null = null,
 ): TranscriptionJobParams {
   const params: TranscriptionJobParams = {};
-  const path = audio ? audioPathOf(audio.ref) : null;
+  const path = stagedAudioPath ?? (audio ? audioPathOf(audio.ref) : null);
   if (path) params.audioPath = path;
 
   if (options.tempo === "manual" && options.tempoBpm != null) {

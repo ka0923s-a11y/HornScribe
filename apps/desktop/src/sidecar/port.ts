@@ -21,7 +21,7 @@
  */
 
 import { ERR, SidecarError } from "./protocol";
-import { MockSidecarPort } from "./mockPort";
+import { DevBridgeSidecarPort } from "./devBridgePort";
 import { TauriSidecarPort } from "./tauriPort";
 import { isTauriRuntime } from "../tauri/bridge";
 
@@ -94,12 +94,13 @@ export class UnsupportedSidecarPort implements SidecarPort {
  * The port used when no explicit one is injected:
  * - inside the Tauri webview: {@link TauriSidecarPort} (ENG-002 — the
  *   Rust engine supervisor spawns `python -m hornscribe.worker`);
- * - in a plain browser (`vite dev`): {@link MockSidecarPort}, an
- *   in-process emulation of `python -m hornscribe.worker` that speaks the
- *   real NDJSON contract so the whole transcription UX is exercisable
- *   without a Python runtime.
+ * - in a plain browser (`vite dev`): {@link DevBridgeSidecarPort} (#86) —
+ *   it spawns the real worker through the devEngineBridge Vite middleware
+ *   when the bridge is reachable, and silently degrades to the
+ *   in-process MockSidecarPort NDJSON emulation when it is
+ *   not, so the transcription UX stays exercisable without Python.
  */
 export function createDefaultSidecarPort(): SidecarPort {
   if (isTauriRuntime()) return new TauriSidecarPort();
-  return new MockSidecarPort();
+  return new DevBridgeSidecarPort();
 }

@@ -13,6 +13,7 @@ implemented engine-side by `python/hornscribe/worker/` (UI-002 spike).
 | `client.ts` | `SidecarClient` — handshake, request/response correlation, `job.event` demux, per-request timeouts, in-flight-job watchdog, crash detection. |
 | `mockPort.ts` | `MockSidecarPort` — in-process emulation of `python -m hornscribe.worker` (same validation, same job semantics, plus crash/hang hooks). |
 | `tauriPort.ts` | `TauriSidecarPort` — production port: the Rust `engine` module spawns `python -m hornscribe.worker` and relays lines over a `Channel` (ENG-002). |
+| `devBridgePort.ts` | `DevBridgeSidecarPort` — browser-dev port (#86): spawns the real worker through the `devEngineBridge` Vite middleware (scripts/devEngineBridge.mjs) over localhost HTTP+SSE; falls back to the mock when the bridge is absent. |
 | `jobView.ts` | Pure reducer: `job.event` → stage list + progress view (§5). |
 | `session.ts` | `TranscriptionSession` — app-facing engine/job state machine the shell subscribes to. |
 | `review.ts` | TS mirror of `domain/review.py` reason codes + `result.reviewIssues` extraction. |
@@ -28,7 +29,10 @@ knows how a worker is spawned. `createDefaultSidecarPort()` returns:
   stdout/stderr/exit over a `Channel`. The interpreter resolves via
   `HORNSCRIBE_PYTHON` → repo-local venvs → PATH; the module path via
   `HORNSCRIBE_PYTHONPATH` → the repo's `python/` directory.
-- `MockSidecarPort` outside the Tauri webview (plain `vite dev` / vitest).
+- `DevBridgeSidecarPort` outside the Tauri webview: it probes
+  `/__engine/health` and drives the real worker when the dev bridge is
+  up, otherwise it delegates to `MockSidecarPort` so `vite dev` without
+  Python still exercises the UX.
 - `UnsupportedSidecarPort` remains the explicit-failure placeholder for
   runtimes with no spawn bridge.
 

@@ -77,6 +77,7 @@ import {
   type TranscriptionOptions,
 } from "./import/types";
 import { buildTranscriptionParams } from "./import/transcriptionParams";
+import { stageAudioForEngine } from "./import/staging";
 import { formatTimecode } from "./import/format";
 import { HsButton } from "./components/primitives/Button";
 import { HsDialog } from "./components/primitives/Dialog";
@@ -587,9 +588,19 @@ export default function App() {
         // every later transition; a failed start lands on the §20 surface.
         setScreen("transcribing");
         setStatusMessage(ja.transcription.start);
-        session
-          .startTranscription(
-            buildTranscriptionParams(importState.audio, transcriptionOptions),
+        // #86: browser-held bytes (kind:"file" drops, pathless
+        // recordings) are staged to a temp file first so the real
+        // engine gets a readable audioPath; refs already on disk
+        // return null from staging and keep their own path.
+        void stageAudioForEngine(importState.audio)
+          .then((staged) =>
+            session.startTranscription(
+              buildTranscriptionParams(
+                importState.audio,
+                transcriptionOptions,
+                staged,
+              ),
+            ),
           )
           .catch(() => {
             /* failure flag drives the error surface */
@@ -1109,11 +1120,14 @@ export default function App() {
                           setScreen("transcribing");
                           setStatusMessage(ja.transcription.start);
                           session.clearFailure();
-                          session
-                            .startTranscription(
-                              buildTranscriptionParams(
-                                importState.audio,
-                                transcriptionOptions,
+                          void stageAudioForEngine(importState.audio)
+                            .then((staged) =>
+                              session.startTranscription(
+                                buildTranscriptionParams(
+                                  importState.audio,
+                                  transcriptionOptions,
+                                  staged,
+                                ),
                               ),
                             )
                             .catch(() => undefined);
