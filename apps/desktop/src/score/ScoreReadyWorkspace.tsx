@@ -147,6 +147,9 @@ interface Props {
   /** #148: re-run the job with the voices texture — offered on the
    *  merged-overlap review issue when auto detected a mix. */
   onRetranscribeVoices?(): void;
+  /** #181: re-run the job with the Basic Pitch backend — offered on
+   *  the monophonic-backend review issue. */
+  onRetranscribeBasicPitch?(): void;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -232,6 +235,7 @@ export function ScoreReadyWorkspace({
   sourceControl = null,
   onRhythmEdit,
   onRetranscribeVoices,
+  onRetranscribeBasicPitch,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<ScoreRenderer | null>(null);
@@ -1573,6 +1577,15 @@ export function ScoreReadyWorkspace({
             if (issue.reason === "pitch_spelling_ambiguous") {
               return ja.commands.noteEnharmonic;
             }
+            // #181: the monophonic-backend issue resolves by
+            // re-running with the polyphonic-capable backend.
+            if (
+              issue.reason === "monophonic_backend" &&
+              issue.evidence["suggestBasicPitch"] === true &&
+              onRetranscribeBasicPitch
+            ) {
+              return ja.review.retranscribeBasicPitch;
+            }
             return null;
           })()}
           onAction={(() => {
@@ -1583,6 +1596,12 @@ export function ScoreReadyWorkspace({
             }
             if (issue.reason === "pitch_spelling_ambiguous") {
               return () => toggleSelectedEnharmonic();
+            }
+            if (
+              issue.reason === "monophonic_backend" &&
+              issue.evidence["suggestBasicPitch"] === true
+            ) {
+              return onRetranscribeBasicPitch ?? undefined;
             }
             return undefined;
           })()}

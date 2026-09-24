@@ -738,6 +738,9 @@ def run_transcription_job(
                     evidence={
                         "backend": "pyin",
                         "texture": params.texture,
+                        # Offer the one-click remedy: re-run with the
+                        # polyphonic-capable default backend.
+                        "suggestBasicPitch": True,
                     },
                 )
             )

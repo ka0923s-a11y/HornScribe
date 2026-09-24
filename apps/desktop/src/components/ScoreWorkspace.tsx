@@ -78,6 +78,7 @@ export function ScoreWorkspace({
   sourceControl = null,
   onRhythmEdit,
   onRetranscribeVoices,
+  onRetranscribeBasicPitch,
 }: {
   screen: ScreenState;
   importView: ImportView;
@@ -124,6 +125,9 @@ export function ScoreWorkspace({
   /** #148: review-bar action — re-run the job with the voices texture
    *  when auto detected a mix. Absent for fixture/dev documents. */
   onRetranscribeVoices?(): void;
+  /** #181: review-bar action — re-run the job with the Basic Pitch
+   *  backend when pYIN produced a monophonic result. */
+  onRetranscribeBasicPitch?(): void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const dragActive = dragOver || externalDragActive;
@@ -193,6 +197,7 @@ export function ScoreWorkspace({
             sourceControl={sourceControl}
             onRhythmEdit={onRhythmEdit}
             onRetranscribeVoices={onRetranscribeVoices}
+            onRetranscribeBasicPitch={onRetranscribeBasicPitch}
           />
         ) : (
           <div className="hs-score-paper" aria-hidden="true">

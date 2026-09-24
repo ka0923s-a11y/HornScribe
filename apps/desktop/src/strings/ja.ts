@@ -1258,6 +1258,11 @@ export const ja = {
     retranscribeVoices: "複数声部として採譜",
     retranscribeVoicesTip:
       "重なった音を別の声部として採譜し直します（現在の編集は破棄されます）",
+    /** #181: one-click remedy on the monophonic-backend issue —
+     *  re-runs the job with the polyphonic-capable Basic Pitch. */
+    retranscribeBasicPitch: "Basic Pitchで採譜し直す",
+    retranscribeBasicPitchTip:
+      "多声部に対応したエンジンで採譜し直します（現在の編集は破棄されます）",
     pitchUp: "半音上げる",
     pitchDown: "半音下げる",
     deleteNote: "削除",

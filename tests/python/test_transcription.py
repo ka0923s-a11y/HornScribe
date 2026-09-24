@@ -812,6 +812,21 @@ class TestSwing:
         reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
         assert "monophonic_backend" not in reasons
 
+    def test_pyin_warn_offers_basic_pitch_rerun(
+        self, tmp_path: Path
+    ) -> None:
+        log = run(
+            tmp_path,
+            self._events([i * 0.5 for i in range(8)]),
+            {"backend": "pyin", "texture": "voices"},
+        )
+        mono = [
+            i
+            for i in log[-1]["result"]["reviewIssues"]
+            if i["reason"] == "monophonic_backend"
+        ]
+        assert mono[0]["evidence"]["suggestBasicPitch"] is True
+
     def test_basic_pitch_under_voices_no_warn(
         self, tmp_path: Path
     ) -> None:

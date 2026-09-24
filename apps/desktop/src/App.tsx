@@ -704,7 +704,7 @@ export default function App() {
    * their own path. #148: overrides pin job options (voices retry)
    * without a stale transcriptionOptions read. */
   const startTranscriptionJob = useCallback(
-    (overrides?: Partial<TranscriptionOptions>) => {
+    (overrides?: Partial<TranscriptionOptions>, backendOverride?: string) => {
       setScreen("transcribing");
       setStatusMessage(ja.transcription.start);
       void stageAudioForEngine(importState.audio)
@@ -714,7 +714,7 @@ export default function App() {
               importState.audio,
               { ...transcriptionOptions, ...overrides },
               staged,
-              settings.backend,
+              backendOverride ?? settings.backend,
             ),
           ),
         )
@@ -1421,6 +1421,14 @@ export default function App() {
                       texture: "voices",
                     }));
                     startTranscriptionJob({ texture: "voices" });
+                  }}
+                  onRetranscribeBasicPitch={() => {
+                    /* #181: mirror the backend switch into settings so
+                     * the 詳細設定 selector reflects what ran, and pin
+                     * the job itself so a stale settings read cannot
+                     * sneak pYIN back in. */
+                    updateSettings({ backend: "basicPitch" });
+                    startTranscriptionJob(undefined, "basicPitch");
                   }}
                 />
                 {propertiesVisible ? (
