@@ -75,6 +75,13 @@ Freeze check:
 
 ## Candidate notes
 
+> **Note (2026-09):** a second transcription backend landed after this
+> matrix was measured — **pYIN** (`librosa.pyin`, #175), a monophonic
+> f0 tracker for single-line sources (JPOP vocals, solo horn). It adds
+> no model download and no extra runtime beyond librosa, so the
+> packaging story above is unchanged; `backend:auto` picks it for
+> `texture:mono` jobs (#189).
+
 - **3.10**: works, ONNX runtime pinned to 1.23.2 by the resolver; EOL
   2026-10 makes it a compatibility reference only, per plan.
 - **3.11**: fully official upstream path but pulls TensorFlow 2.15

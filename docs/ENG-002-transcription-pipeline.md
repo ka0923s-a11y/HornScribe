@@ -2,18 +2,36 @@
 
 Status: implemented (worker + Tauri spawn + shell wiring).
 Scope: the `transcription` job kind is a real pipeline end to end —
-audio file -> Basic Pitch note events -> monophonic clean-up -> beat
+audio file -> backend note events (Basic Pitch or pYIN) -> clean-up -> beat
 map -> HSQ quantization -> canonical ScoreDocument -> MusicXML
 (concert + written F管) delivered through `job.event` `completed`
 `result`. The shell renders it via `XmlScoreDocument` (no fixture
 substitution in production).
+
+## Backend selection (#175, #189)
+
+Two engines share one event tuple shape, so everything downstream is
+identical:
+
+- **Basic Pitch** (basic_pitch ONNX, bundled nmp.onnx) — polyphonic
+  model; the default and the right pick for mixes.
+- **pYIN** (librosa.pyin + HPSS + onset-guided splitting, #180) —
+  monophonic f0 tracker; better on a single sung/played line (vibrato
+  stays inside one note, octave flicker is rare). No model download —
+  still fully free/offline.
+
+backend:auto resolves per job: texture:mono picks pYIN, everything
+else picks Basic Pitch. A per-job backend option (import screen) and
+the global setting can pin either engine. pYIN under a polyphonic
+texture (voices/auto) emits a monophonic_backend review issue with a
+one-click Basic Pitch re-run (#181/#183).
 
 ## Stage map (matches TRANSCRIPTION_STAGE_IDS / GUI_UX_SPEC §5)
 
 | stage              | module                | work                                             |
 |--------------------|-----------------------|--------------------------------------------------|
 | preparing_audio    | backend.py            | librosa decode -> mono 22050 Hz + SHA-256 hash    |
-| transcribing       | backend.py            | basic_pitch `predict` (one blocking ONNX call)    |
+| transcribing       | backend.py            | basic_pitch predict or librosa.pyin               |
 | cleaning           | clean.py              | monophonic repair: merge/clip/drop + range clip   |
 | analyzing_rhythm   | tempo.py              | beat_track -> BeatMap/TimeWarp or manual grid     |
 | quantizing         | rhythm/quantizer      | HSQ-v1 DP quantization (k-best alternatives)      |
@@ -23,6 +41,7 @@ substitution in production).
 Cancellation/deadline are cooperative *between* stages — Basic Pitch
 inference is a single blocking call (ENGINE_RUNTIME_MATRIX), so
 mid-inference abort uses the documented terminate/restart fallback.
+pYIN is likewise one blocking call with the same caveat.
 
 ## Free-stack rationale (完全無料運用)
 
@@ -60,7 +79,23 @@ no telemetry. `pip install hornscribe[engine]` carries the model deps.
   resolve the real tonic instead of tying to the relative minor.
 - Review issues are evidence-bearing, never silent corrections:
   quantizer reasons + low_model_confidence (<0.5) +
-  outside_preferred_horn_range + very_short_detection (<90 ms).
+  outside_preferred_horn_range + very_short_detection (<90 ms) +
+  overlapping_candidates (dense mixes, with a voices re-run hint on
+  auto/mono textures — #148/#200) + monophonic_backend (pYIN under a
+  polyphonic texture — #181) + meter_conflict + swing_feel (#134) +
+  tempo_uncertain (half/double tempo pick — #188; the fix is
+  scaleTempo, not setTempo — #198).
+
+## Texture modes (#85, #148)
+
+- mono — single line; overlaps clip to the next onset.
+- melody — melody over accompaniment; overlap resolution prefers
+  the top voice and widens the detection band above the horn cap.
+- voices — up to three detected lines become separate parts;
+  extras beyond three are reported as dropped.
+- auto — starts as mono; a dense overlap census re-cleans with the
+  top-voice preference and flags suggestVoicesTexture on the
+  overlap issue (#200 extends the same hint to explicit mono).
 
 ## Failure contract
 
@@ -87,7 +122,9 @@ shutdown; `engine_kill` + exit hook prevent sidecar leaks.
   accent structure falls back to 4/4 with a `meter_conflict` issue
   rather than guessing; 6/8 requires the tracker to hold the
   eighth-note pulse.
-- Monophonic sources only; polyphonic input yields a single line.
+- Polyphonic input is best-effort: voices keeps up to three lines,
+  melody/mono collapse to one — the overlap issue reports what
+  was merged or dropped.
 - Browser-dev `kind:"file"` sources have no `audioPath` — the mock
   port covers dev; staging bytes to a temp file is a follow-up.
 - basic_pitch `predict` cannot be cancelled mid-call (documented).
