@@ -376,6 +376,12 @@ export default function App() {
   );
   useEffect(() => () => capture.dispose(), [capture]);
 
+  // 設定→再生: 標準再生速度はライブ設定なので即時反映する
+  // (transport.setRate は [0.25,4] にクランプ済み)。
+  useEffect(() => {
+    transport.setRate(settings.playbackRate);
+  }, [transport, settings.playbackRate]);
+
   // #87: 保持日数ポリシー — 起動時に一度だけ古い録音を削除する。
   // settings.recordingsRetentionDays は起動時の値で確定(途中変更は
   // 次回起動から有効)。削除件数はステータスバーで知らせる。
@@ -566,12 +572,14 @@ export default function App() {
         }
       },
       jumpBack: () => {
-        if (transport.getSnapshot().status !== "empty") seekBy(-5);
-        else scoreCtlRef.current?.jumpBy(-5000);
+        if (transport.getSnapshot().status !== "empty")
+          seekBy(-settings.skipSeconds);
+        else scoreCtlRef.current?.jumpBy(-settings.skipSeconds * 1000);
       },
       jumpForward: () => {
-        if (transport.getSnapshot().status !== "empty") seekBy(5);
-        else scoreCtlRef.current?.jumpBy(5000);
+        if (transport.getSnapshot().status !== "empty")
+          seekBy(settings.skipSeconds);
+        else scoreCtlRef.current?.jumpBy(settings.skipSeconds * 1000);
       },
       seekToStart: () => {
         if (transport.getSnapshot().status !== "empty") {
@@ -693,7 +701,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions],
+    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions, settings.skipSeconds],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -1044,6 +1052,8 @@ export default function App() {
                   }
                   scoreDocument={scoreDocument}
                   pitch={pitch}
+                  initialViewMode={settings.scoreInitialView}
+                  followPlayback={settings.followPlayback}
                   onInspectorChange={setInspectorModel}
                   onScoreStateChange={setScoreState}
                   scoreControllerRef={(c) => {

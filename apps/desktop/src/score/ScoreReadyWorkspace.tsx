@@ -114,6 +114,11 @@ interface Props {
     play(): void;
     setLoop(range: { start: number; end: number } | null): void;
   } | null;
+  /** 設定→楽譜 初期表示 — seeds viewMode on mount (document key
+   *  remounts per revision, so this is a per-score default). */
+  initialViewMode?: ScoreViewMode;
+  /** 設定→再生 再生位置を追従 — seeds the follow toggle. */
+  followPlayback?: boolean;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -157,6 +162,8 @@ function inspectorCopy(): InspectorCopy {
 export function ScoreReadyWorkspace({
   document: scoreDoc,
   pitch,
+  initialViewMode = "continuous",
+  followPlayback = true,
   onInspectorChange,
   onStateChange,
   controllerRef,
@@ -171,14 +178,14 @@ export function ScoreReadyWorkspace({
   const tableRef = useRef<PlaybackTable | null>(null);
 
   const [pages, setPages] = useState<RenderedPage[]>([]);
-  const [viewMode, setViewMode] = useState<ScoreViewMode>("continuous");
+  const [viewMode, setViewMode] = useState<ScoreViewMode>(initialViewMode);
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [loading, setLoading] = useState(true);
   const [renderError, setRenderError] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
-  const [followEnabled, setFollowEnabled] = useState(true);
+  const [followEnabled, setFollowEnabled] = useState(followPlayback);
   const [followSuspended, setFollowSuspended] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
@@ -212,7 +219,7 @@ export function ScoreReadyWorkspace({
   const followRef = useRef(true);
   const suspendedRef = useRef(false);
   const zoomRef = useRef(100);
-  const viewModeRef = useRef<ScoreViewMode>("continuous");
+  const viewModeRef = useRef<ScoreViewMode>(initialViewMode);
   const currentPageRef = useRef(1);
   const pitchRef = useRef(pitch);
   /** The presentation actually loaded into Verovio — compared against the

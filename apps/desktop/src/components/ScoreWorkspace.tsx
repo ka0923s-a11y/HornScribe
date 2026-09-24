@@ -13,6 +13,7 @@ import type {
   ScoreWorkspaceController,
   ScoreWorkspaceState,
 } from "../score/controller";
+import type { ScoreViewMode } from "../score/verovio";
 import type { PitchView } from "./PitchSegmented";
 
 /**
@@ -48,6 +49,8 @@ export function ScoreWorkspace({
   transcriptionErrorBody,
   scoreDocument = null,
   pitch = "concert",
+  initialViewMode = "continuous",
+  followPlayback = true,
   onInspectorChange,
   onScoreStateChange,
   scoreControllerRef,
@@ -71,6 +74,10 @@ export function ScoreWorkspace({
    *  port abstracts fixture vs engine data. */
   scoreDocument?: ScoreDocumentPort | null;
   pitch?: PitchView;
+  /** 設定→楽譜 初期表示 (continuous/page) — seeds the view mode. */
+  initialViewMode?: ScoreViewMode;
+  /** 設定→再生 再生位置を追従 — seeds the follow toggle. */
+  followPlayback?: boolean;
   onInspectorChange?(model: InspectorModel): void;
   onScoreStateChange?(state: ScoreWorkspaceState): void;
   scoreControllerRef?(controller: ScoreWorkspaceController | null): void;
@@ -149,6 +156,8 @@ export function ScoreWorkspace({
             key={scoreDocument.revisionId}
             document={scoreDocument}
             pitch={pitch}
+            initialViewMode={initialViewMode}
+            followPlayback={followPlayback}
             onInspectorChange={(m) => onInspectorChange?.(m)}
             onStateChange={(s) => onScoreStateChange?.(s)}
             controllerRef={(c) => scoreControllerRef?.(c)}
