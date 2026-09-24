@@ -317,24 +317,29 @@ export default function App() {
     useState<TranscriptionOptions>(DEFAULT_TRANSCRIPTION_OPTIONS);
   // 設定→採譜は採譜オプションの既定値: 新しい音源を開くたびに
   // 設定値でリセットする(表示だけの死んだ設定にしない)。
+  // #227: settings 全体は ref で読む — 依存に入れるとテーマや
+  // 再生速度の変更でも採譜オプションが初期化されてしまう。
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   useEffect(() => {
     if (!importState.audio) return;
+    const s = settingsRef.current;
     setTranscriptionOptions({
       ...DEFAULT_TRANSCRIPTION_OPTIONS,
-      tempo: settings.tempoMode,
-      tempoBpm: settings.tempoMode === "manual" ? settings.bpm : null,
-      meter: settings.meter,
+      tempo: s.tempoMode,
+      tempoBpm: s.tempoMode === "manual" ? s.bpm : null,
+      meter: s.meter,
       minDuration: { eighth: "8", sixteenth: "16", thirtySecond: "32" }[
-        settings.minDuration
+        s.minDuration
       ],
       // 「三連符を使う」off は候補を生成しない none。on は既定の
       // region-gated 自動判定(auto)に任せる — always だと全拍に
       // 三連符候補が乗り既定挙動が変わるため。
-      triplets: settings.triplets ? "auto" : "none",
+      triplets: s.triplets ? "auto" : "none",
       // #189: the per-job engine pin defaults to the global selector.
-      backend: settings.backend,
+      backend: s.backend,
     });
-  }, [importState.audio, settings]);
+  }, [importState.audio]);
 
   // #99: keep the export port's source getter current — the doc plus a
   // basename derived from the loaded audio's file name (extension

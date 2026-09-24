@@ -485,9 +485,11 @@ def run_transcription_job(
         meter_estimated = False
         meter_uncertain = False
         pulse_unit_ql: Fraction | None = None
-        if params.meter == "auto" and params.tempo_bpm is None:
-            # Auto meter needs the same beat track the tempo warp uses —
-            # compute it once here and hand it down.
+        if params.meter == "auto":
+            # #228: auto meter reads accents off a beat track — run it
+            # even when the user pinned the tempo (the pinned BPM only
+            # replaces the warp; the accent evidence is still real).
+            # The same track feeds the tempo warp when tempo is auto.
             beat_times, strengths = _track_beats(samples, sample_rate)
             meter_est = estimate_meter(beat_times, strengths)
             meter = MeterSegment(
@@ -502,11 +504,7 @@ def run_transcription_job(
                 pulse_unit_ql = Fraction(4, meter.denominator)
         else:
             beat_times = None
-            meter_confidence = 1.0 if params.meter != "auto" else 0.0
-            meter_estimated = params.meter == "auto"
-            # Auto meter with a user-pinned tempo has no beat track to
-            # read accents from — the 4/4 seed is a guess, flag it.
-            meter_uncertain = params.meter == "auto"
+            meter_confidence = 1.0
         estimate = estimate_tempo(
             samples,
             sample_rate,

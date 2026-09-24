@@ -700,3 +700,37 @@ def test_project_save_advertised_in_handshake(spawn: Any) -> None:
     w = spawn()
     payload = _assert_ok(w.handshake())
     assert "project.save" in payload["capabilities"]["methods"]
+
+
+def test_project_save_preserves_score_extras(
+    spawn: Any, tmp_path: Path
+) -> None:
+    """#218: scoreDocument/musicXml/reviewIssues/meta ride along as
+    extras — dropping them made saved scores unrestorable."""
+    w = spawn()
+    w.handshake()
+    target = tmp_path / "take.hornscribe.json"
+    doc = _project_doc()
+    doc.update(
+        {
+            "scoreDocument": {"content": {"parts": []}},
+            "musicXmlConcert": "<score-partwise/>",
+            "musicXmlHornF": "<score-partwise horn/>",
+            "reviewIssues": [{"id": "ri-000001", "status": "open"}],
+            "meta": {"noteCount": 4},
+        }
+    )
+    _assert_ok(
+        w.request(
+            "project.save",
+            {"path": str(target), "project": doc},
+        )
+    )
+    saved = json.loads(target.read_text(encoding="utf-8"))
+    assert saved["scoreDocument"] == {"content": {"parts": []}}
+    assert saved["musicXmlConcert"] == "<score-partwise/>"
+    assert saved["musicXmlHornF"] == "<score-partwise horn/>"
+    assert saved["reviewIssues"] == [{"id": "ri-000001", "status": "open"}]
+    assert saved["meta"] == {"noteCount": 4}
+    # Schema keys still win over a colliding extra.
+    assert saved["schemaVersion"] == 1

@@ -177,9 +177,31 @@ class ReviewDecision:
         )
 
 
+#: Keys the schema v1 model owns — everything else in a project document
+#: is a preserved extra (#218: scoreDocument/musicXml/reviewIssues/meta
+#: must survive the save round-trip, or reopened projects lose the score).
+_SCHEMA_KEYS = frozenset({
+    "schemaVersion",
+    "projectId",
+    "sourceAudio",
+    "transcription",
+    "score",
+    "userEdits",
+    "reviewDecisions",
+    "uiSession",
+})
+
+
 @dataclass(frozen=True)
 class HornScribeProject:
-    """Root persisted object for ``schemaVersion`` 1."""
+    """Root persisted object for ``schemaVersion`` 1.
+
+    ``extras`` carries keys the schema does not model (the desktop writes
+    scoreDocument / musicXmlConcert / musicXmlHornF / reviewIssues / meta
+    so a saved project restores its score without re-transcribing —
+    #106/#218).  They round-trip verbatim; schema keys always win on a
+    name collision so a future field cannot be silently shadowed.
+    """
 
     schema_version: int
     project_id: ProjectId
@@ -189,18 +211,23 @@ class HornScribeProject:
     user_edits: tuple[UserEdit, ...] = ()
     review_decisions: tuple[ReviewDecision, ...] = ()
     ui_session: dict[str, Any] | None = None  # optional, non-authoritative
+    extras: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "schemaVersion": self.schema_version,
-            "projectId": str(self.project_id),
-            "sourceAudio": self.source_audio.to_dict() if self.source_audio else None,
-            "transcription": self.transcription.to_dict() if self.transcription else None,
-            "score": self.score.to_dict() if self.score else None,
-            "userEdits": [e.to_dict() for e in self.user_edits],
-            "reviewDecisions": [d.to_dict() for d in self.review_decisions],
-            "uiSession": self.ui_session,
-        }
+        data: dict[str, Any] = dict(self.extras)
+        data.update(
+            {
+                "schemaVersion": self.schema_version,
+                "projectId": str(self.project_id),
+                "sourceAudio": self.source_audio.to_dict() if self.source_audio else None,
+                "transcription": self.transcription.to_dict() if self.transcription else None,
+                "score": self.score.to_dict() if self.score else None,
+                "userEdits": [e.to_dict() for e in self.user_edits],
+                "reviewDecisions": [d.to_dict() for d in self.review_decisions],
+                "uiSession": self.ui_session,
+            }
+        )
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HornScribeProject:
@@ -236,6 +263,7 @@ class HornScribeProject:
                 ReviewDecision.from_dict(d) for d in data.get("reviewDecisions", ())
             ),
             ui_session=data.get("uiSession"),
+            extras={k: v for k, v in data.items() if k not in _SCHEMA_KEYS},
         )
 
 

@@ -462,6 +462,12 @@ export function CommandBar({
           else if (key === "note-shift-right")
             commands.invoke("score.noteShiftRight");
           else if (key === "note-tie") commands.invoke("score.toggleTie");
+          // #220: these four items rendered but never dispatched —
+          // the click simply died.
+          else if (key === "note-split") commands.invoke("score.splitNote");
+          else if (key === "note-merge") commands.invoke("score.mergeNotes");
+          else if (key === "rest-to-note") commands.invoke("score.restToNote");
+          else if (key === "requantize") commands.invoke("score.requantize");
           else if (key === "diagnostics") commands.invoke("app.diagnostics");
         }}
       />
