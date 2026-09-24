@@ -142,6 +142,9 @@ export interface TranscriptionOptions {
   /** #189: per-job engine override. "auto" inherits the global
    *  設定→詳細設定 backend; an explicit choice pins this job only. */
   backend: "auto" | "basicPitch" | "pyin";
+  /** #187: opt-in vocal isolation — the backend runs on a
+   *  center-extracted vocal estimate instead of the raw mix. */
+  vocalIsolation: boolean;
   /** 範囲指定時の開始/終了（秒）。null = 音声の端まで。 */
   selectionStartSec: number | null;
   selectionEndSec: number | null;
@@ -157,6 +160,7 @@ export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   range: "all",
   texture: "auto",
   backend: "auto",
+  vocalIsolation: false,
   selectionStartSec: null,
   selectionEndSec: null,
 };

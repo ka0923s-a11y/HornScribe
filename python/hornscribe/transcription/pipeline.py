@@ -93,6 +93,7 @@ from .scorebuild import build_score
 from .swing import detect_swing
 from .tempo import estimate_tempo, tempo_map_from_estimate
 from .tempo_octave import detect_tempo_octave
+from .vocal import vocal_wav
 
 JOB_KIND_TRANSCRIPTION = "transcription"
 
@@ -545,17 +546,39 @@ def run_transcription_job(
         # temp WAV so inference only processes the selected span. A
         # staging failure falls back to the original file (correct, just
         # slower); the temp is always removed after the blocking call.
+        # #187: opt-in vocal isolation replaces the staged input with a
+        # center-extracted vocal estimate (cache-managed when possible).
         staged_path: str | None = None
-        if params.range_kind == "selection":
+        vocal_path: str | None = None
+        vocal_managed = False
+        vocal_reason: str | None = None
+        if params.vocal_isolation:
+            vis_lo = params.selection_start_sec or 0.0
+            vis_hi = (
+                params.selection_end_sec
+                if params.range_kind == "selection"
+                else None
+            )
+            vocal_path, vocal_reason, vocal_managed = vocal_wav(
+                params.audio_path,
+                audio_hash,
+                vis_lo,
+                vis_hi,
+                sample_rate,
+            )
+        if vocal_path is None and params.range_kind == "selection":
             staged_path = _stage_selection_wav(samples, sample_rate)
-        backend_path = staged_path or params.audio_path
+        backend_path = vocal_path or staged_path or params.audio_path
         try:
             raw_events = run_backend(backend_path)
         finally:
             if staged_path is not None:
                 with contextlib.suppress(OSError):
                     os.unlink(staged_path)
-        if staged_path is not None:
+            if vocal_path is not None and not vocal_managed:
+                with contextlib.suppress(OSError):
+                    os.unlink(vocal_path)
+        if staged_path is not None or vocal_path is not None:
             raw_events = _shift_event_times(raw_events, selection_offset_sec)
         if stop(1):
             return
@@ -1020,6 +1043,38 @@ def run_transcription_job(
             )
         # #134 swing issue — the estimate was computed above (it also
         # lands on the payload as swing_feel for the notation).
+        # #187: vocal-isolation provenance — the option is opt-in, so
+        # the result must say whether the backend actually saw the
+        # isolated estimate (info) or fell back to the raw mix and why
+        # (caution). Never silent either way.
+        if vocal_reason == "applied":
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=0.0, end_sec=duration_sec
+                    ),
+                    reason=ReviewReason.VOCAL_ISOLATION_APPLIED,
+                    severity=Severity.INFO,
+                    evidence={"stage": "center_extraction"},
+                )
+            )
+        elif vocal_reason in ("mono_source", "unavailable"):
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=0.0, end_sec=duration_sec
+                    ),
+                    reason=ReviewReason.VOCAL_ISOLATION_UNAVAILABLE,
+                    severity=Severity.CAUTION,
+                    evidence={"detail": vocal_reason},
+                )
+            )
         # #188: the tracked tempo looks like a half/double pick —
         # surface it with the corrected value so the UI can offer a
         # one-click setTempo.

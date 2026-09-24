@@ -16,6 +16,7 @@ describe("transcriptionOptionsFromSettings", () => {
       selectionEndSec: 40,
       backend: "basicPitch",
       texture: "melody",
+      vocalIsolation: true,
     });
     expect(o).toEqual({
       tempo: "manual",
@@ -28,9 +29,23 @@ describe("transcriptionOptionsFromSettings", () => {
       range: "selection",
       texture: "melody",
       backend: "basicPitch",
+      vocalIsolation: true,
       selectionStartSec: 12.5,
       selectionEndSec: 40,
     });
+  });
+
+  it("#187: vocalIsolation restores only from an explicit true", () => {
+    expect(
+      transcriptionOptionsFromSettings({ vocalIsolation: true })
+        .vocalIsolation,
+    ).toBe(true);
+    // Absent/false/other values stay off — the option is opt-in.
+    expect(
+      transcriptionOptionsFromSettings({ vocalIsolation: "yes" })
+        .vocalIsolation,
+    ).toBe(false);
+    expect(transcriptionOptionsFromSettings(null).vocalIsolation).toBe(false);
   });
 
   it("maps engine triplet policy names to UI values", () => {

@@ -32,6 +32,8 @@ export type ReviewReason =
   | "swing_feel"
   | "monophonic_backend"
   | "tempo_uncertain"
+  | "vocal_isolation_applied"
+  | "vocal_isolation_unavailable"
   | "onset_uncertain"
   | "pitch_uncertain"
   | "multiple_candidates"

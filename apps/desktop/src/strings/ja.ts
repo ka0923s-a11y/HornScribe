@@ -932,6 +932,10 @@ export const ja = {
       backend: "採譜エンジン",
       backendAuto: "自動（設定に従う）",
       backendHint: BACKEND_HINT_PYIN,
+      /* #187: opt-in vocal isolation (center extraction). */
+      vocalIsolation: "ボーカル分離を使う（ミックス音源向け）",
+      vocalIsolationHint:
+        "中央定位のボーカルを推定してから採譜します。JPOPなど伴奏付き音源の主旋律抽出に有効ですが、完全な分離ではありません。",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {
@@ -1276,6 +1280,18 @@ export const ja = {
       title: "テンポを確認してください",
       detail:
         "自動推定されたテンポが、実際の半分または2倍の可能性があります。修正ボタンを押すと音符の長さも一緒に直ります（再生の速さは変わりません）。",
+    },
+    // #187: vocal-isolation provenance — the opt-in stage always says
+    // whether the isolated estimate reached the backend.
+    vocal_isolation_applied: {
+      title: "ボーカル分離を使って採譜しました",
+      detail:
+        "中央定位のボーカル成分を推定してから採譜しています。完全な分離ではないため、伴奏の音が混ざる箇所は確認してください。",
+    },
+    vocal_isolation_unavailable: {
+      title: "ボーカル分離は適用されませんでした",
+      detail:
+        "モノラル音源または読み込み失敗のため、元の音源のまま採譜しました。ステレオのミックス音源で有効です。",
     },
     onset_uncertain: {
       title: "音の開始位置を確認してください",

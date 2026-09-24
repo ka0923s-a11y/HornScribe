@@ -772,6 +772,14 @@ body {
   font-size: var(--hs-font-size-subtitle);
   font-weight: var(--hs-font-weight-title);
 }
+/* #187: hint text under the vocal-isolation checkbox — same muted,
+   compact treatment as select hints. */
+.hs-audio-options__hint {
+  margin: calc(-1 * var(--hs-space-sm)) 0 0;
+  font-size: var(--hs-font-size-caption);
+  color: var(--hs-text-secondary);
+  max-width: 30em;
+}
 
 /* Error cards (§20 AUDIO_ERROR / SOURCE_MISSING): what failed, what is
    kept, the next action — always a recovery path, never a dead end. */

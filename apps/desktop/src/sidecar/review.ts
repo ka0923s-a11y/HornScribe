@@ -21,6 +21,9 @@ export const REVIEW_REASONS = [
   "meter_conflict",
   "swing_feel",
   "monophonic_backend",
+  // #187: vocal-isolation provenance — applied or reported unavailable.
+  "vocal_isolation_applied",
+  "vocal_isolation_unavailable",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
@@ -46,6 +49,8 @@ export const REVIEW_REASON_COPY_KEYS = [
   "swing_feel",
   "monophonic_backend",
   "tempo_uncertain",
+  "vocal_isolation_applied",
+  "vocal_isolation_unavailable",
   "onset_uncertain",
   "pitch_uncertain",
   "multiple_candidates",

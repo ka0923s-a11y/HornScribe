@@ -45,6 +45,12 @@ class ReviewReason(Enum):
     # #188: the auto-estimated tempo looks like a half/double pick —
     # evidence carries a suggested correction the UI can one-click.
     TEMPO_UNCERTAIN = "tempo_uncertain"
+    # #187: the opt-in vocal-isolation stage ran — the backend saw a
+    # center-extracted vocal estimate, not the raw mix (informational).
+    VOCAL_ISOLATION_APPLIED = "vocal_isolation_applied"
+    # #187: vocal isolation was requested but did not apply — mono
+    # source or a failed decode; the backend ran on the raw audio.
+    VOCAL_ISOLATION_UNAVAILABLE = "vocal_isolation_unavailable"
 
 
 class Severity(Enum):

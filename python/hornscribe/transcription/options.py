@@ -90,6 +90,9 @@ class TranscriptionParams:
     same-rhythm simultaneities render as in-part chords (#155);
     ``auto`` cleans monophonically first and falls back to top-voice
     when the overlap evidence says the source is a mix."""
+    # #187: opt-in vocal isolation — the backend runs on a
+    # center-extracted vocal estimate instead of the raw mix.
+    vocal_isolation: bool = False
 
     @classmethod
     def from_payload(cls, raw: Any) -> TranscriptionParams:
@@ -122,6 +125,7 @@ class TranscriptionParams:
         deadline_ms = cls._opt_float(raw, "deadlineMs", None, lo=1.0, hi=3_600_000.0)
         backend = cls._opt_choice(raw, "backend", "auto", _BACKENDS)
         texture = cls._opt_choice(raw, "texture", "auto", _TEXTURES)
+        vocal_isolation = raw.get("vocalIsolation", False) is True
         return cls(
             audio_path=audio_path,
             tempo_bpm=tempo_bpm,
@@ -135,6 +139,7 @@ class TranscriptionParams:
             deadline_ms=deadline_ms,
             backend=backend,
             texture=texture,
+            vocal_isolation=vocal_isolation,
         )
 
     def meter_segment(self) -> MeterSegment:
@@ -180,6 +185,7 @@ class TranscriptionParams:
             "selectionEndSec": self.selection_end_sec,
             "backend": self.backend,
             "texture": self.texture,
+            "vocalIsolation": self.vocal_isolation,
         }
 
     @staticmethod

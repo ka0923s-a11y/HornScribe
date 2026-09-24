@@ -19,6 +19,7 @@ import {
   Mic24Regular,
   Speaker2Regular,
 } from "@fluentui/react-icons";
+import { Checkbox } from "@fluentui/react-components";
 import { ja } from "../strings/ja";
 import { HsButton } from "../components/primitives/Button";
 import { HsNumericField } from "../components/primitives/NumericField";
@@ -305,6 +306,20 @@ function AudioReadyBody({
                 set({ backend: v as TranscriptionOptions["backend"] })
               }
             />
+            {/* #187: opt-in vocal isolation — center extraction is a
+                heuristic, so it stays a deliberate checkbox rather
+                than a default. The engine reports whether it applied
+                via a review issue either way. */}
+            <Checkbox
+              label={ja.import.audioOptions.vocalIsolation}
+              checked={options.vocalIsolation}
+              onChange={(_e, data) =>
+                set({ vocalIsolation: data.checked === true })
+              }
+            />
+            <p className="hs-audio-options__hint">
+              {ja.import.audioOptions.vocalIsolationHint}
+            </p>
             <HsSelect
               label={ja.import.audioOptions.tempo}
               options={TEMPO_OPTIONS}

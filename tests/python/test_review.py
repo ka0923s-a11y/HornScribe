@@ -46,6 +46,9 @@ def test_all_master_plan_reasons_exist() -> None:
             "swing_feel",
             "monophonic_backend",
             "tempo_uncertain",
+            # #187: vocal-isolation provenance reasons.
+            "vocal_isolation_applied",
+            "vocal_isolation_unavailable",
         }
     assert {r.value for r in ReviewReason} == expected
 

@@ -46,6 +46,8 @@ export interface TranscriptionJobParams {
   selectionEndSec?: number;
   backend?: string;
   texture?: string;
+  /** #187: opt-in vocal isolation (center extraction) for the job. */
+  vocalIsolation?: boolean;
 }
 
 export function buildTranscriptionParams(
@@ -83,6 +85,9 @@ export function buildTranscriptionParams(
   // "auto" is the engine default; pin mono/melody explicitly so the
   // choice is recorded in the job settings echo.
   if (options.texture !== "auto") params.texture = options.texture;
+  // #187: opt-in vocal isolation — false is the engine default; only
+  // an explicit on reaches the job so provenance stays honest.
+  if (options.vocalIsolation) params.vocalIsolation = true;
   if (options.range === "selection") {
     params.range = "selection";
     // The engine requires end > start for selection mode; clamp the
@@ -165,6 +170,7 @@ export function transcriptionOptionsFromSettings(
     range: pick("range", ["all", "selection"] as const, "all"),
     texture: pick("texture", ["auto", "mono", "melody", "voices", "chords"] as const, "auto"),
     backend: pick("backend", ["auto", "basicPitch", "pyin"] as const, "auto"),
+    vocalIsolation: s.vocalIsolation === true,
     // Selection seconds are source-relative; keep them verbatim so a
     // restored 範囲指定 re-runs over the same span of the same audio.
     selectionStartSec: num("selectionStartSec"),

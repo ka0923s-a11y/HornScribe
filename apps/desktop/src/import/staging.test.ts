@@ -171,4 +171,21 @@ describe("buildTranscriptionParams staged path", () => {
         .backend,
     ).toBeUndefined();
   });
+
+  it("#187: vocalIsolation reaches the job only when opted in", () => {
+    const a = audio({
+      ref: { kind: "path", path: "C:/orig.wav", name: "orig.wav" },
+    });
+    expect(
+      buildTranscriptionParams(a, DEFAULT_TRANSCRIPTION_OPTIONS, null)
+        .vocalIsolation,
+    ).toBeUndefined();
+    expect(
+      buildTranscriptionParams(
+        a,
+        { ...DEFAULT_TRANSCRIPTION_OPTIONS, vocalIsolation: true },
+        null,
+      ).vocalIsolation,
+    ).toBe(true);
+  });
 });

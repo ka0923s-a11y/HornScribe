@@ -151,3 +151,54 @@ def test_auto_mono_resolves_pyin_identity(tmp_path, monkeypatch) -> None:
     result = _run(tmp_path, {"backend": "auto", "texture": "mono"})
     assert result["meta"]["backend"] == PYIN_BACKEND_ID
     assert result["meta"]["transcriptionRevision"] == captured["revision"]
+
+
+def test_vocal_isolation_stages_isolated_wav(tmp_path, monkeypatch) -> None:
+    """#187: vocalIsolation=on runs the backend on the isolated WAV,
+    marks the result, and echoes the option in settings."""
+    captured: dict = {}
+
+    def fake(path, *args, **kw):
+        captured["path"] = path
+        return _events()
+
+    # Fake the isolation stage: the pipeline must consume whatever
+    # vocal_wav returns — a managed cache path here.
+    monkeypatch.setattr(
+        pipeline,
+        "vocal_wav",
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True),
+    )
+    result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
+    assert captured["path"] == "/tmp/hs-vocal.wav"
+    assert result["meta"]["settings"]["vocalIsolation"] is True
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "vocal_isolation_applied" in reasons
+
+
+def test_vocal_isolation_unavailable_reports_reason(
+    tmp_path, monkeypatch
+) -> None:
+    """#187: a failed/mono isolation falls back to the raw path and
+    the review issue says why — never silent."""
+    captured: dict = {}
+
+    def fake(path, *args, **kw):
+        captured["path"] = path
+        return _events()
+
+    monkeypatch.setattr(
+        pipeline,
+        "vocal_wav",
+        lambda *a, **k: (None, "mono_source", False),
+    )
+    result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
+    # Fallback: the backend saw the original audio path.
+    assert captured["path"].endswith("take.wav")
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "vocal_isolation_unavailable" in reasons
+    result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
+    # Fallback: the backend saw the original audio path.
+    assert captured["path"].endswith("take.wav")
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "vocal_isolation_unavailable" in reasons
