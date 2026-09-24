@@ -167,6 +167,7 @@ payload below).
 | key                  | type    | notes                                        |
 |----------------------|---------|----------------------------------------------|
 | `audioPath`          | string  | required — absolute path the engine reads    |
+| `displayName`        | string  | the user's file name for the score title — `audioPath` may be a staged temp path (#305) |
 | `tempoBpm`           | number  | manual tempo (primary-beat BPM); omit = auto |
 | `meter`              | string  | `"auto"` (accent-estimated) or `4/4,3/4,2/4,5/4,6/8,7/8,9/8,12/8` |
 | `minDuration`        | string  | `"8"`/`"16"`/`"32"` — finest notated value    |
@@ -176,8 +177,9 @@ payload below).
 | `selectionStartSec`  | number  | required with `range:"selection"`            |
 | `selectionEndSec`    | number  | required with `range:"selection"` (> start)  |
 | `deadlineMs`         | number  | wall-clock cap (same as demoLongTask)        |
-| `texture`            | string  | `"auto"`/`"mono"`/`"melody"`/`"voices"` — source texture hint (#85) |
+| `texture`            | string  | `"auto"`/`"mono"`/`"melody"`/`"voices"`/`"chords"` — source texture hint (#85, #155) |
 | `backend`            | string  | `"auto"`/`"basicPitch"`/`"pyin"` — engine selector; auto resolves pYIN for `texture:"mono"`, Basic Pitch otherwise (#175, #189) |
+| `vocalIsolation`     | bool    | opt-in vocal isolation — center extraction, or demucs when the `engine-vocal` extra is installed (#187, #302) |
 
 #### `completed` → `result` (`transcription`) [ENG-002]
 
