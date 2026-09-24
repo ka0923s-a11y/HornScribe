@@ -130,3 +130,37 @@ def test_no_gui_dependency() -> None:
     offenders = ("tkinter", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "gi")
     loaded = {m.split(".")[0] for m in sys.modules}
     assert not (set(offenders) & loaded)
+
+
+def _abs_note_ons(mid: mido.MidiFile) -> list[int]:
+    """Absolute ticks of every note_on (velocity>0) across tracks."""
+    out: list[int] = []
+    for track in mid.tracks:
+        t = 0
+        for m in track:
+            t += m.time
+            if m.type == "note_on" and m.velocity > 0:
+                out.append(t)
+    return out
+
+
+def test_swing_feel_warps_offbeats() -> None:
+    """#206: a swing-marked score exports swung timing, not straight."""
+    from dataclasses import replace
+
+    # Eighth-note pairs: written 1/2 sounds at 2/3 of the beat.
+    score = make_score([(60, 0, "1/2"), (62, "1/2", "1/2"), (64, 1, 1)])
+    score = replace(
+        score,
+        payload=replace(score.payload, swing_feel=Fraction(2, 3)),
+    )
+    mid = _parse(playback_midi_bytes(score))
+    # 480 PPQ per quarter: written 1/2 -> sounding 2/3 -> 320 ticks.
+    assert _abs_note_ons(mid) == [0, 320, 480]
+
+
+def test_straight_score_bytes_unchanged_by_swing_path() -> None:
+    """No swing_feel -> the export path is byte-identical to before."""
+    score = make_score([(60, 0, "1/2"), (62, "1/2", "1/2"), (64, 1, 1)])
+    mid = _parse(playback_midi_bytes(score))
+    assert _abs_note_ons(mid) == [0, 240, 480]

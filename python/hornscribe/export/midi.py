@@ -12,6 +12,7 @@ ambiguous about its own pitch space.
 from __future__ import annotations
 
 import io
+from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
 
@@ -62,6 +63,45 @@ def _beat_to_tick(beat: Fraction, beat_unit: int, ticks_per_beat: int) -> int:
     return int(rounded)
 
 
+def _beat_to_tick_swung(
+    beat: Fraction, beat_unit: int, ticks_per_beat: int
+) -> int:
+    """Tick conversion for swing-warped positions (#206).
+
+    A swung phase like 4/9 of a quarter is not exactly representable in
+    PPQ — the warp is a playback feel, so the nearest tick is honest
+    (unlike written notation positions, which must stay exact).
+    """
+    return int(round(beat * Fraction(4 * ticks_per_beat, beat_unit)))
+
+
+def _swing_warper(
+    swing_feel: Fraction | None,
+) -> Callable[[Fraction], Fraction]:
+    """Written-beat phase warp for swung playback (#206).
+
+    Mirrors the desktop audition warp (score/swingWarp.ts): inside each
+    canonical beat cell the written midpoint (phase 1/2) sounds at
+    phase ``swing_feel``; the two halves scale linearly so beat onsets
+    and measure boundaries stay fixed. Straight scores get the
+    identity — identical input still yields identical bytes.
+    """
+    if swing_feel is None:
+        return lambda beat: beat
+    p = swing_feel
+
+    def warp(beat: Fraction) -> Fraction:
+        cell = beat.numerator // beat.denominator
+        phase = beat - cell
+        if phase <= Fraction(1, 2):
+            swung = phase * 2 * p
+        else:
+            swung = p + (phase - Fraction(1, 2)) * 2 * (1 - p)
+        return Fraction(cell) + swung
+
+    return warp
+
+
 def _tempo_us_per_quarter(bpm: float, primary_beat_ql: Fraction) -> int:
     """Score bpm (per primary beat) -> microseconds per MIDI quarter note."""
     if bpm <= 0:
@@ -92,6 +132,7 @@ def playback_midi_bytes(
     """
     payload = score.payload
     ts = payload.time_signature
+    swing_warp = _swing_warper(payload.swing_feel)
 
     mid = mido.MidiFile(type=1, ticks_per_beat=ticks_per_beat)
 
@@ -139,10 +180,30 @@ def playback_midi_bytes(
         events: list[tuple[int, int, mido.Message]] = []
         events.append((0, 0, mido.Message("program_change", channel=channel, program=gm_program)))
         for n in part.notes:
-            on_tick = _beat_to_tick(n.start_beat, ts.beat_unit, ticks_per_beat)
-            off_tick = _beat_to_tick(n.start_beat + n.duration_beats, ts.beat_unit, ticks_per_beat)
+            # #206: swung scores shift offbeat onsets/offsets just like
+            # the audition does — otherwise the exported MIDI plays
+            # straight against a score marked Swing.
+            to_tick = (
+                _beat_to_tick_swung
+                if payload.swing_feel is not None
+                else _beat_to_tick
+            )
+            on_tick = to_tick(
+                swing_warp(n.start_beat), ts.beat_unit, ticks_per_beat
+            )
+            off_tick = to_tick(
+                swing_warp(n.start_beat + n.duration_beats),
+                ts.beat_unit,
+                ticks_per_beat,
+            )
             if off_tick <= on_tick:
-                raise MidiExportError(f"note {n.id} has non-positive duration in ticks")
+                if payload.swing_feel is not None:
+                    # Tick rounding collapsed a swung micro-note — keep
+                    # it audible at one tick rather than failing the
+                    # whole export.
+                    off_tick = on_tick + 1
+                else:
+                    raise MidiExportError(f"note {n.id} has non-positive duration in ticks")
             total_ticks = max(total_ticks, off_tick)
             velocity = n.velocity if n.velocity is not None else _DEFAULT_VELOCITY
             note_on = mido.Message(
