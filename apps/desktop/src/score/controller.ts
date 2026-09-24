@@ -33,6 +33,8 @@ export interface ScoreWorkspaceController {
   toggleSelectedTie?(): void;
   /** #115 (spec 14): set the piece tempo (BPM) — undoable engine edit. */
   setTempo?(bpm: number): void;
+  /** #129 (spec 14): set the piece meter — full re-tile engine edit. */
+  setMeter?(beatsPerMeasure: number, beatUnit: number): void;
 
   // ---- transport (§9) — no-ops until a clock exists ----
   togglePlayPause(): void;

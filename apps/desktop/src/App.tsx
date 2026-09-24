@@ -1360,6 +1360,9 @@ export default function App() {
                     onTempoChange={(bpm) =>
                       scoreCtlRef.current?.setTempo?.(bpm)
                     }
+                    onMeterChange={(b, u) =>
+                      scoreCtlRef.current?.setMeter?.(b, u)
+                    }
                   />
                 ) : null}
               </div>

@@ -56,6 +56,10 @@ export interface ScoreInspectorModel {
   /** Raw tempo for the editable BPM field (#115 setTempo). */
   readonly tempoBpm: number | null;
   readonly meterLabel: string | null;
+  /** Raw meter for the editable field (#129 setMeter), parsed from the
+   *  "n/m" label — null when the score carries no usable signature. */
+  readonly meterBeats: number | null;
+  readonly meterUnit: number | null;
   readonly keyLabel: string | null;
   readonly measureLabel: string;
   readonly noteLabel: string;
@@ -130,18 +134,34 @@ export function keyLabelJa(fifths: number): string {
   return FIFTHS_JA[String(fifths)] ?? `${fifths}`;
 }
 
+/** Parse a "n/m" meter label into raw signature parts (#129). */
+export function parseMeterLabel(
+  label: string | null,
+): { beats: number; unit: number } | null {
+  if (!label) return null;
+  const m = /^(\d+)\s*\/\s*(\d+)$/.exec(label.trim());
+  if (!m) return null;
+  const beats = Number(m[1]);
+  const unit = Number(m[2]);
+  if (!Number.isSafeInteger(beats) || !Number.isSafeInteger(unit)) return null;
+  return { beats, unit };
+}
+
 /** Nothing-selected summary (§22 "Nothing selected" → project/score info). */
 export function buildScoreInspector(
   meta: ScoreDocumentMeta,
   openIssueCount: number,
   copy: InspectorCopy,
 ): ScoreInspectorModel {
+  const meter = parseMeterLabel(meta.meter);
   return {
     kind: "score",
     title: meta.title,
     tempoLabel: meta.tempoBpm != null ? copy.tempo(meta.tempoBpm) : null,
     tempoBpm: meta.tempoBpm,
     meterLabel: meta.meter,
+    meterBeats: meter?.beats ?? null,
+    meterUnit: meter?.unit ?? null,
     keyLabel: meta.keyFifths != null ? copy.key(meta.keyFifths) : null,
     measureLabel: copy.measureCount(meta.measureCount),
     noteLabel: copy.noteCount(meta.noteCount),

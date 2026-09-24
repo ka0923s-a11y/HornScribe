@@ -15,9 +15,12 @@ import pytest
 from hornscribe.domain.ids import ProjectId, RawNoteEventId, ScoreNoteId
 from hornscribe.domain.score import (
     KeySignature,
+    MeterChange,
     Part,
     QuantizedNote,
+    ScoreAtom,
     ScoreDocument,
+    ScoreRest,
     ScoreRevisionPayload,
     TempoSegment,
     TimeSignature,
@@ -239,6 +242,138 @@ class TestSetTempo:
         doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
         out = apply_score_edit(doc, _edit("setTempo", "", bpm=140.0))
         assert out.payload.parts[0].notes == doc.payload.parts[0].notes
+
+
+class TestSetMeter:
+    def test_same_unit_retiles(self) -> None:
+        # 4/4 -> 3/4: positions unchanged, atoms re-decomposed to the
+        # new barlines, a quarter at beat 3 now sits across a barline.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "3", "1")])
+        out = apply_score_edit(
+            doc, _edit("setMeter", "", beatsPerMeasure=3, beatUnit=4)
+        )
+        assert out.payload.time_signature == TimeSignature(
+            beats_per_measure=3, beat_unit=4
+        )
+        notes = out.payload.parts[0].notes
+        assert notes[0].start_beat == Fraction(0)
+        assert notes[1].start_beat == Fraction(3)
+        assert notes[1].duration_beats == Fraction(1)
+        assert out.revision != doc.revision
+
+    def test_unit_change_rescales_positions(self) -> None:
+        # 4/4 -> 6/8: beat axis doubles (eighth-note beats), absolute
+        # durations preserved — a quarter becomes 2 eighth-beats.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(
+            doc, _edit("setMeter", "", beatsPerMeasure=6, beatUnit=8)
+        )
+        notes = out.payload.parts[0].notes
+        assert notes[0].start_beat == Fraction(0)
+        assert notes[0].duration_beats == Fraction(2)
+        assert notes[1].start_beat == Fraction(2)
+        assert notes[1].duration_beats == Fraction(2)
+
+    def test_tempo_map_and_pickup_rescale(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                pickup_beats=Fraction(1),
+                tempo_map=(
+                    TempoSegment(start_beat=Fraction(0), bpm=120.0),
+                    TempoSegment(start_beat=Fraction(4), bpm=90.0),
+                ),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("setMeter", "", beatsPerMeasure=6, beatUnit=8)
+        )
+        assert out.payload.pickup_beats == Fraction(2)
+        assert out.payload.tempo_map[1].start_beat == Fraction(8)
+        assert out.payload.tempo_map[1].bpm == 90.0
+
+    def test_meter_changes_collapsed(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        change = MeterChange(
+            start_beat=Fraction(0),
+            time_signature=TimeSignature(beats_per_measure=4, beat_unit=4),
+            measure_phase_beats=Fraction(0),
+        )
+        doc = replace(
+            doc,
+            payload=replace(doc.payload, meter_changes=(change,)),
+        )
+        out = apply_score_edit(
+            doc, _edit("setMeter", "", beatsPerMeasure=3, beatUnit=4)
+        )
+        assert out.payload.meter_changes == ()
+        assert out.payload.time_signature.beats_per_measure == 3
+
+    def test_rests_retiled(self) -> None:
+        # Note at beat 0, rest tiling beats 1-4 in 4/4; under 3/4 the
+        # rest must re-decompose across the new barlines.
+        doc = _doc([_note(1, 60, "0", "1")])
+        part = doc.payload.parts[0]
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                parts=(
+                    replace(
+                        part,
+                        rests=(
+                            ScoreRest(
+                                start_beat=Fraction(1),
+                                atoms=(
+                                    ScoreAtom(
+                                        duration_beats=Fraction(3),
+                                        symbol="half",
+                                        dots=1,
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("setMeter", "", beatsPerMeasure=3, beatUnit=4)
+        )
+        rests = out.payload.parts[0].rests
+        assert rests, "rest span must survive the re-tile"
+        total = sum((r.duration_beats for r in rests), Fraction(0))
+        assert total == Fraction(3)
+
+    def test_missing_fields_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="requires"):
+            ScoreEdit.from_dict({"kind": "setMeter", "noteId": ""})
+        with pytest.raises(ScoreEditError, match="requires"):
+            ScoreEdit.from_dict(
+                {"kind": "setMeter", "noteId": "", "beatsPerMeasure": 3}
+            )
+
+    def test_invalid_meter_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="beatUnit"):
+            ScoreEdit.from_dict(
+                {
+                    "kind": "setMeter",
+                    "noteId": "",
+                    "beatsPerMeasure": 4,
+                    "beatUnit": 3,
+                }
+            )
+        with pytest.raises(ScoreEditError, match="beatsPerMeasure"):
+            ScoreEdit.from_dict(
+                {
+                    "kind": "setMeter",
+                    "noteId": "",
+                    "beatsPerMeasure": 0,
+                    "beatUnit": 4,
+                }
+            )
 
 
 class TestEditParsing:

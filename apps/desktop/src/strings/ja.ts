@@ -484,6 +484,7 @@ export const ja = {
     rhythmEditFailed: "この編集は適用できません",
     rhythmEditUnavailable: "この楽譜ではリズム編集を利用できません",
     tempoChanged: "テンポを変更しました",
+    meterChanged: "拍子を変更しました",
     // #113: media A-B loop arming (transport.toggleLoop on AUDIO_READY).
     loopOn: "ループをオンにしました",
     loopOff: "ループをオフにしました",

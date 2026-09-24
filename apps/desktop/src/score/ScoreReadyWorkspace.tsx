@@ -1069,6 +1069,24 @@ export function ScoreReadyWorkspace({
     [applyRhythmEdit],
   );
 
+  /* #129 (spec 14): meter edit — the engine re-tiles every part under
+   * the new signature (positions rescale when the beat unit changes);
+   * same serialized queue + undo stack as the other rhythm edits. */
+  const setMeter = useCallback(
+    (beatsPerMeasure: number, beatUnit: number) => {
+      applyRhythmEdit(
+        () => ({
+          kind: "setMeter",
+          noteId: "",
+          beatsPerMeasure,
+          beatUnit,
+        }),
+        ja.commandFeedback.meterChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   const reviewUndo = useCallback(() => {
     const edit = session.undo();
     if (!edit) {
@@ -1213,6 +1231,7 @@ export function ScoreReadyWorkspace({
       shiftSelectedOnset: (steps) => shiftSelectedOnset(steps),
       toggleSelectedTie: () => toggleSelectedTie(),
       setTempo: (bpm) => setTempo(bpm),
+      setMeter: (bpm_, bu) => setMeter(bpm_, bu),
     };
     controllerRef(controller);
     return () => controllerRef(null);
@@ -1240,6 +1259,7 @@ export function ScoreReadyWorkspace({
     shiftSelectedOnset,
     toggleSelectedTie,
     setTempo,
+    setMeter,
     announce,
   ]);
 

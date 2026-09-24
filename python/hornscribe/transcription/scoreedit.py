@@ -32,6 +32,7 @@ from hornscribe.domain.score import (
     ScoreRest,
     ScoreRevisionPayload,
     TempoSegment,
+    TimeSignature,
     beat_ql_of,
     measure_spans,
 )
@@ -67,17 +68,25 @@ class ScoreEdit:
     duration_beats: Fraction | None = None
     steps: int = 0
     bpm: float | None = None
+    beats_per_measure: int | None = None
+    beat_unit: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
         kind = data.get("kind")
-        if kind not in ("setDuration", "shiftOnset", "toggleTie", "setTempo"):
+        if kind not in (
+            "setDuration",
+            "shiftOnset",
+            "toggleTie",
+            "setTempo",
+            "setMeter",
+        ):
             raise ScoreEditError(
-                f"edit.kind must be setDuration/shiftOnset/toggleTie/setTempo, "
-                f"got {kind!r}"
+                "edit.kind must be setDuration/shiftOnset/toggleTie/"
+                f"setTempo/setMeter, got {kind!r}"
             )
         note_id = data.get("noteId")
-        if kind == "setTempo":
+        if kind in ("setTempo", "setMeter"):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
             raise ScoreEditError("edit.noteId must be a non-empty string")
@@ -97,6 +106,21 @@ class ScoreEdit:
                 )
         if kind == "setTempo" and bpm is None:
             raise ScoreEditError("setTempo requires bpm")
+        beats_per_measure = _opt_int(data, "beatsPerMeasure")
+        beat_unit = _opt_int(data, "beatUnit")
+        if kind == "setMeter":
+            if beats_per_measure is None or beat_unit is None:
+                raise ScoreEditError(
+                    "setMeter requires beatsPerMeasure and beatUnit"
+                )
+            if not (1 <= beats_per_measure <= 64):
+                raise ScoreEditError(
+                    f"beatsPerMeasure {beats_per_measure} outside 1-64"
+                )
+            if beat_unit not in (1, 2, 4, 8, 16, 32, 64):
+                raise ScoreEditError(
+                    f"beatUnit {beat_unit} must be a power of two (1-64)"
+                )
         duration = data.get("durationBeats")
         try:
             duration_beats = (
@@ -117,7 +141,18 @@ class ScoreEdit:
             duration_beats=duration_beats,
             steps=steps,
             bpm=bpm,
+            beats_per_measure=beats_per_measure,
+            beat_unit=beat_unit,
         )
+
+
+def _opt_int(data: dict[str, Any], key: str) -> int | None:
+    raw = data.get(key)
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ScoreEditError(f"edit.{key} must be an int, got {raw!r}")
+    return raw
 
 
 def _profile_from_settings(settings: dict[str, Any]) -> QuantizationProfile:
@@ -456,6 +491,107 @@ def _apply_tie_toggle(
     return replace(part, notes=tuple(notes))
 
 
+def _apply_set_meter(
+    payload: ScoreRevisionPayload, ts: TimeSignature
+) -> ScoreRevisionPayload:
+    """Set the piece's meter (§14 meter edit) and re-tile every part.
+
+    The canonical beat axis is defined by the *first* time signature's
+    beat unit (beat_ql_of), so changing the unit rescales every beat
+    position by new_unit / old_unit — absolute durations are preserved.
+    Notes, rest spans (re-tiled anyway), the tempo map and the pickup
+    all scale together; note atoms are cleared first because a scaled
+    duration would violate the atoms-tile-duration invariant.
+
+    Mid-piece meter changes are collapsed: the edit sets the whole
+    piece's meter, so the resulting payload carries none (the single
+    time_signature field is authoritative again). The pickup keeps its
+    absolute span — a one-beat pickup stays one notated beat under the
+    new signature.
+    """
+    old_ts = payload.time_signature
+    old_beat_ql = Fraction(4, old_ts.beat_unit)
+    new_beat_ql = Fraction(4, ts.beat_unit)
+    # beat_ql is the quarter-length OF one beat; positions scale by the
+    # inverse so beats * beat_ql (absolute QL) is preserved.
+    scale = old_beat_ql / new_beat_ql  # = ts.beat_unit / old_ts.beat_unit
+
+    profile = _profile_from_settings(payload.quantization_settings)
+    pickup_ql = payload.pickup_beats * old_beat_ql
+    measure_ql = Fraction(ts.beats_per_measure) * new_beat_ql
+    phase_ql = (measure_ql - pickup_ql) % measure_ql if pickup_ql else Fraction(0)
+    meter_map = MeterMap(
+        (
+            MeterSegment(
+                start_ql=Fraction(0),
+                numerator=ts.beats_per_measure,
+                denominator=ts.beat_unit,
+                measure_phase_ql=phase_ql,
+            ),
+        )
+    )
+
+    new_parts: list[Part] = []
+    for part in payload.parts:
+        scaled: list[QuantizedNote] = []
+        for n in part.notes:
+            if scale == 1:
+                scaled.append(n)
+            else:
+                scaled.append(
+                    replace(
+                        n,
+                        start_beat=n.start_beat * scale,
+                        duration_beats=n.duration_beats * scale,
+                        # A scaled span invalidates the committed atom
+                        # decomposition — re-tiling rebuilds it below.
+                        atoms=(),
+                    )
+                )
+        # The re-tile window covers notes AND existing rest spans so a
+        # trailing rest keeps its span under the new layout.
+        lo = Fraction(0)
+        hi = Fraction(0)
+        for n in scaled:
+            hi = max(hi, n.end_beat)
+        for r in part.rests:
+            hi = max(hi, (r.start_beat + r.duration_beats) * scale)
+        regions = _triplet_regions(tuple(scaled), meter_map, profile, new_beat_ql)
+        realizer = SpanRealizer(meter_map, profile, triplet_regions=regions)
+        if hi > lo:
+            try:
+                new_notes, new_rests = _retile_window(
+                    scaled, lo, hi, realizer, new_beat_ql
+                )
+            except ValueError as exc:
+                raise ScoreEditError(
+                    "the score's rhythm cannot be written in "
+                    f"{ts.beats_per_measure}/{ts.beat_unit}: {exc}"
+                ) from exc
+            new_parts.append(
+                replace(
+                    part,
+                    notes=tuple(new_notes),
+                    rests=tuple(new_rests),
+                )
+            )
+        else:
+            new_parts.append(replace(part, notes=tuple(scaled), rests=()))
+
+    tempo_map = tuple(
+        replace(seg, start_beat=seg.start_beat * scale)
+        for seg in payload.tempo_map
+    )
+    return replace(
+        payload,
+        time_signature=ts,
+        pickup_beats=pickup_ql / new_beat_ql,
+        meter_changes=(),
+        tempo_map=tempo_map,
+        parts=tuple(new_parts),
+    )
+
+
 def _apply_set_tempo(
     payload: ScoreRevisionPayload, bpm: float
 ) -> ScoreRevisionPayload:
@@ -490,6 +626,17 @@ def apply_score_edit(
         if edit.bpm is None:
             raise ScoreEditError("setTempo requires bpm")
         new_payload = _apply_set_tempo(payload, edit.bpm)
+        return replace(document, payload=new_payload)
+    if edit.kind == "setMeter":
+        if edit.beats_per_measure is None or edit.beat_unit is None:
+            raise ScoreEditError(
+                "setMeter requires beatsPerMeasure and beatUnit"
+            )
+        ts = TimeSignature(
+            beats_per_measure=edit.beats_per_measure,
+            beat_unit=edit.beat_unit,
+        )
+        new_payload = _apply_set_meter(payload, ts)
         return replace(document, payload=new_payload)
     # Locate the note across parts (single-part today, but the loop is
     # free).

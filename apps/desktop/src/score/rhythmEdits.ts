@@ -18,7 +18,8 @@ export type RhythmEditKind =
   | "setDuration"
   | "shiftOnset"
   | "toggleTie"
-  | "setTempo";
+  | "setTempo"
+  | "setMeter";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -31,6 +32,9 @@ export interface RhythmEditOp {
   readonly steps?: number;
   /** setTempo only: new head tempo (20-400, engine-validated). */
   readonly bpm?: number;
+  /** setMeter only: new time signature (engine-validated). */
+  readonly beatsPerMeasure?: number;
+  readonly beatUnit?: number;
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

@@ -4,6 +4,7 @@ import { Dismiss16Regular } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import { HsIconButton } from "./primitives/IconButton";
 import { HsNumericField } from "./primitives/NumericField";
+import { HsSelect } from "./primitives/Select";
 import type { InspectorContent } from "../workspace/inspector";
 import { startPointerResize } from "../workspace/layout";
 import {
@@ -41,6 +42,7 @@ export function PropertiesPanel({
   onReset,
   onClose,
   onTempoChange,
+  onMeterChange,
 }: {
   content: InspectorContent;
   /** UI-030 feature inspector view-model (note/score/range bodies). */
@@ -57,6 +59,8 @@ export function PropertiesPanel({
   onClose(): void;
   /** §14: commit a new head tempo (BPM) via the engine score.edit. */
   onTempoChange?(bpm: number): void;
+  /** #129 (§14): commit a new meter via the engine score.edit. */
+  onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
 }) {
   const body =
     model && model.kind !== "empty" ? model.kind : content.kind;
@@ -87,6 +91,7 @@ export function PropertiesPanel({
               model={model}
               pitch={pitch}
               onTempoChange={onTempoChange}
+              onMeterChange={onMeterChange}
             />
           ) : (
             <p className="hs-properties__placeholder">
@@ -129,13 +134,21 @@ function InspectorBody({
   model,
   pitch,
   onTempoChange,
+  onMeterChange,
 }: {
   model: InspectorModel;
   pitch: PitchView;
   onTempoChange?(bpm: number): void;
+  onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
 }) {
   if (model.kind === "score") {
-    return <ScoreBody model={model} onTempoChange={onTempoChange} />;
+    return (
+      <ScoreBody
+        model={model}
+        onTempoChange={onTempoChange}
+        onMeterChange={onMeterChange}
+      />
+    );
   }
   if (model.kind === "note") return <NoteBody model={model} pitch={pitch} />;
   if (model.kind === "range") {
@@ -154,9 +167,11 @@ function InspectorBody({
 function ScoreBody({
   model,
   onTempoChange,
+  onMeterChange,
 }: {
   model: ScoreInspectorModel;
   onTempoChange?(bpm: number): void;
+  onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
 }) {
   const f = ja.inspector.summaryFields;
   return (
@@ -168,7 +183,15 @@ function ScoreBody({
         ) : (
           model.tempoLabel && <Row label={f.tempo} value={model.tempoLabel} />
         )}
-        {model.meterLabel && <Row label={f.meter} value={model.meterLabel} />}
+        {model.meterBeats != null && model.meterUnit != null && onMeterChange ? (
+          <MeterField
+            beats={model.meterBeats}
+            unit={model.meterUnit}
+            onCommit={onMeterChange}
+          />
+        ) : (
+          model.meterLabel && <Row label={f.meter} value={model.meterLabel} />
+        )}
         {model.keyLabel && <Row label={f.key} value={model.keyLabel} />}
         <Row label={f.measures} value={model.measureLabel} />
         <Row label={f.notes} value={model.noteLabel} />
@@ -238,6 +261,58 @@ function TempoField({
         onChange={(v) => {
           setDraft(v);
           if (v != null) commitValue(v);
+        }}
+      />
+    </div>
+  );
+}
+
+/* #129 (§14) meter edit: the score summary's meter row becomes a
+ * select over the common signatures. Choosing a new value commits
+ * immediately — the engine re-tiles the whole score, so a no-op pick
+ * (same signature) is filtered out here. */
+const METER_OPTIONS = [
+  "2/4",
+  "3/4",
+  "4/4",
+  "5/4",
+  "6/8",
+  "9/8",
+  "12/8",
+  "2/2",
+  "3/8",
+  "7/8",
+] as const;
+
+function MeterField({
+  beats,
+  unit,
+  onCommit,
+}: {
+  beats: number;
+  unit: number;
+  onCommit(beatsPerMeasure: number, beatUnit: number): void;
+}) {
+  const f = ja.inspector.summaryFields;
+  const current = `${beats}/${unit}`;
+  // An unusual current meter (e.g. 5/8 from the engine) stays selectable
+  // so the field reflects the score instead of snapping to a preset.
+  const values = METER_OPTIONS.includes(current as (typeof METER_OPTIONS)[number])
+    ? METER_OPTIONS
+    : [current, ...METER_OPTIONS];
+  return (
+    <div className="hs-properties__meter">
+      <HsSelect
+        label={f.meter}
+        value={current}
+        options={values.map((v) => ({ value: v, label: v }))}
+        onChange={(v) => {
+          const m = /^(\d+)\/(\d+)$/.exec(v);
+          if (!m) return;
+          const b = Number(m[1]);
+          const u = Number(m[2]);
+          if (b === beats && u === unit) return;
+          onCommit(b, u);
         }}
       />
     </div>
