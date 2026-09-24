@@ -13,7 +13,6 @@
 //! `capture_devices` で列挙したエンドポイント ID を選べる(#73)。
 //! 同時に 1 セッションのみ。
 
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -106,8 +105,11 @@ pub struct CaptureDevice {
 
 /// ワーカースレッドに渡される共有状態。
 struct SharedBuf {
-    /// f32 サンプル(インターリーブ済み)。上限で切り詰める。
-    samples: VecDeque<f32>,
+    /// #235: 録音データは RAM に積まず temp WAV へ逐次書き出す。
+    /// 長時間録音でも capture buffer は bounded (PCM16 のパケット分のみ)。
+    /// ワーカーが持つ temp ファイルの絶対パス — stop で確定名へ rename、
+    /// cancel/エラーで削除する。
+    temp_path: Option<std::path::PathBuf>,
     /// `true` でワーカーが終了処理に入る(取得ループを抜ける)。
     stopping: bool,
     /// `true` で取得を一時停止(#80)。停止中はクライアントを止めて
@@ -231,6 +233,7 @@ pub fn capture_resume() -> Result<(), String> {
 /// すでに録音中なら `Err("CAPTURE_BUSY")`。
 #[tauri::command]
 pub fn capture_start(
+    app: tauri::AppHandle,
     source: String,
     device_id: Option<String>,
     suggested_name: Option<String>,
@@ -247,7 +250,7 @@ pub fn capture_start(
     }
 
     let shared = Arc::new(Mutex::new(SharedBuf {
-        samples: VecDeque::new(),
+        temp_path: None,
         stopping: false,
         paused: false,
         error: None,
@@ -268,12 +271,18 @@ pub fn capture_start(
         channels,
     };
 
+    // #235: the worker streams PCM16 into a temp WAV under recordings/
+    // so RAM stays bounded regardless of recording length. Prune orphans
+    // from crashed sessions first — a stale .part has no live writer.
+    let rec_dir = recordings_dir(&app)?;
+    std::fs::create_dir_all(&rec_dir).map_err(|e| format!("recordings dir: {e}"))?;
+    prune_orphan_parts(&rec_dir);
     let shared_t = Arc::clone(&shared);
     let cancel_t = Arc::clone(&cancel);
     let device_id_t = device_id.clone();
     let handle = std::thread::Builder::new()
         .name("hornscribe-capture".into())
-        .spawn(move || capture_thread(src, device_id_t, shared_t, cancel_t))
+        .spawn(move || capture_thread(src, device_id_t, rec_dir, shared_t, cancel_t))
         .map_err(|e| format!("spawn capture thread: {e}"))?;
 
     *guard = Some(ActiveSession {
@@ -369,18 +378,22 @@ pub fn capture_stop(app: tauri::AppHandle) -> Result<CaptureResult, String> {
 
     let mut s = session.shared.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(err) = s.error.take() {
+        // #235: a failed session leaves its partial temp — remove it so
+        // recordings/ never accumulates broken captures.
+        if let Some(p) = s.temp_path.take() {
+            let _ = std::fs::remove_file(p);
+        }
         return Err(err);
     }
 
-    let channels = session.info.channels as usize;
-    let frames = (s.frames as usize).min(s.samples.len() / channels.max(1));
-    let samples: Vec<f32> = s
-        .samples
-        .drain(..)
-        .take(frames * channels)
-        .collect();
-    let wav = encode_wav(&samples, session.info.sample_rate, session.info.channels);
-    let path = save_wav(&app, &session.suggested_name, &wav)?;
+    // #235: the worker already finalized the temp WAV (header patched,
+    // flushed) — stop only renames it to the user-facing file name.
+    let temp = s
+        .temp_path
+        .take()
+        .ok_or("capture produced no audio file")?;
+    let path = finalize_wav(&app, &session.suggested_name, &temp)?;
+    let frames = s.frames;
     let duration_seconds = if session.info.sample_rate > 0 {
         frames as f64 / session.info.sample_rate as f64
     } else {
@@ -414,6 +427,13 @@ pub fn capture_cancel() -> Result<(), String> {
     }
     session.cancel.store(true, Ordering::SeqCst);
     let _ = session.handle.join();
+    // #235: drop the partial temp — cancel must leave no artifact.
+    {
+        let mut s = session.shared.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(p) = s.temp_path.take() {
+            let _ = std::fs::remove_file(p);
+        }
+    }
     Ok(())
 }
 
@@ -849,27 +869,71 @@ fn device_friendly_name(device: &IMMDevice) -> Option<String> {
     }
 }
 
-/// 取得ループ本体。`SharedBuf` に f32 サンプルを積み、`stopping`/`cancel`
-/// で抜ける。WASAPI 共有モードで 10ms 粒度のイベント駆動取得。
+/// 取得ループ本体。#235: サンプルは temp WAV へ逐次書き出し、共有状態には
+/// 統計・パスだけを残す。`stopping`/`cancel` で抜ける。
 fn capture_thread(
     source: CaptureSource,
     device_id: Option<String>,
+    rec_dir: std::path::PathBuf,
     shared: Arc<Mutex<SharedBuf>>,
     cancel: Arc<AtomicBool>,
 ) {
-    if let Err(e) = run_capture(source, device_id.as_deref(), &shared, &cancel) {
+    if let Err(e) = run_capture(source, device_id.as_deref(), &rec_dir, &shared, &cancel) {
         let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
         s.error = Some(e);
     }
 }
 
+/// temp WAV を開く。ヘッダは data_len=0 のプレースホルダで書き、
+/// 停止時に実サイズへ書き直す(シークして上書き)。
+fn open_temp_wav(rec_dir: &std::path::Path) -> Result<(std::path::PathBuf, std::fs::File), String> {
+    use std::io::Write;
+    let name = format!(
+        "recording-{}-{}.part",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let path = rec_dir.join(name);
+    let mut file = std::fs::File::create(&path)
+        .map_err(|e| format!("create {}: {e}", path.display()))?;
+    file.write_all(&wav_header(0, 48_000, 2))
+        .map_err(|e| format!("write wav header: {e}"))?;
+    Ok((path, file))
+}
+
+/// WAV ヘッダ(44バイト)を生成する。`data_len` は PCM16 バイト数。
+fn wav_header(data_len: u32, sample_rate: u32, channels: u16) -> [u8; 44] {
+    let byte_rate = sample_rate * channels as u32 * 2;
+    let block_align = channels * 2;
+    let mut out = [0u8; 44];
+    out[0..4].copy_from_slice(b"RIFF");
+    out[4..8].copy_from_slice(&(36 + data_len).to_le_bytes());
+    out[8..12].copy_from_slice(b"WAVE");
+    out[12..16].copy_from_slice(b"fmt ");
+    out[16..20].copy_from_slice(&16u32.to_le_bytes());
+    out[20..22].copy_from_slice(&1u16.to_le_bytes()); // PCM
+    out[22..24].copy_from_slice(&channels.to_le_bytes());
+    out[24..28].copy_from_slice(&sample_rate.to_le_bytes());
+    out[28..32].copy_from_slice(&byte_rate.to_le_bytes());
+    out[32..34].copy_from_slice(&block_align.to_le_bytes());
+    out[34..36].copy_from_slice(&16u16.to_le_bytes());
+    out[36..40].copy_from_slice(b"data");
+    out[40..44].copy_from_slice(&data_len.to_le_bytes());
+    out
+}
+
 fn run_capture(
     source: CaptureSource,
     device_id: Option<&str>,
+    rec_dir: &std::path::Path,
     shared: &Arc<Mutex<SharedBuf>>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     unsafe {
+        use std::io::{Seek, SeekFrom, Write};
         let _com = ComInit::new()?;
         let enumerator: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
@@ -890,6 +954,9 @@ fn run_capture(
         // SubFormat を見て判定する。
         let fmt: WAVEFORMATEX = *fmt_ptr;
         let (sample_rate, channels, is_float, bits) = describe_format(&fmt);
+        // nChannels >= 1 per WASAPI, but clamp so a broken driver cannot
+        // turn stride math into a division/chunk panic.
+        let channels = channels.max(1);
         let block_align = fmt.nBlockAlign as usize;
 
         // 100ms バッファで十分大きく取る。ループバックはイベント駆動不可
@@ -914,9 +981,17 @@ fn run_capture(
             .Start()
             .map_err(|e| format!("IAudioClient::Start: {}", hresult_message(&e)))?;
 
-        let max_samples = (sample_rate as usize)
-            .saturating_mul(channels)
-            .saturating_mul((MAX_SECONDS + MAX_SECONDS_SLACK) as usize);
+        // #235: stream PCM16 into a temp WAV instead of buffering f32 in
+        // RAM — the in-memory footprint stays a single packet.
+        let (temp_path, temp_file) = open_temp_wav(rec_dir)?;
+        {
+            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+            s.temp_path = Some(temp_path.clone());
+        }
+        let mut writer = std::io::BufWriter::new(temp_file);
+        let max_frames = (sample_rate as u64)
+            .saturating_mul((MAX_SECONDS + MAX_SECONDS_SLACK) as u64);
+        let mut io_error: Option<String> = None;
 
         // #80 一時停止: クライアント自体を止めてパケットを捨てる。
         // バッファを貯めて後で読む方式にすると「止めていた間の音」が
@@ -981,39 +1056,52 @@ fn run_capture(
                     // 上限超過は古い方から捨てない(録音冒頭は大事)。
                     // 追記を止めて録音を打ち切る — UI 側は経過時間が
                     // MAX_SECONDS で止まることで暗に上限を知れる。
-                    if s.samples.len() >= max_samples {
+                    if s.frames >= max_frames {
                         s.stopping = true;
                         s.limit_reached = true;
                     } else {
                         if silent {
-                            s.samples.extend(std::iter::repeat(0.0f32).take(num_frames as usize * channels));
+                            // 無音パケットは PCM16 ゼロを流す。
+                            let zeros = vec![0u8; num_frames as usize * channels * 2];
+                            if let Err(e) = writer.write_all(&zeros) {
+                                io_error = Some(format!("temp wav write: {e}"));
+                            }
                             s.silent_frames += num_frames as u64;
+                            s.frames += num_frames as u64;
                         } else {
                             let src = std::slice::from_raw_parts(data_ptr, byte_len);
-                            decode_into_f32(src, &fmt, is_float, bits, channels, &mut s.samples);
-                            // -60dBFS 判定 + パケットのピークを同時に採る。
+                            let mut pcm = Vec::with_capacity(num_frames as usize * channels * 2);
+                            encode_packet_pcm16(src, &fmt, is_float, bits, channels, &mut pcm);
+                            // -60dBFS 判定 + パケットのピークを PCM16 値から採る。
+                            // 実際に書き出したフレームを回す — 非標準
+                            // block_align や未対応フォーマットで pcm が
+                            // num_frames 分より短くても境界外を読まない。
                             let mut silent_count = 0usize;
                             let mut packet_peak = 0.0f32;
-                            for i in 0..(num_frames as usize) {
+                            let mut written_frames = 0u64;
+                            for frame in pcm.chunks_exact(channels * 2) {
                                 let mut peak = 0.0f32;
                                 for c in 0..channels {
-                                    let v = s.samples
-                                        .get(s.samples.len() - (num_frames as usize * channels) + i * channels + c)
-                                        .copied()
-                                        .unwrap_or(0.0)
-                                        .abs();
+                                    let off = c * 2;
+                                    let v = (i16::from_le_bytes([frame[off], frame[off + 1]]) as i32)
+                                        .abs() as f32
+                                        / 32768.0;
                                     if v > peak { peak = v; }
                                 }
                                 if peak < 0.001 { silent_count += 1; }
                                 if peak > packet_peak { packet_peak = peak; }
+                                written_frames += 1;
                             }
                             s.silent_frames += silent_count as u64;
                             // レベルメーター(#71): パケットピークを採用し、
                             // 減衰は status ポーリング側で行う。
                             if packet_peak > s.level { s.level = packet_peak; }
+                            if let Err(e) = writer.write_all(&pcm) {
+                                io_error = Some(format!("temp wav write: {e}"));
+                            }
+                            s.frames += written_frames;
                         }
                     }
-                    s.frames += num_frames as u64;
                 }
                 capture
                     .ReleaseBuffer(num_frames)
@@ -1021,6 +1109,9 @@ fn run_capture(
                 next_size = capture
                     .GetNextPacketSize()
                     .map_err(|e| format!("GetNextPacketSize: {}", hresult_message(&e)))?;
+            }
+            if io_error.is_some() {
+                break;
             }
             if !is_loopback {
                 // マイクも同じポーリングで十分(イベント駆動にすると
@@ -1030,6 +1121,49 @@ fn run_capture(
         }
         let _ = audio.Stop();
         CoTaskMemFree(Some(fmt_ptr as *const _));
+
+        // #235: finalize the temp WAV — patch the header with the real
+        // data length, flush, then hand the path to capture_stop via
+        // shared state. A write/IO failure deletes the partial file so
+        // recordings/ never keeps a broken capture.
+        let frames = {
+            let s = shared.lock().unwrap_or_else(|e| e.into_inner());
+            s.frames
+        };
+        let cancelled = cancel.load(Ordering::SeqCst);
+        let finalize = (|writer: &mut std::io::BufWriter<std::fs::File>| -> Result<(), String> {
+            writer
+                .flush()
+                .map_err(|e| format!("temp wav flush: {e}"))?;
+            let file = writer.get_mut();
+            file.seek(SeekFrom::Start(0))
+                .map_err(|e| format!("temp wav seek: {e}"))?;
+            let data_len = (frames as u64)
+                .saturating_mul(channels as u64)
+                .saturating_mul(2);
+            let data_len = u32::try_from(data_len)
+                .map_err(|_| "recording exceeds the 4 GiB WAV limit".to_string())?;
+            file.write_all(&wav_header(data_len, sample_rate, channels as u16))
+                .map_err(|e| format!("temp wav header: {e}"))?;
+            file.flush()
+                .map_err(|e| format!("temp wav flush: {e}"))?;
+            Ok(())
+        })(&mut writer);
+        drop(writer);
+        if cancelled || io_error.is_some() || finalize.is_err() {
+            let _ = std::fs::remove_file(&temp_path);
+            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+            s.temp_path = None;
+            if cancelled {
+                return Ok(());
+            }
+            if let Some(e) = io_error {
+                return Err(e);
+            }
+            if let Err(e) = finalize {
+                return Err(e);
+            }
+        }
     }
     Ok(())
 }
@@ -1059,41 +1193,42 @@ fn describe_format(fmt: &WAVEFORMATEX) -> (u32, usize, bool, u16) {
     (rate, channels, false, bits)
 }
 
-/// PCM バイト列を f32 (インターリーブ) にデコードして `out` に積む。
-fn decode_into_f32(
+/// #235: WASAPI パケットを PCM16 LE バイト列へ変換して `out` に積む。
+/// f32 中間バッファを経由しないため、録音全体の RAM コピーが消える。
+fn encode_packet_pcm16(
     bytes: &[u8],
     fmt: &WAVEFORMATEX,
     is_float: bool,
     bits: u16,
     channels: usize,
-    out: &mut VecDeque<f32>,
+    out: &mut Vec<u8>,
 ) {
+    let push = |out: &mut Vec<u8>, v: f32| {
+        let s = ((v.clamp(-1.0, 1.0) * 32768.0).round() as i32)
+            .clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        out.extend_from_slice(&s.to_le_bytes());
+    };
     if is_float {
-        // f32
         let stride = channels * 4;
         for frame in bytes.chunks_exact(stride) {
             for c in 0..channels {
                 let off = c * 4;
-                let v = f32::from_le_bytes([
+                push(out, f32::from_le_bytes([
                     frame[off],
                     frame[off + 1],
                     frame[off + 2],
                     frame[off + 3],
-                ]);
-                out.push_back(v);
+                ]));
             }
         }
         return;
     }
     match bits {
         16 => {
+            // ソースが既に PCM16 — 変換せずそのまま流す。
             let stride = channels * 2;
             for frame in bytes.chunks_exact(stride) {
-                for c in 0..channels {
-                    let off = c * 2;
-                    let v = i16::from_le_bytes([frame[off], frame[off + 1]]) as f32 / 32768.0;
-                    out.push_back(v);
-                }
+                out.extend_from_slice(&frame[..stride]);
             }
         }
         24 => {
@@ -1104,27 +1239,22 @@ fn decode_into_f32(
                     let v = ((frame[off + 2] as i32) << 16)
                         | ((frame[off + 1] as i32) << 8)
                         | (frame[off] as i32);
-                    // sign extend
                     let v = if v & 0x800000 != 0 { v | !0xFFFFFF } else { v };
-                    out.push_back(v as f32 / 8388608.0);
+                    push(out, v as f32 / 8388608.0);
                 }
             }
         }
         32 => {
-            // 32-bit int (mix 形式ではまれ。WAVEFORMATEXTENSIBLE の int32
-            // SubFormat を拾う)
             let stride = channels * 4;
             for frame in bytes.chunks_exact(stride) {
                 for c in 0..channels {
                     let off = c * 4;
-                    let v = i32::from_le_bytes([
+                    push(out, i32::from_le_bytes([
                         frame[off],
                         frame[off + 1],
                         frame[off + 2],
                         frame[off + 3],
-                    ]) as f32
-                        / 2147483648.0;
-                    out.push_back(v);
+                    ]) as f32 / 2147483648.0);
                 }
             }
         }
@@ -1132,13 +1262,16 @@ fn decode_into_f32(
             // 未対応フォーマット — 無音で埋める(デコードを黙って落とすより
             // 「無音だった」方がユーザーには正直)。
             let frames = bytes.len() / fmt.nBlockAlign as usize;
-            out.extend(std::iter::repeat(0.0f32).take(frames * channels));
+            out.extend(std::iter::repeat(0u8).take(frames * channels * 2));
         }
     }
 }
 
 /// f32 インターリーブサンプル → 16bit PCM WAV。
 /// CI/テストで確実に通るよう、ここは pure-Rust で書く。
+/// #235: 本番経路はストリーミング(temp WAV 逐次書き)に移行したため、
+/// この一括エンコーダはテスト専用。
+#[cfg(test)]
 fn encode_wav(samples: &[f32], sample_rate: u32, channels: u16) -> Vec<u8> {
     let data_len = (samples.len() * 2) as u32;
     let mut out = Vec::with_capacity(44 + data_len as usize);
@@ -1167,13 +1300,14 @@ fn encode_wav(samples: &[f32], sample_rate: u32, channels: u16) -> Vec<u8> {
     out
 }
 
-/// WAV bytes を appDataDir/recordings/ に書き出して絶対パスを返す。
+/// #235: 確定済み temp WAV をユーザー向けファイル名へ rename する。
 /// `suggested_name` は UI 提示名と同じもの(サニタイズして .wav を強制)。
-/// 衝突時は末尾に連番を付ける。
-fn save_wav(
+/// 衝突時は末尾に連番を付ける。rename に失敗した場合(別ボリューム等)
+/// はコピーして temp を消すフォールバックを取る。
+fn finalize_wav(
     app: &tauri::AppHandle,
     suggested_name: &str,
-    wav: &[u8],
+    temp: &std::path::Path,
 ) -> Result<String, String> {
     use tauri::Manager;
     let dir = app
@@ -1202,9 +1336,30 @@ fn save_wav(
         if !candidate.exists() { break; }
         candidate = dir.join(format!("{stem}_{n}.wav"));
     }
-    std::fs::write(&candidate, wav)
-        .map_err(|e| format!("write {}: {e}", candidate.display()))?;
+    if std::fs::rename(temp, &candidate).is_err() {
+        std::fs::copy(temp, &candidate)
+            .map_err(|e| format!("write {}: {e}", candidate.display()))?;
+        let _ = std::fs::remove_file(temp);
+    }
     Ok(candidate.to_string_lossy().into_owned())
+}
+
+/// #235: クラッシュで残った `.part` temp を掃除する。録音開始時に呼ぶ —
+/// 生きているセッションの temp は SESSION が握っているので、ここで消して
+/// よいのは「新規開始時点で残っているもの」だけ。
+fn prune_orphan_parts(dir: &std::path::Path) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("part")
+            && path.is_file()
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 /* --------------------------------- tests ---------------------------------- */
