@@ -70,6 +70,8 @@ import { ScorePlaybackSynth } from "./playbackSynth";
 import {
   allIssuesForCanonical,
   markedCanonicalIds,
+  numEvidence,
+  type ScoreReviewIssue,
 } from "./review";
 import { ReviewSession, type ReviewEdit } from "./reviewSession";
 import { ReviewBar } from "./ReviewBar";
@@ -155,7 +157,23 @@ function inspectorCopy(): InspectorCopy {
       // deck — the issue stays visible with generic copy (sidecar/review.ts
       // uses the same fallback policy).
       reasonTitle: (r) => (REASON_DECK[r] ?? ja.reviewReasons.other).title,
-      reasonDetail: (r) => (REASON_DECK[r] ?? ja.reviewReasons.other).detail,
+      reasonDetail: (issue: ScoreReviewIssue) => {
+        // #85 voices texture: surface the split counts the engine put in
+        // evidence — "kept N notes as a second voice, dropped M beyond
+        // two voices" — instead of the generic overlap copy.
+        if (issue.reason === "overlapping_candidates") {
+          const second = numEvidence(issue, "secondVoiceNotes");
+          const dropped = numEvidence(issue, "droppedBeyondVoices");
+          if (second != null || dropped != null) {
+            return ja.reviewEvidence.secondVoice(second ?? 0, dropped ?? 0);
+          }
+          const merged = numEvidence(issue, "polyphonicOverlaps");
+          if (merged != null) {
+            return ja.reviewEvidence.mergedOverlaps(merged);
+          }
+        }
+        return (REASON_DECK[issue.reason] ?? ja.reviewReasons.other).detail;
+      },
       severityLabel: (s) => ja.reviewSeverity[s] ?? ja.reviewSeverity.info,
       statusLabel: (s) => ja.reviewStatus[s] ?? ja.reviewStatus.open,
     },
@@ -1329,7 +1347,7 @@ export function ScoreReadyWorkspace({
                     allIssues[reviewIndex].reason,
                   ),
                   reasonDetail: copy.review.reasonDetail(
-                    allIssues[reviewIndex].reason,
+                    allIssues[reviewIndex],
                   ),
                   severityLabel: copy.review.severityLabel(
                     allIssues[reviewIndex].severity,

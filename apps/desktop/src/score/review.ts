@@ -98,3 +98,14 @@ export function issueConfidence(issue: ScoreReviewIssue): number | null {
   }
   return null;
 }
+
+/** Numeric evidence field, or null when absent/non-numeric. The copy
+ *  layer uses this for count details (second-voice notes kept, dropped
+ *  beyond two voices, merged overlaps). */
+export function numEvidence(
+  issue: ScoreReviewIssue,
+  key: string,
+): number | null {
+  const value = issue.evidence[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}

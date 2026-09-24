@@ -81,7 +81,9 @@ export type InspectorModel =
 
 export interface ReviewCopy {
   reasonTitle(reason: ScoreReviewIssue["reason"]): string;
-  reasonDetail(reason: ScoreReviewIssue["reason"]): string;
+  /** Detail may look at the issue's evidence (counts, ranges) — the
+   *  copy layer decides what is safe to surface. */
+  reasonDetail(issue: ScoreReviewIssue): string;
   severityLabel(severity: ScoreReviewIssue["severity"]): string;
   statusLabel(status: ScoreReviewIssue["status"]): string;
 }
@@ -192,7 +194,7 @@ export function buildNoteInspector(args: {
     issues: issues.map((issue) => ({
       id: issue.id,
       reasonTitle: copy.review.reasonTitle(issue.reason),
-      reasonDetail: copy.review.reasonDetail(issue.reason),
+      reasonDetail: copy.review.reasonDetail(issue),
       severityLabel: copy.review.severityLabel(issue.severity),
       statusLabel: copy.review.statusLabel(issue.status),
       confidencePct:

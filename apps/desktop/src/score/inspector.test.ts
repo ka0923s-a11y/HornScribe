@@ -17,7 +17,7 @@ import type { ScoreReviewIssue } from "./review";
 const copy: InspectorCopy = {
   review: {
     reasonTitle: (r) => `title:${r}`,
-    reasonDetail: (r) => `detail:${r}`,
+    reasonDetail: (i) => `detail:${i.reason}`,
     severityLabel: (s) => `sev:${s}`,
     statusLabel: (s) => `status:${s}`,
   },

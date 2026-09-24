@@ -1171,6 +1171,17 @@ export const ja = {
     fixed: "修正済み",
   },
 
+  /* #85 voices texture / overlap evidence — counts the engine put in
+   * ReviewIssue.evidence, phrased for the review bar and inspector. */
+  reviewEvidence: {
+    secondVoice: (kept: number, dropped: number) =>
+      dropped > 0
+        ? "重なった音を第2声部として " + kept + " 個残しました。2声部を超えた " + dropped + " 個は省略されました"
+        : "重なった音を第2声部として " + kept + " 個残しました",
+    mergedOverlaps: (count: number) =>
+      count + " 箇所の音の重なりを検出し、1つの旋律にまとめました（別の声部が失われた可能性があります）",
+  },
+
   /* ============================ UI-050 ============================
    * 要確認ワークスペース (issue #28, GUI_UX_SPEC §12, JAPANESE_UI_COPY §6).
    * ヘッダー: 「要確認 n / total」＋ 前へ / 元音源を再生 / 問題なし / 次へ。
