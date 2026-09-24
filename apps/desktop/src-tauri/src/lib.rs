@@ -136,11 +136,10 @@ pub fn run() {
             engine::engine_kill,
             export::export_pick_dir,
             export::export_default_dir,
-            export::export_write_files,
-            export::export_copy_audio,
+            export::export_check_existing,
+            export::export_run,
             export::detect_tools,
             export::reveal_in_explorer,
-            export::render_pdf,
             export::project_save_path,
             export::open_in_musescore,
         ])

@@ -21,6 +21,9 @@ use tauri_plugin_dialog::DialogExt;
 /// Artifact extensions the export flow may write (§17 formats).
 const EXPORT_EXTENSIONS: [&str; 4] = ["musicxml", "xml", "mid", "pdf"];
 
+/// Audio extensions the sourceAudio bundle may copy (#87).
+const AUDIO_EXTENSIONS: [&str; 5] = ["wav", "mp3", "flac", "m4a", "ogg"];
+
 /// Directories the user explicitly picked via `export_pick_dir` this
 /// session — the write side of the self-limiting model.
 static GRANTED_DIRS: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
@@ -113,88 +116,30 @@ fn valid_export_name(name: &str) -> bool {
             .is_some_and(|s| !s.is_empty())
 }
 
-/// `export_write_files`: write the export artifacts into `dir`.
-/// Creates the directory when missing; overwrites same-named artifacts
-/// (a re-export is an explicit user action). Fails with
-/// `PERMISSION_DENIED` for un-granted destinations.
-#[tauri::command]
-pub fn export_write_files(
-    app: tauri::AppHandle,
-    dir: String,
-    files: Vec<ExportFile>,
-) -> Result<Vec<String>, String> {
-    let dir_path = PathBuf::from(&dir);
-    if !dir_allowed(&app, &dir_path) {
-        return Err("PERMISSION_DENIED".to_string());
+/// Like `valid_export_name` but for the audio bundle name — the
+/// `<stem>_source.<ext>` copy keeps the source's own extension, which
+/// is an audio type, not a score artifact type (#87).
+fn valid_audio_name(name: &str) -> bool {
+    let path = Path::new(name);
+    if path.file_name().and_then(|n| n.to_str()) != Some(name) {
+        return false;
     }
-    std::fs::create_dir_all(&dir_path)
-        .map_err(|e| format!("create {}: {e}", dir_path.display()))?;
-    let mut written = Vec::with_capacity(files.len());
-    for file in files {
-        if !valid_export_name(&file.name) {
-            return Err(format!("invalid export name: {}", file.name));
-        }
-        let bytes = decode_base64(&file.data_base64)
-            .map_err(|e| format!("{}: {e}", file.name))?;
-        let path = dir_path.join(&file.name);
-        std::fs::write(&path, &bytes)
-            .map_err(|e| format!("write {}: {e}", path.display()))?;
-        written.push(path.to_string_lossy().into_owned());
-    }
-    Ok(written)
-}
-
-/// `export_copy_audio`: copy the source audio file into the export
-/// destination (#87 成果物同梱 — a recording→score bundle carries its
-/// own audio). Reads `src` (user-owned, never modified) and writes
-/// `dir/<basename>_source.<ext>` where `ext` is the source's own
-/// extension (#259 — the `_source` suffix keeps the copy from
-/// colliding with the original when the export dir is the source's
-/// own folder);
-/// the destination dir is gated by the same allowlist as
-/// `export_write_files`, and the file name is sanitized to a stem plus
-/// a known audio extension so the command cannot write anything but
-/// an audio artifact.
-#[tauri::command]
-pub fn export_copy_audio(
-    app: tauri::AppHandle,
-    src: String,
-    dir: String,
-    basename: String,
-) -> Result<String, String> {
-    const AUDIO_EXTENSIONS: [&str; 5] = ["wav", "mp3", "flac", "m4a", "ogg"];
-    let src_path = PathBuf::from(&src);
-    if !src_path.is_file() {
-        return Err(format!("source audio not found: {src}"));
-    }
-    let ext = src_path
+    let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    if !AUDIO_EXTENSIONS.contains(&ext.as_str()) {
-        return Err(format!("unsupported audio extension: {ext}"));
-    }
-    let dir_path = PathBuf::from(&dir);
-    if !dir_allowed(&app, &dir_path) {
-        return Err("PERMISSION_DENIED".to_string());
-    }
-    std::fs::create_dir_all(&dir_path)
-        .map_err(|e| format!("create {}: {e}", dir_path.display()))?;
-    let stem: String = basename
-        .chars()
-        .map(|c| match c {
-            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '.' => '_',
-            _ => c,
-        })
-        .collect::<String>()
-        .trim()
-        .to_string();
-    let stem = if stem.is_empty() { "audio" } else { &stem };
-    let dest = dir_path.join(format!("{stem}_source.{ext}"));
-    std::fs::copy(&src_path, &dest)
-        .map_err(|e| format!("copy {}: {e}", dest.display()))?;
-    Ok(dest.to_string_lossy().into_owned())
+    AUDIO_EXTENSIONS.contains(&ext.as_str())
+        && path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| !s.is_empty())
+}
+
+/// Any name the collision check may be asked about — score artifact
+/// or audio bundle copy.
+fn valid_artifact_name(name: &str) -> bool {
+    valid_export_name(name) || valid_audio_name(name)
 }
 
 /// `detect_tools`: probe MuseScore/ffmpeg for the export + diagnostics
@@ -326,61 +271,190 @@ pub fn project_save_path(
     Ok(Some(file.to_string_lossy().into_owned()))
 }
 
-/// `render_pdf`: run MuseScore headless (`-o out.pdf score.musicxml`).
-/// The MusicXML arrives as text; it is staged in the temp dir, rendered,
-/// then removed. `out_path` must satisfy the same destination rules as
-/// `export_write_files`.
+/// Which of the requested artifact names already exist in `dir` —
+/// the collision check the dialog runs before writing so an export
+/// never silently destroys a previous result (#231). Returns the
+/// clashing *names* (not paths); an empty list means the set is clear.
 #[tauri::command]
-pub fn render_pdf(
+pub fn export_check_existing(
     app: tauri::AppHandle,
-    musescore_path: String,
-    music_xml: String,
-    out_path: String,
-) -> Result<String, String> {
-    let exe = PathBuf::from(&musescore_path);
-    if !exe.is_file() {
-        return Err("MUSESCORE_UNAVAILABLE".to_string());
-    }
-    let out = PathBuf::from(&out_path);
-    let parent = out.parent().ok_or("out path has no directory")?;
-    if !dir_allowed(&app, parent) {
+    dir: String,
+    names: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let dir_path = PathBuf::from(&dir);
+    if !dir_allowed(&app, &dir_path) {
         return Err("PERMISSION_DENIED".to_string());
     }
-    if out.extension().and_then(|e| e.to_str()) != Some("pdf") {
-        return Err("out path must end in .pdf".to_string());
-    }
-    std::fs::create_dir_all(parent)
-        .map_err(|e| format!("create {}: {e}", parent.display()))?;
-
-    let staging = std::env::temp_dir().join(format!(
-        "hornscribe-export-{}-{}.musicxml",
-        std::process::id(),
-        out.file_stem().and_then(|s| s.to_str()).unwrap_or("score")
-    ));
-    std::fs::write(&staging, music_xml.as_bytes())
-        .map_err(|e| format!("stage {}: {e}", staging.display()))?;
-
-    let status = std::process::Command::new(&exe)
-        .args(["-o"])
-        .arg(&out)
-        .arg(&staging)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    let _ = std::fs::remove_file(&staging);
-    match status {
-        Ok(s) if s.success() && out.is_file() => {
-            Ok(out.to_string_lossy().into_owned())
+    let mut existing = Vec::new();
+    for name in names {
+        if !valid_artifact_name(&name) {
+            return Err(format!("invalid export name: {}", name));
         }
-        Ok(s) => Err(format!("MuseScore exited with {s}")),
-        Err(e) => Err(format!("spawn {}: {e}", exe.display())),
+        if dir_path.join(&name).is_file() {
+            existing.push(name);
+        }
     }
+    Ok(existing)
+}
+
+/// One source-audio copy for `export_run` (#87): the final artifact
+/// name plus the absolute path of the audio file to copy.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportAudioCopy {
+    pub name: String,
+    pub src: String,
+}
+
+/// One PDF artifact for `export_run`: the final .pdf name plus the
+/// MusicXML source rendered through MuseScore.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRunPdf {
+    pub name: String,
+    pub music_xml: String,
+}
+
+/// `export_run` — the transactional export (#258). Every artifact is
+/// produced into a private staging directory first; only when audio,
+/// batch files AND all PDF renders succeed does the command move them
+/// into the destination. A failure anywhere cleans the staging dir and
+/// leaves the destination untouched — no half-written artifact sets.
+///
+/// Collision policy (#231) is decided by the frontend before this call
+/// (export_check_existing + the dialog's overwrite/rename/cancel), so a
+/// commit here overwrites intentionally.
+#[tauri::command]
+pub fn export_run(
+    app: tauri::AppHandle,
+    dir: String,
+    audio: Option<ExportAudioCopy>,
+    files: Vec<ExportFile>,
+    pdfs: Vec<ExportRunPdf>,
+    musescore_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    let dir_path = PathBuf::from(&dir);
+    if !dir_allowed(&app, &dir_path) {
+        return Err("PERMISSION_DENIED".to_string());
+    }
+    run_export(&dir_path, audio, files, pdfs, musescore_path)
+}
+
+/// The transactional body of `export_run`, split from the AppHandle
+/// wrapper so the stage→commit flow is unit-testable (#258).
+fn run_export(
+    dir_path: &Path,
+    audio: Option<ExportAudioCopy>,
+    files: Vec<ExportFile>,
+    pdfs: Vec<ExportRunPdf>,
+    musescore_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    // Validate everything before touching the filesystem — a bad name
+    // must not leave a half-staged directory behind.
+    for f in &files {
+        if !valid_export_name(&f.name) {
+            return Err(format!("invalid export name: {}", f.name));
+        }
+    }
+    for p in &pdfs {
+        if !valid_export_name(&p.name) || !p.name.to_ascii_lowercase().ends_with(".pdf") {
+            return Err(format!("invalid export name: {}", p.name));
+        }
+    }
+    if let Some(a) = &audio {
+        if !valid_audio_name(&a.name) {
+            return Err(format!("invalid export name: {}", a.name));
+        }
+        if !PathBuf::from(&a.src).is_file() {
+            return Err(format!("source audio not found: {}", a.src));
+        }
+    }
+    let exe = if pdfs.is_empty() {
+        None
+    } else {
+        let path = musescore_path.ok_or("MUSESCORE_UNAVAILABLE")?;
+        let exe = PathBuf::from(&path);
+        if !exe.is_file() {
+            return Err("MUSESCORE_UNAVAILABLE".to_string());
+        }
+        Some(exe)
+    };
+    std::fs::create_dir_all(dir_path).map_err(|e| format!("create {}: {e}", dir_path.display()))?;
+
+    let uniq = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let staging =
+        std::env::temp_dir().join(format!("hornscribe-export-{}-{}", std::process::id(), uniq));
+    let result = (|| -> Result<Vec<String>, String> {
+        std::fs::create_dir_all(&staging)
+            .map_err(|e| format!("stage {}: {e}", staging.display()))?;
+        let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
+        if let Some(a) = &audio {
+            let src = PathBuf::from(&a.src);
+            let tmp = staging.join(&a.name);
+            std::fs::copy(&src, &tmp).map_err(|e| format!("copy {}: {e}", tmp.display()))?;
+            staged.push((tmp, dir_path.join(&a.name)));
+        }
+        for f in &files {
+            let bytes = decode_base64(&f.data_base64).map_err(|e| format!("{}: {e}", f.name))?;
+            let tmp = staging.join(&f.name);
+            std::fs::write(&tmp, &bytes).map_err(|e| format!("write {}: {e}", tmp.display()))?;
+            staged.push((tmp, dir_path.join(&f.name)));
+        }
+        if let Some(exe) = &exe {
+            for p in &pdfs {
+                let tmp_xml = staging.join(format!("{}.musicxml", p.name));
+                std::fs::write(&tmp_xml, p.music_xml.as_bytes())
+                    .map_err(|e| format!("stage {}: {e}", tmp_xml.display()))?;
+                let tmp_pdf = staging.join(&p.name);
+                let status = std::process::Command::new(exe)
+                    .args(["-o"])
+                    .arg(&tmp_pdf)
+                    .arg(&tmp_xml)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+                let _ = std::fs::remove_file(&tmp_xml);
+                match status {
+                    Ok(s) if s.success() && tmp_pdf.is_file() => {}
+                    Ok(s) => {
+                        return Err(format!("MuseScore exited with {s}"));
+                    }
+                    Err(e) => {
+                        return Err(format!("spawn {}: {e}", exe.display()));
+                    }
+                }
+                staged.push((tmp_pdf, dir_path.join(&p.name)));
+            }
+        }
+        let mut out = Vec::with_capacity(staged.len());
+        for (tmp, dest) in staged {
+            if dest.exists() {
+                let _ = std::fs::remove_file(&dest);
+            }
+            match std::fs::rename(&tmp, &dest) {
+                Ok(()) => {}
+                Err(_) => {
+                    std::fs::copy(&tmp, &dest)
+                        .map_err(|e| format!("write {}: {e}", dest.display()))?;
+                    let _ = std::fs::remove_file(&tmp);
+                }
+            }
+            out.push(dest.to_string_lossy().into_owned());
+        }
+        Ok(out)
+    })();
+    let _ = std::fs::remove_dir_all(&staging);
+    result
 }
 
 /// `open_in_musescore`: stage the score as a temp MusicXML and launch the
 /// MuseScore GUI on it (spec 13: 高度編集 → MuseScoreで開く). Unlike
-/// `render_pdf` the process is not awaited — the user keeps working in
-/// MuseScore — so the staged file is left for the OS temp cleaner.
+/// `export_run`'s staged PDF renders, the process is not awaited —
+/// the user keeps working in MuseScore — so the staged file is left
+/// for the OS temp cleaner.
 /// A millisecond suffix keeps successive opens (edited score re-opens)
 /// from overwriting a file the GUI may still hold.
 #[tauri::command]
@@ -403,16 +477,17 @@ pub fn open_in_musescore(
             }
         })
         .collect();
-    let stem: &str = if stem_raw.is_empty() { "score" } else { &stem_raw };
+    let stem: &str = if stem_raw.is_empty() {
+        "score"
+    } else {
+        &stem_raw
+    };
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let staging = std::env::temp_dir().join(format!(
-        "hornscribe-open-{}-{}.musicxml",
-        stem,
-        millis
-    ));
+    let staging =
+        std::env::temp_dir().join(format!("hornscribe-open-{}-{}.musicxml", stem, millis));
     std::fs::write(&staging, music_xml.as_bytes())
         .map_err(|e| format!("stage {}: {e}", staging.display()))?;
     std::process::Command::new(&exe)
@@ -437,10 +512,7 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
             _ => Err(format!("bad base64 byte {b}")),
         }
     }
-    let bytes: Vec<u8> = input
-        .bytes()
-        .filter(|b| !b.is_ascii_whitespace())
-        .collect();
+    let bytes: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     if bytes.len() % 4 != 0 {
         return Err("base64 length not a multiple of 4".into());
     }
@@ -464,4 +536,148 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_dir(tag: &str) -> PathBuf {
+        let uniq = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "hornscribe-export-test-{}-{}-{}",
+            std::process::id(),
+            uniq,
+            tag
+        ))
+    }
+
+    fn b64(s: &str) -> String {
+        // Minimal encoder for test payloads (decode_base64 inverse).
+        const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bytes = s.as_bytes();
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            out.push(T[(n >> 18) as usize & 63] as char);
+            out.push(T[(n >> 12) as usize & 63] as char);
+            out.push(if chunk.len() > 1 {
+                T[(n >> 6) as usize & 63] as char
+            } else {
+                '='
+            });
+            out.push(if chunk.len() > 2 {
+                T[n as usize & 63] as char
+            } else {
+                '='
+            });
+        }
+        out
+    }
+
+    fn file(name: &str, body: &str) -> ExportFile {
+        ExportFile {
+            name: name.to_string(),
+            data_base64: b64(body),
+        }
+    }
+
+    #[test]
+    fn export_names_are_validated() {
+        assert!(valid_export_name("take_concert.musicxml"));
+        assert!(valid_export_name("take_playback.mid"));
+        assert!(!valid_export_name("take_source.wav"));
+        assert!(!valid_export_name("../evil.musicxml"));
+        assert!(!valid_export_name("a/b.pdf"));
+        assert!(valid_audio_name("take_source.wav"));
+        assert!(!valid_audio_name("take_concert.musicxml"));
+        assert!(valid_artifact_name("take_source.mp3"));
+        assert!(valid_artifact_name("take_horn_in_f.pdf"));
+    }
+
+    #[test]
+    fn run_export_commits_all_artifacts() {
+        let dir = tmp_dir("commit");
+        let src = tmp_dir("commit-src");
+        std::fs::create_dir_all(&src).unwrap();
+        let audio = src.join("take.wav");
+        std::fs::write(&audio, b"RIFF").unwrap();
+        let out = run_export(
+            &dir,
+            Some(ExportAudioCopy {
+                name: "take_source.wav".into(),
+                src: audio.to_string_lossy().into_owned(),
+            }),
+            vec![
+                file("take_concert.musicxml", "<xml/>"),
+                file("take_playback.mid", "MThd"),
+            ],
+            vec![],
+            None,
+        )
+        .unwrap();
+        assert_eq!(out.len(), 3);
+        assert_eq!(
+            std::fs::read(dir.join("take_concert.musicxml")).unwrap(),
+            b"<xml/>"
+        );
+        assert_eq!(std::fs::read(dir.join("take_source.wav")).unwrap(), b"RIFF");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&src);
+    }
+
+    #[test]
+    fn run_export_failure_leaves_destination_untouched() {
+        // #258: a mid-batch failure must not leave the first artifact
+        // behind — staging is cleaned and nothing reaches the dest.
+        let dir = tmp_dir("atomic");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("keep.txt"), b"old").unwrap();
+        let err = run_export(
+            &dir,
+            None,
+            vec![
+                file("take_concert.musicxml", "<xml/>"),
+                ExportFile {
+                    name: "take_playback.mid".into(),
+                    data_base64: "!!!bad".into(),
+                },
+            ],
+            vec![],
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("take_playback.mid"));
+        assert!(!dir.join("take_concert.musicxml").exists());
+        assert!(!dir.join("take_playback.mid").exists());
+        assert_eq!(std::fs::read(dir.join("keep.txt")).unwrap(), b"old");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_export_pdf_without_musescore_fails_before_writes() {
+        let dir = tmp_dir("pdf");
+        let err = run_export(
+            &dir,
+            None,
+            vec![file("take_concert.musicxml", "<xml/>")],
+            vec![ExportRunPdf {
+                name: "take_concert.pdf".into(),
+                music_xml: "<xml/>".into(),
+            }],
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(err, "MUSESCORE_UNAVAILABLE");
+        assert!(!dir.join("take_concert.musicxml").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

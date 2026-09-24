@@ -91,6 +91,22 @@ function sanitizeBasename(raw: string): string {
   return cleaned || "score";
 }
 
+/** Mirror of the Rust-side audio stem sanitize (export_copy_audio):
+ *  path/illegal chars AND dots become underscores so the predicted
+ *  `<stem>_source.<ext>` name matches what export_run writes. */
+function sanitizeAudioStem(raw: string): string {
+  const cleaned = raw
+    .replace(/[\\/:*?"<>|.]/g, "_")
+    .trim();
+  return cleaned || "audio";
+}
+
+/** Audio file extension (lowercased) for the bundle copy name. */
+function audioExtOf(name: string | null): string {
+  const m = /\.([A-Za-z0-9]+)$/.exec(name ?? "");
+  return m ? m[1].toLowerCase() : "wav";
+}
+
 function mapInvokeError(err: unknown): ExportError {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.includes("PERMISSION_DENIED")) {
@@ -175,36 +191,92 @@ export class TauriExportPort implements ExportPort {
     );
     const dir = request.destination;
     const files: ExportedFile[] = [];
+    // Plan every artifact up front: names are needed for the
+    // collision check (#231) before anything is staged (#258).
+    const wantsAudio =
+      request.formats.includes("sourceAudio") && source.audioPath != null;
+    const pdfFormats = request.formats.filter(
+      (f) => f === "concertPdf" || f === "hornPdf",
+    );
+    const plan = (stem: string) => {
+      const names = new Map<ExportFormatId, string>();
+      for (const format of request.formats) {
+        if (format === "sourceAudio") {
+          if (wantsAudio) {
+            names.set(
+              format,
+              `${sanitizeAudioStem(stem)}_source.${audioExtOf(source.audioName)}`,
+            );
+          }
+        } else {
+          names.set(format, `${stem}_${ARTIFACT_NAMES[format]}`);
+        }
+      }
+      return names;
+    };
 
-    // #87: bundle the source audio itself — a straight fs copy through
-    // export_copy_audio (no base64 round-trip for what can be a large
-    // file). Runs first so a missing source fails before partial
-    // artifacts are written.
-    if (request.formats.includes("sourceAudio") && source.audioPath) {
-      try {
-        const path = await invoke<string>("export_copy_audio", {
-          src: source.audioPath,
-          dir,
-          basename,
-        });
-        files.push({
-          format: "sourceAudio",
-          name: path.split(/[\\/]/).pop() ?? `${basename}.wav`,
-          path,
-        });
-      } catch (err) {
-        throw mapInvokeError(err);
+    // #231: never overwrite silently — ask once for the whole set.
+    let stem = basename;
+    let names = plan(stem);
+    let existing = await invoke<string[]>("export_check_existing", {
+      dir,
+      names: [...names.values()],
+    }).catch((err) => {
+      throw mapInvokeError(err);
+    });
+    if (existing.length > 0 && request.onCollision) {
+      const policy = await request.onCollision(existing);
+      if (policy === "cancel") {
+        throw new ExportError("EXPORT_CANCELLED", "export cancelled");
+      }
+      if (policy === "rename") {
+        // Re-stem the whole set — every artifact of one export shares
+        // one basename, so a suffix keeps the bundle coherent.
+        for (let n = 2; n <= 999 && existing.length > 0; n++) {
+          stem = `${basename}_${n}`;
+          names = plan(stem);
+          existing = await invoke<string[]>("export_check_existing", {
+            dir,
+            names: [...names.values()],
+          }).catch((err) => {
+            throw mapInvokeError(err);
+          });
+        }
+        if (existing.length > 0) {
+          // Pathological: 999 stems taken — refuse rather than
+          // silently overwriting after the user chose rename.
+          throw new ExportError("EXPORT_FAILED", "no free export name");
+        }
       }
     }
 
-    // Text/binary artifacts first (single batched write call).
-    const batch: { format: ExportFormatId; name: string; dataBase64: string }[] = [];
+    // Resolve MuseScore before staging anything — a missing tool must
+    // fail before the transaction, not inside it (#258).
+    let museScorePath: string | null = null;
+    if (pdfFormats.length > 0) {
+      const caps = await this.capabilities(this.overrides);
+      museScorePath =
+        caps.museScore.status === "found" ? (caps.museScore.path ?? null) : null;
+      if (!museScorePath) {
+        throw new ExportError(
+          "MUSESCORE_UNAVAILABLE",
+          "MuseScore not found; PDF export is unavailable",
+        );
+      }
+    }
+
+    // Build payloads: text/binary artifacts go base64; PDFs carry
+    // their MusicXML source for the staged render; audio is a path
+    // copy (no base64 round-trip for what can be a large file).
+    const batch: { name: string; dataBase64: string }[] = [];
+    const pdfPayloads: { name: string; musicXml: string }[] = [];
     for (const format of request.formats) {
-      const name = `${basename}_${ARTIFACT_NAMES[format]}`;
+      const name = names.get(format);
+      if (!name) continue;
       if (format === "concertMusicxml") {
-        batch.push({ format, name, dataBase64: textToBase64(source.doc.musicXml("concert")) });
+        batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("concert")) });
       } else if (format === "hornMusicxml") {
-        batch.push({ format, name, dataBase64: textToBase64(source.doc.musicXml("hornF")) });
+        batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("hornF")) });
       } else if (format === "playbackMidi") {
         // #256: prefer the engine's canonical exporter — it carries
         // velocity / pitch bend / swing / tempo map the MusicXML
@@ -219,61 +291,47 @@ export class TauriExportPort implements ExportPort {
             const msg = err instanceof Error ? err.message : String(err);
             throw new ExportError("EXPORT_FAILED", msg);
           }
-          batch.push({ format, name, dataBase64: midiBase64 });
+          batch.push({ name, dataBase64: midiBase64 });
         } else {
           batch.push({
-            format,
             name,
             dataBase64: toBase64(buildMidiFile(source.doc.musicXml("concert"))),
           });
         }
-      }
-    }
-    if (batch.length > 0) {
-      let paths: string[];
-      try {
-        paths = await invoke<string[]>("export_write_files", {
-          dir,
-          files: batch.map((f) => ({ name: f.name, dataBase64: f.dataBase64 })),
+      } else if (format === "concertPdf" || format === "hornPdf") {
+        pdfPayloads.push({
+          name,
+          musicXml: source.doc.musicXml(format === "hornPdf" ? "hornF" : "concert"),
         });
-      } catch (err) {
-        throw mapInvokeError(err);
-      }
-      batch.forEach((f, i) =>
-        files.push({ format: f.format, name: f.name, path: paths[i] ?? `${dir}\\${f.name}` }),
-      );
-    }
-
-    // PDFs render through MuseScore — gated by the probe the dialog
-    // already ran (a missing tool surfaces as MUSESCORE_UNAVAILABLE).
-    const pdfFormats = request.formats.filter(
-      (f) => f === "concertPdf" || f === "hornPdf",
-    );
-    if (pdfFormats.length > 0) {
-      const caps = await this.capabilities(this.overrides);
-      const exe = caps.museScore.status === "found" ? caps.museScore.path : null;
-      if (!exe) {
-        throw new ExportError(
-          "MUSESCORE_UNAVAILABLE",
-          "MuseScore not found; PDF export is unavailable",
-        );
-      }
-      for (const format of pdfFormats) {
-        const name = `${basename}_${ARTIFACT_NAMES[format]}`;
-        const xml = source.doc.musicXml(format === "hornPdf" ? "hornF" : "concert");
-        try {
-          const path = await invoke<string>("render_pdf", {
-            musescorePath: exe,
-            musicXml: xml,
-            outPath: `${dir}\\${name}`,
-          });
-          files.push({ format, name, path });
-        } catch (err) {
-          throw mapInvokeError(err);
-        }
       }
     }
 
+    // #258: one transactional call — audio + files + PDFs are staged
+    // and committed together; a failure anywhere writes nothing.
+    const paths = await invoke<string[]>("export_run", {
+      dir,
+      audio: wantsAudio
+        ? { name: names.get("sourceAudio"), src: source.audioPath }
+        : null,
+      files: batch,
+      pdfs: pdfPayloads,
+      musescorePath: museScorePath,
+    }).catch((err) => {
+      throw mapInvokeError(err);
+    });
+
+    // export_run returns staged-commit order: audio, files, then PDFs —
+    // map back onto formats by name for the result list.
+    const byName = new Map(paths.map((p) => [p.split(/[\\/]/).pop() ?? "", p]));
+    for (const format of request.formats) {
+      const name = names.get(format);
+      if (!name) continue;
+      files.push({
+        format,
+        name,
+        path: byName.get(name) ?? `${dir}\\${name}`,
+      });
+    }
     return { destination: dir, files };
   }
 

@@ -1,0 +1,135 @@
+// @vitest-environment jsdom
+/**
+ * TauriExportPort flow tests (#231/#258) — the Tauri invoke boundary is
+ * mocked so the collision prompt and the transactional export_run call
+ * are asserted as contracts, not side effects.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TauriExportPort } from "./tauriPort";
+import { createFixtureScoreDocument } from "../score/fixtureDocument";
+
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}));
+
+function source() {
+  return {
+    doc: createFixtureScoreDocument(),
+    basename: "take1",
+    audioPath: "C:\\audio\\take.wav",
+    audioName: "take.wav",
+  };
+}
+
+function port() {
+  return new TauriExportPort(source);
+}
+
+describe("TauriExportPort.export", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "export_check_existing") return [];
+      if (cmd === "export_run") {
+        return [
+          "C:\\out\\take1_source.wav",
+          "C:\\out\\take1_concert.musicxml",
+        ];
+      }
+      if (cmd === "detect_tools") {
+        return { museScore: { status: "missing" }, ffmpeg: { status: "missing" } };
+      }
+      throw new Error("unexpected invoke " + cmd);
+    });
+  });
+
+  it("writes through one transactional export_run call", async () => {
+    const res = await port().export({
+      formats: ["concertMusicxml", "sourceAudio"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    const run = invokeMock.mock.calls.find((c) => c[0] === "export_run");
+    expect(run).toBeTruthy();
+    expect(run?.[1]).toMatchObject({
+      dir: "C:\\out",
+      audio: { name: "take1_source.wav", src: "C:\\audio\\take.wav" },
+      musescorePath: null,
+    });
+    expect(res.files.map((f) => f.name)).toEqual([
+      "take1_concert.musicxml",
+      "take1_source.wav",
+    ]);
+  });
+
+  it("asks onCollision once when names already exist (#231)", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "export_check_existing") {
+        return ["take1_concert.musicxml"];
+      }
+      if (cmd === "export_run") return ["C:\\out\\take1_concert.musicxml"];
+      throw new Error("unexpected " + cmd);
+    });
+    const seen: string[][] = [];
+    await port().export({
+      formats: ["concertMusicxml"],
+      destination: "C:\\out",
+      basename: "take1",
+      onCollision: async (names) => {
+        seen.push([...names]);
+        return "overwrite";
+      },
+    });
+    expect(seen).toEqual([["take1_concert.musicxml"]]);
+    expect(invokeMock.mock.calls.some((c) => c[0] === "export_run")).toBe(true);
+  });
+
+  it("rename re-stems the whole set until the check is clear (#231)", async () => {
+    const checks: string[][] = [];
+    invokeMock.mockImplementation(async (cmd: string, args: { names?: string[] }) => {
+      if (cmd === "export_check_existing") {
+        checks.push([...(args.names ?? [])]);
+        return args.names?.every((n) => n.startsWith("take1_2_")) ? [] : [args.names?.[0]];
+      }
+      if (cmd === "export_run") return ["C:\\out\\take1_2_concert.musicxml"];
+      throw new Error("unexpected " + cmd);
+    });
+    const res = await port().export({
+      formats: ["concertMusicxml"],
+      destination: "C:\\out",
+      basename: "take1",
+      onCollision: async () => "rename",
+    });
+    expect(res.files[0].name).toBe("take1_2_concert.musicxml");
+    expect(checks.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("cancel surfaces EXPORT_CANCELLED and never runs (#231)", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "export_check_existing") return ["take1_concert.musicxml"];
+      if (cmd === "export_run") throw new Error("must not run");
+      throw new Error("unexpected " + cmd);
+    });
+    await expect(
+      port().export({
+        formats: ["concertMusicxml"],
+        destination: "C:\\out",
+        basename: "take1",
+        onCollision: async () => "cancel",
+      }),
+    ).rejects.toMatchObject({ code: "EXPORT_CANCELLED" });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "export_run")).toBe(false);
+  });
+
+  it("PDF without MuseScore fails before export_run (#258)", async () => {
+    await expect(
+      port().export({
+        formats: ["concertPdf"],
+        destination: "C:\\out",
+      }),
+    ).rejects.toMatchObject({ code: "MUSESCORE_UNAVAILABLE" });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "export_run")).toBe(false);
+  });
+});
+

@@ -20,7 +20,7 @@ import {
   type ExportResult,
 } from "./types";
 
-type Phase = "loading" | "form" | "running" | "done" | "error";
+type Phase = "loading" | "form" | "running" | "collision" | "done" | "error";
 type ErrorKind = "permission" | "unavailable" | "musescore" | "failed";
 
 const ERROR_TITLE: Record<ErrorKind, string> = {
@@ -87,6 +87,12 @@ export function ExportDialog({
   });
   const [result, setResult] = useState<ExportResult | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind>("failed");
+  // #231: pending collision prompt — the port's onCollision awaits
+  // this resolver while the dialog shows overwrite/rename/cancel.
+  const [collision, setCollision] = useState<{
+    names: readonly string[];
+    resolve: (policy: "overwrite" | "rename" | "cancel") => void;
+  } | null>(null);
   // Stale-response guard: a probe/export finishing after close or a newer
   // attempt must not overwrite the current phase.
   const generation = useRef(0);
@@ -139,8 +145,29 @@ export function ExportDialog({
 
   const close = useCallback(() => {
     generation.current += 1;
+    // #231: a pending collision prompt must not keep the export
+    // promise alive past close — resolve it as cancelled.
+    collision?.resolve("cancel");
+    setCollision(null);
     onOpenChange(false);
-  }, [onOpenChange]);
+  }, [onOpenChange, collision]);
+
+  // #231: the collision prompt's three policies — overwrite keeps
+  // the planned names, rename re-stems the set to <basename>_N,
+  // cancel aborts (the port surfaces EXPORT_CANCELLED → form).
+  const resolveCollision = useCallback(
+    (policy: "overwrite" | "rename" | "cancel") => {
+      const pending = collision;
+      setCollision(null);
+      if (policy === "cancel") {
+        pending?.resolve("cancel");
+        return;
+      }
+      setPhase("running");
+      pending?.resolve(policy);
+    },
+    [collision],
+  );
 
   const blocked = caps ? pdfBlocked(caps) : false;
   // #87: the audio bundle needs a real path — browser-held bytes and
@@ -166,6 +193,18 @@ export function ExportDialog({
       const res = await port.export({
         formats: effectiveFormats,
         destination,
+        // #231: existing artifact names pause the export here — the
+        // dialog shows one prompt for the whole set and the chosen
+        // policy resumes (or cancels) the transactional write.
+        onCollision: (names) =>
+          new Promise<"overwrite" | "rename" | "cancel">((resolve) => {
+            if (generation.current !== gen) {
+              resolve("cancel");
+              return;
+            }
+            setCollision({ names, resolve });
+            setPhase("collision");
+          }),
       });
       if (generation.current !== gen) return;
       setResult(res);
@@ -174,6 +213,12 @@ export function ExportDialog({
     } catch (err) {
       if (generation.current !== gen) return;
       const code = exportErrorCode(err);
+      if (code === "EXPORT_CANCELLED") {
+        // #231: the user cancelled at the collision prompt — back to
+        // the form quietly, not an error surface.
+        setPhase("form");
+        return;
+      }
       setErrorKind(
         code === "PERMISSION_DENIED"
           ? "permission"
@@ -219,6 +264,8 @@ export function ExportDialog({
       ? e.completeTitle
       : phase === "error"
         ? ERROR_TITLE[errorKind]
+        : phase === "collision"
+          ? e.collisionTitle
         : e.title;
 
   const formatRow = (id: ExportFormatId) => {
@@ -276,6 +323,24 @@ export function ExportDialog({
               onClick={() => void submit()}
             >
               {running ? e.running : e.submit}
+            </HsButton>
+          </>
+        ) : phase === "collision" ? (
+          <>
+            <HsButton onClick={() => resolveCollision("cancel")}>
+              {ja.common.cancel}
+            </HsButton>
+            <HsButton
+              variant="secondary"
+              onClick={() => resolveCollision("rename")}
+            >
+              {e.collisionRename}
+            </HsButton>
+            <HsButton
+              variant="primary"
+              onClick={() => resolveCollision("overwrite")}
+            >
+              {e.collisionOverwrite}
             </HsButton>
           </>
         ) : phase === "done" ? (
@@ -376,6 +441,19 @@ export function ExportDialog({
           {running ? (
             <HsProgress label={e.running} className="hs-export__progress" />
           ) : null}
+        </div>
+      ) : phase === "collision" ? (
+        <div className="hs-export">
+          <p className="hs-export__error">
+            <Warning24Regular
+              aria-hidden="true"
+              className="hs-export__error-icon"
+            />
+            <span>{e.collisionBody}</span>
+          </p>
+          <ul className="hs-export__files">
+            {collision?.names.map((n) => <li key={n}>{n}</li>)}
+          </ul>
         </div>
       ) : phase === "done" ? (
         <div className="hs-export">

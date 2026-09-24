@@ -1388,6 +1388,13 @@ export const ja = {
     revealInExplorer: "エクスプローラーで表示",
     revealFailed: "エクスプローラーで表示できませんでした",
     destinationPickFailed: "保存先を選択できませんでした",
+    /* #231: same-name artifacts exist — one prompt decides the whole
+     *  set's collision policy before the transactional write. */
+    collisionTitle: "同じ名前のファイルがあります",
+    collisionBody:
+      "保存先に同名のファイルがあります。上書きするか、別名（連番）で保存するか選んでください。",
+    collisionOverwrite: "上書きする",
+    collisionRename: "別名で保存",
   },
 
   /** External-tool status vocabulary (deck: dependencies.*). */

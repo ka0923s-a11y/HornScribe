@@ -96,6 +96,14 @@ export interface ExportRequest {
   readonly destination: string;
   /** Document base name for `<basename>_<artifact>` naming (ENG-001). */
   readonly basename?: string;
+  /** #231: called once before writing when target names already
+   *  exist — the host decides the collision policy for the whole set.
+   *  "rename" re-stems every artifact to <basename>_N; "cancel"
+   *  aborts the export with an EXPORT_CANCELLED result-free rejection.
+   *  Absent = overwrite (non-interactive ports, tests). */
+  readonly onCollision?: (
+    existingNames: readonly string[],
+  ) => Promise<"overwrite" | "rename" | "cancel">;
 }
 
 export interface ExportResult {
@@ -116,7 +124,10 @@ export type ExportErrorCode =
   /** PDF was requested without a usable MuseScore. */
   | "MUSESCORE_UNAVAILABLE"
   /** Anything else — generic failure with retry/choose-destination. */
-  | "EXPORT_FAILED";
+  | "EXPORT_FAILED"
+  /** #231: the user cancelled at the collision prompt — resolved
+   *  quietly, not an error surface. */
+  | "EXPORT_CANCELLED";
 
 export class ExportError extends Error {
   readonly code: ExportErrorCode;
