@@ -1172,6 +1172,12 @@ export const ja = {
       title: "スウィングの可能性があります",
       detail: "八分の裏拍が三連符の3つ目に寄っています（シャッフル系）。記譜にスウィングの指示を付けました。再生が元音源と合うか確認してください。",
     },
+    // #181: pYIN is monophonic — warn when the texture asked for
+    // (or allowed) polyphony so the missing voices are not silent.
+    monophonic_backend: {
+      title: "単音エンジンで採譜しました",
+      detail: "pYINは単一旋律専用のエンジンです。和音や伴奏を含む音源では他の声部が結果に反映されません。多声部を採りたい場合は、設定の採譜エンジンをBasic Pitchに変更してください。",
+    },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
       detail: "音の開始位置が曖昧です。",

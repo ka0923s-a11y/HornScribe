@@ -779,6 +779,50 @@ class TestSwing:
         assert "swingFeel" not in result["scoreDocument"]["content"]
         assert "<swing>" not in result["musicXmlConcert"]
 
+    def test_pyin_under_polyphonic_texture_warns(
+        self, tmp_path: Path
+    ) -> None:
+        # #181: pYIN is monophonic — texture=voices must surface that
+        # the result is one line by construction.
+        log = run(
+            tmp_path,
+            self._events([i * 0.5 for i in range(8)]),
+            {"backend": "pyin", "texture": "voices"},
+        )
+        reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
+        assert "monophonic_backend" in reasons
+
+    def test_pyin_under_auto_texture_warns(self, tmp_path: Path) -> None:
+        log = run(
+            tmp_path,
+            self._events([i * 0.5 for i in range(8)]),
+            {"backend": "pyin", "texture": "auto"},
+        )
+        reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
+        assert "monophonic_backend" in reasons
+
+    def test_pyin_under_mono_texture_no_warn(
+        self, tmp_path: Path
+    ) -> None:
+        log = run(
+            tmp_path,
+            self._events([i * 0.5 for i in range(8)]),
+            {"backend": "pyin", "texture": "mono"},
+        )
+        reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
+        assert "monophonic_backend" not in reasons
+
+    def test_basic_pitch_under_voices_no_warn(
+        self, tmp_path: Path
+    ) -> None:
+        log = run(
+            tmp_path,
+            self._events([i * 0.5 for i in range(8)]),
+            {"backend": "basicPitch", "texture": "voices"},
+        )
+        reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
+        assert "monophonic_backend" not in reasons
+
     def test_pipeline_straight_no_issue(self, tmp_path: Path) -> None:
         log = run(tmp_path, self._events([i * 0.25 for i in range(40)]))
         assert log[-1]["phase"] == "completed"

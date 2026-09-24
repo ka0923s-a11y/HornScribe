@@ -38,6 +38,10 @@ class ReviewReason(Enum):
     # the piece is probably swung, but the notation wrote straight
     # eighths or triplets.
     SWING_FEEL = "swing_feel"
+    # #181: the job ran a monophonic backend (pYIN) under a texture
+    # that may carry polyphony — any second voice is silently absent
+    # from the result.
+    MONOPHONIC_BACKEND = "monophonic_backend"
 
 
 class Severity(Enum):

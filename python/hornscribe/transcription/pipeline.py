@@ -714,6 +714,33 @@ def run_transcription_job(
                     },
                 )
             )
+        # #181: pYIN is a monophonic tracker — under voices/auto the
+        # user asked for (or allowed) polyphony, so surface that the
+        # result is one line by construction.
+        if params.backend == "pyin" and params.texture in (
+            "voices",
+            "auto",
+        ):
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=0.0, end_sec=duration_sec
+                    ),
+                    reason=ReviewReason.MONOPHONIC_BACKEND,
+                    severity=(
+                        Severity.WARNING
+                        if params.texture == "voices"
+                        else Severity.CAUTION
+                    ),
+                    evidence={
+                        "backend": "pyin",
+                        "texture": params.texture,
+                    },
+                )
+            )
         # #134 swing issue — the estimate was computed above (it also
         # lands on the payload as swing_feel for the notation).
         if swing_est.detected:

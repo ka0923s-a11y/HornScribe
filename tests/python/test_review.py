@@ -44,6 +44,7 @@ def test_all_master_plan_reasons_exist() -> None:
             "structural_measure_conflict",
             "meter_conflict",
             "swing_feel",
+            "monophonic_backend",
         }
     assert {r.value for r in ReviewReason} == expected
 

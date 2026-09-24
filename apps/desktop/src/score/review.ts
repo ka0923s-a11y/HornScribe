@@ -30,6 +30,7 @@ export type ReviewReason =
   | "pickup_ambiguous"
   | "meter_conflict"
   | "swing_feel"
+  | "monophonic_backend"
   | "onset_uncertain"
   | "pitch_uncertain"
   | "multiple_candidates"

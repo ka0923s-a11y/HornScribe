@@ -20,6 +20,7 @@ export const REVIEW_REASONS = [
   "structural_measure_conflict",
   "meter_conflict",
   "swing_feel",
+  "monophonic_backend",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
@@ -43,6 +44,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "pickup_ambiguous",
   "meter_conflict",
   "swing_feel",
+  "monophonic_backend",
   "onset_uncertain",
   "pitch_uncertain",
   "multiple_candidates",

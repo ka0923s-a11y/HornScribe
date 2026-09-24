@@ -104,6 +104,7 @@ ALLOWED_LATIN_TOKENS = {
     "Basic",
     "Pitch",
     "Verovio",
+    "pYIN",
     "wavesurfer",
     "Python",
     "WAV",
