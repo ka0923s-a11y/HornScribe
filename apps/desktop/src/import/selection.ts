@@ -127,6 +127,20 @@ export function panView(
   );
 }
 
+/** Minimap navigation (#116): centre the current window on `sec`,
+ *  preserving its span (full view stays full). */
+export function centerViewAt(
+  view: ViewRange,
+  sec: number,
+  durationSec: number,
+): ViewRange {
+  const span = view.endSec - view.startSec;
+  return clampView(
+    { startSec: sec - span / 2, endSec: sec + span / 2 },
+    durationSec,
+  );
+}
+
 /** Pointer position -> audio time inside a zoomed window. */
 export function clientXInView(
   clientX: number,

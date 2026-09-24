@@ -355,6 +355,68 @@ body {
   font-size: var(--hs-font-size-caption);
   pointer-events: none;
 }
+/* #116 (spec 8): minimap strip — whole-clip overview docked at the
+   strip's bottom edge. The --minimap modifier lifts the main layers so
+   nothing overlaps the 14px strip. */
+.hs-waveform--minimap .hs-waveform__peaks {
+  inset: 4px 0 20px;
+  height: calc(100% - 24px);
+}
+.hs-waveform--minimap .hs-waveform__playhead,
+.hs-waveform--minimap .hs-waveform__selection,
+.hs-waveform--minimap .hs-waveform__loop,
+.hs-waveform--minimap .hs-waveform__handle {
+  bottom: 20px;
+}
+.hs-waveform--minimap .hs-waveform__actions {
+  bottom: 22px;
+}
+.hs-waveform__minimap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 14px;
+  background: var(--hs-surface-elevated);
+  border-top: 1px solid var(--hs-border-subtle);
+  cursor: pointer;
+  touch-action: none;
+  z-index: 3;
+}
+.hs-waveform__minimap:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: -2px;
+}
+.hs-waveform__minimap-peaks {
+  position: absolute;
+  inset: 1px 0 0;
+  width: 100%;
+  height: calc(100% - 1px);
+  color: var(--hs-text-muted);
+  pointer-events: none;
+}
+.hs-waveform__minimap-peaks path {
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.hs-waveform__minimap-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--hs-accent) 16%, transparent);
+  border-left: 1px solid var(--hs-accent);
+  border-right: 1px solid var(--hs-accent);
+  pointer-events: none;
+}
+.hs-waveform__minimap-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hs-status-error);
+  pointer-events: none;
+}
 .hs-waveform__placeholder {
   pointer-events: none;
 }

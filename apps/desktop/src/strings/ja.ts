@@ -63,6 +63,8 @@ export const ja = {
     clearSelection: "選択を解除",
     resetZoom: "全体表示に戻す",
     zoomedLabel: "ズーム中",
+    /* #116 (spec 8): 長尺音源の全体図ストリップ */
+    minimap: "全体図（クリック・矢印キーで移動）",
   },
 
   score: {

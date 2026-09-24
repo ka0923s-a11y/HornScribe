@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  centerViewAt,
   clientXInView,
   clientXToSeconds,
   clampView,
@@ -127,6 +128,25 @@ describe("view window (#113, spec 8/15 zoom)", () => {
     });
     expect(clampView({ startSec: 55, endSec: 75 }, 60)).toEqual({
       startSec: 40,
+      endSec: 60,
+    });
+  });
+
+  it("centerViewAt centres the window and clamps at the edges (#116)", () => {
+    const v = centerViewAt({ startSec: 10, endSec: 20 }, 40, 60);
+    expect(v).toEqual({ startSec: 35, endSec: 45 });
+    // Centring near an edge clamps instead of overshooting.
+    expect(centerViewAt({ startSec: 10, endSec: 20 }, 2, 60)).toEqual({
+      startSec: 0,
+      endSec: 10,
+    });
+    expect(centerViewAt({ startSec: 10, endSec: 20 }, 59, 60)).toEqual({
+      startSec: 50,
+      endSec: 60,
+    });
+    // A full view stays full — the minimap seeks instead of panning.
+    expect(centerViewAt({ startSec: 0, endSec: 60 }, 30, 60)).toEqual({
+      startSec: 0,
       endSec: 60,
     });
   });

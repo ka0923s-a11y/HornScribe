@@ -13,7 +13,9 @@ import type { LoadedAudio } from "../import/types";
 import type { CaptureState } from "../capture/controller";
 import { formatTimecode } from "../import/format";
 import {
+  centerViewAt,
   clientXInView,
+  clientXToSeconds,
   clampView,
   DRAG_THRESHOLD_PX,
   fullView,
@@ -25,6 +27,33 @@ import {
   type SelectionRange,
   type ViewRange,
 } from "../import/selection";
+
+/** #116 (spec 8): the minimap strip appears for long clips (>=5 min) or
+ *  whenever the view is zoomed — short full-view clips don't need it. */
+const MINIMAP_MIN_DURATION_SEC = 300;
+/** Peaks columns in the minimap — fixed, so the strip stays cheap. */
+const MINIMAP_COLUMNS = 160;
+
+/** Downsample peaks to `columns` max-per-bucket values for the minimap. */
+function minimapPeaks(
+  peaks: readonly number[],
+  columns: number,
+): readonly number[] {
+  if (peaks.length <= columns) return peaks;
+  const out: number[] = new Array(columns).fill(0);
+  const bucket = peaks.length / columns;
+  for (let i = 0; i < columns; i++) {
+    const lo = Math.floor(i * bucket);
+    const hi = Math.min(
+      peaks.length,
+      Math.max(lo + 1, Math.ceil((i + 1) * bucket)),
+    );
+    let m = 0;
+    for (let j = lo; j < hi; j++) if (peaks[j] > m) m = peaks[j];
+    out[i] = m;
+  }
+  return out;
+}
 
 /** Peak-column path for the strip: one <path> keeps redraw cost flat -
  *  vertical bars centred on the midline. `peaks` is the slice currently
@@ -288,10 +317,112 @@ export function WaveformView({
     onClearSelection?.();
   };
 
+  // #116 (spec 8): minimap — long clips (>=5 min) or any zoomed view.
+  // Click/drag centres the zoom window (or seeks when zoomed out);
+  // arrow keys do the same for keyboard users.
+  const showMinimap =
+    audio != null &&
+    duration > 0 &&
+    (duration >= MINIMAP_MIN_DURATION_SEC || zoomed);
+  const miniPeaks = useMemo(
+    () => (audio ? minimapPeaks(audio.peaks, MINIMAP_COLUMNS) : []),
+    [audio],
+  );
+  const miniPath = useMemo(() => peaksPath(miniPeaks), [miniPeaks]);
+  const miniViewBand =
+    zoomed && duration > 0
+      ? { left: view.startSec / duration, width: span / duration }
+      : null;
+  const miniPlayheadRatio =
+    positionSec != null && duration > 0
+      ? Math.min(1, Math.max(0, positionSec / duration))
+      : null;
+
+  const onMinimapDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!audio || duration <= 0 || e.button !== 0) return;
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pointerId = e.pointerId;
+    const apply = (clientX: number) => {
+      const sec = clientXToSeconds(clientX, rect.left, rect.width, duration);
+      if (isFullView(viewRef.current, duration)) onSeek?.(sec);
+      else setView(centerViewAt(viewRef.current, sec, duration));
+    };
+    apply(e.clientX);
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId === pointerId) apply(ev.clientX);
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
+  const onMinimapKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!audio || duration <= 0) return;
+    const step = Math.max(1, duration * 0.05);
+    const v = viewRef.current;
+    const zoomedNow = !isFullView(v, duration);
+    const moveView = (deltaSec: number) =>
+      setView(panView(v, deltaSec, duration));
+    const movePlayhead = (sec: number) => {
+      const clamped = Math.min(Math.max(sec, 0), duration);
+      if (zoomedNow) setView(centerViewAt(v, clamped, duration));
+      else onSeek?.(clamped);
+    };
+    switch (e.key) {
+      case "ArrowLeft":
+        e.preventDefault();
+        e.stopPropagation();
+        if (zoomedNow) moveView(-step);
+        else movePlayhead((positionSec ?? 0) - step);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        e.stopPropagation();
+        if (zoomedNow) moveView(step);
+        else movePlayhead((positionSec ?? 0) + step);
+        break;
+      case "PageUp":
+        e.preventDefault();
+        e.stopPropagation();
+        if (zoomedNow) moveView(-step * 4);
+        else movePlayhead((positionSec ?? 0) - step * 4);
+        break;
+      case "PageDown":
+        e.preventDefault();
+        e.stopPropagation();
+        if (zoomedNow) moveView(step * 4);
+        else movePlayhead((positionSec ?? 0) + step * 4);
+        break;
+      case "Home":
+        e.preventDefault();
+        e.stopPropagation();
+        movePlayhead(0);
+        break;
+      case "End":
+        e.preventDefault();
+        e.stopPropagation();
+        movePlayhead(duration);
+        break;
+    }
+  };
+
   return (
     <div
       ref={rootRef}
-      className={onSelect ? "hs-waveform hs-waveform--selectable" : "hs-waveform"}
+      className={[
+        "hs-waveform",
+        onSelect ? "hs-waveform--selectable" : null,
+        showMinimap ? "hs-waveform--minimap" : null,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       role="region"
       aria-label={ja.waveform.regionLabel}
       data-hs-focus-zone="waveform"
@@ -493,6 +624,53 @@ export function WaveformView({
           {ja.waveform.placeholder}
         </span>
       )}
+      {/* #116 (spec 8): minimap — whole-clip strip with the zoom window
+          as a band; click/drag/keys navigate. Long clips or zoomed only. */}
+      {showMinimap ? (
+        <div
+          className="hs-waveform__minimap"
+          role="slider"
+          aria-label={ja.waveform.minimap}
+          aria-orientation="horizontal"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(
+            zoomed ? view.startSec : (positionSec ?? 0),
+          )}
+          aria-valuetext={formatTimecode(
+            zoomed ? view.startSec : (positionSec ?? 0),
+          )}
+          tabIndex={0}
+          onPointerDown={onMinimapDown}
+          onKeyDown={onMinimapKey}
+        >
+          <svg
+            className="hs-waveform__minimap-peaks"
+            viewBox={`0 0 ${Math.max(1, miniPeaks.length)} 100`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path d={miniPath} />
+          </svg>
+          {miniViewBand ? (
+            <div
+              className="hs-waveform__minimap-window"
+              style={{
+                left: `${miniViewBand.left * 100}%`,
+                width: `${Math.max(0.5, miniViewBand.width * 100)}%`,
+              }}
+              aria-hidden="true"
+            />
+          ) : null}
+          {miniPlayheadRatio !== null ? (
+            <div
+              className="hs-waveform__minimap-playhead"
+              style={{ left: `${miniPlayheadRatio * 100}%` }}
+              aria-hidden="true"
+            />
+          ) : null}
+        </div>
+      ) : null}
       <div
         className="hs-waveform__resizer"
         role="separator"
