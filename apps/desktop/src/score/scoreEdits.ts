@@ -222,7 +222,7 @@ function respellNotePitch(noteEl: Element, doc: XMLDocument): void {
 }
 
 /** Convert a pitched <note> into a same-duration rest, keeping the
- *  `hs-sn-*` id so canonical identity (selection, issue links) survives.
+ *  hs-sn-* id so canonical identity (selection, issue links) survives.
  *  Ties/notations/beams that only make sense for a pitch are dropped. */
 function noteToRest(noteEl: Element, doc: XMLDocument): void {
   const pitch = noteEl.querySelector(":scope > pitch");
@@ -234,6 +234,60 @@ function noteToRest(noteEl: Element, doc: XMLDocument): void {
       el.remove();
     }
   }
+}
+
+/** #224: reverse of noteToRest for CANONICAL-deleted notes — the
+ *  engine emits them as rests that keep their hs-sn-* id, so an
+ *  overlay restore (deleted:false) re-pitches the element from the
+ *  canonical pitchMidi (sharp-family spelling, alter implied). */
+function restToNote(
+  noteEl: Element,
+  doc: XMLDocument,
+  midi: number,
+): void {
+  const restEl = noteEl.querySelector(":scope > rest");
+  if (!restEl) return;
+  const pc = ((midi % 12) + 12) % 12;
+  const [step, alter] = SPELL_SHARP[pc];
+  const octave = Math.floor(midi / 12) - 1;
+  const pitch = doc.createElement("pitch");
+  const stepEl = doc.createElement("step");
+  stepEl.textContent = step;
+  pitch.appendChild(stepEl);
+  if (alter !== 0) {
+    const alterEl = doc.createElement("alter");
+    alterEl.textContent = String(alter);
+    pitch.appendChild(alterEl);
+  }
+  const octaveEl = doc.createElement("octave");
+  octaveEl.textContent = String(octave);
+  pitch.appendChild(octaveEl);
+  noteEl.replaceChild(pitch, restEl);
+}
+
+/** #224: canonical id -> pitchMidi lookup for restore. */
+function canonicalMidiOf(
+  canonicalDoc: unknown,
+): ReadonlyMap<string, number> {
+  const map = new Map<string, number>();
+  const content = (canonicalDoc as { content?: { parts?: unknown } })
+    ?.content;
+  const parts = content?.parts;
+  if (!Array.isArray(parts)) return map;
+  for (const part of parts) {
+    const notes = (part as { notes?: unknown }).notes;
+    if (!Array.isArray(notes)) continue;
+    for (const n of notes) {
+      const note = n as { id?: unknown; pitchMidi?: unknown };
+      if (
+        typeof note.id === "string" &&
+        typeof note.pitchMidi === "number"
+      ) {
+        map.set(note.id, note.pitchMidi);
+      }
+    }
+  }
+  return map;
 }
 
 /** #246: after deletions, rebuild each <chord/> group so the MusicXML
@@ -304,19 +358,37 @@ function normalizeChords(doc: XMLDocument): void {
 export function applyNoteEdits(
   xml: string,
   edits: ReadonlyMap<string, ScoreNoteEdit>,
+  canonicalDoc?: unknown,
 ): string {
   if (edits.size === 0) return xml;
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.querySelector("parsererror")) {
     throw new Error("MusicXML parse failed");
   }
+  const midiById =
+    canonicalDoc !== undefined ? canonicalMidiOf(canonicalDoc) : null;
   let changed = false;
   for (const noteEl of Array.from(doc.querySelectorAll("note[id]"))) {
     const canonical = canonicalNoteIdFromMusicxml(noteEl.getAttribute("id") ?? "");
     if (!canonical) continue;
     const edit = edits.get(canonical);
     if (!edit) continue;
-    if (edit.deleted) {
+    const isRest = noteEl.querySelector(":scope > rest") !== null;
+    if (isRest && !edit.deleted) {
+      // #224: restore — a canonical-deleted note re-pitches from the
+      // canonical pitchMidi, then pitchDelta/enharmonic apply on top.
+      const midi = midiById?.get(canonical);
+      if (midi !== undefined) {
+        restToNote(noteEl, doc, midi);
+        changed = true;
+        if (edit.pitchDelta !== 0) {
+          shiftNotePitch(noteEl, doc, edit.pitchDelta);
+        }
+        if (edit.enharmonic) {
+          respellNotePitch(noteEl, doc);
+        }
+      }
+    } else if (edit.deleted) {
       noteToRest(noteEl, doc);
       changed = true;
     } else {

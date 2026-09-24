@@ -91,8 +91,17 @@ export interface ScoreDocumentPort {
    * (fixtures, dev) has nothing to send to score.edit, so the edit
    * stays unavailable (honest, never faked). */
   /** The canonical scoreDocument dict (schema v1 content) the engine's
-   *  `score.edit` needs as its base, or null for non-engine sources. */
+   *  score.edit needs as its base — #224: with pending note edits
+   *  materialized into it, or null for non-engine sources. */
   canonicalDocument?(): unknown | null;
+  /** #224: is the canonical note itself deleted (rest-rendered by the
+   *  engine payload — not just overlaid by a UI edit)? Lets the UI
+   *  tell a materialized delete apart from a pending overlay one. */
+  canonicalNoteDeleted?(canonicalId: string): boolean;
+  /** #224: overlay edits that survive materialization into the
+   *  canonical payload (enharmonic-only, live notes only) — the
+   *  workspace passes these as next.noteEdits after an engine edit. */
+  materializedNoteEdits?(newCanonicalDoc: unknown): ReadonlyMap<string, ScoreNoteEdit>;
   /** The current XML bodies + revision — the undo-stack snapshot for
    *  engine-driven content swaps. */
   contentSnapshot?(): {
@@ -100,6 +109,10 @@ export interface ScoreDocumentPort {
     hornXml: string;
     revisionId: string;
     canonicalDocument: unknown;
+    /** #224: pending note edits are part of the snapshot — a rhythm
+     *  edit materializes them into the canonical payload, so undo must
+     *  restore the overlay too. */
+    noteEdits: ReadonlyMap<string, ScoreNoteEdit>;
   };
   /** Swap the document's content in place (engine rhythm edit): same
    *  object, new bodies + revision + meta. The workspace re-renders via
@@ -110,5 +123,8 @@ export interface ScoreDocumentPort {
     hornXml: string;
     revisionId: string;
     canonicalDocument: unknown;
+    /** #224: overlay edits to restore after the swap — the caller
+     *  passes the materialized remainder (usually enharmonic-only). */
+    noteEdits?: ReadonlyMap<string, ScoreNoteEdit>;
   }): void;
 }

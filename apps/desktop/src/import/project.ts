@@ -166,6 +166,16 @@ export async function buildProjectDocument(
         targetNoteIds: [noteId],
         payload: {},
       });
+    } else if (doc.canonicalNoteDeleted?.(noteId)) {
+      // #224: an overlay restore on a canonical-deleted note — without
+      // this row the saved project would silently keep the delete.
+      userEdits.push({
+        id: "ue-" + String(++editSeq).padStart(4, "0"),
+        scoreRevision: doc.revisionId,
+        kind: "restore",
+        targetNoteIds: [noteId],
+        payload: {},
+      });
     }
   }
 

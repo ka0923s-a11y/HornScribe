@@ -1779,3 +1779,145 @@ class TestApplyTriplet:
     def test_requires_start_beat(self) -> None:
         with pytest.raises(ScoreEditError, match="startBeat"):
             ScoreEdit.from_dict({"kind": "applyTriplet", "noteId": ""})
+
+
+class TestDeletedNotes:
+    """#224: canonical deleted flag — the engine-visible record of the
+    UI-050 delete correction. Notes keep their identity (unlike
+    ScoreRest) so selection/restore survives; every edit path must
+    propagate or honor the flag."""
+
+    def test_deleted_roundtrips_serialization(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1", deleted=True)])
+        data = doc.payload.parts[0].notes[0].to_dict()
+        assert data["deleted"] is True
+        back = QuantizedNote.from_dict(data)
+        assert back.deleted is True
+        # Absent flag = live note (older payloads keep their revision).
+        live = QuantizedNote.from_dict(
+            {k: v for k, v in data.items() if k != "deleted"}
+        )
+        assert live.deleted is False
+
+    def test_split_carries_deleted_to_both_halves(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1", deleted=True)])
+        out = apply_score_edit(doc, _edit("splitNote", "sn-000001"))
+        part = out.payload.parts[0]
+        assert len(part.notes) == 2
+        assert all(n.deleted for n in part.notes)
+
+    def test_merge_revives_only_when_both_deleted(self) -> None:
+        # live + deleted -> live (the merge resurrects the span)
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 60, "1", "1", deleted=True),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+        assert out.payload.parts[0].notes[0].deleted is False
+        # deleted + deleted -> deleted
+        doc2 = _doc(
+            [
+                _note(1, 60, "0", "1", deleted=True),
+                _note(2, 60, "1", "1", deleted=True),
+            ]
+        )
+        out2 = apply_score_edit(doc2, _edit("mergeNotes", "sn-000001"))
+        assert out2.payload.parts[0].notes[0].deleted is True
+
+    def test_requantize_does_not_resurrect_deleted(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 62, "1", "1", deleted=True),
+            ]
+        )
+        out = apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/4"}),
+        )
+        by_id = {str(n.id): n for n in out.payload.parts[0].notes}
+        # Positional remap keeps sn-000002's identity — and its flag.
+        assert by_id["sn-000002"].deleted is True
+        assert by_id["sn-000001"].deleted is False
+
+    def test_requantize_deleted_via_shared_events(self) -> None:
+        # A deleted note whose source events split into two new notes:
+        # both inherit deleted through the event-id carry.
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1", deleted=True),
+                _note(2, 62, "1", "1"),
+            ]
+        )
+        out = apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"triplets": "none"}),
+        )
+        by_events = {
+            e for n in out.payload.parts[0].notes for e in n.source_event_ids
+        }
+        assert RawNoteEventId("rne-000001") in by_events
+        flagged = [
+            n
+            for n in out.payload.parts[0].notes
+            if RawNoteEventId("rne-000001") in n.source_event_ids
+        ]
+        assert flagged and all(n.deleted for n in flagged)
+
+    def test_rest_to_note_restores_deleted_note(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1", deleted=True)])
+        out = apply_score_edit(
+            doc,
+            ScoreEdit.from_dict(
+                {
+                    "kind": "restToNote",
+                    "partId": "part-1",
+                    "startBeat": "0",
+                    "pitchMidi": 60,
+                }
+            ),
+        )
+        part = out.payload.parts[0]
+        assert len(part.notes) == 1
+        assert part.notes[0].deleted is False
+        # The note keeps its canonical id — restore, not a new note.
+        assert str(part.notes[0].id) == "sn-000001"
+        assert part.notes[0].pitch_midi == 60
+
+    def test_edits_on_deleted_notes_still_work(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1", deleted=True)])
+        out = apply_score_edit(
+            doc, _edit("transposeNote", "sn-000001", semitones=2)
+        )
+        n = out.payload.parts[0].notes[0]
+        assert n.pitch_midi == 62
+        assert n.deleted is True
+
+    def test_deleted_note_exports_as_rest_with_canonical_id(self) -> None:
+        # The emitted MusicXML shows a rest that keeps the hs-sn-* id —
+        # selection/issue links and the restore path survive.
+        import xml.etree.ElementTree as ET
+
+        from hornscribe.export.musicxml import export_concert_musicxml
+
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1", deleted=True),
+                _note(2, 62, "1", "1"),
+            ]
+        )
+        xml = export_concert_musicxml(doc)
+        root = ET.fromstring(xml)
+        notes = [
+            el
+            for part in root.findall("part")
+            for el in part.iter("note")
+        ]
+        rests = [el for el in notes if el.find("rest") is not None]
+        assert rests, "deleted note must render as a rest"
+        assert rests[0].get("id") == "hs-sn-000001"
+        # The live note keeps its own id; rest ordinals are untouched.
+        pitched = [el for el in notes if el.find("rest") is None]
+        assert [el.get("id") for el in pitched] == ["hs-sn-000002"]

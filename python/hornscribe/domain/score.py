@@ -180,6 +180,12 @@ class QuantizedNote:
     # Omitted from serialization when empty so older payloads keep their
     # content-derived revision ids.
     pitch_bends: tuple[PitchBendPoint, ...] = ()
+    # #224: user-deleted note — the canonical record of the UI-050 delete
+    # correction. Renders as a rest but keeps its canonical id (ScoreRest
+    # cannot: rests carry no identity), so selection/issue links and a
+    # later restore survive. Omitted from serialization when False so
+    # older payloads keep their content-derived revision ids.
+    deleted: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
@@ -230,6 +236,8 @@ class QuantizedNote:
             data["atoms"] = [a.to_dict() for a in self.atoms]
         if self.pitch_bends:
             data["pitchBends"] = [b.to_dict() for b in self.pitch_bends]
+        if self.deleted:
+            data["deleted"] = True
         return data
 
     @classmethod
@@ -247,6 +255,7 @@ class QuantizedNote:
             pitch_bends=tuple(
                 PitchBendPoint.from_dict(b) for b in data.get("pitchBends", ())
             ),
+            deleted=bool(data.get("deleted", False)),
         )
 
 

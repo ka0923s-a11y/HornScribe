@@ -195,6 +195,9 @@ class _Entry:
     """One committed element placed inside a measure."""
 
     kind: str  # "note" | "rest" | "legacy-note" (note without atoms)
+    #          | "deleted-note" (#224: canonical-deleted note — renders
+    #          as a rest but keeps its hs-sn-* export id so the note's
+    #          canonical identity survives for selection/restore)
     local_start_beats: Fraction
     dur_beats: Fraction
     note_: QuantizedNote | None = None
@@ -275,7 +278,7 @@ def _measure_entries(
                 )
                 entries.setdefault(sidx, []).append(
                     _Entry(
-                        kind="note",
+                        kind="deleted-note" if n.deleted else "note",
                         local_start_beats=pos - spans[sidx].start_beat,
                         dur_beats=atom.duration_beats,
                         note_=n,
@@ -290,7 +293,7 @@ def _measure_entries(
             for pidx, (sidx, local_start, dur) in enumerate(pieces):
                 entries.setdefault(sidx, []).append(
                     _Entry(
-                        kind="legacy-note",
+                        kind="deleted-note" if n.deleted else "legacy-note",
                         local_start_beats=local_start,
                         dur_beats=dur,
                         note_=n,
@@ -489,6 +492,28 @@ def _render_layer(
         ):
             members.append(entries[i])
             i += 1
+        # #224: canonical-deleted notes render as rests that keep their
+        # hs-sn-* id (canonical identity survives for selection/restore).
+        # A deleted chord member drops out of the chord — the surviving
+        # members already cover the slot, matching the frontend's
+        # normalizeChords. A fully deleted group collapses to one rest
+        # carrying the first member's canonical id.
+        live = [m for m in members if m.kind != "deleted-note"]
+        if not live:
+            first = members[0]
+            if first.atom is not None:
+                element = _make_rest(first.atom, beat_ql)
+            else:
+                element = note.Rest(
+                    quarterLength=first.dur_beats * beat_ql
+                )
+            assert first.note_ is not None
+            element.id = musicxml_note_id(first.note_.id)
+            target.insert(e.local_start_beats * beat_ql, element)
+            placed.append((first, element))
+            cursor = max(x.local_end_beats for x in members)
+            continue
+        members = live
         m21_notes: list[note.Note] = []
         for m in members:
             assert m.note_ is not None

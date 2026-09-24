@@ -1033,6 +1033,9 @@ def _apply_merge(
         source_event_ids=cur.source_event_ids + nxt.source_event_ids,
         tie_start=nxt.tie_start,
         atoms=(),
+        # #224: a merge with a live note revives the span — the result
+        # stays deleted only when BOTH inputs were deleted.
+        deleted=cur.deleted and nxt.deleted,
     )
     # The layer partner is not necessarily adjacent in storage order —
     # remove it by index first (it always sits after cur in time, but
@@ -1094,6 +1097,16 @@ def _apply_rest_to_note(
     part = next((p for p in payload.parts if p.id == part_id), None)
     if part is None:
         raise ScoreEditError(f"part {part_id!r} not found in the score")
+    # #224: a canonical-deleted note at the target beat is restored —
+    # restToNote is the canonical form of the UI's 復元 action and the
+    # note keeps its id/pitch/span verbatim.
+    for n in part.notes:
+        if n.deleted and n.start_beat <= start_beat < n.end_beat:
+            notes = list(part.notes)
+            notes[notes.index(n)] = replace(n, deleted=False)
+            return _retile_part(
+                payload, part, notes, n.start_beat, n.end_beat
+            )
     rest = next(
         (
             r
@@ -1371,8 +1384,15 @@ def _remap_note_ids(
     new_parts: list[Part] = []
     for part, (notes, rests) in zip(payload.parts, new_parts_notes, strict=True):
         old_sorted = sorted(part.notes, key=lambda n: (n.start_beat, str(n.id)))
+        # #224: a deleted note must not resurrect. The event-id carry is
+        # primary (a re-split note's halves share the old evidence), the
+        # positional carry covers notes whose evidence link changed.
+        deleted_event_ids = {
+            e for n in part.notes if n.deleted for e in n.source_event_ids
+        }
         remapped: list[QuantizedNote] = []
         for i, note in enumerate(notes):
+            by_event = bool(deleted_event_ids & set(note.source_event_ids))
             if i < len(old_sorted):
                 old = old_sorted[i]
                 remapped.append(
@@ -1384,10 +1404,17 @@ def _remap_note_ids(
                             if keep_source_ids
                             else old.source_event_ids
                         ),
+                        deleted=old.deleted or by_event,
                     )
                 )
             else:
-                remapped.append(replace(note, id=ScoreNoteId(f"sn-{next_id:06d}")))
+                remapped.append(
+                    replace(
+                        note,
+                        id=ScoreNoteId(f"sn-{next_id:06d}"),
+                        deleted=by_event,
+                    )
+                )
                 next_id += 1
         new_parts.append(replace(part, notes=tuple(remapped), rests=rests))
     return tuple(new_parts)

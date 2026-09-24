@@ -36,12 +36,14 @@ export interface DocSwap {
     readonly hornXml: string;
     readonly revisionId: string;
     readonly canonicalDocument: unknown;
+    readonly noteEdits: ReadonlyMap<string, ScoreNoteEdit>;
   };
   readonly next: {
     readonly concertXml: string;
     readonly hornXml: string;
     readonly revisionId: string;
     readonly canonicalDocument: unknown;
+    readonly noteEdits?: ReadonlyMap<string, ScoreNoteEdit>;
   };
 }
 
@@ -61,7 +63,14 @@ export interface ReviewEdit {
 }
 
 function editOf(doc: ScoreDocumentPort, canonicalId: string): ScoreNoteEdit {
-  return doc.noteEdits().get(canonicalId) ?? NO_NOTE_EDIT;
+  const overlay = doc.noteEdits().get(canonicalId);
+  if (overlay) return overlay;
+  // #224: a canonical-deleted note IS deleted even with no overlay —
+  // the effective edit reports it so isDeleted/toggles stay honest.
+  if (doc.canonicalNoteDeleted?.(canonicalId)) {
+    return { ...NO_NOTE_EDIT, deleted: true };
+  }
+  return NO_NOTE_EDIT;
 }
 
 export class ReviewSession {

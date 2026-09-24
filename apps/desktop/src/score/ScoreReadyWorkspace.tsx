@@ -1311,6 +1311,12 @@ export function ScoreReadyWorkspace({
             hornXml: result.musicXmlHornF,
             revisionId: result.scoreRevision,
             canonicalDocument: result.scoreDocument,
+            // #224: the canonical the engine just consumed already
+            // carries the pending edits — only notation-only facets
+            // (enharmonic) stay overlaid.
+            noteEdits: scoreDoc.materializedNoteEdits?.(
+              result.scoreDocument,
+            ),
           };
           scoreDoc.replaceContent?.(next);
           session.commitDocSwap(prev, next);

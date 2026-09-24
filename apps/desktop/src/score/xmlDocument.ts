@@ -16,7 +16,6 @@ import { parseScoreDoc } from "./scoreDoc";
 import type { ReviewIssueStatus, ScoreReviewIssue } from "./review";
 import {
   applyNoteEdits,
-  isEmptyNoteEdit,
   type ScoreNoteEdit,
 } from "./scoreEdits";
 
@@ -58,6 +57,11 @@ export class XmlScoreDocument implements ScoreDocumentPort {
   >();
   private readonly edits = new Map<string, ScoreNoteEdit>();
   private editCounter = 0;
+  /** #224: canonical ids whose QuantizedNote carries deleted:true —
+   *  rebuilt on every content swap. A materialized delete stays
+   *  rest-rendered by the engine itself; the overlay only tracks
+   *  pending (unmaterialized) edits. */
+  private canonicalDeletedIds = new Set<string>();
 
   constructor(src: XmlScoreDocumentSources) {
     this._revisionId = src.revisionId;
@@ -65,6 +69,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     this.concertXml = src.concertXml;
     this.hornXml = src.hornXml;
     this.canonicalDoc = src.canonicalDocument ?? null;
+    this.canonicalDeletedIds = deletedIdsOf(this.canonicalDoc);
     this._meta = XmlScoreDocument.computeMeta(src.concertXml);
     this._omittedIssueCount = src.omittedIssueCount ?? 0;
     this._meta = {
@@ -113,7 +118,10 @@ export class XmlScoreDocument implements ScoreDocumentPort {
 
   musicXml(view: PitchViewSetting): string {
     const base = view === "hornF" ? this.hornXml : this.concertXml;
-    return applyNoteEdits(base, this.edits);
+    // #224: the canonical note map lets the overlay also RESTORE —
+    // a deleted:false edit on a canonical-deleted note re-pitches the
+    // emitted rest from the canonical pitchMidi.
+    return applyNoteEdits(base, this.edits, this.canonicalDoc);
   }
 
   reviewIssues(): readonly ScoreReviewIssue[] {
@@ -133,15 +141,39 @@ export class XmlScoreDocument implements ScoreDocumentPort {
   }
 
   setNoteEdit(canonicalId: string, edit: ScoreNoteEdit | null): void {
-    if (edit == null || isEmptyNoteEdit(edit)) this.edits.delete(canonicalId);
+    // #224: canonical-aware emptiness — restoring a canonical-deleted
+    // note is {deleted:false}, which isEmptyNoteEdit would call empty
+    // yet MUST be stored so the next materialization revives the note.
+    const neutral: ScoreNoteEdit = {
+      pitchDelta: 0,
+      deleted: this.canonicalDeletedIds.has(canonicalId),
+      enharmonic: false,
+    };
+    const isNeutral =
+      edit == null ||
+      (edit.pitchDelta === neutral.pitchDelta &&
+        edit.deleted === neutral.deleted &&
+        (edit.enharmonic ?? false) === neutral.enharmonic);
+    if (isNeutral) this.edits.delete(canonicalId);
     else this.edits.set(canonicalId, edit);
     this.editCounter += 1;
   }
 
   /* ---- #115: engine rhythm edits swap content in place ---- */
 
+  canonicalNoteDeleted(canonicalId: string): boolean {
+    return this.canonicalDeletedIds.has(canonicalId);
+  }
+
   canonicalDocument(): unknown | null {
-    return this.canonicalDoc;
+    // #224: the engine edits the score the user SEES — pending overlay
+    // edits (pitchDelta/deleted) are materialized into the canonical
+    // payload before score.edit, so split/merge/requantize can never
+    // resurrect or contradict them. Enharmonic spelling is notation-
+    // only and stays in the overlay.
+    if (this.canonicalDoc == null) return null;
+    if (this.edits.size === 0) return this.canonicalDoc;
+    return materializeCanonicalEdits(this.canonicalDoc, this.edits);
   }
 
   contentSnapshot() {
@@ -150,18 +182,44 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       hornXml: this.hornXml,
       revisionId: this._revisionId,
       canonicalDocument: this.canonicalDoc,
+      noteEdits: new Map(this.edits),
     };
+  }
+
+  /** #224: the overlay edits that survive materialization — passed as
+   *  next.noteEdits on the post-edit content swap. Only enharmonic
+   *  respelling stays overlaid (canonical stores sounding pitch, not
+   *  spelling); edits on notes the engine removed are dropped. */
+  materializedNoteEdits(newCanonicalDoc: unknown): Map<string, ScoreNoteEdit> {
+    const keep = new Map<string, ScoreNoteEdit>();
+    const liveIds = liveNoteIdsOf(newCanonicalDoc);
+    const deletedIds = deletedIdsOf(newCanonicalDoc);
+    for (const [id, edit] of this.edits) {
+      if (!liveIds.has(id)) continue;
+      if (edit.enharmonic && !deletedIds.has(id)) {
+        keep.set(id, {
+          pitchDelta: 0,
+          deleted: false,
+          enharmonic: true,
+        });
+      }
+    }
+    return keep;
   }
 
   /** Swap XML bodies + revision + canonical payload in place. Meta is
    *  recomputed from the new concert XML (measure/note counts can move).
-   *  Note edits and review decisions survive — canonical ids are stable,
-   *  and the session's undo stack keeps working across the swap. */
+   *  Review decisions survive — canonical ids are stable, and the
+   *  session's undo stack keeps working across the swap. #224: the
+   *  overlay edits are replaced by next.noteEdits (the materialized
+   *  remainder); callers pass materializedNoteEdits() after an engine
+   *  edit, or the snapshot's own map on undo/redo. */
   replaceContent(next: {
     concertXml: string;
     hornXml: string;
     revisionId: string;
     canonicalDocument: unknown;
+    noteEdits?: ReadonlyMap<string, ScoreNoteEdit>;
   }): void {
     if (next.revisionId !== this._revisionId) {
       // #225: stash the outgoing revision's issue set + decisions, then
@@ -177,6 +235,13 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     this.hornXml = next.hornXml;
     this._revisionId = next.revisionId;
     this.canonicalDoc = next.canonicalDocument;
+    this.canonicalDeletedIds = deletedIdsOf(this.canonicalDoc);
+    if (next.noteEdits !== undefined) {
+      this.edits.clear();
+      for (const [id, edit] of next.noteEdits) {
+        this.edits.set(id, edit);
+      }
+    }
     this._meta = XmlScoreDocument.computeMeta(next.concertXml);
     this._meta = {
       ...this._meta,
@@ -210,6 +275,83 @@ function mergeTempoStarts(
       ? { ...m, startBeat }
       : { ...m };
   });
+}
+
+/* ------------------------- #224: canonical edits -------------------------
+ * The canonical payload is the single source of truth for engine edits:
+ * pending overlay edits are materialized into it before score.edit so
+ * split/merge/requantize operate on what the user sees. */
+
+/** Canonical ids whose QuantizedNote carries deleted:true. */
+function deletedIdsOf(canonicalDoc: unknown): Set<string> {
+  const ids = new Set<string>();
+  for (const n of canonicalNotesOf(canonicalDoc)) {
+    if (n.deleted === true && typeof n.id === "string") ids.add(n.id);
+  }
+  return ids;
+}
+
+/** Canonical ids still present as live notes (deleted or not — a
+ *  deleted note keeps its id; a merged-away note loses it). */
+function liveNoteIdsOf(canonicalDoc: unknown): Set<string> {
+  const ids = new Set<string>();
+  for (const n of canonicalNotesOf(canonicalDoc)) {
+    if (typeof n.id === "string") ids.add(n.id);
+  }
+  return ids;
+}
+
+function canonicalNotesOf(
+  canonicalDoc: unknown,
+): readonly Record<string, unknown>[] {
+  const content = (canonicalDoc as { content?: { parts?: unknown } })
+    ?.content;
+  const parts = content?.parts;
+  if (!Array.isArray(parts)) return [];
+  const out: Record<string, unknown>[] = [];
+  for (const part of parts) {
+    const notes = (part as { notes?: unknown }).notes;
+    if (!Array.isArray(notes)) continue;
+    for (const n of notes) {
+      if (typeof n === "object" && n !== null) {
+        out.push(n as Record<string, unknown>);
+      }
+    }
+  }
+  return out;
+}
+
+/** Deep-clone the canonical payload and bake the overlay edits into it:
+ *  pitchDelta -> pitchMidi offset, deleted -> the canonical deleted
+ *  flag (both directions — an overlay restore clears it). Enharmonic
+ *  spelling is notation-only and stays overlaid. Notes the overlay
+ *  references but the payload lacks are ignored. */
+export function materializeCanonicalEdits(
+  canonicalDoc: unknown,
+  edits: ReadonlyMap<string, ScoreNoteEdit>,
+): unknown {
+  const clone = JSON.parse(JSON.stringify(canonicalDoc)) as Record<
+    string,
+    unknown
+  >;
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const n of canonicalNotesOf(clone)) {
+    if (typeof n.id === "string") byId.set(n.id, n);
+  }
+  for (const [id, edit] of edits) {
+    const n = byId.get(id);
+    if (!n) continue;
+    if (edit.pitchDelta !== 0 && typeof n.pitchMidi === "number") {
+      n.pitchMidi = n.pitchMidi + edit.pitchDelta;
+    }
+    if (edit.deleted) {
+      n.deleted = true;
+    } else if (n.deleted === true) {
+      // Overlay restore — the canonical flag clears.
+      delete n.deleted;
+    }
+  }
+  return clone;
 }
 
 /** Fields extracted from a completed transcription job's `result`. */

@@ -235,6 +235,18 @@ def _assign_note_ids(root: ET.Element) -> None:
             # #155: <chord/> members are welcome — each carries its own
             # canonical note id (music21 preserves member note ids).
             if note_el.find("rest") is not None:
+                # #224: a canonical-deleted note renders as a rest but
+                # keeps its hs-sn-* export id — fragment-number it like
+                # a pitched note (the id is canonical, not a rest
+                # ordinal) so selection/restore links survive.
+                rest_nid = note_el.get("id")
+                if rest_nid is not None and is_musicxml_note_id(rest_nid):
+                    canonical = canonical_note_id_from_musicxml(rest_nid)
+                    counts[canonical] = counts.get(canonical, 0) + 1
+                    note_el.set(
+                        "id", musicxml_note_id(canonical, counts[canonical])
+                    )
+                    continue
                 # #241: layout-only filler rests (secondary-voice gaps,
                 # non-strict measure padding) are marked by the renderer
                 # and must NOT consume a canonical hs-rest-* ordinal —

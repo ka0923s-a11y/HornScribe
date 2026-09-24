@@ -317,6 +317,7 @@ tempoChanges: [],
       hornXml: "",
       revisionId: "rev-x",
       canonicalDocument: null,
+      noteEdits: new Map(),
     };
     expect(session.commitDocSwap(snap, snap)).toBeNull();
     expect(session.canUndo).toBe(false);
