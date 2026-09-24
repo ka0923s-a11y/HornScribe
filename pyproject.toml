@@ -24,6 +24,13 @@ engine = [
     "pretty_midi>=0.2.10",
     "mido>=1.3",
 ]
+# #302: neural vocal separation is opt-in — demucs pulls ~200 MB of
+# torch + model weights, so it stays out of the default engine extra.
+# With it installed, vocal isolation upgrades from center extraction
+# to true two-stem separation automatically.
+engine-vocal = [
+    "demucs>=4.0",
+]
 
 [project.scripts]
 hornscribe = "hornscribe.cli:main"

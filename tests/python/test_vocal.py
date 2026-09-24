@@ -103,14 +103,76 @@ def test_vocal_wav_cache_and_reason(tmp_path, monkeypatch):
     cache_dir.mkdir()
     monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
 
-    path, reason, managed = vocal_wav(src, "hash1", 0.0, None, 22050)
+    path, reason, managed, method = vocal_wav(src, "hash1", 0.0, None, 22050)
     assert reason == "applied"
     assert managed is True
+    assert method == "center_extraction"
     assert path is not None and path.endswith(".wav")
     # Second call hits the cache — same path, no recompute.
-    path2, reason2, _ = vocal_wav(src, "hash1", 0.0, None, 22050)
+    path2, reason2, _, _ = vocal_wav(src, "hash1", 0.0, None, 22050)
     assert reason2 == "applied"
     assert path2 == path
+
+
+def test_vocal_wav_prefers_demucs_when_available(tmp_path, monkeypatch):
+    """#302: an installed demucs wins over center extraction.
+
+    No torch in CI — the availability probe and both isolators are
+    stubbed so only the dispatch order is under test.
+    """
+    import hornscribe.transcription.vocal as vocal_mod
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
+    monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+    calls: list[str] = []
+
+    def fake_demucs(path, start, end):
+        calls.append("demucs")
+        return np.zeros(22050, dtype=np.float32)
+
+    def fake_center(path, start, end):
+        calls.append("center")
+        return np.zeros(22050, dtype=np.float32)
+
+    monkeypatch.setattr(vocal_mod, "isolate_demucs_vocals", fake_demucs)
+    monkeypatch.setattr(vocal_mod, "isolate_center_vocals", fake_center)
+
+    path, reason, managed, method = vocal_wav("a.wav", "h", 0.0, None, 22050)
+    assert calls == ["demucs"]  # center never ran
+    assert method == "demucs"
+    assert reason == "applied" and managed is True
+
+
+def test_vocal_wav_falls_back_to_center_on_demucs_failure(
+    tmp_path, monkeypatch
+):
+    """#302: a demucs failure degrades to center extraction — and the
+    cache records the method that actually produced the audio."""
+    import hornscribe.transcription.vocal as vocal_mod
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
+    monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+    monkeypatch.setattr(
+        vocal_mod, "isolate_demucs_vocals", lambda *a: None
+    )
+    monkeypatch.setattr(
+        vocal_mod,
+        "isolate_center_vocals",
+        lambda *a: np.zeros(22050, dtype=np.float32),
+    )
+
+    path, reason, managed, method = vocal_wav("a.wav", "h", 0.0, None, 22050)
+    assert method == "center_extraction"
+    assert reason == "applied"
+    # The fallback result is keyed as center_extraction — a later run
+    # where demucs works recomputes instead of reusing the weaker stem.
+    assert vocal_mod._cache_key("a.wav", "h", 0.0, None, "demucs") != (
+        vocal_mod._cache_key("a.wav", "h", 0.0, None, "center_extraction")
+    )
 
 
 def test_vocal_isolation_option_parses_and_echoes():

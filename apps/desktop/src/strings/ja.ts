@@ -1534,6 +1534,17 @@ export const ja = {
     unsavedSaveAndContinue: "保存して続ける",
     unsavedDiscard: "保存せずに続ける",
     unsavedCancel: "キャンセル",
+    /** #301: アプリ終了時の確認 — 保存して閉じる/閉じる系の文言。 */
+    unsavedSaveAndClose: "保存して閉じる",
+    unsavedDiscardAndClose: "保存せずに閉じる",
+    unsavedCloseBody:
+      "楽譜への変更がまだ保存されていません。このまま閉じると変更は失われます。",
+    closeRecordingBody:
+      "録音中です。このまま閉じると録音は失われます。",
+    closeRecordingTitle: "録音を止めて閉じますか?",
+    closeAnyway: "閉じる",
+    /** #300: ステータスバーの未保存バッジ。 */
+    unsavedBadge: "未保存の変更",
     /** クラッシュ/強制終了で残った自動保存の復元確認。 */
     autosaveTitle: "自動保存された作業があります",
     autosaveBody: (when: string) =>

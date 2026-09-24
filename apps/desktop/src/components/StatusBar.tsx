@@ -8,12 +8,16 @@ export function StatusBar({
   message,
   detail,
   engineStatus,
+  unsaved,
 }: {
   message: string;
   detail?: string;
   /** Engine connection line (解析エンジン: …) — defaults to 未接続 so the
    *  empty shell stays honest before any sidecar session exists. */
   engineStatus?: string;
+  /** #300: 未保存の変更インジケータ — TitleBar の * だけでは
+   *  気づかれにくいので、常時表示のステータスバーにも出す。 */
+  unsaved?: boolean;
 }) {
   return (
     <div
@@ -24,6 +28,11 @@ export function StatusBar({
       tabIndex={0}
     >
       <span className="hs-statusbar__message">{message}</span>
+      {unsaved ? (
+        <span className="hs-statusbar__unsaved">
+          {ja.project.unsavedBadge}
+        </span>
+      ) : null}
       <span className="hs-statusbar__spacer" />
       {detail ? <span>{detail}</span> : null}
       <span>{engineStatus ?? ja.status.engineNotConnected}</span>

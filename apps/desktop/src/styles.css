@@ -862,6 +862,15 @@ body {
 .hs-statusbar__spacer {
   flex: 1 1 auto;
 }
+/* #300: 未保存バッジ — caution 色の小さなピル。 */
+.hs-statusbar__unsaved {
+  flex: 0 0 auto;
+  padding: 1px var(--hs-space-xs);
+  border-radius: 3px;
+  font-size: var(--hs-font-size-caption);
+  color: var(--hs-status-warning);
+  background: var(--hs-status-warning-subtle);
+}
 
 /* ====================== Primitives (components/primitives) ======================
    Only --hs-* semantic tokens; raw values live exclusively in tokens.css. */

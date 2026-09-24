@@ -552,14 +552,22 @@ def run_transcription_job(
         vocal_path: str | None = None
         vocal_managed = False
         vocal_reason: str | None = None
+        vocal_method: str | None = None
         if params.vocal_isolation:
-            vis_lo = params.selection_start_sec or 0.0
+            # Isolation covers exactly the backend's span: the
+            # selection when one is set, else the whole file. A stray
+            # selection_start_sec under range=all must not leak in.
+            vis_lo = (
+                params.selection_start_sec or 0.0
+                if params.range_kind == "selection"
+                else 0.0
+            )
             vis_hi = (
                 params.selection_end_sec
                 if params.range_kind == "selection"
                 else None
             )
-            vocal_path, vocal_reason, vocal_managed = vocal_wav(
+            vocal_path, vocal_reason, vocal_managed, vocal_method = vocal_wav(
                 params.audio_path,
                 audio_hash,
                 vis_lo,
@@ -1058,7 +1066,7 @@ def run_transcription_job(
                     ),
                     reason=ReviewReason.VOCAL_ISOLATION_APPLIED,
                     severity=Severity.INFO,
-                    evidence={"stage": "center_extraction"},
+                    evidence={"stage": vocal_method or "center_extraction"},
                 )
             )
         elif vocal_reason in ("mono_source", "unavailable"):

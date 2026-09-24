@@ -167,7 +167,7 @@ def test_vocal_isolation_stages_isolated_wav(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         pipeline,
         "vocal_wav",
-        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True),
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs"),
     )
     result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
     assert captured["path"] == "/tmp/hs-vocal.wav"
@@ -190,7 +190,7 @@ def test_vocal_isolation_unavailable_reports_reason(
     monkeypatch.setattr(
         pipeline,
         "vocal_wav",
-        lambda *a, **k: (None, "mono_source", False),
+        lambda *a, **k: (None, "mono_source", False, None),
     )
     result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
     # Fallback: the backend saw the original audio path.

@@ -59,6 +59,7 @@ import { KeyboardDispatcher } from "./keyboard/dispatcher";
 import { useCommandKeyboard } from "./keyboard/useCommandKeyboard";
 import { cycleFocusZone, focusZone } from "./focus/zones";
 import { getShellInfo, isTauriRuntime } from "./tauri/bridge";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ImportController,
   parseProjectFile,
@@ -326,6 +327,11 @@ export default function App() {
    *  the closure re-runs the refused action once the user chooses
    *  保存せずに続ける / 保存して続ける. */
   const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
+  /** #301: the OS close request is pending behind the 未保存 guard —
+   *  "dirty" when edits are unsaved, "recording" mid-capture. */
+  const [pendingClose, setPendingClose] = useState<
+    "dirty" | "recording" | null
+  >(null);
   /** Launch-time autosave recovery: null = no prompt; the info arms the
    *  復元しますか dialog. checked gates the MRU restore so a pending
    *  recovery never races it. */
@@ -811,7 +817,13 @@ export default function App() {
   // #221: 未保存の楽譜がある時も同じ確認を出す — 自動保存が最後の
   // 砦だが、明示的な確認の方が復元より確実。
   const recordingActive = captureState?.phase === "recording";
+  const recordingActiveRef = useRef(false);
+  recordingActiveRef.current = recordingActive;
   useEffect(() => {
+    // #301: inside Tauri the window close path is onCloseRequested
+    // (below) — beforeunload is unreliable there, so it stays the
+    // browser-dev fallback only.
+    if (isTauriRuntime()) return;
     if (!recordingActive && !isDirty) return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -819,6 +831,36 @@ export default function App() {
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
   }, [recordingActive, isDirty]);
+
+  /* #301: the OS close request is the reliable guard inside Tauri —
+   * beforeunload does not always fire on the window close button.
+   * A dirty score or a live recording prevents the close and arms
+   * the confirm dialog; destroy() bypasses the event entirely, so a
+   * confirmed close never re-prompts. */
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow()
+      .onCloseRequested((event) => {
+        if (dirtyRef.current) {
+          event.preventDefault();
+          setPendingClose("dirty");
+        } else if (recordingActiveRef.current) {
+          event.preventDefault();
+          setPendingClose("recording");
+        }
+      })
+      .then((u) => {
+        if (alive) unlisten = u;
+        else u();
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
 
   // #73: デバイス一覧はメニューを開く度に取り直す(抜き差しに追従)。
   const refreshCaptureDevices = useCallback(() => {
@@ -1076,6 +1118,20 @@ export default function App() {
       if (saved) action?.();
     });
   }, [pendingNav, saveProjectFlow]);
+
+  /* #301: close-request resolution — destroy() skips the
+   * closeRequested event, so a confirmed exit never re-arms the
+   * guard. 保存して閉じる exits only on a real write. */
+  const confirmCloseDiscard = useCallback(() => {
+    setPendingClose(null);
+    void getCurrentWindow().destroy().catch(() => undefined);
+  }, []);
+  const confirmCloseSave = useCallback(() => {
+    setPendingClose(null);
+    void saveProjectFlow().then((saved) => {
+      if (saved) void getCurrentWindow().destroy().catch(() => undefined);
+    });
+  }, [saveProjectFlow]);
 
   /* #221: autosave recovery — open the snapshot through the normal
    * project path (entry.path stays "" so it never lands in the MRU),
@@ -2098,6 +2154,7 @@ export default function App() {
             message={statusMessage}
             detail={shellDetail}
             engineStatus={engineStatusText(sessionSnap.engine)}
+            unsaved={isDirty}
           />
           {/* Re-import failure over a live workspace (§20): the audio session
               is kept, the failure surfaces as a dialog — never a dead end. */}
@@ -2159,6 +2216,56 @@ export default function App() {
             <p style={{ margin: 0 }}>{ja.project.unsavedBody}</p>
           </HsDialog>
           {/* #221: クラッシュ後の自動保存復元 — 起動時に一度だけ出す。 */}
+          {/* #301: OS の閉じる要求を未保存/録音中で止めた時の確認。
+              destroy() で確定するため再発火しない。 */}
+          <HsDialog
+            open={pendingClose !== null}
+            modalType="alert"
+            title={
+              pendingClose === "recording"
+                ? ja.project.closeRecordingTitle
+                : ja.project.unsavedTitle
+            }
+            onOpenChange={(open) => {
+              if (!open) setPendingClose(null);
+            }}
+            actions={
+              pendingClose === "dirty" ? (
+                <>
+                  <HsButton variant="primary" onClick={confirmCloseSave}>
+                    {ja.project.unsavedSaveAndClose}
+                  </HsButton>
+                  <HsButton variant="danger" onClick={confirmCloseDiscard}>
+                    {ja.project.unsavedDiscardAndClose}
+                  </HsButton>
+                  <HsButton
+                    variant="secondary"
+                    onClick={() => setPendingClose(null)}
+                  >
+                    {ja.project.unsavedCancel}
+                  </HsButton>
+                </>
+              ) : (
+                <>
+                  <HsButton variant="danger" onClick={confirmCloseDiscard}>
+                    {ja.project.closeAnyway}
+                  </HsButton>
+                  <HsButton
+                    variant="secondary"
+                    onClick={() => setPendingClose(null)}
+                  >
+                    {ja.project.unsavedCancel}
+                  </HsButton>
+                </>
+              )
+            }
+          >
+            <p style={{ margin: 0 }}>
+              {pendingClose === "recording"
+                ? ja.project.closeRecordingBody
+                : ja.project.unsavedCloseBody}
+            </p>
+          </HsDialog>
           <HsDialog
             open={recoveryInfo !== null}
             title={ja.project.autosaveTitle}
