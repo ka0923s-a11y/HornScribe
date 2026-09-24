@@ -85,6 +85,8 @@ class ScoreEdit:
     fifths: int | None = None
     mode: str | None = None
     start_beat: Fraction | None = None
+    part_id: str | None = None
+    pitch_midi: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -101,11 +103,12 @@ class ScoreEdit:
             "setKey",
             "keyChangeAt",
             "removeKeyChange",
+            "restToNote",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
                 "setTempo/setMeter/requantize/splitNote/mergeNotes/"
-                f"setKey/keyChangeAt/removeKeyChange, "
+                "setKey/keyChangeAt/removeKeyChange/restToNote, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -116,6 +119,7 @@ class ScoreEdit:
             "setKey",
             "keyChangeAt",
             "removeKeyChange",
+            "restToNote",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -186,6 +190,26 @@ class ScoreEdit:
                 )
         if kind in ("keyChangeAt", "removeKeyChange") and start_beat is None:
             raise ScoreEditError(f"{kind} requires startBeat")
+        if kind == "restToNote" and start_beat is None:
+            raise ScoreEditError("restToNote requires startBeat")
+        part_id_raw = data.get("partId")
+        part_id: str | None = None
+        if part_id_raw is not None:
+            if not isinstance(part_id_raw, str) or not part_id_raw:
+                raise ScoreEditError(
+                    f"edit.partId must be a non-empty string, got {part_id_raw!r}"
+                )
+            part_id = part_id_raw
+        if kind == "restToNote" and part_id is None:
+            raise ScoreEditError("restToNote requires partId")
+        pitch_midi = _opt_int(data, "pitchMidi")
+        if kind == "restToNote":
+            if pitch_midi is None:
+                raise ScoreEditError("restToNote requires pitchMidi")
+            if not (0 <= pitch_midi <= 127):
+                raise ScoreEditError(
+                    f"edit.pitchMidi {pitch_midi} outside the 0-127 range"
+                )
         duration = data.get("durationBeats")
         try:
             duration_beats = (
@@ -212,6 +236,8 @@ class ScoreEdit:
             fifths=fifths,
             mode=mode,
             start_beat=start_beat,
+            part_id=part_id,
+            pitch_midi=pitch_midi,
         )
 
 
@@ -734,6 +760,64 @@ def _apply_tie_toggle(
     return replace(part, notes=tuple(notes))
 
 
+def _apply_rest_to_note(
+    payload: ScoreRevisionPayload,
+    part_id: str,
+    start_beat: Fraction,
+    pitch_midi: int,
+    duration_beats: Fraction | None,
+) -> Part:
+    """Convert (part of) a rest span into a new note (#163).
+
+    start_beat must land inside a rest span of the named part; the new
+    note defaults to the remainder of that span (durationBeats may
+    shorten it). Positions do not shift — the leftover before/after
+    the note re-tiles as rests through the shared _retile_part path,
+    so measure structure, the tempo map and every other note are
+    untouched. The new note gets a fresh sn-* id and empty
+    source_event_ids (it has no backend evidence).
+    """
+    part = next((p for p in payload.parts if p.id == part_id), None)
+    if part is None:
+        raise ScoreEditError(f"part {part_id!r} not found in the score")
+    rest = next(
+        (
+            r
+            for r in part.rests
+            if r.start_beat <= start_beat < r.end_beat
+        ),
+        None,
+    )
+    if rest is None:
+        raise ScoreEditError(
+            f"no rest covers beat {start_beat} in part {part_id}"
+        )
+    duration = duration_beats if duration_beats is not None else (
+        rest.end_beat - start_beat
+    )
+    if duration <= 0:
+        raise ScoreEditError("durationBeats must be positive")
+    if start_beat + duration > rest.end_beat:
+        raise ScoreEditError(
+            "the new note must fit inside the rest span "
+            f"({rest.start_beat}..{rest.end_beat})"
+        )
+    new_note = QuantizedNote(
+        id=_next_score_note_id(payload),
+        source_event_ids=(),
+        pitch_midi=pitch_midi,
+        start_beat=start_beat,
+        duration_beats=duration,
+    )
+    notes = sorted(
+        list(part.notes) + [new_note],
+        key=lambda n: (n.start_beat, str(n.id)),
+    )
+    return _retile_part(
+        payload, part, notes, rest.start_beat, rest.end_beat
+    )
+
+
 def _apply_set_meter(
     payload: ScoreRevisionPayload, ts: TimeSignature
 ) -> ScoreRevisionPayload:
@@ -1111,6 +1195,30 @@ def apply_score_edit(
             raise ScoreEditError("removeKeyChange requires startBeat")
         new_payload = _apply_remove_key_change(payload, edit.start_beat)
         return replace(document, payload=new_payload)
+    if edit.kind == "restToNote":
+        if (
+            edit.part_id is None
+            or edit.start_beat is None
+            or edit.pitch_midi is None
+        ):
+            raise ScoreEditError(
+                "restToNote requires partId, startBeat and pitchMidi"
+            )
+        new_part = _apply_rest_to_note(
+            payload,
+            edit.part_id,
+            edit.start_beat,
+            edit.pitch_midi,
+            edit.duration_beats,
+        )
+        parts = [
+            new_part if p.id == edit.part_id else p
+            for p in payload.parts
+        ]
+        return replace(
+            document,
+            payload=replace(payload, parts=tuple(parts)),
+        )
     # Locate the note across parts (single-part today, but the loop is
     # free).
     part_index = -1

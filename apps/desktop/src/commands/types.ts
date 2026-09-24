@@ -47,6 +47,8 @@ export interface CommandSnapshot {
   readonly canRedo: boolean;
   /** A note/region is selected (gates Esc = clear selection). */
   readonly hasSelection: boolean;
+  /** #163: the score selection is a rest glyph — gates restToNote. */
+  readonly hasRestSelection: boolean;
   /** #113: a waveform range selection exists (AUDIO_READY). Esc clears
    *  this before any score selection (spec 8: Esc -> 選択解除). */
   readonly hasWaveformSelection: boolean;
@@ -160,6 +162,8 @@ export interface CommandContext {
   /** #131 (spec 13 post-MVP): split/merge the selected note. */
   splitSelectedNote?(): void;
   mergeSelectedNotes?(): void;
+  /** #163: convert the selected rest to a note (missed detection). */
+  convertSelectedRest?(): void;
   /** #113: Esc on a waveform selection (AUDIO_READY) - clears the range
    *  back to "all" (spec 8: Esc -> 選択解除). Optional: absent = no-op. */
   clearWaveformSelection?(): void;

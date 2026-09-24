@@ -25,7 +25,8 @@ export type RhythmEditKind =
   | "mergeNotes"
   | "setKey"
   | "keyChangeAt"
-  | "removeKeyChange";
+  | "removeKeyChange"
+  | "restToNote";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -50,6 +51,11 @@ export interface RhythmEditOp {
   readonly mode?: "major" | "minor";
   /** keyChangeAt/removeKeyChange only: boundary beat ("n/d" fraction). */
   readonly startBeat?: string;
+  /** restToNote only: target part id (rests carry no canonical note id).
+   *  startBeat is the new note's onset inside the rest span. */
+  readonly partId?: string;
+  /** restToNote only: MIDI pitch of the new note (0-127). */
+  readonly pitchMidi?: number;
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

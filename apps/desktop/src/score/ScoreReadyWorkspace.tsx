@@ -88,6 +88,12 @@ import {
   type RhythmEditOp,
 } from "./rhythmEdits";
 import {
+  nextScoreNoteId,
+  pitchBefore,
+  restAtomAtOrdinal,
+  restOrdinalOf,
+} from "./restSpans";
+import {
   buildNoteInspector,
   buildScoreInspector,
   keyLabelJa,
@@ -993,7 +999,11 @@ export function ScoreReadyWorkspace({
    *  (a remount would lose both). Undo restores the previous snapshot
    *  through the shared ReviewSession stack. */
   const applyRhythmEdit = useCallback(
-    (buildOp: (canonical: unknown) => RhythmEditOp | null, feedback: string) => {
+    (
+      buildOp: (canonical: unknown) => RhythmEditOp | null,
+      feedback: string,
+      after?: () => void,
+    ) => {
       if (!onRhythmEdit || !scoreDoc.replaceContent) {
         announce(ja.commandFeedback.rhythmEditUnavailable);
         return;
@@ -1025,6 +1035,7 @@ export function ScoreReadyWorkspace({
           reloadEditedScore();
           reportInspector();
           announce(feedback);
+          after?.();
         } catch {
           announce(ja.commandFeedback.rhythmEditFailed);
         }
@@ -1168,6 +1179,40 @@ export function ScoreReadyWorkspace({
       ja.commandFeedback.notesMerged,
     );
   }, [applyRhythmEdit]);
+
+  /* #163: the selected rest becomes a note at its own atom position —
+   * default pitch = the nearest preceding note's, default duration =
+   * the rest atom's span (the engine re-tiles leftovers as rests).
+   * Afterwards the fresh note is selected so pitch/duration edits are
+   * one keystroke away. */
+  const convertSelectedRest = useCallback(() => {
+    const sel = selectionRef.current;
+    const ordinal = sel ? restOrdinalOf(sel.exportId) : null;
+    if (sel == null || ordinal == null) return;
+    // The engine assigns the next free sn-* id — capture it from the
+    // PRE-edit canonical inside buildOp (after the swap the counter
+    // has already moved past the new note).
+    let newNoteExportId: string | null = null;
+    applyRhythmEdit(
+      (canonical) => {
+        const target = restAtomAtOrdinal(canonical, ordinal);
+        if (!target) return null;
+        newNoteExportId = nextScoreNoteId(canonical).replace(/^sn-/, "hs-sn-");
+        return {
+          kind: "restToNote",
+          noteId: "",
+          partId: target.partId,
+          startBeat: formatFraction(target.startBeat),
+          durationBeats: formatFraction(target.durationBeats),
+          pitchMidi: pitchBefore(canonical, target.partId, target.startBeat),
+        };
+      },
+      ja.commandFeedback.restConverted,
+      () => {
+        if (newNoteExportId) selectExportId(newNoteExportId, { scroll: true });
+      },
+    );
+  }, [applyRhythmEdit, selectExportId]);
 
   const reviewUndo = useCallback(() => {
     const edit = session.undo();
@@ -1318,6 +1363,7 @@ export function ScoreReadyWorkspace({
       requantize: (settings) => requantize(settings),
       splitSelectedNote: () => splitSelectedNote(),
       mergeSelectedNotes: () => mergeSelectedNotes(),
+      convertSelectedRest: () => convertSelectedRest(),
     };
     controllerRef(controller);
     return () => controllerRef(null);
@@ -1350,6 +1396,7 @@ export function ScoreReadyWorkspace({
     requantize,
     splitSelectedNote,
     mergeSelectedNotes,
+    convertSelectedRest,
     announce,
   ]);
 
@@ -1360,6 +1407,12 @@ export function ScoreReadyWorkspace({
   useEffect(() => {
     onStateChange?.({
       hasSelection: selection !== null,
+      // #163: a rest glyph is selected (canonicalId null + hs-rest id) —
+      // gates the score.restToNote command.
+      hasRestSelection:
+        selection !== null &&
+        selection.canonicalId === null &&
+        restOrdinalOf(selection.exportId) !== null,
       isPlaying: clockSnap.isPlaying,
       loopEnabled: clockSnap.loop !== null,
       positionMs: clockSnap.positionMs,

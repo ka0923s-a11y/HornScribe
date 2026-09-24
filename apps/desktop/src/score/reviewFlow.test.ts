@@ -158,6 +158,7 @@ function setup(count = 20) {
     canUndo: session.canUndo,
     canRedo: session.canRedo,
     hasSelection: false,
+    hasRestSelection: false,
     hasWaveformSelection: false,
     reviewOpen: h.open,
     reviewCount: session.pendingCount(),

@@ -24,6 +24,7 @@ const SNAPSHOT_EMPTY: CommandSnapshot = {
   canUndo: false,
   canRedo: false,
   hasSelection: false,
+  hasRestSelection: false,
   hasWaveformSelection: false,
   reviewOpen: false,
   reviewCount: 0,

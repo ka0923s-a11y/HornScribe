@@ -588,6 +588,7 @@ export default function App() {
       canUndo: scoreState?.canUndo ?? false,
       canRedo: scoreState?.canRedo ?? false,
       hasSelection: scoreState?.hasSelection ?? false,
+      hasRestSelection: scoreState?.hasRestSelection ?? false,
       // #113: the waveform range selection (AUDIO_READY) is Esc-clearable
       // like a score selection (spec 8).
       hasWaveformSelection:

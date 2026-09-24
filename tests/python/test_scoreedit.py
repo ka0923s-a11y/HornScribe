@@ -119,6 +119,8 @@ class TestSetDuration:
 
 
 class TestShiftOnset:
+
+
     def test_shift_right(self) -> None:
         # sn-1 at beat 0 (quarter) shifts one 16th right into open space;
         # a 16th rest opens before it and the trailing gap grows.
@@ -750,3 +752,135 @@ class TestKeyChanges:
         assert out.payload.key_changes[0].start_beat == 0
         assert out.payload.key_changes[1].start_beat == Fraction(16)
         assert out.payload.key_changes[1].key_signature.fifths == -5
+
+
+class TestRestToNote:
+    """#163: restToNote converts (part of) a rest span into a new note.
+    Positions never shift — leftovers re-tile as rests."""
+
+    def _rest_doc(self) -> ScoreDocument:
+        # One quarter note + a three-beat rest span in 4/4.
+        return _doc(
+            [_note(1, 60, "0", "1")],
+            rests=(
+                ScoreRest(
+                    start_beat=Fraction(1),
+                    atoms=(ScoreAtom(Fraction(3), "half", dots=1),),
+                ),
+            ),
+        )
+
+    def test_convert_rest_span(self) -> None:
+        doc = self._rest_doc()
+        out = apply_score_edit(
+            doc,
+            ScoreEdit.from_dict(
+                {
+                    "kind": "restToNote",
+                    "partId": "part-1",
+                    "startBeat": "1/1",
+                    "pitchMidi": 64,
+                }
+            ),
+        )
+        part = out.payload.parts[0]
+        assert len(part.notes) == 2
+        new = part.notes[1]
+        assert new.pitch_midi == 64
+        assert new.start_beat == 1
+        # Default duration = the remainder of the rest span.
+        assert new.duration_beats == 3
+        assert new.id not in (n.id for n in doc.payload.parts[0].notes)
+        assert new.source_event_ids == ()
+        # Atoms re-realized and the measure still tiles exactly.
+        assert sum(a.duration_beats for a in new.atoms) == 3
+        assert _total_span(part) == Fraction(4)
+        assert out.revision != doc.revision
+
+    def test_partial_rest_leaves_leftovers(self) -> None:
+        doc = self._rest_doc()
+        out = apply_score_edit(
+            doc,
+            ScoreEdit.from_dict(
+                {
+                    "kind": "restToNote",
+                    "partId": "part-1",
+                    "startBeat": "2/1",
+                    "durationBeats": "1/1",
+                    "pitchMidi": 67,
+                }
+            ),
+        )
+        part = out.payload.parts[0]
+        new = part.notes[1]
+        assert new.start_beat == 2 and new.duration_beats == 1
+        # A one-beat rest opens before the note, another follows.
+        assert any(
+            r.start_beat == 1 and r.end_beat == 2 for r in part.rests
+        )
+        assert any(
+            r.start_beat == 3 and r.end_beat == 4 for r in part.rests
+        )
+        assert _total_span(part) == Fraction(4)
+
+    def test_no_rest_at_beat_rejected(self) -> None:
+        doc = self._rest_doc()
+        with pytest.raises(ScoreEditError, match="no rest"):
+            apply_score_edit(
+                doc,
+                ScoreEdit.from_dict(
+                    {
+                        "kind": "restToNote",
+                        "partId": "part-1",
+                        "startBeat": "0/1",
+                        "pitchMidi": 64,
+                    }
+                ),
+            )
+
+    def test_unknown_part_rejected(self) -> None:
+        doc = self._rest_doc()
+        with pytest.raises(ScoreEditError, match="part"):
+            apply_score_edit(
+                doc,
+                ScoreEdit.from_dict(
+                    {
+                        "kind": "restToNote",
+                        "partId": "part-9",
+                        "startBeat": "1/1",
+                        "pitchMidi": 64,
+                    }
+                ),
+            )
+
+    def test_duration_must_fit_the_span(self) -> None:
+        doc = self._rest_doc()
+        with pytest.raises(ScoreEditError, match="rest span"):
+            apply_score_edit(
+                doc,
+                ScoreEdit.from_dict(
+                    {
+                        "kind": "restToNote",
+                        "partId": "part-1",
+                        "startBeat": "3/1",
+                        "durationBeats": "2/1",
+                        "pitchMidi": 64,
+                    }
+                ),
+            )
+
+    def test_missing_fields_rejected(self) -> None:
+        for raw in (
+            {"kind": "restToNote", "startBeat": "1/1", "pitchMidi": 64},
+            {"kind": "restToNote", "partId": "part-1", "pitchMidi": 64},
+            {"kind": "restToNote", "partId": "part-1", "startBeat": "1/1"},
+            {
+                "kind": "restToNote",
+                "partId": "part-1",
+                "startBeat": "1/1",
+                "pitchMidi": 200,
+            },
+
+        ):
+            with pytest.raises(ScoreEditError):
+                ScoreEdit.from_dict(raw)

@@ -473,6 +473,7 @@ export const ja = {
     requantize: "採譜設定を変えて再適用",
     noteSplit: "音符を分割",
     noteMerge: "次の音符と結合",
+    restToNote: "休符を音符に変換",
   },
 
   /**
@@ -506,6 +507,7 @@ export const ja = {
     requantized: "採譜設定を適用して楽譜を更新しました",
     noteSplit: "音符を分割しました",
     notesMerged: "音符を結合しました",
+    restConverted: "休符を音符に変換しました",
     // #113: media A-B loop arming (transport.toggleLoop on AUDIO_READY).
     loopOn: "ループをオンにしました",
     loopOff: "ループをオフにしました",

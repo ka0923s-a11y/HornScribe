@@ -480,6 +480,15 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
       run: (ctx) => ctx.mergeSelectedNotes?.(),
     },
+    // #163: rest-to-note — converts (part of) the selected rest span
+    // into a note at the previous note's pitch (editable after).
+    {
+      id: "score.restToNote",
+      title: ja.commands.restToNote,
+      section: "score",
+      isEnabled: (s) => s.hasScore && s.hasRestSelection && !s.reviewOpen,
+      run: (ctx) => ctx.convertSelectedRest?.(),
+    },
 
     // ---- edit (§14: every fix is a command) ----
     {

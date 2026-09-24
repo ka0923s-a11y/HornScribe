@@ -45,6 +45,9 @@ export interface ScoreWorkspaceController {
    *  midpoint / merge it with the contiguous next same-pitch note. */
   splitSelectedNote?(): void;
   mergeSelectedNotes?(): void;
+  /** #163: convert the selected rest glyph into a note (restToNote
+   *  engine edit) — the missed-detection fix. */
+  convertSelectedRest?(): void;
 
   // ---- transport (§9) — no-ops until a clock exists ----
   togglePlayPause(): void;
@@ -94,6 +97,8 @@ export interface ScoreWorkspaceController {
  *  status readouts (throttled — never at frame rate). */
 export interface ScoreWorkspaceState {
   readonly hasSelection: boolean;
+  /** #163: the selection is a rest glyph (restToNote gate). */
+  readonly hasRestSelection: boolean;
   readonly isPlaying: boolean;
   readonly loopEnabled: boolean;
   readonly positionMs: number;
