@@ -317,7 +317,7 @@ export function createCommandDefinitions(): readonly Command[] {
       section: "review",
       shortcuts: ["Alt+ArrowUp"],
       shareShortcut: true, // shared with score.pitchUp (#114)
-      isEnabled: (s) => s.reviewOpen,
+      isEnabled: (s) => s.reviewOpen && s.reviewIssueEditable,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewPitchUp?.(),
     },
@@ -327,7 +327,7 @@ export function createCommandDefinitions(): readonly Command[] {
       section: "review",
       shortcuts: ["Alt+ArrowDown"],
       shareShortcut: true, // shared with score.pitchDown (#114)
-      isEnabled: (s) => s.reviewOpen,
+      isEnabled: (s) => s.reviewOpen && s.reviewIssueEditable,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewPitchDown?.(),
     },
@@ -337,7 +337,7 @@ export function createCommandDefinitions(): readonly Command[] {
       section: "review",
       shortcuts: ["Delete", "Backspace"],
       shareShortcut: true, // shared with score.toggleDeleted (#114)
-      isEnabled: (s) => s.reviewOpen,
+      isEnabled: (s) => s.reviewOpen && s.reviewIssueEditable,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewDeleteOrRestore?.(),
     },

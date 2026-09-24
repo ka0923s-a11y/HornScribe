@@ -134,6 +134,10 @@ export interface ScoreWorkspaceState {
   readonly followEnabled: boolean;
   readonly followSuspended: boolean;
   readonly reviewOpen: boolean;
+  /** The issue under the review cursor has canonical note targets, so
+   *  pitch/delete review commands do real work (whole-piece issues like
+   *  meter_conflict leave them disabled). */
+  readonly reviewIssueEditable: boolean;
   readonly zoomPct: number;
   /** UI-050: undo/redo availability + live open-issue count so the command
    *  bar (要確認（n）) and Ctrl+Z/Y enablement track review decisions. */

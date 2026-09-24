@@ -65,12 +65,19 @@ export const HsButton = forwardRef<HTMLButtonElement, HsButtonProps>(
       ariaLabel,
       className,
       children,
+      ...rest
     },
     ref,
   ) {
+    /* Fluent Tooltip injects trigger props (aria-label, pointer handlers,
+     * ref) into this element. Forwarding unknown props keeps the
+     * tooltip's accessible name alive - previously the injected
+     * aria-label was silently dropped by the destructuring above. */
+    const injected = rest as Record<string, unknown>;
     return (
       <FluentButton
         ref={ref}
+        {...rest}
         appearance={APPEARANCE[variant]}
         className={mergeClasses(
           "hs-button",
@@ -80,7 +87,12 @@ export const HsButton = forwardRef<HTMLButtonElement, HsButtonProps>(
         icon={loading ? <Spinner size="tiny" /> : icon}
         disabled={disabled || loading}
         aria-busy={loading || undefined}
-        aria-label={ariaLabel}
+        aria-label={
+          ariaLabel ??
+          (typeof injected["aria-label"] === "string"
+            ? (injected["aria-label"] as string)
+            : undefined)
+        }
         size={size}
         type={type}
         onClick={onClick}

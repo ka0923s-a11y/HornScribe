@@ -40,10 +40,20 @@ export interface ReviewBarProps {
   readonly noteDeleted: boolean;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
-  /** #148: optional one-click action for issues that carry a direct
-   *  remedy (e.g. the voices-texture retry on a detected mix). */
-  readonly actionLabel?: string | null;
-  readonly onAction?: () => void;
+  /** Note-edit capability: false on whole-piece issues (meter_conflict,
+   *  monophonic_backend, ...) where pitch +/- and delete would be silent
+   *  no-ops. Buttons stay visible but disabled with an explanation. */
+  readonly canEditNotes: boolean;
+  /** False when the issue has no audible range to loop. */
+  readonly canPlaySource: boolean;
+  /** Optional one-click remedy for issues that carry a direct fix
+   *  (built by buildReviewAction - label, tooltip and handler always
+   *  come from the same decision). */
+  readonly action?: {
+    readonly label: string;
+    readonly tooltip: string;
+    run(): void;
+  } | null;
   onPrev(): void;
   onNext(): void;
   onPlaySource(): void;
@@ -70,8 +80,9 @@ export function ReviewBar({
   noteDeleted,
   canUndo,
   canRedo,
-  actionLabel = null,
-  onAction,
+  canEditNotes,
+  canPlaySource,
+  action = null,
   onPrev,
   onNext,
   onPlaySource,
@@ -86,6 +97,11 @@ export function ReviewBar({
   const r = ja.review;
   const allDone = pending === 0;
   const confidence = issue ? issueConfidence(issue) : null;
+  // Note-edit buttons on a whole-piece issue get the reason tooltip so
+  // the disabled state explains itself (shortcut key suffix omitted -
+  // the shortcut is inert too).
+  const noteEditTip = (label: string, key: string) =>
+    canEditNotes ? withKey(label, key) : r.noteTargetRequired;
   return (
     <div
       className="hs-score-reviewbar"
@@ -135,19 +151,23 @@ export function ReviewBar({
             {ja.common.prev}
           </HsButton>
         </HsTooltip>
-        <HsTooltip content={withKey(r.playSource, "R")}>
+        <HsTooltip
+          content={
+            canPlaySource ? withKey(r.playSource, "R") : r.noAudibleRange
+          }
+        >
           <HsButton
             size="small"
-            disabled={issue == null}
+            disabled={issue == null || !canPlaySource}
             onClick={onPlaySource}
           >
             {r.playSource}
           </HsButton>
         </HsTooltip>
-        {actionLabel && onAction ? (
-          <HsTooltip content={r.retranscribeVoicesTip}>
-            <HsButton size="small" onClick={onAction}>
-              {actionLabel}
+        {action ? (
+          <HsTooltip content={action.tooltip}>
+            <HsButton size="small" onClick={() => action.run()}>
+              {action.label}
             </HsButton>
           </HsTooltip>
         ) : null}
@@ -166,28 +186,33 @@ export function ReviewBar({
             {r.dismiss}
           </HsButton>
         </HsTooltip>
-        <HsTooltip content={withKey(r.pitchUp, "Alt+↑")}>
+        <HsTooltip content={noteEditTip(r.pitchUp, "Alt+↑")}>
           <HsButton
             size="small"
-            disabled={issue == null}
+            disabled={issue == null || !canEditNotes}
             onClick={() => onPitch(1)}
           >
             {r.pitchUp}
           </HsButton>
         </HsTooltip>
-        <HsTooltip content={withKey(r.pitchDown, "Alt+↓")}>
+        <HsTooltip content={noteEditTip(r.pitchDown, "Alt+↓")}>
           <HsButton
             size="small"
-            disabled={issue == null}
+            disabled={issue == null || !canEditNotes}
             onClick={() => onPitch(-1)}
           >
             {r.pitchDown}
           </HsButton>
         </HsTooltip>
-        <HsTooltip content={withKey(r.deleteNote, "Delete")}>
+        <HsTooltip
+          content={noteEditTip(
+            noteDeleted ? r.restoreNote : r.deleteNote,
+            "Delete",
+          )}
+        >
           <HsButton
             size="small"
-            disabled={issue == null}
+            disabled={issue == null || !canEditNotes}
             onClick={onDeleteOrRestore}
           >
             {noteDeleted ? r.restoreNote : r.deleteNote}

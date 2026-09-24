@@ -93,6 +93,10 @@ import {
   type ReviewLoopState,
 } from "./reviewLoop";
 import { ReviewSession, type ReviewEdit } from "./reviewSession";
+import {
+  buildReviewAction,
+  issueHasNoteTargets,
+} from "./reviewActions";
 import { ReviewBar } from "./ReviewBar";
 import {
   findCanonicalNote,
@@ -1679,6 +1683,9 @@ const setKey = useCallback(
       followEnabled,
       followSuspended,
       reviewOpen,
+      reviewIssueEditable: issueHasNoteTargets(
+        allIssues[reviewIndex] ?? null,
+      ),
       zoomPct: zoom,
       canUndo: session.canUndo,
       canRedo: session.canRedo,
@@ -1691,6 +1698,8 @@ const setKey = useCallback(
     followEnabled,
     followSuspended,
     reviewOpen,
+    allIssues,
+    reviewIndex,
     zoom,
     onStateChange,
     session,
@@ -1820,170 +1829,30 @@ const setKey = useCallback(
           }
           canUndo={session.canUndo}
           canRedo={session.canRedo}
-          actionLabel={(() => {
-            const issue = allIssues[reviewIndex];
-            if (!issue) return null;
-            if (
-              issue.evidence["suggestVoicesTexture"] === true &&
-              onRetranscribeVoices
-            ) {
-              return ja.review.retranscribeVoices;
-            }
-            // #176: spelling issues resolve with the enharmonic toggle,
-            // not the pitch +/- buttons (those change sounding pitch).
-            if (issue.reason === "pitch_spelling_ambiguous") {
-              return ja.commands.noteEnharmonic;
-            }
-            // #181: the monophonic-backend issue resolves by
-            // re-running with the polyphonic-capable backend.
-            if (
-              issue.reason === "monophonic_backend" &&
-              issue.evidence["suggestBasicPitch"] === true &&
-              onRetranscribeBasicPitch
-            ) {
-              return ja.review.retranscribeBasicPitch;
-            }
-            // #188: the tempo-uncertain issue resolves by applying
-            // the suggested correction as a scaleTempo edit — the
-            // note values must rescale with the BPM (#198).
-            if (
-              issue.reason === "tempo_uncertain" &&
-              typeof issue.evidence["suggestedBpm"] === "number"
-            ) {
-              return ja.review.applyTempoSuggestion(
-                issue.evidence["suggestedBpm"] as number,
-              );
-            }
-            // #209: the meter-conflict issue cannot auto-resolve —
-            // the remedy is the meter select in the properties
-            // panel, so the action opens it.
-            if (issue.reason === "meter_conflict" && onOpenProperties) {
-              return ja.review.openMeterEditor;
-            }
-            // #208: the ambiguous-quantization issue carries the
-            // runner-up spans — the action swaps them in.
-            if (
-              issue.reason === "quantization_ambiguous" &&
-              Array.isArray(issue.evidence["alternativeNotes"])
-            ) {
-              return ja.review.applyAlternative;
-            }
-            // #212: the possible-triplet issue carries the region
-            // start — the action rewrites that beat as triplets.
-            if (
-              issue.reason === "possible_triplet" &&
-              typeof issue.evidence["beatStartBeats"] === "string"
-            ) {
-              return ja.review.applyTriplet;
-            }
-            // #261: the range issue's explicit octave fix — the
-            // pitch evidence decides direction (high → down an
-            // octave, low → up); never applied automatically.
-            if (
-              issue.reason === "outside_preferred_horn_range" &&
-              typeof issue.evidence["pitchMidi"] === "number"
-            ) {
-              return (issue.evidence["pitchMidi"] as number) > 79
-                ? ja.review.octaveDown
-                : ja.review.octaveUp;
-            }
-            return null;
-          })()}
-          onAction={(() => {
-            const issue = allIssues[reviewIndex];
-            if (!issue) return undefined;
-            if (issue.evidence["suggestVoicesTexture"] === true) {
-              return onRetranscribeVoices ?? undefined;
-            }
-            if (issue.reason === "pitch_spelling_ambiguous") {
-              // #204: resolving the spelling marks the issue fixed —
-              // the toggle alone left it open and confusing.
-              return () => {
-                if (toggleSelectedEnharmonic()) {
-                  markIssueFixed(issue.id);
-                }
-              };
-            }
-            if (
-              issue.reason === "monophonic_backend" &&
-              issue.evidence["suggestBasicPitch"] === true
-            ) {
-              return onRetranscribeBasicPitch ?? undefined;
-            }
-            if (
-              issue.reason === "tempo_uncertain" &&
-              typeof issue.evidence["suggestedBpm"] === "number"
-            ) {
-              // #198: scaleTempo, not setTempo — the engine doubles/
-              // halves note values with the tempo so playback seconds
-              // stay invariant. Direction evidence says which way.
-              const factor = issue.evidence["direction"] === "halve" ? 0.5 : 2;
-              // #204: applyRhythmEdit's after-hook marks the issue
-              // fixed only when the engine edit actually landed.
-              return () => {
-                applyRhythmEdit(
-                  () => ({ kind: "scaleTempo", noteId: "", factor }),
-                  ja.commandFeedback.tempoChanged,
-                  () => markIssueFixed(issue.id),
-                );
-              };
-            }
-            if (issue.reason === "meter_conflict") {
-              return onOpenProperties ?? undefined;
-            }
-            if (
-              issue.reason === "quantization_ambiguous" &&
-              Array.isArray(issue.evidence["alternativeNotes"])
-            ) {
-              // #208: swap in the runner-up spans the engine embedded
-              // in the issue evidence; marks fixed on success.
-              const alt = issue.evidence["alternativeNotes"] as {
-                id: string;
-                startBeat: string;
-                durationBeats: string;
-              }[];
-              return () => {
-                applyRhythmEdit(
-                  () => ({ kind: "applyAlternative", noteId: "", notes: alt }),
-                  ja.commandFeedback.rhythmEdited,
-                  () => markIssueFixed(issue.id),
-                );
-              };
-            }
-            if (
-              issue.reason === "possible_triplet" &&
-              typeof issue.evidence["beatStartBeats"] === "string"
-            ) {
-              const startBeat = issue.evidence["beatStartBeats"] as string;
-              return () => {
-                applyRhythmEdit(
-                  () => ({ kind: "applyTriplet", noteId: "", startBeat }),
-                  ja.commandFeedback.rhythmEdited,
-                  () => markIssueFixed(issue.id),
-                );
-              };
-            }
-            if (
-              issue.reason === "outside_preferred_horn_range" &&
-              typeof issue.evidence["pitchMidi"] === "number" &&
-              issue.canonicalNoteIds.length > 0
-            ) {
-              // #261: one canonical transposeNote (+12 below the
-              // sounding band, -12 above it) — a single undo entry,
-              // marked fixed only when the engine edit lands.
-              const noteId = issue.canonicalNoteIds[0];
-              const semitones =
-                (issue.evidence["pitchMidi"] as number) > 79 ? -12 : 12;
-              return () => {
-                applyRhythmEdit(
-                  () => ({ kind: "transposeNote", noteId, semitones }),
-                  ja.commandFeedback.octaveShifted,
-                  () => markIssueFixed(issue.id),
-                );
-              };
-            }
-            return undefined;
-          })()}
+          canEditNotes={issueHasNoteTargets(
+            allIssues[reviewIndex] ?? null,
+          )}
+          canPlaySource={
+            issueAuditionRange(
+              allIssues[reviewIndex] ?? null,
+              tableRef.current,
+            ) != null
+          }
+          action={buildReviewAction(allIssues[reviewIndex] ?? null, {
+            retranscribeVoices: onRetranscribeVoices,
+            retranscribeBasicPitch: onRetranscribeBasicPitch,
+            openProperties: onOpenProperties,
+            toggleEnharmonic: toggleSelectedEnharmonic,
+            // Engine-backed remedies need the edit channel - without it
+            // (fixture/dev documents) the action hides rather than
+            // announcing "unavailable" after the click.
+            applyEdit:
+              onRhythmEdit && scoreDoc.replaceContent
+                ? (op, feedback, onApplied) =>
+                    applyRhythmEdit(op, feedback, onApplied)
+                : undefined,
+            markFixed: markIssueFixed,
+          })}
           onPrev={() => gotoIssue(reviewIndexRef.current - 1)}
           onNext={() => gotoIssue(reviewIndexRef.current + 1)}
           onPlaySource={playSource}
@@ -2045,9 +1914,10 @@ function nearestOffset(table: PlaybackTable, onsetMs: number): number {
  *  issue carries no range. null when neither is derivable (whole-piece
  *  issues on a source-less fixture). */
 function issueAuditionRange(
-  issue: ScoreReviewIssue,
+  issue: ScoreReviewIssue | null,
   table: PlaybackTable | null,
 ): LoopRangeSec | null {
+  if (!issue) return null;
   const t = issue.timeRange;
   if (t != null && t.endSec > t.startSec) {
     return { start: t.startSec, end: t.endSec };

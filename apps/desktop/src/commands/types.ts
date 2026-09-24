@@ -54,6 +54,10 @@ export interface CommandSnapshot {
   readonly hasWaveformSelection: boolean;
   /** 要確認 workspace state. */
   readonly reviewOpen: boolean;
+  /** The issue under the review cursor targets notes - gates the
+   *  review pitch/delete shortcuts so they go inert on whole-piece
+   *  issues instead of silently doing nothing. */
+  readonly reviewIssueEditable: boolean;
   readonly reviewCount: number;
   /** FEAT-001: a recording session is in progress (loopback/mic). */
   readonly isRecording: boolean;

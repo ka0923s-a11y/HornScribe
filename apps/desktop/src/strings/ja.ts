@@ -1354,6 +1354,23 @@ export const ja = {
      *  real-pitch change explicit. */
     octaveDown: "1オクターブ下げる",
     octaveUp: "1オクターブ上げる",
+    /** Per-remedy tooltips (ReviewBar's action button used to show the
+     *  fixed retranscribe-voices copy for every remedy). */
+    enharmonicTip: "同じ音高の別の音名に書き換えます",
+    applyTempoSuggestionTip:
+      "検出されたテンポの誤りを修正します（音符の長さも連動して調整されます）",
+    openMeterEditorTip:
+      "プロパティパネルを開いて拍子を選び直します",
+    applyAlternativeTip:
+      "エンジンが次点として残した音符配置に差し替えます",
+    applyTripletTip:
+      "この拍を三連符の書き方に修正します",
+    octaveShiftTip:
+      "実音の高さを1オクターブ移動してホルンの適性音域に収めます",
+    /** Disabled-state explanations for whole-piece issues (buttons stay
+     *  visible so the bar's layout is stable; the tooltip says why). */
+    noteTargetRequired: "音符に紐づく項目でのみ使えます",
+    noAudibleRange: "この項目には再生できる範囲がありません",
     pitchUp: "半音上げる",
     pitchDown: "半音下げる",
     deleteNote: "削除",

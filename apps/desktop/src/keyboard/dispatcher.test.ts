@@ -30,6 +30,7 @@ const EMPTY: CommandSnapshot = {
   hasRestSelection: false,
   hasWaveformSelection: false,
   reviewOpen: false,
+  reviewIssueEditable: false,
   reviewCount: 0,
       isRecording: false,
       isRecordingPaused: false,

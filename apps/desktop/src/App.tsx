@@ -750,6 +750,7 @@ export default function App() {
       hasWaveformSelection:
         screen === "audioReady" && transcriptionOptions.range === "selection",
       reviewOpen: scoreState?.reviewOpen ?? screen === "reviewing",
+      reviewIssueEditable: scoreState?.reviewIssueEditable ?? false,
       reviewCount,
       view,
       // FEAT-001: recording + audition gates for the command registry.

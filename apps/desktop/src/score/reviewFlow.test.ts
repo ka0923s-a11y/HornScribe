@@ -161,6 +161,7 @@ function setup(count = 20) {
     hasRestSelection: false,
     hasWaveformSelection: false,
     reviewOpen: h.open,
+    reviewIssueEditable: (h.issue()?.canonicalNoteIds.length ?? 0) > 0,
     reviewCount: session.pendingCount(),
       isRecording: false,
       isRecordingPaused: false,
