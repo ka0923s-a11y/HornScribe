@@ -239,6 +239,58 @@ def test_horn_export_concert_plus_seven_folds_to_readable_key() -> None:
     assert written == [68, 73, 75]
 
 
+def _clef_signs(xml: str) -> list[str]:
+    return [
+        el.findtext("sign") or ""
+        for el in _root(xml).iter("clef")
+    ]
+
+
+def test_low_passage_switches_to_bass_clef() -> None:
+    """#268: a sustained low passage reads in bass clef — modern
+    notation: written pitches and the -P5 <transpose> are untouched."""
+    # Concert 45/47 -> written 52/54 (below B3); 64/67/69 -> 71/74/76.
+    score = make_score(
+        [(45, 0, 4), (47, 4, 4), (64, 8, 4), (67, 12, 4), (69, 16, 4)]
+    )
+    xml = export_horn_in_f_musicxml(score)
+    # Clefs emit on change only: bass from the opening measure,
+    # treble returns at measure 4 (the first confirmed high measure).
+    root = _root(xml)
+    by_measure = [
+        (m.get("number"), [c.findtext("sign") for c in m.iter("clef")])
+        for m in root.iter("measure")
+    ]
+    assert by_measure == [
+        ("1", ["F"]),
+        ("2", []),
+        ("3", []),
+        ("4", ["G"]),
+        ("5", []),
+    ]
+    assert _transpose(xml) == ("-4", "-7")
+    written = [n.written_midi for n in _pitched(xml)]
+    assert written == [52, 54, 71, 74, 76]
+
+
+def test_clef_policy_ignores_lone_low_measure() -> None:
+    """#268: one low measure inside a high passage must not flip the
+    clef twice — the hysteresis needs the same signal on both sides."""
+    score = make_score([(76, 0, 4), (45, 4, 4), (76, 8, 4), (79, 12, 4)])
+    signs = _clef_signs(export_horn_in_f_musicxml(score))
+    assert signs == ["G"]
+
+
+def test_concert_clef_policy_uses_sounding_pitch() -> None:
+    """#268: the concert view applies the same policy on sounding
+    pitch (no +7 projection)."""
+    score = make_score(
+        [(45, 0, 4), (47, 4, 4), (64, 8, 4), (67, 12, 4), (69, 16, 4)]
+    )
+    signs = _clef_signs(export_concert_musicxml(score))
+    assert signs == ["F", "G"]
+
+
 def test_horn_export_mid_piece_plus_seven_key_change() -> None:
     """#257: a modulation INTO +7 mid-piece folds the same way —
     signature and note spelling stay on the normalized written key."""

@@ -579,6 +579,75 @@ def _set_tuplet_type(
     tuplets[0].type = type_
 
 
+# #268: clef-policy thresholds on the VIEWED pitch (written for the
+# horn presentation, sounding for concert). A measure reads bass
+# when every note sits at/below B3, treble when every note sits
+# at/above E4 — the C4-D#4 zone between them is ambiguous in both
+# clefs, so it never flips the current one (hysteresis).
+_BASS_ENTER_MAX = 59   # B3 — treble's first ledger line below
+_TREBLE_ENTER_MIN = 64  # E4 — treble's bottom line
+
+
+def _clef_plan(
+    part_notes: list[QuantizedNote],
+    spans: tuple[MeasureSpan, ...],
+    presentation: PitchSpace,
+) -> list[str]:
+    """Per-measure clef names ("treble"/"bass") for one part (#268).
+
+    Modern-notation policy: a sustained low passage switches to bass
+    clef — the written pitches (and the horn's -P5 transposition)
+    are untouched, only the staff presentation changes. A clef
+    switch requires the same signal on BOTH sides of the boundary,
+    so a lone low/high measure never flips the staff back and
+    forth; rest-only measures inherit the running clef.
+    """
+    signals: dict[int, str] = {}
+    for idx, span in enumerate(spans):
+        pitches = [
+            (
+                horn_f.concert_to_written_midi(n.pitch_midi)
+                if presentation is PitchSpace.WRITTEN_HORN_F
+                else n.pitch_midi
+            )
+            for n in part_notes
+            if span.start_beat <= n.start_beat < span.end_beat
+        ]
+        if not pitches:
+            continue
+        if max(pitches) <= _BASS_ENTER_MAX:
+            signals[idx] = "bass"
+        elif min(pitches) >= _TREBLE_ENTER_MIN:
+            signals[idx] = "treble"
+    clefs = ["treble"] * len(spans)
+    current = "treble"
+    for idx in range(len(spans)):
+        sig = signals.get(idx)
+        if sig is not None and sig != current:
+            prev_sig = next(
+                (signals[j] for j in range(idx - 1, -1, -1) if j in signals),
+                None,
+            )
+            next_sig = next(
+                (
+                    signals[j]
+                    for j in range(idx + 1, len(spans))
+                    if j in signals
+                ),
+                None,
+            )
+            # Edges confirm with the single available side — a
+            # piece that opens or closes low still gets bass clef.
+            confirmed = (
+                (prev_sig is None or prev_sig == sig)
+                and (next_sig is None or next_sig == sig)
+            )
+            if confirmed:
+                current = sig
+        clefs[idx] = current
+    return clefs
+
+
 def _build_part_measures(
     payload: ScoreRevisionPayload,
     part_notes: list[QuantizedNote],
@@ -662,6 +731,13 @@ def _build_part_measures(
         part_notes, part_rests, spans, note_layers(tuple(part_notes))
     )
 
+    # #268: modern-notation clef policy — a sustained low passage
+    # switches to bass clef (same written->sounding transposition;
+    # only the staff presentation changes). Hysteresis: the switch
+    # needs the same signal on both sides of a boundary, so a lone
+    # low/high measure never flips the clef back and forth.
+    clefs = _clef_plan(part_notes, spans, presentation)
+
     for idx, span in enumerate(spans):
         measure = stream.Measure(number=span.number)
         if span.implicit:
@@ -675,14 +751,18 @@ def _build_part_measures(
             head_mark = key.KeySignature(ks.fifths)
             head_mark.mode = ks.mode  # type: ignore[attr-defined]
             measure.insert(0, head_mark)
-        if idx == 0:
-            ts = span.time_signature
-            measure.insert(0, meter.TimeSignature(f"{ts.beats_per_measure}/{ts.beat_unit}"))
-            measure.insert(0, clef.TrebleClef())
-        elif span.meter_change:
+        if idx == 0 or span.meter_change:
             ts = span.time_signature
             measure.insert(
                 0, meter.TimeSignature(f"{ts.beats_per_measure}/{ts.beat_unit}")
+            )
+        if clefs[idx] != (clefs[idx - 1] if idx > 0 else ""):
+            # #268: clef changes land at the measure head — the
+            # written pitches are untouched (modern notation keeps
+            # the same transposition under either clef).
+            measure.insert(
+                0,
+                clef.BassClef() if clefs[idx] == "bass" else clef.TrebleClef(),
             )
 
         for local_beat, ks_mark in key_marks.get(idx, []):
