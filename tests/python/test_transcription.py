@@ -123,6 +123,18 @@ class TestParams:
                 {"audioPath": "a", "tempoBpm": 5.0}
             )
 
+    def test_backend_choice_validated_and_echoed(self) -> None:
+        # #108: the settings backend selector reaches the engine and
+        # is echoed in meta.settings.
+        p = TranscriptionParams.from_payload(
+            {"audioPath": "a", "backend": "basicPitch"}
+        )
+        assert p.backend == "basicPitch"
+        assert p.settings_dict()["backend"] == "basicPitch"
+        assert TranscriptionParams.from_payload({"audioPath": "a"}).backend == "auto"
+        with pytest.raises(ValueError, match="backend"):
+            TranscriptionParams.from_payload({"audioPath": "a", "backend": "whisper"})
+
 
 class TestClean:
     def test_clips_overlap_to_next_onset(self) -> None:

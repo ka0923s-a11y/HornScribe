@@ -20,6 +20,10 @@ Wire contract (camelCase, additive-optional; see PROTOCOL.md):
   ``selectionEndSec`` clipping the accepted note window.
 * ``deadlineMs`` — engine-side wall-clock cap, checked between stages
   (same contract as ``demoLongTask``).
+* ``backend`` — ``"auto"`` | ``"basicPitch"``; the transcription
+  backend selector from 設定 → 詳細設定 (#108). ``"auto"`` resolves
+  to the only engine backend today (basic_pitch) and is echoed in
+  ``meta.settings`` so a future second backend honours the contract.
 """
 
 from __future__ import annotations
@@ -51,6 +55,8 @@ _SUPPORTED_METERS = {
     "4/4", "3/4", "2/4", "5/4", "6/8", "7/8", "9/8", "12/8",
 }
 
+_BACKENDS = {"auto", "basicPitch"}
+
 
 @dataclass(frozen=True)
 class TranscriptionParams:
@@ -68,6 +74,7 @@ class TranscriptionParams:
     selection_start_sec: float | None = None
     selection_end_sec: float | None = None
     deadline_ms: float | None = None
+    backend: str = "auto"
 
     @classmethod
     def from_payload(cls, raw: Any) -> TranscriptionParams:
@@ -98,6 +105,7 @@ class TranscriptionParams:
                 "(end > start) when range is 'selection'"
             )
         deadline_ms = cls._opt_float(raw, "deadlineMs", None, lo=1.0, hi=3_600_000.0)
+        backend = cls._opt_choice(raw, "backend", "auto", _BACKENDS)
         return cls(
             audio_path=audio_path,
             tempo_bpm=tempo_bpm,
@@ -109,6 +117,7 @@ class TranscriptionParams:
             selection_start_sec=sel_start,
             selection_end_sec=sel_end,
             deadline_ms=deadline_ms,
+            backend=backend,
         )
 
     def meter_segment(self) -> MeterSegment:
@@ -152,6 +161,7 @@ class TranscriptionParams:
             "range": self.range_kind,
             "selectionStartSec": self.selection_start_sec,
             "selectionEndSec": self.selection_end_sec,
+            "backend": self.backend,
         }
 
     @staticmethod

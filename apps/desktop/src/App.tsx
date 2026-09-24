@@ -634,6 +634,7 @@ export default function App() {
                 importState.audio,
                 transcriptionOptions,
                 staged,
+                settings.backend,
               ),
             ),
           )
@@ -815,7 +816,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions, settings.skipSeconds, saveProjectFlow],
+    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions, settings.skipSeconds, settings.backend, saveProjectFlow],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -1162,6 +1163,7 @@ export default function App() {
                                   importState.audio,
                                   transcriptionOptions,
                                   staged,
+                                  settings.backend,
                                 ),
                               ),
                             )

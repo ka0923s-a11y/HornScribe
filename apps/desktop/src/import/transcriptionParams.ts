@@ -43,16 +43,22 @@ export interface TranscriptionJobParams {
   range?: string;
   selectionStartSec?: number;
   selectionEndSec?: number;
+  backend?: string;
 }
 
 export function buildTranscriptionParams(
   audio: LoadedAudio | null,
   options: TranscriptionOptions,
   stagedAudioPath: string | null = null,
+  backend: string | null = null,
 ): TranscriptionJobParams {
   const params: TranscriptionJobParams = {};
   const path = stagedAudioPath ?? (audio ? audioPathOf(audio.ref) : null);
   if (path) params.audioPath = path;
+
+  // #108: the 設定 → 詳細設定 backend selector was a dead setting —
+  // wire it so an explicit Basic Pitch pin reaches the engine.
+  if (backend && backend !== "auto") params.backend = backend;
 
   if (options.tempo === "manual" && options.tempoBpm != null) {
     params.tempoBpm = options.tempoBpm;
