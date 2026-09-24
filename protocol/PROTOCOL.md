@@ -176,6 +176,8 @@ payload below).
 | `selectionStartSec`  | number  | required with `range:"selection"`            |
 | `selectionEndSec`    | number  | required with `range:"selection"` (> start)  |
 | `deadlineMs`         | number  | wall-clock cap (same as demoLongTask)        |
+| `texture`            | string  | `"auto"`/`"mono"`/`"melody"`/`"voices"` — source texture hint (#85) |
+| `backend`            | string  | `"auto"`/`"basicPitch"`/`"pyin"` — engine selector; auto resolves pYIN for `texture:"mono"`, Basic Pitch otherwise (#175, #189) |
 
 #### `completed` → `result` (`transcription`) [ENG-002]
 

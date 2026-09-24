@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from hornscribe.domain.events import RawNoteEvent
+from hornscribe.domain.events import PitchBendPoint, RawNoteEvent
 
 # Cleaning thresholds (seconds). Deliberately conservative: merging
 # under 30 ms only stitches obvious re-detections; dropping under 40 ms
@@ -110,6 +110,11 @@ def clip_to_range(
                 confidence=ev.confidence,
                 velocity=ev.velocity,
                 source=ev.source,
+                # #192: keep the bend evidence inside the new span —
+                # clipping must not silently drop performed vibrato.
+                pitch_bends=tuple(
+                    b for b in ev.pitch_bends if onset <= b.time_sec <= offset
+                ),
             )
         )
     return tuple(out)
@@ -149,7 +154,9 @@ def clean_monophonic(
             prev = kept[-1]
             same_pitch = int(round(prev.pitch_midi)) == int(round(ev.pitch_midi))
             if same_pitch and ev.onset_sec - prev.offset_sec < merge_gap_sec:
-                kept[-1] = _extend(prev, ev.offset_sec, ev.confidence)
+                kept[-1] = _extend(
+                    prev, ev.offset_sec, ev.confidence, ev.pitch_bends
+                )
                 merged += 1
                 continue
         kept.append(ev)
@@ -324,7 +331,9 @@ def split_voices(
                     round(ev.pitch_midi)
                 )
                 if same_pitch and ev.onset_sec - prev.offset_sec < merge_gap_sec:
-                    best[-1] = _extend(prev, ev.offset_sec, ev.confidence)
+                    best[-1] = _extend(
+                        prev, ev.offset_sec, ev.confidence, ev.pitch_bends
+                    )
                     merged += 1
                     placed = True
             if not placed:
@@ -355,7 +364,12 @@ def _voice_median_pitch(voice: list[RawNoteEvent]) -> float:
     return (pitches[mid - 1] + pitches[mid]) / 2.0
 
 
-def _extend(ev: RawNoteEvent, offset_sec: float, confidence: float | None) -> RawNoteEvent:
+def _extend(
+    ev: RawNoteEvent,
+    offset_sec: float,
+    confidence: float | None,
+    incoming_bends: tuple[PitchBendPoint, ...] = (),
+) -> RawNoteEvent:
     confidences = [c for c in (ev.confidence, confidence) if c is not None]
     return RawNoteEvent(
         id=ev.id,
@@ -366,6 +380,17 @@ def _extend(ev: RawNoteEvent, offset_sec: float, confidence: float | None) -> Ra
         confidence=max(confidences) if confidences else None,
         velocity=ev.velocity,
         source=ev.source,
+        # #192: a same-pitch merge stitches two detections — keep both
+        # bend series (dedup on identical points) inside the union span.
+        pitch_bends=tuple(
+            dict.fromkeys(
+                tuple(
+                    b for b in ev.pitch_bends
+                    if ev.onset_sec <= b.time_sec <= offset_sec
+                )
+                + tuple(incoming_bends)
+            )
+        ),
     )
 
 
@@ -379,6 +404,11 @@ def _replace_offset(ev: RawNoteEvent, offset_sec: float) -> RawNoteEvent:
         confidence=ev.confidence,
         velocity=ev.velocity,
         source=ev.source,
+        # #192: the tail was clipped at the next onset — drop bend
+        # points that now live past the new offset.
+        pitch_bends=tuple(
+            b for b in ev.pitch_bends if b.time_sec <= offset_sec
+        ),
     )
 
 
@@ -392,4 +422,5 @@ def _replace_pitch(ev: RawNoteEvent, pitch_midi: float) -> RawNoteEvent:
         confidence=ev.confidence,
         velocity=ev.velocity,
         source=ev.source,
+        pitch_bends=ev.pitch_bends,
     )

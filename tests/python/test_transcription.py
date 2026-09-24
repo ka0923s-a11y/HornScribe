@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from hornscribe.domain.events import RawNoteEvent
+from hornscribe.domain.events import PitchBendPoint, RawNoteEvent
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
 from hornscribe.transcription.clean import clean_monophonic, clip_to_range
 from hornscribe.transcription.key import estimate_key, estimate_key_segments
@@ -194,6 +194,59 @@ class TestClean:
         assert out.merged == 1
         assert out.events[0].offset_sec == pytest.approx(0.8)
         assert out.events[0].confidence == pytest.approx(0.9)
+
+    def test_merge_keeps_bend_evidence(self) -> None:
+        # #192: stitched same-pitch detections keep both bend series.
+        bend = PitchBendPoint
+        evs = (
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000001"),
+                transcription_revision=_REV,
+                pitch_midi=60,
+                onset_sec=0.0,
+                offset_sec=0.4,
+                confidence=0.8,
+                pitch_bends=(bend(0.1, 0.0), bend(0.3, 0.5)),
+            ),
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000002"),
+                transcription_revision=_REV,
+                pitch_midi=60,
+                onset_sec=0.42,
+                offset_sec=0.8,
+                confidence=0.9,
+                pitch_bends=(bend(0.5, -0.2), bend(0.7, 0.1)),
+            ),
+        )
+        out = clean_monophonic(evs)
+        assert len(out.events) == 1
+        assert len(out.events[0].pitch_bends) == 4
+
+    def test_clip_keeps_only_in_span_bends(self) -> None:
+        # #192: clipping drops bend points past the new offset.
+        bend = PitchBendPoint
+        evs = (
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000001"),
+                transcription_revision=_REV,
+                pitch_midi=60,
+                onset_sec=0.0,
+                offset_sec=0.9,
+                confidence=0.9,
+                pitch_bends=(bend(0.1, 0.0), bend(0.8, 0.5)),
+            ),
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000002"),
+                transcription_revision=_REV,
+                pitch_midi=62,
+                onset_sec=0.5,
+                offset_sec=0.9,
+                confidence=0.9,
+            ),
+        )
+        out = clean_monophonic(evs)
+        assert out.events[0].offset_sec == pytest.approx(0.5)
+        assert [b.time_sec for b in out.events[0].pitch_bends] == [0.1]
 
     def test_drops_too_short(self) -> None:
         evs = make_events([60]) + (
