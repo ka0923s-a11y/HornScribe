@@ -26,6 +26,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# #230: streaming SHA-256 in audio_probe (already in the lockfile via
+# transitive deps — no new downloads).
+sha2 = "0.10"
 # FEAT-001 (#60): PC再生音源(ループバック)とマイク録音。WebView2 では
 # getDisplayMedia が使えないため、WASAPI を直接叩く app-defined commands
 # で実装する。`windows` crate は Tauri 経由で既に lock されている

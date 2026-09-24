@@ -51,4 +51,25 @@ export interface ImportPorts {
    *  so references survive MRU truncation. Fire-and-forget — failures
    *  must not fail the open. */
   updateSourceRef?(projectPath: string, sourcePath: string | null): void;
+
+  /** Optional (#230): probe a path-backed source natively — streaming
+   *  hash, WAV/ffmpeg metadata + peaks, and a media:// playback URL —
+   *  so the file's bytes never enter the webview. Returns null when the
+   *  native probe is unavailable or fails; callers fall back to the
+   *  byte-copy path. */
+  probeAudio?(path: string): Promise<AudioProbe | null>;
+}
+
+/** Native probe result (#230) — everything AUDIO_READY needs without
+ *  a Blob of the source. */
+export interface AudioProbe {
+  durationSeconds: number;
+  sampleRate: number;
+  channels: number;
+  sizeBytes: number;
+  /** SHA-256 of the source — same identity contract as sha256Hex. */
+  contentHash: string;
+  peaks: readonly number[];
+  /** media:// URL for <audio> playback (Range-capable). */
+  playbackUrl: string;
 }

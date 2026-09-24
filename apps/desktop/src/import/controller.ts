@@ -27,6 +27,7 @@ import type {
   AudioFormat,
   ImportIssue,
   LoadedAudio,
+  MediaSource,
   ProjectSummary,
   RecentProjectEntry,
   RecordedAudioRef,
@@ -162,6 +163,40 @@ export class ImportController {
   async importRecording(ref: RecordedAudioRef): Promise<void> {
     const gen = this.begin("audio", ref.name);
     try {
+      // #230: a persisted recording probes natively — no byte copy,
+      // playback streams via media://.
+      const probe =
+        ref.path && this.ports.probeAudio
+          ? await this.ports.probeAudio(ref.path)
+          : null;
+      if (!this.isCurrent(gen)) return;
+      if (probe) {
+        const audio: LoadedAudio = {
+          ref: { ...ref, contentHash: probe.contentHash },
+          fileName: ref.name,
+          format: "wav",
+          sizeBytes: probe.sizeBytes,
+          durationSeconds: probe.durationSeconds,
+          sampleRate: probe.sampleRate,
+          peaks: probe.peaks,
+          mediaSource: { kind: "url", url: probe.playbackUrl },
+        };
+        this.setState({
+          phase: "ready",
+          openingLabel: null,
+          openingKind: null,
+          audio,
+          issue: null,
+          sourceMissing: null,
+        });
+        this.events.onAudioReady(audio);
+        this.events.announce(
+          ref.source === "loopback"
+            ? "PCの音を取り込みました(" + ref.name + ")"
+            : "録音を取り込みました(" + ref.name + ")",
+        );
+        return;
+      }
       // Tauri 録音は保存済みファイルを読む(#70: 実ファイル=リリンク可能)。
       const blob = ref.blob ?? (await this.ports.readAudioBytes(ref.path!));
       const contentHash = ref.path
@@ -207,6 +242,38 @@ export class ImportController {
   ): Promise<void> {
     const gen = this.begin("audio", ref.name);
     try {
+      // #230: path-backed sources probe natively — hash/metadata/peaks
+      // in Rust, playback streamed via media:// — so the file's bytes
+      // never enter the webview. kind:"file" refs and probe failures
+      // keep the byte path.
+      const probe =
+        ref.kind === "path" && this.ports.probeAudio
+          ? await this.ports.probeAudio(ref.path)
+          : null;
+      if (!this.isCurrent(gen)) return;
+      if (probe) {
+        const audio: LoadedAudio = {
+          ref: { ...ref, contentHash: probe.contentHash },
+          fileName: ref.name,
+          format,
+          sizeBytes: probe.sizeBytes,
+          durationSeconds: probe.durationSeconds,
+          sampleRate: probe.sampleRate,
+          peaks: probe.peaks,
+          mediaSource: { kind: "url", url: probe.playbackUrl },
+        };
+        this.setState({
+          phase: "ready",
+          openingLabel: null,
+          openingKind: null,
+          audio,
+          issue: null,
+          sourceMissing: null,
+        });
+        this.events.onAudioReady(audio);
+        this.events.announce(ja.import.feedback.loaded(ref.name));
+        return;
+      }
       const blob = await this.blobFor(ref);
       // #243: the content hash is the source identity (FND-001) —
       // computing it once at import lets project save write a real
@@ -268,6 +335,37 @@ export class ImportController {
         this.enterSourceMissing(project, false);
         return;
       }
+      // #230: probe the recorded source natively — hash verify +
+      // metadata/peaks + media:// playback, with zero bytes in the
+      // webview. Probe failure falls back to the byte path below.
+      if (this.ports.probeAudio) {
+        const probe = await this.ports.probeAudio(project.sourcePath);
+        if (!this.isCurrent(gen)) return;
+        if (probe) {
+          if (probe.contentHash !== project.sourceHash) {
+            // File at the recorded path exists but content differs —
+            // store.py treats this like a moved source (verify fails).
+            this.enterSourceMissing(project, false);
+            return;
+          }
+          this.finishProjectOpen(
+            project,
+            {
+              kind: "path",
+              path: project.sourcePath,
+              name: baseName(project.sourcePath),
+            },
+            {
+              sizeBytes: probe.sizeBytes,
+              durationSeconds: probe.durationSeconds,
+              sampleRate: probe.sampleRate,
+              peaks: probe.peaks,
+              mediaSource: { kind: "url", url: probe.playbackUrl },
+            },
+          );
+          return;
+        }
+      }
       let audioBlob: Blob;
       try {
         audioBlob = await this.ports.readAudioBytes(project.sourcePath);
@@ -294,8 +392,13 @@ export class ImportController {
             path: project.sourcePath,
             name: baseName(project.sourcePath),
           },
-          audioBlob,
-          decoded,
+          {
+            sizeBytes: audioBlob.size,
+            durationSeconds: decoded.durationSeconds,
+            sampleRate: decoded.sampleRate,
+            peaks: decoded.peaks,
+            mediaSource: { kind: "blob", blob: audioBlob },
+          },
         );
       } catch {
         if (!this.isCurrent(gen)) return;
@@ -335,6 +438,33 @@ export class ImportController {
     if (!sm) return;
     const gen = this.begin("project", sm.project.name);
     try {
+      // #230: a path-backed candidate verifies + probes natively — the
+      // bytes never enter the webview; kind:"file" and probe failures
+      // keep the byte path.
+      if (ref.kind === "path" && this.ports.probeAudio) {
+        const probe = await this.ports.probeAudio(ref.path);
+        if (!this.isCurrent(gen)) return;
+        if (probe) {
+          if (probe.contentHash !== sm.project.sourceHash) {
+            this.enterSourceMissing(sm.project, true);
+            return;
+          }
+          const format = audioFormatOf(ref.name) ?? "wav";
+          const audio: LoadedAudio = {
+            // #234: the verified project hash is the audio identity.
+            ref: { ...ref, contentHash: sm.project.sourceHash ?? probe.contentHash },
+            fileName: ref.name,
+            format,
+            sizeBytes: probe.sizeBytes,
+            durationSeconds: probe.durationSeconds,
+            sampleRate: probe.sampleRate,
+            peaks: probe.peaks,
+            mediaSource: { kind: "url", url: probe.playbackUrl },
+          };
+          this.finishRelink(sm.project, audio);
+          return;
+        }
+      }
       const blob = await this.blobFor(ref);
       const hash = await this.ports.sha256Hex(blob);
       if (!this.isCurrent(gen)) return;
@@ -358,32 +488,7 @@ export class ImportController {
         peaks: decoded.peaks,
         mediaSource: { kind: "blob", blob },
       };
-      this.setState({
-        phase: "ready",
-        openingLabel: null,
-        openingKind: null,
-        audio,
-        issue: null,
-        sourceMissing: null,
-      });
-      this.touchRecent(sm.project);
-      // #264: relink resumes the same project — restore its saved
-      // 採譜 settings before the audio slot resets options.
-      this.events.onProjectOpened?.(sm.project);
-      this.events.onAudioReady(audio);
-      // #106: the project's saved score (already restored in the
-      // background) can now land — the relinked audio matches the
-      // recorded content hash.
-      if (sm.project.scoreResult != null) {
-        this.events.onProjectScoreReady?.(sm.project.scoreResult, {
-          projectId: sm.project.projectId,
-          sourceHash: sm.project.sourceHash,
-          sourcePath: sm.project.sourcePath,
-        });
-        this.events.announce(ja.import.feedback.projectOpened(sm.project.name));
-      } else {
-        this.events.announce(ja.import.feedback.sourceRelinked);
-      }
+      this.finishRelink(sm.project, audio);
     } catch {
       if (!this.isCurrent(gen)) return;
       // Candidate unreadable or undecodable after a hash match — stay on
@@ -391,6 +496,36 @@ export class ImportController {
       // (the card itself already offers the retry action).
       this.enterSourceMissing(sm.project, false);
       this.events.announce(ja.import.errors.openFailedBody);
+    }
+  }
+
+  /** Relink success tail — shared by the native-probe and byte paths. */
+  private finishRelink(project: ProjectSummary, audio: LoadedAudio): void {
+    this.setState({
+      phase: "ready",
+      openingLabel: null,
+      openingKind: null,
+      audio,
+      issue: null,
+      sourceMissing: null,
+    });
+    this.touchRecent(project);
+    // #264: relink resumes the same project — restore its saved
+    // 採譜 settings before the audio slot resets options.
+    this.events.onProjectOpened?.(project);
+    this.events.onAudioReady(audio);
+    // #106: the project's saved score (already restored in the
+    // background) can now land — the relinked audio matches the
+    // recorded content hash.
+    if (project.scoreResult != null) {
+      this.events.onProjectScoreReady?.(project.scoreResult, {
+        projectId: project.projectId,
+        sourceHash: project.sourceHash,
+        sourcePath: project.sourcePath,
+      });
+      this.events.announce(ja.import.feedback.projectOpened(project.name));
+    } else {
+      this.events.announce(ja.import.feedback.sourceRelinked);
     }
   }
 
@@ -470,11 +605,12 @@ export class ImportController {
   private finishProjectOpen(
     project: ProjectSummary,
     ref: AudioFileRef,
-    blob: Blob,
-    decoded: {
+    media: {
+      sizeBytes: number;
       durationSeconds: number;
       sampleRate: number;
       peaks: readonly number[];
+      mediaSource: MediaSource;
     },
   ): void {
     const format = audioFormatOf(ref.name) ?? "wav";
@@ -484,11 +620,11 @@ export class ImportController {
       ref: { ...ref, contentHash: project.sourceHash ?? undefined },
       fileName: ref.name,
       format,
-      sizeBytes: blob.size,
-      durationSeconds: decoded.durationSeconds,
-      sampleRate: decoded.sampleRate,
-      peaks: decoded.peaks,
-      mediaSource: { kind: "blob", blob },
+      sizeBytes: media.sizeBytes,
+      durationSeconds: media.durationSeconds,
+      sampleRate: media.sampleRate,
+      peaks: media.peaks,
+      mediaSource: media.mediaSource,
     };
     this.setState({
       phase: "ready",

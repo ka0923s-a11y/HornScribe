@@ -13,6 +13,7 @@
 
 use serde::Serialize;
 
+mod audio;
 mod capture;
 mod engine;
 mod export;
@@ -109,10 +110,18 @@ fn read_project_file(path: String) -> Result<tauri::ipc::Response, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // #230: media custom scheme — token-scoped audio streaming for
+        // <audio> playback (Range-capable; only paths registered by
+        // audio_probe resolve).
+        .register_asynchronous_uri_scheme_protocol(
+            "media",
+            audio::media_scheme_handler,
+        )
         .invoke_handler(tauri::generate_handler![
             shell_info,
             read_audio_bytes,
             read_project_file,
+            audio::audio_probe,
             capture::capture_start,
             capture::capture_stop,
             capture::capture_cancel,

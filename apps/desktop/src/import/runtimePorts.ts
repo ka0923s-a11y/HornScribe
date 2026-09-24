@@ -20,6 +20,7 @@ import { updateSourceRef } from "../capture/recordings";
 import { AUDIO_EXTENSIONS, baseName } from "./formats";
 import {
   AudioDecodeError,
+  type AudioProbe,
   type DecodedAudio,
   type ImportPorts,
 } from "./ports";
@@ -188,6 +189,19 @@ export function createImportPorts(): ImportPorts {
     // beyond the 8-entry MRU.
     updateSourceRef: (projectPath, sourcePath) => {
       void updateSourceRef(projectPath, sourcePath);
+    },
+    // #230: native ingest — hash/metadata/peaks computed in Rust and
+    // playback streamed via the media:// scheme, so path-backed
+    // sources never copy their bytes into the webview. null → the
+    // controller falls back to the byte path (browser dev, probe
+    // failure).
+    probeAudio: async (path) => {
+      if (!isTauri()) return null;
+      try {
+        return await invoke<AudioProbe>("audio_probe", { path });
+      } catch {
+        return null;
+      }
     },
   };
 }

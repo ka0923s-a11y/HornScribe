@@ -178,6 +178,51 @@ describe("importRefs — EMPTY → OPENING_AUDIO → AUDIO_READY", () => {
     expect(calls).toEqual(["C:\\audio\\take.wav"]);
     expect(h.readyAudios[0]?.sizeBytes).toBe("wav-bytes".length);
   });
+
+  /* #230: a native probe means path-backed sources never copy bytes
+   * into the webview — hash/metadata/peaks come from Rust and playback
+   * streams via media://. */
+  it("native probe: no byte read, mediaSource is the media:// URL (#230)", async () => {
+    const probe = {
+      durationSeconds: 12.5,
+      sampleRate: 48_000,
+      channels: 2,
+      sizeBytes: 1_234,
+      contentHash: "hash-probed",
+      peaks: [0.2, 0.8],
+      playbackUrl: "http://media.localhost/tok",
+    };
+    let byteReads = 0;
+    let decodes = 0;
+    const h = makeHarness({
+      probeAudio: async () => probe,
+      readAudioBytes: async () => {
+        byteReads += 1;
+        throw new Error("must not read bytes");
+      },
+      decodeAudio: async () => {
+        decodes += 1;
+        return DECODED;
+      },
+    });
+    await h.controller.importRefs([pathRef("C:\\audio\\take.wav", "take.wav")]);
+    expect(byteReads).toBe(0);
+    expect(decodes).toBe(0);
+    const audio = h.readyAudios[0];
+    expect(audio?.mediaSource).toEqual({ kind: "url", url: probe.playbackUrl });
+    expect(audio?.ref).toMatchObject({ contentHash: "hash-probed" });
+    expect(audio?.durationSeconds).toBe(12.5);
+    expect(h.screens).toEqual(["openingAudio", "audioReady"]);
+  });
+
+  it("probe returning null falls back to the byte path (#230)", async () => {
+    const h = makeHarness({ probeAudio: async () => null });
+    h.store.set("C:\\audio\\take.wav", new Blob(["wav-bytes"]));
+    await h.controller.importRefs([pathRef("C:\\audio\\take.wav", "take.wav")]);
+    const audio = h.readyAudios[0];
+    expect(audio?.mediaSource.kind).toBe("blob");
+    expect(audio?.sizeBytes).toBe("wav-bytes".length);
+  });
 });
 
 describe("importRefs — AUDIO_ERROR (§20)", () => {
@@ -279,6 +324,52 @@ describe("openProject — source verification (store.py contract)", () => {
     expect(calls).toEqual([
       { projectPath: entry.path, sourcePath: "C:\\audio\\etude.wav" },
     ]);
+  });
+
+  it("native probe verifies the hash and streams playback (#230)", async () => {
+    const probe = {
+      durationSeconds: 12.5,
+      sampleRate: 48_000,
+      channels: 2,
+      sizeBytes: 999,
+      contentHash: "hash-etude",
+      peaks: [0.5],
+      playbackUrl: "http://media.localhost/tok",
+    };
+    let byteReads = 0;
+    const h = makeHarness({
+      probeAudio: async () => probe,
+      readAudioBytes: async () => {
+        byteReads += 1;
+        throw new Error("must not read bytes");
+      },
+    });
+    h.store.set(entry.path, projectJson());
+    // no audio bytes stored — the probe path never needs them
+    await h.controller.openProject(entry);
+    expect(byteReads).toBe(0);
+    expect(h.screens).toEqual(["openingAudio", "audioReady"]);
+    expect(h.readyAudios[0]?.mediaSource).toEqual({
+      kind: "url",
+      url: probe.playbackUrl,
+    });
+  });
+
+  it("probe hash mismatch at the recorded path → SOURCE_MISSING (#230)", async () => {
+    const h = makeHarness({
+      probeAudio: async () => ({
+        durationSeconds: 1,
+        sampleRate: 48_000,
+        channels: 2,
+        sizeBytes: 1,
+        contentHash: "hash-other",
+        peaks: [0],
+        playbackUrl: "u",
+      }),
+    });
+    h.store.set(entry.path, projectJson());
+    await h.controller.openProject(entry);
+    expect(h.controller.getState().phase).toBe("sourceMissing");
   });
 
   it("source file missing → SOURCE_MISSING with relink action", async () => {
@@ -434,6 +525,60 @@ describe("relinkWith — hash-validated relink (store.py relink_source_audio)", 
     const s = h.controller.getState();
     expect(s.phase).toBe("sourceMissing");
     expect(s.sourceMissing?.mismatch).toBe(false);
+  });
+
+  it("path candidate verifies + streams via the native probe (#230)", async () => {
+    const probe = {
+      durationSeconds: 12.5,
+      sampleRate: 48_000,
+      channels: 2,
+      sizeBytes: 42,
+      contentHash: "hash-etude",
+      peaks: [0.4],
+      playbackUrl: "http://media.localhost/tok",
+    };
+    let byteReads = 0;
+    const h = makeHarness({
+      // The project's own recorded path probes as missing (drives
+      // SOURCE_MISSING via the byte path); the relink candidate probes
+      // with a matching hash.
+      probeAudio: async (path) =>
+        path === "C:\\audio\\etude.wav" ? null : probe,
+      readAudioBytes: async () => {
+        byteReads += 1;
+        throw new Error("must not read bytes");
+      },
+    });
+    await toSourceMissing(h);
+    byteReads = 0; // count only the relink attempt
+    await h.controller.relinkWith(pathRef("C:\\elsewhere\\etude.wav"));
+    expect(byteReads).toBe(0);
+    const s = h.controller.getState();
+    expect(s.phase).toBe("ready");
+    expect(s.audio?.mediaSource).toEqual({
+      kind: "url",
+      url: probe.playbackUrl,
+    });
+    expect(h.announcements.at(-1)).toContain("関連付け直");
+  });
+
+  it("probe hash mismatch on relink → SOURCE_MISSING mismatch=true (#230)", async () => {
+    const h = makeHarness({
+      probeAudio: async () => ({
+        durationSeconds: 1,
+        sampleRate: 48_000,
+        channels: 2,
+        sizeBytes: 1,
+        contentHash: "hash-other",
+        peaks: [0],
+        playbackUrl: "u",
+      }),
+    });
+    await toSourceMissing(h);
+    await h.controller.relinkWith(pathRef("C:\\elsewhere\\nope.wav"));
+    const s = h.controller.getState();
+    expect(s.phase).toBe("sourceMissing");
+    expect(s.sourceMissing?.mismatch).toBe(true);
   });
 });
 
