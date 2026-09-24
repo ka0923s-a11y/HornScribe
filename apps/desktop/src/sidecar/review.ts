@@ -18,6 +18,7 @@ export const REVIEW_REASONS = [
   "pitch_spelling_ambiguous",
   "outside_preferred_horn_range",
   "structural_measure_conflict",
+  "meter_conflict",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];

@@ -36,12 +36,28 @@ no telemetry. `pip install hornscribe[engine]` carries the model deps.
   window (horn F1..A5 + margin), melodia trick on.
 - Monophonic repair before quantization (the product contract is a
   single horn line): same-pitch merges <30 ms, <40 ms drops, overlap
-  clipping to the next onset.
+  clipping to the next onset. Isolated notes exactly an octave off
+  BOTH neighbours' shared pitch class snap to the neighbour octave
+  (Basic Pitch octave flicker; real leaps are untouched — the count
+  is reported via `meta.cleaning.octaveCorrected`).
 - Beat tracking gives a piecewise-linear TimeWarp (follows rit./accel.);
   a pinned manual tempo uses a fixed grid anchored on the first onset.
+- Auto meter (`meter:"auto"` + auto tempo): onset strength sampled at
+  each tracked beat scores 2/4, 3/4, 4/4 by measure-start accent
+  ratio; 6/8 requires a lag-6 accent with a secondary lag-3 accent on
+  an eighth-note pulse (tracked anchors then bind eighths, not dotted
+  quarters). Weak evidence falls back to 4/4 and emits a
+  `meter_conflict` review issue; the pick and margin are reported via
+  `meta.meter` / `meta.meterConfidence`.
+- Beat-tracker edge cases: a missed first beat (onset ~1 interval
+  before beat 0) is synthesized onto the grid, and a beat 0 landing a
+  fraction of a pulse after the first onset snaps to the onset —
+  otherwise real downbeats misread as pickups.
 - Pickup/anacrusis: beat-map anchors lift by whole beats when the first
   onset precedes beat 0; the lift becomes the meter's measure phase.
-- Key: duration-weighted Krumhansl-Schmuckler over quantized pitches.
+- Key: duration-weighted Krumhansl-Schmuckler over quantized pitches,
+  with cadence bias (final note x2, first x1.5) so diatonic melodies
+  resolve the real tonic instead of tying to the relative minor.
 - Review issues are evidence-bearing, never silent corrections:
   quantizer reasons + low_model_confidence (<0.5) +
   outside_preferred_horn_range + very_short_detection (<90 ms).
@@ -67,8 +83,10 @@ shutdown; `engine_kill` + exit hook prevent sidecar leaks.
 
 - Packaged app still needs a reachable Python+engine env — bundling a
   frozen runtime is a follow-up.
-- `meter:"auto"` resolves to 4/4 (reported honestly via
-  `meta.meterEstimated`); real meter estimation is a follow-up.
+- Auto meter is accent-based and conservative: weak or ambiguous
+  accent structure falls back to 4/4 with a `meter_conflict` issue
+  rather than guessing; 6/8 requires the tracker to hold the
+  eighth-note pulse.
 - Monophonic sources only; polyphonic input yields a single line.
 - Browser-dev `kind:"file"` sources have no `audioPath` — the mock
   port covers dev; staging bytes to a temp file is a follow-up.

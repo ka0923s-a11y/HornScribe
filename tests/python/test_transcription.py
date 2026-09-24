@@ -20,6 +20,7 @@ from hornscribe.domain.events import RawNoteEvent
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
 from hornscribe.transcription.clean import clean_monophonic, clip_to_range
 from hornscribe.transcription.key import estimate_key
+from hornscribe.transcription.meter import estimate_meter
 from hornscribe.transcription.options import TranscriptionParams
 from hornscribe.transcription.pipeline import (
     STAGES,
@@ -189,6 +190,64 @@ class TestClean:
         assert len(out) == 3
         assert out[0].onset_sec == pytest.approx(0.4)
         assert out[2].offset_sec == pytest.approx(1.1)
+
+    def test_octave_flicker_corrected(self) -> None:
+        # C4, C5 (octave ghost), C4 — both neighbours agree on pitch
+        # class and the middle note is exactly +12: snap it back.
+        evs = make_events([60, 72, 60], beat_sec=0.5)
+        out = clean_monophonic(evs)
+        assert out.octave_corrected == 1
+        assert [int(e.pitch_midi) for e in out.events] == [60, 60, 60]
+
+    def test_real_octave_leap_untouched(self) -> None:
+        # C4, C5, G4 — neighbours disagree on pitch class, so the
+        # octave jump is a real leap and must survive.
+        evs = make_events([60, 72, 67], beat_sec=0.5)
+        out = clean_monophonic(evs)
+        assert out.octave_corrected == 0
+        assert [int(e.pitch_midi) for e in out.events] == [60, 72, 67]
+
+
+class TestMeter:
+    def _beats(self, n: int, period: float = 0.5) -> tuple[float, ...]:
+        return tuple(i * period for i in range(n))
+
+    def test_three_four(self) -> None:
+        # Accents every 3rd beat.
+        n = 24
+        strengths = tuple(3.0 if i % 3 == 0 else 1.0 for i in range(n))
+        est = estimate_meter(self._beats(n), strengths)
+        assert est.meter == "3/4"
+        assert not est.uncertain
+
+    def test_four_four(self) -> None:
+        n = 24
+        strengths = tuple(3.0 if i % 4 == 0 else 1.0 for i in range(n))
+        est = estimate_meter(self._beats(n), strengths)
+        assert est.meter == "4/4"
+
+    def test_six_eight(self) -> None:
+        # Eighth-note pulse with accents at lag 6 and a mid-bar accent
+        # at lag 3 — the two dotted-quarter beats of 6/8.
+        n = 36
+        strengths = tuple(
+            3.0 if i % 6 == 0 else (1.4 if i % 3 == 0 else 1.0)
+            for i in range(n)
+        )
+        est = estimate_meter(self._beats(n, period=0.25), strengths)
+        assert est.meter == "6/8"
+        assert est.tracked_eighths
+
+    def test_too_few_beats_uncertain(self) -> None:
+        est = estimate_meter(self._beats(4), (1.0, 1.0, 1.0, 1.0))
+        assert est.meter == "4/4"
+        assert est.uncertain
+
+    def test_flat_strengths_uncertain(self) -> None:
+        n = 16
+        est = estimate_meter(self._beats(n), tuple(1.0 for _ in range(n)))
+        assert est.meter == "4/4"
+        assert est.uncertain
 
 
 class TestKey:

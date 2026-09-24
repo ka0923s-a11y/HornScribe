@@ -54,6 +54,8 @@ class TempoEstimate:
     """True when the tempo came from tracking, False when user-pinned."""
     pickup_len_ql: Fraction = Fraction(0)
     """Anacrusis span before the first downbeat (0 = no pickup)."""
+    pulse_unit_ql: Fraction | None = None
+    """Grid unit each tracked beat anchors (None = meter.beat_unit_ql)."""
 
 
 def estimate_tempo(
@@ -63,14 +65,21 @@ def estimate_tempo(
     *,
     tempo_bpm: float | None,
     first_onset_sec: float | None,
+    beat_times: tuple[float, ...] | None = None,
+    pulse_unit_ql: Fraction | None = None,
 ) -> TempoEstimate:
     """Build the seconds->ql warp for this run.
 
     ``first_onset_sec`` anchors the fixed-BPM path and the beat-map
     alignment shift; pass ``None`` for an empty event list (the warp is
     then anchored at t=0 and the score will be empty anyway).
+
+    ``beat_times`` reuses an already-computed beat track (the pipeline
+    needs it for meter estimation first); ``pulse_unit_ql`` overrides
+    ``meter.beat_unit_ql`` as the grid unit each tracked beat anchors —
+    auto-detected 6/8 tracks eighths, not dotted quarters.
     """
-    beat_unit_ql = meter.beat_unit_ql
+    beat_unit_ql = pulse_unit_ql if pulse_unit_ql is not None else meter.beat_unit_ql
     if tempo_bpm is not None:
         # Manual tempo: bpm counts *primary beats* per minute, so the
         # quarterLength rate is bpm * beat_unit_ql / 60.
@@ -85,19 +94,20 @@ def estimate_tempo(
             auto=False,
         )
 
-    require_module("librosa")
-    import librosa  # noqa: PLC0415 - lazy optional dependency
+    if beat_times is None:
+        require_module("librosa")
+        import librosa  # noqa: PLC0415 - lazy optional dependency
 
-    _tempo, beat_frames = librosa.beat.beat_track(
-        y=samples, sr=sample_rate, units="frames"
-    )
-    # BeatMap requires strictly increasing times; drop duplicates/zeros.
-    beat_times_list: list[float] = []
-    for t in librosa.frames_to_time(beat_frames, sr=sample_rate):
-        ft = float(t)
-        if not beat_times_list or ft > beat_times_list[-1]:
-            beat_times_list.append(ft)
-    beat_times = tuple(beat_times_list)
+        _tempo, beat_frames = librosa.beat.beat_track(
+            y=samples, sr=sample_rate, units="frames"
+        )
+        # BeatMap requires strictly increasing times; drop dupes/zeros.
+        beat_times_list: list[float] = []
+        for t in librosa.frames_to_time(beat_frames, sr=sample_rate):
+            ft = float(t)
+            if not beat_times_list or ft > beat_times_list[-1]:
+                beat_times_list.append(ft)
+        beat_times = tuple(beat_times_list)
     if len(beat_times) < 2:
         # Tracking found no usable pulse — fall back to a conservative
         # fixed grid anchored on the first onset rather than failing.
@@ -105,6 +115,39 @@ def estimate_tempo(
         return TempoEstimate(
             warp=warp, beat_times_sec=(), median_bpm=120.0, auto=True
         )
+
+    intervals = [b - a for a, b in zip(beat_times, beat_times[1:], strict=False)]
+    intervals = [d for d in intervals if d > 0]
+    median_sec = sorted(intervals)[len(intervals) // 2] if intervals else 0.5
+
+    # The tracker often drops the very first beat (it prefers a settled
+    # pulse over the attack at t=0). When the first onset sits roughly
+    # one interval before beat 0, prepend a synthesized beat at the
+    # onset — otherwise the real downbeat gets misread as a pickup.
+    leading_beats: list[float] = []
+    if first_onset_sec is not None:
+        gap = beat_times[0] - first_onset_sec
+        if 0.55 * median_sec <= gap < 1.5 * median_sec:
+            leading_beats.append(float(first_onset_sec))
+        elif 0.02 < gap < 0.55 * median_sec:
+            # Beat 0 sits a fraction of a pulse after the first onset:
+            # the tracker landed late on the same downbeat — snap the
+            # anchor to the onset so the first note is not a phantom
+            # pickup.
+            leading_beats.append(float(first_onset_sec))
+            beat_times = beat_times[1:]
+        elif gap >= 1.5 * median_sec:
+            # Multiple missing beats: walk back on the median grid and
+            # land the earliest grid point on the onset itself.
+            n_missing = int(gap / median_sec + 0.5)
+            for k in range(n_missing, 0, -1):
+                if k == n_missing:
+                    leading_beats.append(float(first_onset_sec))
+                else:
+                    leading_beats.append(
+                        float(first_onset_sec) + (n_missing - k) * median_sec
+                    )
+    all_beats = tuple(leading_beats) + beat_times
 
     # Anchor beat i to score position i * beat_unit_ql, then lift the
     # whole row by whole beats when the first onset precedes beat 0 —
@@ -121,7 +164,7 @@ def estimate_tempo(
                         score_pos_ql=Fraction(i) * beat_unit_ql,
                         source=BeatSource.BEAT_TRACKER,
                     )
-                    for i, t in enumerate(beat_times)
+                    for i, t in enumerate(all_beats)
                 )
             )
         )
@@ -134,7 +177,7 @@ def estimate_tempo(
             score_pos_ql=Fraction(i) * beat_unit_ql + shift_ql,
             source=BeatSource.BEAT_TRACKER,
         )
-        for i, t in enumerate(beat_times)
+        for i, t in enumerate(all_beats)
     ]
     warp = TimeWarp.from_beat_map(BeatMap(tuple(anchors)))
     # Beat 0 lands at ql=shift_ql; the pickup measure is the last
@@ -143,16 +186,18 @@ def estimate_tempo(
     measure_ql = meter.measure_length_ql
     pickup_len = shift_ql % measure_ql
 
-    intervals = [b - a for a, b in zip(beat_times, beat_times[1:], strict=False)]
-    intervals = [d for d in intervals if d > 0]
-    median_sec = sorted(intervals)[len(intervals) // 2] if intervals else 0.5
-    median_bpm = float(beat_unit_ql) * 60.0 / median_sec
+    # Report in primary-beat units (musician BPM): the tracked pulse
+    # interval maps to one pulse_unit_ql of score time.
+    median_bpm = (
+        float(beat_unit_ql) * 60.0 / (median_sec * float(meter.beat_unit_ql))
+    )
     return TempoEstimate(
         warp=warp,
-        beat_times_sec=beat_times,
+        beat_times_sec=all_beats,
         median_bpm=median_bpm,
         auto=True,
         pickup_len_ql=pickup_len,
+        pulse_unit_ql=pulse_unit_ql,
     )
 
 
@@ -170,6 +215,14 @@ def tempo_map_from_estimate(
     if not estimate.auto or len(estimate.beat_times_sec) < 2:
         return (TempoSegment(start_beat=Fraction(0), bpm=round(estimate.median_bpm, 2)),)
 
+    # Tracked anchors sit on the *pulse* unit (eighths for auto-6/8);
+    # the exported BPM must be in primary-beat units (midi.py divides
+    # by meter.beat_unit), so convert through the ql ratio.
+    pulse_unit = (
+        estimate.pulse_unit_ql
+        if estimate.pulse_unit_ql is not None
+        else meter.beat_unit_ql
+    )
     beat_unit = meter.beat_unit_ql
     times = estimate.beat_times_sec
     # Instantaneous tempo between consecutive anchors, keyed to the
@@ -182,7 +235,7 @@ def tempo_map_from_estimate(
         dt = times[i + 1] - times[i]
         if dt <= 0:
             continue
-        bpm = float(beat_unit) * 60.0 / dt
+        bpm = float(pulse_unit) * 60.0 / (dt * float(beat_unit))
         pos_ql = estimate.warp.seconds_to_ql(times[i])
         pos_beats = pos_ql / beat_ql
         if last_bpm is None or abs(bpm - last_bpm) / last_bpm > _TEMPO_MERGE_RATIO:

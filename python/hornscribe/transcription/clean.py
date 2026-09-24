@@ -10,6 +10,10 @@ duplicates — so this stage repairs them *before* quantization:
   also reports ``overlap_clipped_count`` on what remains);
 * same-pitch notes separated by a tiny gap are merged (sustained notes
   re-detected after breath/bow noise);
+* an isolated note exactly an octave off *both* neighbours' pitch class
+  is snapped to the neighbour octave (Basic Pitch octave flicker — the
+  classic horn-line artifact; only applied when both neighbours agree
+  on pitch class, so real octave leaps are untouched);
 * detections shorter than ``min_event_sec`` are dropped (attack
   artifacts) — dropped count is reported in the job meta;
 * ``range`` params clip the accepted window: notes overlapping the
@@ -41,12 +45,14 @@ class CleanedEvents:
     dropped_too_short: int
     merged: int
     clipped_overlaps: int
+    octave_corrected: int = 0
 
     def stats(self) -> dict[str, Any]:
         return {
             "droppedTooShort": self.dropped_too_short,
             "merged": self.merged,
             "clippedOverlaps": self.clipped_overlaps,
+            "octaveCorrected": self.octave_corrected,
             "eventCount": len(self.events),
         }
 
@@ -126,11 +132,34 @@ def clean_monophonic(
     # A clip can leave a zero-length note; drop it honestly.
     final = [e for e in kept if e.offset_sec - e.onset_sec >= min_event_sec]
     dropped += len(kept) - len(final)
+
+    # Octave-flicker repair: a note exactly +/-12 semitones off a pitch
+    # class shared by BOTH neighbours is almost always the model
+    # flickering octaves mid-line, not a real leap. Snap it to the
+    # matching neighbour octave. Conservative on purpose — requires
+    # neighbour agreement and exact octave distance.
+    octave_fixed = 0
+    for i in range(1, len(final) - 1):
+        prev_pc = int(round(final[i - 1].pitch_midi)) % 12
+        next_pc = int(round(final[i + 1].pitch_midi)) % 12
+        if prev_pc != next_pc:
+            continue
+        pitch = int(round(final[i].pitch_midi))
+        if pitch % 12 != prev_pc:
+            continue
+        prev_pitch = int(round(final[i - 1].pitch_midi))
+        next_pitch = int(round(final[i + 1].pitch_midi))
+        if abs(pitch - prev_pitch) == 12 or abs(pitch - next_pitch) == 12:
+            target = prev_pitch if abs(pitch - prev_pitch) == 12 else next_pitch
+            final[i] = _replace_pitch(final[i], float(target))
+            octave_fixed += 1
+
     return CleanedEvents(
         events=tuple(final),
         dropped_too_short=dropped,
         merged=merged,
         clipped_overlaps=clipped,
+        octave_corrected=octave_fixed,
     )
 
 
@@ -155,6 +184,19 @@ def _replace_offset(ev: RawNoteEvent, offset_sec: float) -> RawNoteEvent:
         pitch_midi=ev.pitch_midi,
         onset_sec=ev.onset_sec,
         offset_sec=offset_sec,
+        confidence=ev.confidence,
+        velocity=ev.velocity,
+        source=ev.source,
+    )
+
+
+def _replace_pitch(ev: RawNoteEvent, pitch_midi: float) -> RawNoteEvent:
+    return RawNoteEvent(
+        id=ev.id,
+        transcription_revision=ev.transcription_revision,
+        pitch_midi=pitch_midi,
+        onset_sec=ev.onset_sec,
+        offset_sec=ev.offset_sec,
         confidence=ev.confidence,
         velocity=ev.velocity,
         source=ev.source,

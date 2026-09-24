@@ -31,6 +31,9 @@ class ReviewReason(Enum):
     PITCH_SPELLING_AMBIGUOUS = "pitch_spelling_ambiguous"
     OUTSIDE_PREFERRED_HORN_RANGE = "outside_preferred_horn_range"
     STRUCTURAL_MEASURE_CONFLICT = "structural_measure_conflict"
+    # Auto-meter estimation could not justify its pick — the UI copy
+    # deck already carries `meter_conflict` for this surface.
+    METER_CONFLICT = "meter_conflict"
 
 
 class Severity(Enum):

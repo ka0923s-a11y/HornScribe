@@ -7,7 +7,9 @@ Wire contract (camelCase, additive-optional; see PROTOCOL.md):
   6/8: dotted quarter). ``None`` -> beat tracking.
 * ``meter`` — ``"auto"`` or ``"N/D"``; HSQ-v1 supports the
   ``4/4, 3/4, 2/4, 6/8`` set (``meter.py``). ``"auto"`` currently
-  resolves to 4/4 and is reported honestly in the result meta.
+  estimates from beat-aligned onset accents (``meter.py`` module),
+  falling back to 4/4 with a ``meter_conflict`` review issue when
+  the evidence is weak; the pick is reported in the result meta.
 * ``minDuration`` — finest notated value as a denominator string
   (``"8"``/``"16"``/``"32"`` -> ``Fraction(1, 2)``/``1/4``/``1/8`` ql).
 * ``triplets`` — ``"auto"`` | ``"allow"`` | ``"none"`` ->

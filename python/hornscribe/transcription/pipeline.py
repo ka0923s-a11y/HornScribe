@@ -63,9 +63,11 @@ from .backend import (
     load_mono_audio,
     new_transcription_revision,
     predict_note_events,
+    require_module,
 )
 from .clean import clean_monophonic, clip_to_range
 from .key import estimate_key
+from .meter import estimate_meter
 from .options import TranscriptionParams
 from .scorebuild import build_score
 from .tempo import estimate_tempo, tempo_map_from_estimate
@@ -94,6 +96,37 @@ MAX_EXTRA_ISSUES = 60
 EventEmitter = Callable[..., None]
 NoteBackend = Callable[[str], tuple[RawNoteEvent, ...]]
 AudioLoader = Callable[[str], tuple[Any, int]]
+
+
+def _track_beats(
+    samples: Any, sample_rate: int
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Beat times + onset strength sampled at each beat (librosa).
+
+    Shared by the meter estimator (needs strengths at beats) and the
+    tempo warp (needs the beat times themselves). A failed or empty
+    track returns empty tuples — callers degrade to the 4/4 default.
+    """
+    require_module("librosa")
+    import librosa  # noqa: PLC0415 - lazy optional dependency
+
+    onset_env = librosa.onset.onset_strength(y=samples, sr=sample_rate)
+    _tempo, beat_frames = librosa.beat.beat_track(
+        y=samples, sr=sample_rate, onset_envelope=onset_env, units="frames"
+    )
+    times: list[float] = []
+    strengths: list[float] = []
+    for frame in beat_frames:
+        ft = float(librosa.frames_to_time(frame, sr=sample_rate))
+        if times and ft <= times[-1]:
+            continue
+        idx = int(frame)
+        strength = (
+            float(onset_env[idx]) if 0 <= idx < len(onset_env) else 0.0
+        )
+        times.append(ft)
+        strengths.append(strength)
+    return tuple(times), tuple(strengths)
 
 
 def _sha256_file(path: str) -> str | None:
@@ -283,12 +316,39 @@ def run_transcription_job(
         # ---- analyzing_rhythm -----------------------------------------
         stage(3, 0.65)
         meter = params.meter_segment()
+        meter_estimated = False
+        meter_uncertain = False
+        pulse_unit_ql: Fraction | None = None
+        if params.meter == "auto" and params.tempo_bpm is None:
+            # Auto meter needs the same beat track the tempo warp uses —
+            # compute it once here and hand it down.
+            beat_times, strengths = _track_beats(samples, sample_rate)
+            meter_est = estimate_meter(beat_times, strengths)
+            meter = MeterSegment(
+                start_ql=Fraction(0),
+                numerator=int(meter_est.meter.split("/")[0]),
+                denominator=int(meter_est.meter.split("/")[1]),
+            )
+            meter_estimated = True
+            meter_uncertain = meter_est.uncertain
+            meter_confidence = meter_est.confidence
+            if meter_est.tracked_eighths:
+                pulse_unit_ql = Fraction(4, meter.denominator)
+        else:
+            beat_times = None
+            meter_confidence = 1.0 if params.meter != "auto" else 0.0
+            meter_estimated = params.meter == "auto"
+            # Auto meter with a user-pinned tempo has no beat track to
+            # read accents from — the 4/4 seed is a guess, flag it.
+            meter_uncertain = params.meter == "auto"
         estimate = estimate_tempo(
             samples,
             sample_rate,
             meter,
             tempo_bpm=params.tempo_bpm,
             first_onset_sec=cleaned.events[0].onset_sec,
+            beat_times=beat_times,
+            pulse_unit_ql=pulse_unit_ql,
         )
         if estimate.pickup_len_ql:
             meter = MeterSegment(
@@ -379,6 +439,25 @@ def run_transcription_job(
                 score_revision,
             )
         )
+        if meter_uncertain:
+            # Whole-piece issue: auto meter could not justify its pick.
+            # `meter_conflict` copy exists in the UI deck.
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=0.0, end_sec=duration_sec
+                    ),
+                    reason=ReviewReason.METER_CONFLICT,
+                    severity=Severity.CAUTION,
+                    evidence={
+                        "estimatedMeter": f"{meter.numerator}/{meter.denominator}",
+                        "meterConfidence": round(meter_confidence, 3),
+                    },
+                )
+            )
         # Deterministic renumber across the merged set.
         issues.sort(
             key=lambda i: (i.time_range.start_sec, i.reason.value)
@@ -412,8 +491,9 @@ def run_transcription_job(
                     "durationSec": round(duration_sec, 3),
                     "tempoBpm": round(estimate.median_bpm, 2),
                     "tempoAuto": estimate.auto,
-                    "meter": params.meter,
-                    "meterEstimated": params.meter == "auto",
+                    "meter": f"{meter.numerator}/{meter.denominator}",
+                    "meterEstimated": meter_estimated,
+                    "meterConfidence": round(meter_confidence, 3),
                     "keyFifths": key.fifths,
                     "keyMode": key.mode,
                     "keyConfidence": round(key_confidence, 3),

@@ -168,7 +168,7 @@ payload below).
 |----------------------|---------|----------------------------------------------|
 | `audioPath`          | string  | required — absolute path the engine reads    |
 | `tempoBpm`           | number  | manual tempo (primary-beat BPM); omit = auto |
-| `meter`              | string  | `"auto"` or one of `4/4,3/4,2/4,6/8`          |
+| `meter`              | string  | `"auto"` (accent-estimated) or `4/4,3/4,2/4,6/8` |
 | `minDuration`        | string  | `"8"`/`"16"`/`"32"` — finest notated value    |
 | `triplets`           | string  | `"auto"`/`"allow"`/`"none"`                   |
 | `simplicity`         | string  | `"standard"`/`"simple"`/`"detailed"`          |
@@ -187,8 +187,12 @@ payload below).
 - `musicXmlConcert` / `musicXmlHornF` — MusicXML 4.0 bodies for the
   concert-pitch and written-F管 presentations (identical `hs-sn-*` ids);
 - `meta` — backend/version, duration, tempo (auto flag), meter,
-  key estimate (fifths/mode/confidence), note count, pickup beats,
-  alignment shift, review reasons, cleaning stats, echoed settings.
+  meter estimate (`meter`, `meterEstimated`, `meterConfidence` —
+  accent-based auto estimation; weak evidence falls back to 4/4 and
+  emits a `meter_conflict` review issue), key estimate
+  (fifths/mode/confidence), note count, pickup beats, alignment shift,
+  review reasons, cleaning stats (incl. `octaveCorrected`), echoed
+  settings.
 
 #### Error codes added by ENG-002
 
