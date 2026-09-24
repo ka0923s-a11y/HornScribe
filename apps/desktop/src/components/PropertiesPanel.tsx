@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { mergeClasses } from "@fluentui/react-components";
 import { Dismiss16Regular } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import { HsIconButton } from "./primitives/IconButton";
+import { HsNumericField } from "./primitives/NumericField";
 import type { InspectorContent } from "../workspace/inspector";
 import { startPointerResize } from "../workspace/layout";
 import {
@@ -38,11 +40,12 @@ export function PropertiesPanel({
   onResize,
   onReset,
   onClose,
+  onTempoChange,
 }: {
   content: InspectorContent;
   /** UI-030 feature inspector view-model (note/score/range bodies). */
   model?: InspectorModel;
-  /** Pitch view the user is looking at — leads the note headline. */
+  /** Pitch view the user is looking at - leads the note headline. */
   pitch?: PitchView;
   width: number;
   min: number;
@@ -52,6 +55,8 @@ export function PropertiesPanel({
   onResize(px: number): void;
   onReset(): void;
   onClose(): void;
+  /** §14: commit a new head tempo (BPM) via the engine score.edit. */
+  onTempoChange?(bpm: number): void;
 }) {
   const body =
     model && model.kind !== "empty" ? model.kind : content.kind;
@@ -78,7 +83,11 @@ export function PropertiesPanel({
         </header>
         <div className="hs-properties__body" data-inspector={body}>
           {model && model.kind !== "empty" ? (
-            <InspectorBody model={model} pitch={pitch} />
+            <InspectorBody
+              model={model}
+              pitch={pitch}
+              onTempoChange={onTempoChange}
+            />
           ) : (
             <p className="hs-properties__placeholder">
               {ja.properties.placeholder}
@@ -119,11 +128,15 @@ export function PropertiesPanel({
 function InspectorBody({
   model,
   pitch,
+  onTempoChange,
 }: {
   model: InspectorModel;
   pitch: PitchView;
+  onTempoChange?(bpm: number): void;
 }) {
-  if (model.kind === "score") return <ScoreBody model={model} />;
+  if (model.kind === "score") {
+    return <ScoreBody model={model} onTempoChange={onTempoChange} />;
+  }
   if (model.kind === "note") return <NoteBody model={model} pitch={pitch} />;
   if (model.kind === "range") {
     const f = ja.inspector.fields;
@@ -137,14 +150,24 @@ function InspectorBody({
   return null;
 }
 
-/** §22 "Nothing selected" — score/measure summary. */
-function ScoreBody({ model }: { model: ScoreInspectorModel }) {
+/** §22 "Nothing selected" - score/measure summary. */
+function ScoreBody({
+  model,
+  onTempoChange,
+}: {
+  model: ScoreInspectorModel;
+  onTempoChange?(bpm: number): void;
+}) {
   const f = ja.inspector.summaryFields;
   return (
     <>
       <dl className="hs-properties__rows">
         <Row label={f.title} value={model.title} />
-        {model.tempoLabel && <Row label={f.tempo} value={model.tempoLabel} />}
+        {model.tempoBpm != null && onTempoChange ? (
+          <TempoField bpm={model.tempoBpm} onCommit={onTempoChange} />
+        ) : (
+          model.tempoLabel && <Row label={f.tempo} value={model.tempoLabel} />
+        )}
         {model.meterLabel && <Row label={f.meter} value={model.meterLabel} />}
         {model.keyLabel && <Row label={f.key} value={model.keyLabel} />}
         <Row label={f.measures} value={model.measureLabel} />
@@ -156,7 +179,72 @@ function ScoreBody({ model }: { model: ScoreInspectorModel }) {
   );
 }
 
-/** §22 "Note selected" — pitch, onset, duration, review info. */
+/* §14 tempo edit: the score summary's BPM row becomes an editable
+ * field. Commits on blur / Enter / stepper click (not per keystroke, so
+ * typing "96" does not fire two engine edits); out-of-range input shows
+ * a field error and never reaches the engine. */
+const TEMPO_MIN_BPM = 20;
+const TEMPO_MAX_BPM = 400;
+
+function TempoField({
+  bpm,
+  onCommit,
+}: {
+  bpm: number;
+  onCommit(bpm: number): void;
+}) {
+  const f = ja.inspector.summaryFields;
+  const [draft, setDraft] = useState<number | null>(bpm);
+  const [error, setError] = useState<string | null>(null);
+  // Re-sync the draft whenever the engine reports a new tempo (edit,
+  // undo, or a different score).
+  useEffect(() => {
+    setDraft(bpm);
+    setError(null);
+  }, [bpm]);
+  const commitValue = (v: number | null) => {
+    if (v == null) {
+      setDraft(bpm);
+      setError(null);
+      return;
+    }
+    if (v < TEMPO_MIN_BPM || v > TEMPO_MAX_BPM) {
+      setError(ja.inspector.tempoRangeError);
+      return;
+    }
+    setError(null);
+    if (v !== bpm) onCommit(v);
+  };
+  const commit = () => commitValue(draft);
+  return (
+    <div
+      className="hs-properties__tempo"
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        }
+      }}
+    >
+      <HsNumericField
+        label={f.tempo}
+        value={draft}
+        min={TEMPO_MIN_BPM}
+        max={TEMPO_MAX_BPM}
+        step={1}
+        unit="BPM"
+        error={error ?? undefined}
+        onChange={(v) => {
+          setDraft(v);
+          if (v != null) commitValue(v);
+        }}
+      />
+    </div>
+  );
+}
+
+/** §22 "Note selected" - pitch, onset, duration, review info. */
 function NoteBody({
   model,
   pitch,

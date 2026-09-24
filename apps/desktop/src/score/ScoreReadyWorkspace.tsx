@@ -1022,6 +1022,20 @@ export function ScoreReadyWorkspace({
     );
   }, [applyRhythmEdit]);
 
+  /* spec 14 BPM edit - the properties panel's tempo field commits here.
+   * setTempo is note-independent (it rewrites the tempo map's head
+   * segment), so the op carries no noteId; the engine still returns a
+   * fresh revision + rebuilt XML, which keeps undo on the same stack. */
+  const setTempo = useCallback(
+    (bpm: number) => {
+      applyRhythmEdit(
+        () => ({ kind: "setTempo", noteId: "", bpm }),
+        ja.commandFeedback.tempoChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   const reviewUndo = useCallback(() => {
     const edit = session.undo();
     if (!edit) {
@@ -1165,6 +1179,7 @@ export function ScoreReadyWorkspace({
       noteDurationScale: (power) => noteDurationScale(power),
       shiftSelectedOnset: (steps) => shiftSelectedOnset(steps),
       toggleSelectedTie: () => toggleSelectedTie(),
+      setTempo: (bpm) => setTempo(bpm),
     };
     controllerRef(controller);
     return () => controllerRef(null);
@@ -1191,6 +1206,7 @@ export function ScoreReadyWorkspace({
     noteDurationScale,
     shiftSelectedOnset,
     toggleSelectedTie,
+    setTempo,
     announce,
   ]);
 

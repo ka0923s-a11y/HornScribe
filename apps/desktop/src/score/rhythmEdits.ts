@@ -14,7 +14,11 @@
  */
 
 /** Edit kinds the engine's score.edit accepts (transcription/scoreedit.py). */
-export type RhythmEditKind = "setDuration" | "shiftOnset" | "toggleTie";
+export type RhythmEditKind =
+  | "setDuration"
+  | "shiftOnset"
+  | "toggleTie"
+  | "setTempo";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -25,6 +29,8 @@ export interface RhythmEditOp {
   readonly durationBeats?: string;
   /** shiftOnset only: signed count of minimum-grid steps. */
   readonly steps?: number;
+  /** setTempo only: new head tempo (20-400, engine-validated). */
+  readonly bpm?: number;
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

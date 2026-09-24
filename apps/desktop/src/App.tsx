@@ -1357,6 +1357,9 @@ export default function App() {
                     onResize={layout.requestPropertiesWidth}
                     onReset={layout.resetPropertiesWidth}
                     onClose={closeProperties}
+                    onTempoChange={(bpm) =>
+                      scoreCtlRef.current?.setTempo?.(bpm)
+                    }
                   />
                 ) : null}
               </div>

@@ -483,6 +483,7 @@ export const ja = {
     tieToggled: "タイを切り替えました",
     rhythmEditFailed: "この編集は適用できません",
     rhythmEditUnavailable: "この楽譜ではリズム編集を利用できません",
+    tempoChanged: "テンポを変更しました",
     // #113: media A-B loop arming (transport.toggleLoop on AUDIO_READY).
     loopOn: "ループをオンにしました",
     loopOff: "ループをオフにしました",
@@ -1046,6 +1047,7 @@ export const ja = {
     noteSection: "音符",
     issuesSection: "要確認",
     selectHint: "音符を選択すると、ここに情報が表示されます。",
+    tempoRangeError: "テンポは 20〜400 BPM の範囲で入力してください",
     fields: {
       pitch: "音高",
       concertPitch: "コンサートピッチ",

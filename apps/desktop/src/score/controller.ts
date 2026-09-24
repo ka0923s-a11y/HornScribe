@@ -31,6 +31,8 @@ export interface ScoreWorkspaceController {
   noteDurationScale?(power: number): void;
   shiftSelectedOnset?(steps: number): void;
   toggleSelectedTie?(): void;
+  /** #115 (spec 14): set the piece tempo (BPM) — undoable engine edit. */
+  setTempo?(bpm: number): void;
 
   // ---- transport (§9) — no-ops until a clock exists ----
   togglePlayPause(): void;

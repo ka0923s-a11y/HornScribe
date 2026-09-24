@@ -31,6 +31,7 @@ from hornscribe.domain.score import (
     ScoreDocument,
     ScoreRest,
     ScoreRevisionPayload,
+    TempoSegment,
     beat_ql_of,
     measure_spans,
 )
@@ -65,17 +66,37 @@ class ScoreEdit:
     note_id: ScoreNoteId
     duration_beats: Fraction | None = None
     steps: int = 0
+    bpm: float | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
         kind = data.get("kind")
-        if kind not in ("setDuration", "shiftOnset", "toggleTie"):
+        if kind not in ("setDuration", "shiftOnset", "toggleTie", "setTempo"):
             raise ScoreEditError(
-                f"edit.kind must be setDuration/shiftOnset/toggleTie, got {kind!r}"
+                f"edit.kind must be setDuration/shiftOnset/toggleTie/setTempo, "
+                f"got {kind!r}"
             )
         note_id = data.get("noteId")
-        if not isinstance(note_id, str) or not note_id:
+        if kind == "setTempo":
+            note_id = note_id if isinstance(note_id, str) else ""
+        elif not isinstance(note_id, str) or not note_id:
             raise ScoreEditError("edit.noteId must be a non-empty string")
+        bpm_raw = data.get("bpm")
+        bpm: float | None = None
+        if bpm_raw is not None:
+            if isinstance(bpm_raw, bool) or not isinstance(
+                bpm_raw, (int, float)
+            ):
+                raise ScoreEditError(
+                    f"edit.bpm must be a number, got {bpm_raw!r}"
+                )
+            bpm = float(bpm_raw)
+            if not (20.0 <= bpm <= 400.0):
+                raise ScoreEditError(
+                    f"edit.bpm {bpm} outside the supported 20–400 range"
+                )
+        if kind == "setTempo" and bpm is None:
+            raise ScoreEditError("setTempo requires bpm")
         duration = data.get("durationBeats")
         try:
             duration_beats = (
@@ -95,6 +116,7 @@ class ScoreEdit:
             note_id=ScoreNoteId(note_id),
             duration_beats=duration_beats,
             steps=steps,
+            bpm=bpm,
         )
 
 
@@ -434,6 +456,25 @@ def _apply_tie_toggle(
     return replace(part, notes=tuple(notes))
 
 
+def _apply_set_tempo(
+    payload: ScoreRevisionPayload, bpm: float
+) -> ScoreRevisionPayload:
+    """Set the piece's tempo (§14 BPM edit).
+
+    The tempo segment at beat 0 is replaced (or prepended when the map
+    starts later / is empty); later segments are kept — a mid-piece
+    tempo change survives a head-tempo correction. This is a
+    presentation-level edit: no re-tiling needed, so the whole payload
+    is returned untouched apart from tempo_map.
+    """
+    segments = list(payload.tempo_map)
+    if segments and segments[0].start_beat == 0:
+        segments[0] = replace(segments[0], bpm=bpm)
+    else:
+        segments.insert(0, TempoSegment(start_beat=Fraction(0), bpm=bpm))
+    return replace(payload, tempo_map=tuple(segments))
+
+
 def apply_score_edit(
     document: ScoreDocument, edit: ScoreEdit
 ) -> ScoreDocument:
@@ -445,6 +486,11 @@ def apply_score_edit(
     """
     payload = document.payload
     beat_ql = beat_ql_of(payload)
+    if edit.kind == "setTempo":
+        if edit.bpm is None:
+            raise ScoreEditError("setTempo requires bpm")
+        new_payload = _apply_set_tempo(payload, edit.bpm)
+        return replace(document, payload=new_payload)
     # Locate the note across parts (single-part today, but the loop is
     # free).
     part_index = -1

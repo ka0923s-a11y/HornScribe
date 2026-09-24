@@ -171,7 +171,12 @@ export async function buildProjectDocument(
     reviewDecisions,
     uiSession: null,
     // --- preserved extras (ignored by the v1 validator) ---
-    scoreDocument: resultObj.scoreDocument ?? null,
+    // #115: the LIVE canonical payload — after an engine rhythm edit the
+    // document's scoreDocument is newer than the job result's, and saving
+    // the stale one would lose the edit on reopen (the XMLs below are
+    // already the edited bodies).
+    scoreDocument:
+      doc.canonicalDocument?.() ?? resultObj.scoreDocument ?? null,
     reviewIssues: doc.reviewIssues(),
     musicXmlConcert: doc.musicXml("concert"),
     musicXmlHornF: doc.musicXml("hornF"),

@@ -53,6 +53,8 @@ export interface ScoreInspectorModel {
   readonly kind: "score";
   readonly title: string;
   readonly tempoLabel: string | null;
+  /** Raw tempo for the editable BPM field (#115 setTempo). */
+  readonly tempoBpm: number | null;
   readonly meterLabel: string | null;
   readonly keyLabel: string | null;
   readonly measureLabel: string;
@@ -136,6 +138,7 @@ export function buildScoreInspector(
     kind: "score",
     title: meta.title,
     tempoLabel: meta.tempoBpm != null ? copy.tempo(meta.tempoBpm) : null,
+    tempoBpm: meta.tempoBpm,
     meterLabel: meta.meter,
     keyLabel: meta.keyFifths != null ? copy.key(meta.keyFifths) : null,
     measureLabel: copy.measureCount(meta.measureCount),

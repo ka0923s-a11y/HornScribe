@@ -7,6 +7,7 @@ contract is enforced (never silently)."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from fractions import Fraction
 
 import pytest
@@ -169,6 +170,75 @@ class TestToggleTie:
         doc = _doc([_note(1, 60, "0", "1")])
         with pytest.raises(ScoreEditError, match="no next note"):
             apply_score_edit(doc, _edit("toggleTie", "sn-000001"))
+
+
+class TestSetTempo:
+    def test_replaces_head_segment(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        out = apply_score_edit(doc, _edit("setTempo", "", bpm=96.0))
+        assert out.payload.tempo_map == (
+            TempoSegment(start_beat=Fraction(0), bpm=96.0),
+        )
+        assert out.revision != doc.revision
+
+    def test_keeps_later_segments(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        later = TempoSegment(start_beat=Fraction(8), bpm=60.0)
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload, tempo_map=doc.payload.tempo_map + (later,)
+            ),
+        )
+        out = apply_score_edit(doc, _edit("setTempo", "", bpm=100.0))
+        assert out.payload.tempo_map == (
+            TempoSegment(start_beat=Fraction(0), bpm=100.0),
+            later,
+        )
+
+    def test_prepends_when_map_starts_later(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        later = TempoSegment(start_beat=Fraction(4), bpm=80.0)
+        doc = replace(
+            doc, payload=replace(doc.payload, tempo_map=(later,))
+        )
+        out = apply_score_edit(doc, _edit("setTempo", "", bpm=72.0))
+        assert out.payload.tempo_map == (
+            TempoSegment(start_beat=Fraction(0), bpm=72.0),
+            later,
+        )
+
+    def test_empty_map_prepends(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc, payload=replace(doc.payload, tempo_map=())
+        )
+        out = apply_score_edit(doc, _edit("setTempo", "", bpm=88.0))
+        assert out.payload.tempo_map == (
+            TempoSegment(start_beat=Fraction(0), bpm=88.0),
+        )
+
+    def test_missing_bpm_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="bpm"):
+            ScoreEdit.from_dict({"kind": "setTempo", "noteId": ""})
+
+    def test_out_of_range_rejected(self) -> None:
+        for bad in (10.0, 401.0):
+            with pytest.raises(ScoreEditError, match="range"):
+                ScoreEdit.from_dict(
+                    {"kind": "setTempo", "noteId": "", "bpm": bad}
+                )
+
+    def test_non_numeric_bpm_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="number"):
+            ScoreEdit.from_dict(
+                {"kind": "setTempo", "noteId": "", "bpm": "fast"}
+            )
+
+    def test_notes_untouched(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(doc, _edit("setTempo", "", bpm=140.0))
+        assert out.payload.parts[0].notes == doc.payload.parts[0].notes
 
 
 class TestEditParsing:

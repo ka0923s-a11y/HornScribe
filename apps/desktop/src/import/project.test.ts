@@ -128,4 +128,24 @@ describe("buildProjectDocument", () => {
     expect(decisions[0].status).toBe("accepted");
     expect(doc!.sourceAudio).toBeNull();
   });
+
+  it("#115: saves the live canonical payload, not the stale job result", async () => {
+    // After an engine rhythm edit the document's scoreDocument is newer
+    // than the completed job's — the project must carry the live one or
+    // the edit is lost on reopen.
+    const live = { content: { parts: [{ notes: [{ id: "sn-000001" }] }] } };
+    const doc = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc({ canonicalDocument: () => live }),
+      result: RESULT,
+    });
+    expect(doc!.scoreDocument).toBe(live);
+    // A document without the canonical payload falls back to the result's.
+    const docNoCanon = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc(),
+      result: RESULT,
+    });
+    expect(docNoCanon!.scoreDocument).toEqual({ notes: [] });
+  });
 });
