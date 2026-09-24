@@ -283,6 +283,40 @@ class KeySignature:
 
 
 @dataclass(frozen=True)
+class KeyChange:
+    """A key-signature boundary on the canonical beat axis (#133).
+
+    The key_signature is active from start_beat until the next
+    change's start_beat (or indefinitely for the last change) —
+    the key-map analogue of MeterChange, without a phase concept
+    (keys do not affect measure layout).
+    """
+
+    start_beat: Fraction
+    key_signature: KeySignature
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
+        if self.start_beat < 0:
+            raise ValueError(
+                f"key change start_beat must be >= 0, got {self.start_beat}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "startBeat": _frac(self.start_beat),
+            "keySignature": self.key_signature.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KeyChange:
+        return cls(
+            start_beat=_unfrac(data["startBeat"]),
+            key_signature=KeySignature.from_dict(data["keySignature"]),
+        )
+
+
+@dataclass(frozen=True)
 class MeterChange:
     """A meter segment boundary on the canonical beat axis (QNT-006).
 
@@ -414,11 +448,16 @@ class ScoreRevisionPayload:
     parts: tuple[Part, ...]
     quantization_settings: dict[str, Any]
     meter_changes: tuple[MeterChange, ...] = ()
+    """#133: key-signature boundaries — mirrors meter_changes (first
+    entry at beat 0 carrying the payload key_signature, strictly
+    increasing starts). Empty = single-key legacy path."""
+    key_changes: tuple[KeyChange, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "tempo_map", tuple(self.tempo_map))
         object.__setattr__(self, "parts", tuple(self.parts))
         object.__setattr__(self, "meter_changes", tuple(self.meter_changes))
+        object.__setattr__(self, "key_changes", tuple(self.key_changes))
         object.__setattr__(self, "pickup_beats", _unfrac(self.pickup_beats))
         if self.pickup_beats < 0:
             raise ValueError(f"pickup_beats must be >= 0, got {self.pickup_beats}")
@@ -427,6 +466,23 @@ class ScoreRevisionPayload:
             raise ValueError(
                 f"invalid time signature: {ts0.beats_per_measure}/{ts0.beat_unit}"
             )
+        if self.key_changes:
+            if self.key_changes[0].start_beat != 0:
+                raise ValueError(
+                    "first key change must start at beat 0, got "
+                    f"{self.key_changes[0].start_beat}"
+                )
+            if self.key_changes[0].key_signature != self.key_signature:
+                raise ValueError(
+                    "first key change must carry the payload key_signature: "
+                    f"{self.key_changes[0].key_signature} != {self.key_signature}"
+                )
+            for prev_key, cur_key in pairwise(self.key_changes):
+                if cur_key.start_beat <= prev_key.start_beat:
+                    raise ValueError(
+                        "key changes must be strictly increasing: "
+                        f"{prev_key.start_beat} !< {cur_key.start_beat}"
+                    )
         if not self.meter_changes:
             # Legacy single-meter path: pickup must fit inside a measure of
             # the (beat-defining) first time signature.
@@ -471,7 +527,6 @@ class ScoreRevisionPayload:
                     f"meter change at {change.start_beat} has phase "
                     f"{change.measure_phase_beats} >= measure length {mlen}"
                 )
-
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
             "tempoMap": [t.to_dict() for t in self.tempo_map],
@@ -485,6 +540,8 @@ class ScoreRevisionPayload:
         # revision IDs.
         if self.meter_changes:
             data["meterChanges"] = [m.to_dict() for m in self.meter_changes]
+        if self.key_changes:
+            data["keyChanges"] = [k.to_dict() for k in self.key_changes]
         return data
 
     @classmethod
@@ -498,6 +555,9 @@ class ScoreRevisionPayload:
             quantization_settings=dict(data.get("quantizationSettings", {})),
             meter_changes=tuple(
                 MeterChange.from_dict(m) for m in data.get("meterChanges", ())
+            ),
+            key_changes=tuple(
+                KeyChange.from_dict(k) for k in data.get("keyChanges", ())
             ),
         )
 

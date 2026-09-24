@@ -772,12 +772,19 @@ def _apply_set_meter(
         replace(seg, start_beat=seg.start_beat * scale)
         for seg in payload.tempo_map
     )
+    # The key map rides the same beat axis: rescale change positions so
+    # modulations stay glued to their measure under the new beat unit.
+    key_changes = tuple(
+        replace(c, start_beat=c.start_beat * scale)
+        for c in payload.key_changes
+    )
     return replace(
         payload,
         time_signature=ts,
         pickup_beats=pickup_ql / new_beat_ql,
         meter_changes=(),
         tempo_map=tempo_map,
+        key_changes=key_changes,
         parts=tuple(new_parts),
     )
 

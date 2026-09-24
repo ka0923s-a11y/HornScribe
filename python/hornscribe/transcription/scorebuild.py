@@ -27,6 +27,7 @@ from hornscribe.domain.ids import (
     derive_project_id,
 )
 from hornscribe.domain.score import (
+    KeyChange,
     KeySignature,
     MeterChange,
     Part,
@@ -99,6 +100,7 @@ def build_score(
     project_id: ProjectId | None = None,
     extra_voices: tuple[QuantizationAlternative, ...] = (),
     voice_names: tuple[str, ...] = (),
+    key_changes: tuple[KeyChange, ...] = (),
 ) -> BuiltScore:
     """Assemble the canonical payload + document for rank-1 output.
 
@@ -181,6 +183,7 @@ def build_score(
         parts=tuple(parts),
         quantization_settings=settings,
         meter_changes=meter_changes,
+        key_changes=key_changes,
     )
     document = ScoreDocument(
         project_id=project_id or derive_project_id({"audio": source_audio_path}),

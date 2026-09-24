@@ -67,7 +67,7 @@ from .backend import (
     require_module,
 )
 from .clean import clean_monophonic, clip_to_range, split_voices
-from .key import estimate_key
+from .key import estimate_key, estimate_key_segments
 from .meter import estimate_meter
 from .options import TranscriptionParams
 from .scorebuild import build_score
@@ -442,15 +442,39 @@ def run_transcription_job(
                 event_by_id.setdefault(e.id, e)
         key_pitches: list[int] = []
         key_durations: list[Fraction] = []
+        key_onsets: list[Fraction] = []
+        beat_ql = Fraction(4, meter.denominator)
         for n in best.notes:
             src = [event_by_id[e] for e in n.source_event_ids if e in event_by_id]
             if not src:
                 continue
             key_pitches.append(int(round(src[0].pitch_midi)))
             key_durations.append(n.duration_ql)
-        key, key_confidence = estimate_key(
-            tuple(key_pitches), tuple(key_durations)
+            key_onsets.append(n.onset_ql / beat_ql)
+        # #133: measure boundaries on the canonical BEAT axis — the
+        # pickup measure spans [0, pickup), then full measures tile from
+        # there. Key segments snap to these starts.
+        measure_len_ql = meter.measure_length_ql
+        measure_starts: list[Fraction] = [Fraction(0)]
+        pos = (estimate.pickup_len_ql or measure_len_ql) / beat_ql
+        last_onset = max(
+            (n.onset_ql / beat_ql for n in best.notes), default=Fraction(0)
         )
+        while pos <= last_onset:
+            measure_starts.append(pos)
+            pos += measure_len_ql / beat_ql
+        if len(measure_starts) >= 5:
+            key, key_changes, key_confidence = estimate_key_segments(
+                tuple(key_pitches),
+                tuple(key_onsets),
+                tuple(key_durations),
+                tuple(measure_starts),
+            )
+        else:
+            key, key_confidence = estimate_key(
+                tuple(key_pitches), tuple(key_durations)
+            )
+            key_changes = ()
         tempo_map = tempo_map_from_estimate(estimate, meter)
         built = build_score(
             best,
@@ -466,6 +490,7 @@ def run_transcription_job(
             extra_voices=(
                 (lower_alternatives[0],) if lower_alternatives else ()
             ),
+            key_changes=key_changes,
         )
         payload = built.payload
         score_revision = payload.revision_id()

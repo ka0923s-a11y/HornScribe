@@ -15,7 +15,7 @@ from hornscribe.domain.ids import (
     canonical_note_id_from_musicxml,
     is_musicxml_rest_id,
 )
-from hornscribe.domain.score import PitchSpace
+from hornscribe.domain.score import KeyChange, KeySignature, PitchSpace
 from hornscribe.export.musicxml import (
     export_concert_musicxml,
     export_horn_in_f_musicxml,
@@ -130,6 +130,36 @@ def test_concert_export_has_no_transpose() -> None:
 
 def test_concert_export_keeps_concert_key() -> None:
     assert _fifths(export_concert_musicxml(make_score(fifths=-2))) == -2
+
+
+def test_key_changes_emit_per_measure_signatures() -> None:
+    """#133: a modulation writes a second <key> at its measure; the horn
+    export transposes each signature by +1 fifth."""
+    score = make_score(
+        [(60, 0, 4)] * 1 + [(62, 4, 4), (64, 8, 4), (65, 12, 4)],
+        fifths=0,
+    )
+    changes = (
+        KeyChange(Fraction(0), KeySignature(0, "major")),
+        KeyChange(Fraction(8), KeySignature(-5, "major")),
+    )
+    score = replace(
+        score, payload=replace(score.payload, key_changes=changes)
+    )
+    concert = _root(export_concert_musicxml(score))
+    fifths = [
+        int(el.text)
+        for el in concert.iter("fifths")
+        if el.text is not None
+    ]
+    assert fifths == [0, -5]
+    horn = _root(export_horn_in_f_musicxml(score))
+    horn_fifths = [
+        int(el.text)
+        for el in horn.iter("fifths")
+        if el.text is not None
+    ]
+    assert horn_fifths == [1, -4]
 
 
 # --- identity ------------------------------------------------------------------

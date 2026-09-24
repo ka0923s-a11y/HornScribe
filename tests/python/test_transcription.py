@@ -19,7 +19,7 @@ import pytest
 from hornscribe.domain.events import RawNoteEvent
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
 from hornscribe.transcription.clean import clean_monophonic, clip_to_range
-from hornscribe.transcription.key import estimate_key
+from hornscribe.transcription.key import estimate_key, estimate_key_segments
 from hornscribe.transcription.meter import estimate_meter
 from hornscribe.transcription.options import TranscriptionParams
 from hornscribe.transcription.pipeline import (
@@ -579,6 +579,70 @@ class TestKey:
     def test_empty_is_c_major_zero_confidence(self) -> None:
         key, conf = estimate_key((), ())
         assert key.fifths == 0
+        assert conf == 0.0
+
+
+class TestKeySegments:
+    """#133: mid-piece modulation detection over measure histograms."""
+
+    def _run(
+        self,
+        notes: list[tuple[int, Fraction, Fraction]],
+        measure_len: Fraction = Fraction(4),
+    ) -> tuple[object, tuple, float]:
+        pitches = tuple(p for p, _o, _d in notes)
+        onsets = tuple(o for _p, o, _d in notes)
+        durs = tuple(d for _p, _o, d in notes)
+        end = max((o + d for _p, o, d in notes), default=Fraction(0))
+        starts = [Fraction(0)]
+        pos = measure_len
+        while pos <= end:
+            starts.append(pos)
+            pos += measure_len
+        return estimate_key_segments(pitches, onsets, durs, tuple(starts))
+
+    def _scale(self, root: int, start: Fraction, measures: int) -> list:
+        # Ascending major scale resolving to the tonic, one note per
+        # beat, 8 notes per 2-measure cycle — each segment cadences on
+        # the root so the cadence bias reads the real tonic.
+        degs = (0, 2, 4, 5, 7, 9, 11, 12)
+        out = []
+        for i in range(measures * 4):
+            out.append(
+                (root + degs[i % 8], start + i, Fraction(1))
+            )
+        return out
+
+    def test_single_key_returns_no_changes(self) -> None:
+        head, changes, conf = self._run(self._scale(60, Fraction(0), 8))
+        assert changes == ()
+        assert head.fifths == 0
+        assert conf > 0.5
+
+    def test_modulation_detected_at_measure_boundary(self) -> None:
+        # 16 measures of C major then 16 of Db major — a classic
+        # last-chorus half-step lift.
+        notes = self._scale(60, Fraction(0), 16) + self._scale(
+            61, Fraction(64), 16
+        )
+        head, changes, conf = self._run(notes)
+        assert len(changes) == 2
+        assert changes[0].start_beat == 0
+        assert changes[0].key_signature.fifths == 0
+        assert changes[1].start_beat == Fraction(64)
+        assert changes[1].key_signature.fifths == -5
+        assert head == changes[0].key_signature
+
+    def test_short_piece_falls_back_to_single_key(self) -> None:
+        notes = self._scale(60, Fraction(0), 3)
+        head, changes, _ = self._run(notes)
+        assert changes == ()
+        assert head.fifths == 0
+
+    def test_empty_input(self) -> None:
+        head, changes, conf = estimate_key_segments((), (), (), (Fraction(0),))
+        assert changes == ()
+        assert head.fifths == 0
         assert conf == 0.0
 
 

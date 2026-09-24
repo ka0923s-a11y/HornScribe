@@ -475,6 +475,28 @@ def _build_part_measures(
                 (spans[-1].duration_beats, mark)
             )
 
+    # #133 key map: each KeyChange becomes a KeySignature at its offset
+    # inside the containing measure (mid-measure modulations land on the
+    # beat they start at). With no key_changes the head signature is
+    # emitted on the first measure as before.
+    key_marks: dict[int, list[tuple[Fraction, key.KeySignature]]] = {}
+    if payload.key_changes:
+        for change in payload.key_changes:
+            ks = change.key_signature
+            if presentation is PitchSpace.WRITTEN_HORN_F:
+                ks = horn_f.written_key_signature(ks)
+            ks_mark = key.KeySignature(ks.fifths)
+            for idx, span in enumerate(spans):
+                if span.start_beat <= change.start_beat < span.end_beat:
+                    key_marks.setdefault(idx, []).append(
+                        (change.start_beat - span.start_beat, ks_mark)
+                    )
+                    break
+            else:
+                key_marks.setdefault(len(spans) - 1, []).append(
+                    (spans[-1].duration_beats, ks_mark)
+                )
+
     entries_by_measure = _measure_entries(part_notes, part_rests, spans)
 
     for idx, span in enumerate(spans):
@@ -483,11 +505,12 @@ def _build_part_measures(
             # music21 maps MusicXML implicit="yes" to showNumber=NEVER.
             measure.showNumber = stream_enums.ShowNumber.NEVER
 
-        if idx == 0:
+        if idx == 0 and not key_marks.get(0):
             ks = payload.key_signature
             if presentation is PitchSpace.WRITTEN_HORN_F:
                 ks = horn_f.written_key_signature(ks)
             measure.insert(0, key.KeySignature(ks.fifths))
+        if idx == 0:
             ts = span.time_signature
             measure.insert(0, meter.TimeSignature(f"{ts.beats_per_measure}/{ts.beat_unit}"))
             measure.insert(0, clef.TrebleClef())
@@ -496,6 +519,9 @@ def _build_part_measures(
             measure.insert(
                 0, meter.TimeSignature(f"{ts.beats_per_measure}/{ts.beat_unit}")
             )
+
+        for local_beat, ks_mark in key_marks.get(idx, []):
+            measure.insert(local_beat * beat_ql, ks_mark)
 
         for local_beat, mark in tempo_marks.get(idx, []):
             measure.insert(local_beat * beat_ql, mark)

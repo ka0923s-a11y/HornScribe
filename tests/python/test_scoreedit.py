@@ -14,6 +14,7 @@ import pytest
 
 from hornscribe.domain.ids import ProjectId, RawNoteEventId, ScoreNoteId
 from hornscribe.domain.score import (
+    KeyChange,
     KeySignature,
     MeterChange,
     Part,
@@ -556,3 +557,81 @@ class TestEditParsing:
         doc = _doc([_note(1, 60, "0", "1")])
         with pytest.raises(ScoreEditError, match="not found"):
             apply_score_edit(doc, _edit("toggleTie", "sn-999999"))
+
+
+class TestKeyChanges:
+    """#133: the key map on ScoreRevisionPayload."""
+
+    def _keyed_doc(self, notes: list[QuantizedNote]) -> ScoreDocument:
+        doc = _doc(notes)
+        changes = (
+            KeyChange(
+                start_beat=Fraction(0),
+                key_signature=KeySignature(fifths=0, mode="major"),
+            ),
+            KeyChange(
+                start_beat=Fraction(8),
+                key_signature=KeySignature(fifths=-5, mode="major"),
+            ),
+        )
+        return replace(
+            doc, payload=replace(doc.payload, key_changes=changes)
+        )
+
+    def test_round_trip_serialization(self) -> None:
+        doc = self._keyed_doc([_note(1, 60, "0", "1")])
+        data = doc.payload.to_dict()
+        assert len(data["keyChanges"]) == 2
+        assert data["keyChanges"][1]["startBeat"] == "8/1"
+        loaded = ScoreRevisionPayload.from_dict(data)
+        assert loaded.key_changes == doc.payload.key_changes
+
+    def test_omitted_when_empty(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        assert "keyChanges" not in doc.payload.to_dict()
+
+    def test_first_change_must_be_at_zero(self) -> None:
+        with pytest.raises(ValueError, match="beat 0"):
+            ScoreRevisionPayload(
+                tempo_map=(TempoSegment(Fraction(0), 120.0),),
+                time_signature=TimeSignature(4, 4),
+                key_signature=KeySignature(0, "major"),
+                pickup_beats=Fraction(0),
+                parts=(),
+                quantization_settings={},
+                key_changes=(
+                    KeyChange(
+                        Fraction(4), KeySignature(0, "major")
+                    ),
+                ),
+            )
+
+    def test_first_change_must_match_payload_key(self) -> None:
+        with pytest.raises(ValueError, match="key_signature"):
+            ScoreRevisionPayload(
+                tempo_map=(TempoSegment(Fraction(0), 120.0),),
+                time_signature=TimeSignature(4, 4),
+                key_signature=KeySignature(0, "major"),
+                pickup_beats=Fraction(0),
+                parts=(),
+                quantization_settings={},
+                key_changes=(
+                    KeyChange(
+                        Fraction(0), KeySignature(1, "major")
+                    ),
+                ),
+            )
+
+    def test_set_meter_rescales_key_change_positions(self) -> None:
+        # 4/4 -> 6/8 doubles the beat axis: a modulation at beat 8
+        # lands at eighth-beat 16, glued to the same absolute position.
+        doc = self._keyed_doc(
+            [_note(1, 60, "0", "1"), _note(2, 62, "8", "1")]
+        )
+        out = apply_score_edit(
+            doc, _edit("setMeter", "", beatsPerMeasure=6, beatUnit=8)
+        )
+        assert len(out.payload.key_changes) == 2
+        assert out.payload.key_changes[0].start_beat == 0
+        assert out.payload.key_changes[1].start_beat == Fraction(16)
+        assert out.payload.key_changes[1].key_signature.fifths == -5
