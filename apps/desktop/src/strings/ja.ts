@@ -898,6 +898,7 @@ export const ja = {
       textureMono: "単旋律（楽器・歌声のみ）",
       textureMelody: "メロディ優先（ミックス音源）",
       textureVoices: "複数声部として採譜（重奏・和音を含む演奏）",
+      textureChords: "和音として採譜（同リズムの重音を1パートの和音に）",
       /* #189: per-job engine override — "auto" inherits 設定→詳細設定. */
       backend: "採譜エンジン",
       backendAuto: "自動（設定に従う）",

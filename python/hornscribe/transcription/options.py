@@ -61,7 +61,7 @@ _SUPPORTED_METERS = {
 
 _BACKENDS = {"auto", "basicPitch", "pyin"}
 
-_TEXTURES = {"auto", "mono", "melody", "voices"}
+_TEXTURES = {"auto", "mono", "melody", "voices", "chords"}
 
 
 @dataclass(frozen=True)
@@ -85,8 +85,10 @@ class TranscriptionParams:
     """Source texture hint: ``mono`` keeps first-come clipping for
     single-instrument sources; ``melody`` keeps the highest voice on
     overlaps and widens the detection band (JPOP/mix melody extraction);
+    ``voices`` keeps up to three detected lines as separate score parts;
+    ``chords`` keeps the same lines but merges them into one part so
+    same-rhythm simultaneities render as in-part chords (#155);
     ``auto`` cleans monophonically first and falls back to top-voice
-    voices keeps up to two detected lines as separate score parts;
     when the overlap evidence says the source is a mix."""
 
     @classmethod

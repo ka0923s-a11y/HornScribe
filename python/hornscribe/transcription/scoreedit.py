@@ -49,6 +49,7 @@ from hornscribe.domain.score import (
     TimeSignature,
     beat_ql_of,
     measure_spans,
+    note_layers,
 )
 from hornscribe.rhythm.contracts import NormalizedNote, RhythmAtom
 from hornscribe.rhythm.meter import MeterMap, MeterSegment
@@ -471,42 +472,81 @@ def _find_note(part: Part, note_id: ScoreNoteId) -> int:
 
 
 def _clip_overlaps(
-    notes: list[QuantizedNote], *, edited_index: int
+    notes: list[QuantizedNote],
+    *,
+    edited_index: int,
+    original: tuple[QuantizedNote, ...] | None = None,
 ) -> list[QuantizedNote]:
-    """Re-apply the monophonic contract inside the edit window.
+    """Re-apply the per-layer monophonic contract inside the edit window.
 
-    An earlier note may never cross the next onset — it clips. The
-    *edited* note is the exception: crossing the next onset is a user
-    error (the requested span simply does not fit), so it raises rather
-    than silently shortening the user's request.
+    Within one notation layer an earlier note may never cross the next
+    onset — it clips.  Chord members and secondary layers (#155) are
+    exempt: simultaneous or layered notes are legitimate content, not
+    collisions.  ``original`` is the PRE-EDIT note tuple — layer
+    membership and the same-onset exemption are judged against it, so
+    an edit that moves a note cannot silently relayer it or fabricate
+    a chord out of a collision (the edited note crossing the next onset
+    in its own layer is a user error — the requested span simply does
+    not fit).
     """
+    basis = original if original is not None else tuple(notes)
+    layers = note_layers(basis)
+    pre_starts = {n.id: n.start_beat for n in basis}
+
+    def unmoved_pair(a: QuantizedNote, b: QuantizedNote) -> bool:
+        """Same-onset pair that already existed before the edit."""
+        return (
+            a.start_beat == b.start_beat
+            and pre_starts.get(a.id) == a.start_beat
+            and pre_starts.get(b.id) == b.start_beat
+        )
+
+    edited_layer = layers.get(notes[edited_index].id, 0)
     out: list[QuantizedNote] = []
     for note in notes:
+        note_layer = layers.get(note.id, 0)
         if out:
-            prev = out[-1]
-            if prev.end_beat > note.start_beat:
-                if len(out) - 1 == edited_index:
-                    # The edited note may never be clipped — the user
-                    # asked for a span that does not fit; say so instead
-                    # of silently shortening their request.
-                    raise ScoreEditError(
-                        "the requested span extends past the next "
-                        "note's onset"
-                    )
-                clipped = note.start_beat - prev.start_beat
-                if clipped <= 0:
-                    raise ScoreEditError(
-                        f"note {prev.id} would vanish under the edit"
-                    )
-                out[-1] = replace(prev, duration_beats=clipped)
+            # Find the previous note on THIS layer — overlaps across
+            # layers are the point of layered notation.
+            prev_idx = next(
+                (
+                    j
+                    for j in range(len(out) - 1, -1, -1)
+                    if layers.get(out[j].id, 0) == note_layer
+                ),
+                None,
+            )
+            if prev_idx is not None:
+                prev = out[prev_idx]
+                if prev.end_beat > note.start_beat and not unmoved_pair(prev, note):
+                    if prev_idx == edited_index:
+                        # The edited note may never be clipped — the user
+                        # asked for a span that does not fit; say so instead
+                        # of silently shortening their request.
+                        raise ScoreEditError(
+                            "the requested span extends past the next "
+                            "note's onset"
+                        )
+                    clipped = note.start_beat - prev.start_beat
+                    if clipped <= 0:
+                        raise ScoreEditError(
+                            f"note {prev.id} would vanish under the edit"
+                        )
+                    out[prev_idx] = replace(prev, duration_beats=clipped)
         out.append(note)
     # Forward check for the edited note: its end may not cross the next
-    # onset (the user asked for a span that does not fit).
+    # onset in its own layer.
     idx = edited_index
-    if idx + 1 < len(out) and out[idx].end_beat > out[idx + 1].start_beat:
-        raise ScoreEditError(
-            "the requested span extends past the next note's onset"
-        )
+    for nxt in out[idx + 1 :]:
+        if layers.get(nxt.id, 0) != edited_layer:
+            continue
+        if unmoved_pair(out[idx], nxt):
+            continue  # chord sibling — shared onset is legitimate
+        if out[idx].end_beat > nxt.start_beat:
+            raise ScoreEditError(
+                "the requested span extends past the next note's onset"
+            )
+        break
     return out
 
 
@@ -717,12 +757,18 @@ def _apply_timing_edit(
         raise ScoreEditError("duration must be positive")
     if start < 0:
         raise ScoreEditError("the note cannot start before the score")
+    # #155: layer membership and the chord exemption are judged against
+    # the PRE-EDIT layout — otherwise lengthening a note would relayer
+    # it and the fit-check would never fire.
+    pre_edit = tuple(notes)
     notes[note_index] = replace(
         target, start_beat=start, duration_beats=duration
     )
     notes.sort(key=lambda n: (n.start_beat, n.id))
     edited_index = next(i for i, n in enumerate(notes) if n.id == target.id)
-    notes = _clip_overlaps(notes, edited_index=edited_index)
+    notes = _clip_overlaps(
+        notes, edited_index=edited_index, original=pre_edit
+    )
 
     # The rebuild window: every measure touching the union of old and
     # new spans, grown to cover notes straddling its edges.

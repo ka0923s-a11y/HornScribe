@@ -100,6 +100,7 @@ def build_score(
     project_id: ProjectId | None = None,
     extra_voices: tuple[QuantizationAlternative, ...] = (),
     voice_names: tuple[str, ...] = (),
+    merge_voices: bool = False,
     key_changes: tuple[KeyChange, ...] = (),
     swing_feel: Fraction | None = None,
     transcription_backend: str | None = None,
@@ -116,6 +117,12 @@ def build_score(
     renumbered to continue after voice 1's sequence so every sn-*
     stays unique across parts. voice_names overrides the default
     part names ("Horn in F", "Horn in F (2nd voice)", ...).
+
+    merge_voices (#155 chords texture): instead of separate parts,
+    every voice's notes merge into part 1 — same-rhythm simultaneities
+    become in-part chords, other overlaps become notation layers. Only
+    voice 1's rests are kept (canonical rests tile the primary layer;
+    secondary layers gap-fill at render time).
     """
     ts = meter.time_signature
     beat_ql = _beat_ql(ts)
@@ -149,6 +156,18 @@ def build_score(
                 confidence[new_id] = v_conf[n.id]
             if n.id in v_onsets:
                 onsets[new_id] = v_onsets[n.id]
+        if merge_voices:
+            # #155: fold this voice into part 1 — rests stay voice-1's.
+            parts[0] = replace(
+                parts[0],
+                notes=tuple(
+                    sorted(
+                        (*parts[0].notes, *renumbered),
+                        key=lambda n: (n.start_beat, n.pitch_midi, n.id),
+                    )
+                ),
+            )
+            continue
         default_name = (
             "Horn in F (2nd voice)"
             if vi == 0

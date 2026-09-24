@@ -296,10 +296,23 @@ def test_non_concert_document_rejected() -> None:
         export_musicxml(score, PitchSpace.CONCERT)
 
 
-def test_overlapping_notes_rejected() -> None:
+def test_overlapping_notes_render_as_voices() -> None:
+    """#155: non-chord overlaps are no longer rejected — they render as
+    separate voices (<backup>/<voice>) inside the same part."""
     score = make_score([(60, 0, 2), (62, 1, 2)])  # overlapping -> polyphony
-    with pytest.raises(NotationError):
-        export_concert_musicxml(score)
+    xml = export_concert_musicxml(score)
+    assert "<backup>" in xml
+    assert "<voice>" in xml
+
+
+def test_simultaneous_notes_render_as_chord() -> None:
+    """#155: notes sharing (start, duration, atoms) merge into <chord/>."""
+    score = make_score([(60, 0, 1), (64, 0, 1), (67, 0, 1)])
+    xml = export_concert_musicxml(score)
+    assert xml.count("<chord />") == 2
+    assert "<backup>" not in xml
+    pitched = _pitched(xml)
+    assert [n.written_midi for n in pitched] == [60, 64, 67]
 
 
 def test_swing_direction_exported() -> None:

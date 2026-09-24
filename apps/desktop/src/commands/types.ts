@@ -76,7 +76,7 @@ export interface CommandContext {
    *  (e.g. the review bar's voices-texture retry) without mutating the
    *  stored settings first — avoids a stale-options race. */
   transcribe(overrides?: {
-    texture?: "auto" | "mono" | "melody" | "voices";
+    texture?: "auto" | "mono" | "melody" | "voices" | "chords";
   }): void;
   /**
    * Cooperative `job.cancel` (UI-040): requests cancellation of the

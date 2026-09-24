@@ -226,8 +226,8 @@ def _assign_note_ids(root: ET.Element) -> None:
     rest_ordinal = 0
     for part_el in root.findall("part"):
         for note_el in part_el.iter("note"):
-            if note_el.find("chord") is not None:
-                raise ExportError("chord <note> elements are unsupported in MVP export")
+            # #155: <chord/> members are welcome — each carries its own
+            # canonical note id (music21 preserves member note ids).
             if note_el.find("rest") is not None:
                 rest_ordinal += 1
                 note_el.set("id", musicxml_rest_id(rest_ordinal))
@@ -374,6 +374,7 @@ class ReloadedElement:
     tie_start: bool = False  # outgoing tie (<tie type="start">)
     tie_stop: bool = False  # incoming tie (<tie type="stop">)
     time_modification: tuple[int, int] | None = None
+    written_midi: int | None = None  # #155: pitch for chord ordering
 
 
 @dataclass(frozen=True)
@@ -403,8 +404,9 @@ def read_exported_rhythm(xml_text: str) -> dict[str, tuple[ReloadedMeasure, ...]
     """Parse exported MusicXML into positioned rhythm elements per part.
 
     Positions are exact ``Fraction`` beats on the canonical axis (the first
-    ``<beat-type>`` defines the beat, matching ``beat_ql_of``).  ``chord``
-    elements are unsupported (the exporter rejects them upstream).
+    ``<beat-type>`` defines the beat, matching ``beat_ql_of``).  ``<chord/>``
+    members share their root's onset and do not advance the cursor;
+    ``<backup>`` rewinds it for the next voice (#155).
     """
     root = ET.fromstring(xml_text)
     if root.tag != "score-partwise":
@@ -417,6 +419,7 @@ def read_exported_rhythm(xml_text: str) -> dict[str, tuple[ReloadedMeasure, ...]
         measures: list[ReloadedMeasure] = []
         divisions: Fraction | None = None
         cursor_ql = Fraction(0)
+        last_dur_ql = Fraction(0)
         for measure_el in part_el.findall("measure"):
             measure_start_ql = cursor_ql
             declared_sig: tuple[int, int] | None = None
@@ -435,8 +438,7 @@ def read_exported_rhythm(xml_text: str) -> dict[str, tuple[ReloadedMeasure, ...]
                 elif child.tag == "note":
                     if divisions is None:
                         raise ExportError("<note> before any <divisions>")
-                    if child.find("chord") is not None:
-                        raise ExportError("chord <note> elements are unsupported")
+                    is_chord = child.find("chord") is not None
                     dur_text = child.findtext("duration")
                     dur_ql = (
                         Fraction(int(dur_text)) / divisions
@@ -444,6 +446,16 @@ def read_exported_rhythm(xml_text: str) -> dict[str, tuple[ReloadedMeasure, ...]
                         else Fraction(0)
                     )
                     is_rest = child.find("rest") is not None
+                    # #155: secondary-voice filler rests are exported
+                    # print-object=no — they are layout, not canonical
+                    # content, so verification skips them.
+                    hidden = child.get("print-object") == "no"
+                    onset_ql = cursor_ql - last_dur_ql if is_chord else cursor_ql
+                    if not is_chord:
+                        cursor_ql += dur_ql
+                        last_dur_ql = dur_ql
+                    if is_rest and hidden:
+                        continue
                     ties = {t.get("type") for t in child.findall("tie")}
                     tm = child.find("time-modification")
                     time_mod = (
@@ -460,26 +472,34 @@ def read_exported_rhythm(xml_text: str) -> dict[str, tuple[ReloadedMeasure, ...]
                         if not is_rest and is_musicxml_note_id(export_id)
                         else None
                     )
+                    pitch_el = child.find("pitch")
+                    written = (
+                        _midi_from_pitch_el(pitch_el)
+                        if pitch_el is not None
+                        else None
+                    )
                     elements.append(
                         ReloadedElement(
                             kind="rest" if is_rest else "note",
-                            onset_beats=cursor_ql / beat_ql,
+                            onset_beats=onset_ql / beat_ql,
                             duration_beats=dur_ql / beat_ql,
                             canonical_id=canonical,
                             tie_start="start" in ties,
                             tie_stop="stop" in ties,
                             time_modification=time_mod,
+                            written_midi=written,
                         )
                     )
-                    cursor_ql += dur_ql
                 elif child.tag == "forward":
                     if divisions is None:
                         raise ExportError("<forward> before any <divisions>")
                     cursor_ql += Fraction(int(child.findtext("duration") or 0)) / divisions
+                    last_dur_ql = Fraction(0)
                 elif child.tag == "backup":
                     if divisions is None:
                         raise ExportError("<backup> before any <divisions>")
                     cursor_ql -= Fraction(int(child.findtext("duration") or 0)) / divisions
+                    last_dur_ql = Fraction(0)
             measures.append(
                 ReloadedMeasure(
                     number=measure_el.get("number") or "",
@@ -538,39 +558,65 @@ def _expected_events(payload: ScoreRevisionPayload, part_index: int) -> list[_Ex
 def _actual_events(measures: tuple[ReloadedMeasure, ...]) -> list[_ExpectedEvent]:
     """Group reloaded elements into note/rest spans for comparison.
 
-    Consecutive pitched elements sharing a canonical ID are one note (the
-    fragments must be tie-joined — enforced by the caller's fragment
-    checks); consecutive rests merge into one rest span.
+    Pitched elements are grouped by canonical ID — fragments of one note
+    stay consecutive in a single voice, but #155 chords interleave
+    members between a note's fragments, so grouping must be global, not
+    consecutive.  Rests still merge consecutively (secondary-voice
+    filler rests are filtered upstream).
     """
     flat = [el for m in measures for el in m.elements]
     events: list[_ExpectedEvent] = []
-    for is_rest, group in groupby(flat, key=lambda e: e.kind == "rest"):
-        g = list(group)
-        if is_rest:
-            onset = g[0].onset_beats
-            end = g[-1].onset_beats + g[-1].duration_beats
-            events.append(
-                _ExpectedEvent(
-                    kind="rest", onset_beats=onset, duration_beats=end - onset
-                )
+    note_groups: dict[ScoreNoteId | None, list[ReloadedElement]] = {}
+    pending_rests: list[ReloadedElement] = []
+
+    def flush_rests() -> None:
+        if not pending_rests:
+            return
+        onset = pending_rests[0].onset_beats
+        end = pending_rests[-1].onset_beats + pending_rests[-1].duration_beats
+        events.append(
+            _ExpectedEvent(
+                kind="rest", onset_beats=onset, duration_beats=end - onset
             )
+        )
+        pending_rests.clear()
+
+    for el in flat:
+        if el.kind == "rest":
+            pending_rests.append(el)
             continue
-        for _cid, note_group in groupby(g, key=lambda e: e.canonical_id):
-            ng = list(note_group)
-            onset = ng[0].onset_beats
-            end = ng[-1].onset_beats + ng[-1].duration_beats
-            events.append(
-                _ExpectedEvent(
-                    kind="note",
-                    onset_beats=onset,
-                    duration_beats=end - onset,
-                    canonical_id=ng[0].canonical_id,
-                    tie_start=ng[-1].tie_start,
-                    tie_stop=ng[0].tie_stop,
-                    tuplet=any(el.time_modification is not None for el in ng),
-                )
+        flush_rests()
+        note_groups.setdefault(el.canonical_id, []).append(el)
+    flush_rests()
+    for ng in note_groups.values():
+        onset = ng[0].onset_beats
+        end = ng[-1].onset_beats + ng[-1].duration_beats
+        events.append(
+            _ExpectedEvent(
+                kind="note",
+                onset_beats=onset,
+                duration_beats=end - onset,
+                canonical_id=ng[0].canonical_id,
+                tie_start=ng[-1].tie_start,
+                tie_stop=ng[0].tie_stop,
+                tuplet=any(el.time_modification is not None for el in ng),
             )
+        )
     return events
+
+
+def _event_sort_key(e: _ExpectedEvent) -> tuple[Fraction, int, str]:
+    """Canonical comparison order: onset, notes before rests, then id.
+
+    #155: simultaneous events (chords, voices) have no intrinsic
+    document order — both sides sort by the same key so the comparison
+    is order-insensitive yet deterministic.
+    """
+    return (
+        e.onset_beats,
+        0 if e.kind == "note" else 1,
+        str(e.canonical_id) if e.canonical_id is not None else "",
+    )
 
 
 def verify_rhythm_roundtrip(
@@ -625,8 +671,8 @@ def verify_rhythm_roundtrip(
                 f"measure {m.number}: meter {sig} != expected {expected_sig}"
             )
 
-    expected = _expected_events(payload, part_index)
-    actual = _actual_events(measures)
+    expected = sorted(_expected_events(payload, part_index), key=_event_sort_key)
+    actual = sorted(_actual_events(measures), key=_event_sort_key)
     if len(actual) != len(expected):
         problems.append(
             f"event count {len(actual)} != expected {len(expected)}"

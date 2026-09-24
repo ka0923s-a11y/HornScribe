@@ -45,6 +45,7 @@ from fractions import Fraction
 from typing import Literal
 
 from music21 import (
+    chord,
     clef,
     duration,
     instrument,
@@ -59,7 +60,7 @@ from music21 import (
 )
 from music21.stream import enums as stream_enums
 
-from hornscribe.domain.ids import musicxml_note_id
+from hornscribe.domain.ids import ScoreNoteId, musicxml_note_id
 from hornscribe.domain.score import (
     KeyChange,
     MeasureSpan,
@@ -72,6 +73,7 @@ from hornscribe.domain.score import (
     beat_ql_of,
     measure_length_beats,
     measure_spans,
+    note_layers,
     primary_beat_beats,
 )
 from hornscribe.instruments import horn_f
@@ -187,6 +189,9 @@ class _Entry:
     atom_index: int = 0
     piece_index: int = 0
     piece_count: int = 1
+    # #155: notation layer (voice) this entry belongs to. 0 = primary;
+    # chord members share their root's layer.
+    layer: int = 0
 
     @property
     def local_end_beats(self) -> Fraction:
@@ -242,10 +247,13 @@ def _measure_entries(
     part_notes: list[QuantizedNote],
     part_rests: tuple[ScoreRest, ...],
     spans: tuple[MeasureSpan, ...],
+    layer_by_id: dict[ScoreNoteId, int] | None = None,
 ) -> dict[int, list[_Entry]]:
     """Distribute committed atoms / legacy note pieces into measures."""
+    layers = layer_by_id or {}
     entries: dict[int, list[_Entry]] = {}
     for n in part_notes:
+        layer = layers.get(n.id, 0)
         if n.atoms:
             pos = n.start_beat
             for i, atom in enumerate(n.atoms):
@@ -260,6 +268,7 @@ def _measure_entries(
                         note_=n,
                         atom=atom,
                         atom_index=i,
+                        layer=layer,
                     )
                 )
                 pos += atom.duration_beats
@@ -274,6 +283,7 @@ def _measure_entries(
                         note_=n,
                         piece_index=pidx,
                         piece_count=len(pieces),
+                        layer=layer,
                     )
                 )
     for r in part_rests:
@@ -292,21 +302,6 @@ def _measure_entries(
             )
             pos += atom.duration_beats
     return entries
-
-
-def _check_monophonic(notes: tuple[QuantizedNote, ...]) -> None:
-    """MVP renders one voice per part; overlapping onsets are rejected."""
-    ordered = sorted(notes, key=lambda n: (n.start_beat, n.id))
-    prev_end: Fraction | None = None
-    prev_id: str | None = None
-    for n in ordered:
-        if prev_end is not None and n.start_beat < prev_end:
-            raise NotationError(
-                f"overlapping notes in one part are unsupported: {prev_id} ends at "
-                f"{prev_end} but {n.id} starts at {n.start_beat}"
-            )
-        prev_end = n.start_beat + n.duration_beats
-        prev_id = str(n.id)
 
 
 def _pitch_midi(note_: QuantizedNote, presentation: PitchSpace) -> int:
@@ -337,6 +332,19 @@ def _make_rest(atom: ScoreAtom, beat_ql: Fraction) -> note.Rest:
     return rest
 
 
+def _chord_key(entry: _Entry) -> tuple[Fraction, Fraction, tuple[ScoreAtom, ...]] | None:
+    """Chord-membership key for a note entry (#155).
+
+    Notes sharing (start, duration, atoms) are chord members — their
+    per-atom entries merge into one ``chord.Chord``.  Rests and entries
+    without a note return ``None``.
+    """
+    if entry.note_ is None:
+        return None
+    n = entry.note_
+    return (n.start_beat, n.duration_beats, n.atoms)
+
+
 def _render_entries(
     measure: stream.Measure,
     span: MeasureSpan,
@@ -347,25 +355,79 @@ def _render_entries(
     head_fifths: int,
     key_changes: tuple[KeyChange, ...],
 ) -> None:
-    """Insert a measure's elements (committed atoms or legacy fragments).
+    """Insert a measure's elements, grouped into notation layers (#155).
+
+    Layer 0 renders directly into the measure (the historical single-
+    voice path); higher layers render inside ``stream.Voice`` objects so
+    music21 emits ``<backup>``/``<voice>`` structure.  Entries sharing a
+    chord key merge into ``chord.Chord`` members.
+    """
+    by_layer: dict[int, list[_Entry]] = {}
+    for e in entries:
+        by_layer.setdefault(e.layer, []).append(e)
+    if not by_layer:
+        return
+    targets: dict[int, stream.Voice | stream.Measure] = {}
+    for layer in sorted(by_layer):
+        if layer == 0 and len(by_layer) == 1:
+            targets[layer] = measure
+        else:
+            v = stream.Voice()
+            v.id = layer + 1
+            measure.insert(0, v)
+            targets[layer] = v
+    for layer in sorted(by_layer):
+        _render_layer(
+            targets[layer],
+            span,
+            by_layer[layer],
+            beat_ql,
+            strict and layer == 0,
+            presentation,
+            head_fifths,
+            key_changes,
+            hide_gap_rests=layer > 0,
+        )
+
+
+def _render_layer(
+    target: stream.Voice | stream.Measure,
+    span: MeasureSpan,
+    entries: list[_Entry],
+    beat_ql: Fraction,
+    strict: bool,
+    presentation: PitchSpace,
+    head_fifths: int,
+    key_changes: tuple[KeyChange, ...],
+    hide_gap_rests: bool,
+) -> None:
+    """Insert one layer's elements (committed atoms or legacy fragments).
 
     ``strict`` mode (the part carries canonical rests) requires the entries
     to tile the measure exactly — every atom the quantizer committed is
-    rendered, nothing is invented.  Legacy mode fills gaps with
-    ``quarterLength`` rests as before.
+    rendered, nothing is invented.  Non-strict layers fill gaps with
+    ``quarterLength`` rests; ``hide_gap_rests`` marks secondary-voice
+    fillers ``print-object=no`` so the verification pass can tell them
+    apart from canonical rests.
     """
     entries.sort(key=lambda e: e.local_start_beats)
 
     if strict:
         cursor = Fraction(0)
-        for e in entries:
-            if e.local_start_beats != cursor:
+        i = 0
+        while i < len(entries):
+            group = [entries[i]]
+            i += 1
+            while i < len(entries) and entries[i].local_start_beats == group[0].local_start_beats:
+                group.append(entries[i])
+                i += 1
+            if group[0].local_start_beats != cursor:
                 raise NotationError(
                     f"canonical rests do not tile measure {span.number}: "
                     f"gap/overlap at beat {cursor} (next element at "
-                    f"{e.local_start_beats})"
+                    f"{group[0].local_start_beats})"
                 )
-            cursor = e.local_end_beats
+            cursor = max(e.local_end_beats for e in group)
         if cursor != span.duration_beats:
             raise NotationError(
                 f"canonical rests do not tile measure {span.number}: "
@@ -373,52 +435,86 @@ def _render_entries(
                 f"{span.duration_beats}"
             )
 
+    def gap_rest(start: Fraction, end: Fraction) -> note.Rest:
+        rest = note.Rest(quarterLength=(end - start) * beat_ql)
+        if hide_gap_rests:
+            rest.style.hideObjectOnPrint = True
+        return rest
+
     placed: list[tuple[_Entry, note.GeneralNote]] = []
     cursor = Fraction(0)
-    for e in entries:
+    i = 0
+    while i < len(entries):
+        e = entries[i]
         if not strict and e.local_start_beats > cursor:
-            gap = note.Rest(quarterLength=(e.local_start_beats - cursor) * beat_ql)
-            measure.insert(cursor * beat_ql, gap)
+            target.insert(cursor * beat_ql, gap_rest(cursor, e.local_start_beats))
         if e.kind == "rest":
             assert e.atom is not None
             element: note.GeneralNote = _make_rest(e.atom, beat_ql)
-        else:
-            assert e.note_ is not None
+            target.insert(e.local_start_beats * beat_ql, element)
+            placed.append((e, element))
+            cursor = e.local_end_beats
+            i += 1
+            continue
+        # #155: gather every member of the chord group at this position
+        # — entries sharing the chord key AND atom index merge into one
+        # chord.Chord so each member keeps its canonical export id.
+        members = [e]
+        i += 1
+        key_ = _chord_key(e)
+        while (
+            i < len(entries)
+            and entries[i].local_start_beats == e.local_start_beats
+            and entries[i].kind != "rest"
+            and entries[i].atom_index == e.atom_index
+            and _chord_key(entries[i]) == key_
+            and key_ is not None
+        ):
+            members.append(entries[i])
+            i += 1
+        m21_notes: list[note.Note] = []
+        for m in members:
+            assert m.note_ is not None
             m21_note = note.Note()
-            if e.atom is not None:
-                m21_note.duration = _typed_duration(e.atom, beat_ql)
+            if m.atom is not None:
+                m21_note.duration = _typed_duration(m.atom, beat_ql)
             else:
                 m21_note.duration = duration.Duration(
-                    quarterLength=e.dur_beats * beat_ql
+                    quarterLength=m.dur_beats * beat_ql
                 )
             # #165: spell against the key active at this note's onset.
             # Concert pitch spells against the concert key; the written
             # horn view spells against the written key (concert +1 fifth).
             fifths = fifths_at_beat(
-                head_fifths, key_changes, e.note_.start_beat
+                head_fifths, key_changes, m.note_.start_beat
             )
             if presentation is PitchSpace.WRITTEN_HORN_F:
                 fifths += 1
             m21_note.pitch = pitch.Pitch(
-                spell_name(_pitch_midi(e.note_, presentation), fifths)
+                spell_name(_pitch_midi(m.note_, presentation), fifths)
             )
-            m21_note.id = musicxml_note_id(e.note_.id)
-            if e.atom is not None:
-                is_last = e.atom_index == len(e.note_.atoms) - 1
-                n_tie = _atom_tie(e.atom, e.atom_index == 0, is_last, e.note_)
+            m21_note.id = musicxml_note_id(m.note_.id)
+            if m.atom is not None:
+                is_last = m.atom_index == len(m.note_.atoms) - 1
+                n_tie = _atom_tie(m.atom, m.atom_index == 0, is_last, m.note_)
             else:
-                n_tie = _tie_for(e.piece_index, e.piece_count, e.note_)
+                n_tie = _tie_for(m.piece_index, m.piece_count, m.note_)
             if n_tie is not None:
                 m21_note.tie = n_tie
-            element = m21_note
-        measure.insert(e.local_start_beats * beat_ql, element)
-        placed.append((e, element))
-        cursor = e.local_end_beats
+            m21_notes.append(m21_note)
+        if len(m21_notes) == 1:
+            element = m21_notes[0]
+        else:
+            element = chord.Chord(m21_notes)
+            element.id = m21_notes[0].id
+        target.insert(e.local_start_beats * beat_ql, element)
+        placed.append((members[0], element))
+        cursor = max(x.local_end_beats for x in members)
 
     if not strict and cursor < span.duration_beats:
-        measure.insert(
+        target.insert(
             cursor * beat_ql,
-            note.Rest(quarterLength=(span.duration_beats - cursor) * beat_ql),
+            gap_rest(cursor, span.duration_beats),
         )
 
     _mark_tuplet_groups(placed)
@@ -537,7 +633,11 @@ def _build_part_measures(
                     (spans[-1].duration_beats, ks_mark)
                 )
 
-    entries_by_measure = _measure_entries(part_notes, part_rests, spans)
+    # #155: notes sharing (start, duration, atoms) are chord members on
+    # one layer; other overlaps get their own layer (voice).
+    entries_by_measure = _measure_entries(
+        part_notes, part_rests, spans, note_layers(tuple(part_notes))
+    )
 
     for idx, span in enumerate(spans):
         measure = stream.Measure(number=span.number)
@@ -615,8 +715,7 @@ def build_music21_score(
         m21_score.insert(0, metadata.Metadata(title=score.title))
 
     for part in payload.parts:
-        ordered = sorted(part.notes, key=lambda n: (n.start_beat, n.id))
-        _check_monophonic(tuple(ordered))
+        ordered = sorted(part.notes, key=lambda n: (n.start_beat, n.pitch_midi, n.id))
         m21_score.append(
             _build_part_measures(
                 payload, list(ordered), part.rests, part.name, spans, presentation

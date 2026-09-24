@@ -86,13 +86,19 @@ no telemetry. `pip install hornscribe[engine]` carries the model deps.
   tempo_uncertain (half/double tempo pick — #188; the fix is
   scaleTempo, not setTempo — #198).
 
-## Texture modes (#85, #148)
+## Texture modes (#85, #148, #155)
 
 - mono — single line; overlaps clip to the next onset.
 - melody — melody over accompaniment; overlap resolution prefers
   the top voice and widens the detection band above the horn cap.
 - voices — up to three detected lines become separate parts;
   extras beyond three are reported as dropped.
+- chords — same three-line split as voices, then merged into ONE
+  part: notes sharing (start, duration, atoms) render as in-part
+  <chord/> members; other overlaps become secondary voices
+  (<backup>/<voice>) inside the same staff. Canonical rests tile
+  the primary layer; secondary layers gap-fill with hidden
+  (print-object=no) rests.
 - auto — starts as mono; a dense overlap census re-cleans with the
   top-voice preference and flags suggestVoicesTexture on the
   overlap issue (#200 extends the same hint to explicit mono).

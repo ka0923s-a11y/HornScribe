@@ -418,10 +418,11 @@ def run_transcription_job(
             0.0 if resolved_pyin else MERGE_GAP_SEC
         )
         voice_split = None
-        if params.texture == "voices":
+        if params.texture in ("voices", "chords"):
             # #85: keep up to three detected lines as separate parts —
             # a triad survives as three voices instead of dropping the
-            # lowest note.
+            # lowest note.  #155: the chords texture splits the same
+            # way, then merges the voices into one part at build time.
             voice_split = split_voices(ranged, max_voices=3)
             cleaned = clean_monophonic(
                 voice_split.voices[0], merge_gap_sec=clean_merge_gap
@@ -644,6 +645,7 @@ def run_transcription_job(
             extra_voices=(
                 tuple(alts[0] for alts in lower_alternatives)
             ),
+            merge_voices=params.texture == "chords",
             key_changes=key_changes,
             swing_feel=(
                 swing_est.mean_phase if swing_est.detected else None
@@ -730,7 +732,11 @@ def run_transcription_job(
                                 len(voice_split.voices[0])
                             ] + extra_counts,
                             "droppedBeyondVoices": voice_split.dropped_beyond_voices,
-                            "note": "overlapping pitches were kept as extra parts",
+                            "note": (
+                                "overlapping pitches were kept as extra parts"
+                                if params.texture == "voices"
+                                else "overlapping pitches were kept as chords/voices in one part"
+                            ),
                         },
                     )
                 )
@@ -762,6 +768,7 @@ def run_transcription_job(
         # result is one line by construction.
         if resolved_pyin and params.texture in (
             "voices",
+            "chords",
             "auto",
         ):
             issues.append(
@@ -775,7 +782,7 @@ def run_transcription_job(
                     reason=ReviewReason.MONOPHONIC_BACKEND,
                     severity=(
                         Severity.WARNING
-                        if params.texture == "voices"
+                        if params.texture in ("voices", "chords")
                         else Severity.CAUTION
                     ),
                     evidence={
