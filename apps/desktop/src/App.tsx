@@ -287,6 +287,25 @@ export default function App() {
   const [nativeDrag, setNativeDrag] = useState(false);
   const [transcriptionOptions, setTranscriptionOptions] =
     useState<TranscriptionOptions>(DEFAULT_TRANSCRIPTION_OPTIONS);
+  // 設定→採譜は採譜オプションの既定値: 新しい音源を開くたびに
+  // 設定値でリセットする(表示だけの死んだ設定にしない)。
+  useEffect(() => {
+    if (!importState.audio) return;
+    setTranscriptionOptions({
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      tempo: settings.tempoMode,
+      tempoBpm: settings.tempoMode === "manual" ? settings.bpm : null,
+      meter: settings.meter,
+      minDuration: { eighth: "8", sixteenth: "16", thirtySecond: "32" }[
+        settings.minDuration
+      ],
+      // 「三連符を使う」off は候補を生成しない none。on は既定の
+      // region-gated 自動判定(auto)に任せる — always だと全拍に
+      // 三連符候補が乗り既定挙動が変わるため。
+      triplets: settings.triplets ? "auto" : "none",
+    });
+  }, [importState.audio, settings]);
+
   // FEAT-001 (#60): capture session state (loopback / microphone).
   const [captureState, setCaptureState] =
     useState<CaptureState | null>(null);
