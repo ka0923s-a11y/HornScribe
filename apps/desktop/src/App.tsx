@@ -55,7 +55,11 @@ import { KeyboardDispatcher } from "./keyboard/dispatcher";
 import { useCommandKeyboard } from "./keyboard/useCommandKeyboard";
 import { cycleFocusZone, focusZone } from "./focus/zones";
 import { getShellInfo, isTauriRuntime } from "./tauri/bridge";
-import { ImportController, type ImportState } from "./import/controller";
+import {
+  ImportController,
+  parseProjectFile,
+  type ImportState,
+} from "./import/controller";
 import { INITIAL_IMPORT_STATE } from "./import/controller";
 import { loadRecentProjects, recordRecentProject } from "./import/recentProjects";
 import { createImportPorts } from "./import/runtimePorts";
@@ -65,7 +69,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { buildProjectDocument } from "./import/project";
 import { baseName } from "./import/formats";
 import { CaptureController, type CaptureState } from "./capture/controller";
-import { pruneRecordings } from "./capture/recordings";
+import {
+  collectReferencedRecordingNames,
+  getRecordingsInfo,
+  pruneRecordings,
+} from "./capture/recordings";
 import { createCapturePort } from "./capture/runtimePorts";
 import type { CaptureDeviceList, CaptureSource } from "./capture/types";
 import {
@@ -447,9 +455,23 @@ export default function App() {
   useEffect(() => {
     const days = settings.recordingsRetentionDays;
     if (days <= 0) return;
-    void pruneRecordings(days).then((n) => {
+    /* #132: recordings a saved project still references are excluded
+     * from the retention sweep — deleting them would leave the project
+     * openable but source-less. Only the recordings dir is protected;
+     * unreadable projects fail open (their refs stay unknown). */
+    void (async () => {
+      const ports = createImportPorts();
+      const info = await getRecordingsInfo();
+      const keep = await collectReferencedRecordingNames({
+        readProjectBytes: ports.readProjectBytes,
+        entries: loadRecentProjects(),
+        dir: info?.dir ?? null,
+        sourcePathOf: async (blob) =>
+          parseProjectFile(await blob.arrayBuffer(), "").sourcePath,
+      });
+      const n = await pruneRecordings(days, keep);
       if (n > 0) setStatusMessage(ja.settings.recordingsPruned(n));
-    });
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once
   }, []);
 

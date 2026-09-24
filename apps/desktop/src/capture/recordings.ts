@@ -82,19 +82,61 @@ export async function deleteRecording(name: string): Promise<boolean> {
 /** 保持日数ポリシー(#87) — `days` より古い WAV を削除し、削除件数を返す。
  *  `days <= 0` は無効(何もしない)。アプリ起動時に一度呼ぶ想定。
  *  削除はユーザーが設定したポリシーの実行であり、確認ダイアログは出さない
- *  (設定自体が同意)。失敗時は 0 削除として扱う。 */
-export async function pruneRecordings(days: number): Promise<number> {
+ *  (設定自体が同意)。失敗時は 0 削除として扱う。
+ *  #132: `keepNames` に含まれるファイル名は削除しない — 保存済み
+ *  プロジェクトが参照する録音を retention が壊さないため。 */
+export async function pruneRecordings(
+  days: number,
+  keepNames?: ReadonlySet<string>,
+): Promise<number> {
   if (!isTauriRuntime() || days <= 0) return 0;
   const files = await listRecordings();
   if (!files) return 0;
   const cutoff = Date.now() / 1000 - days * 86400;
   let removed = 0;
   for (const f of files) {
+    if (keepNames?.has(f.name)) continue;
     if (f.modifiedSec > 0 && f.modifiedSec < cutoff) {
       if (await deleteRecording(f.name)) removed += 1;
     }
   }
   return removed;
+}
+
+/** #132: 最近のプロジェクトが参照する録音 WAV のファイル名集合。
+ *
+ *  各プロジェクト JSON から sourceAudio.originalPath を読み、録音
+ *  フォルダ(dir)配下にあるものだけを返す。読めないプロジェクトは
+ *  スキップ(その参照は保護できない — 保持ポリシー側を優先する
+ *  fail-open)。dir が取れない場合は何も保護しない。
+ */
+export async function collectReferencedRecordingNames(deps: {
+  readProjectBytes(path: string): Promise<Blob>;
+  entries: readonly { path: string }[];
+  dir: string | null;
+  /** project JSON -> sourcePath 抽出(controller.parseProjectFile と
+   *  同じ契約; テストで差し替えやすいよう注入する)。 */
+  sourcePathOf(bytes: Blob): Promise<string | null>;
+}): Promise<Set<string>> {
+  const keep = new Set<string>();
+  const dir = deps.dir?.replace(/[\\/]+$/, "");
+  if (!dir) return keep;
+  const dirNorm = (dir + "\\").toLowerCase().replaceAll("/", "\\");
+  for (const entry of deps.entries) {
+    if (!entry.path) continue;
+    try {
+      const blob = await deps.readProjectBytes(entry.path);
+      const sourcePath = await deps.sourcePathOf(blob);
+      if (!sourcePath) continue;
+      const norm = sourcePath.toLowerCase().replaceAll("/", "\\");
+      if (norm.startsWith(dirNorm)) {
+        keep.add(sourcePath.slice(dir.length + 1));
+      }
+    } catch {
+      /* unreadable project: its references stay unknown (fail-open) */
+    }
+  }
+  return keep;
 }
 
 /** バイト数の人間向け表示(日本語 UI: MB 単位中心)。 */
