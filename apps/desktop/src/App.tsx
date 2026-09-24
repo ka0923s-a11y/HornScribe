@@ -96,7 +96,10 @@ import {
   type TranscriptionOptions,
   type LoadedAudio,
 } from "./import/types";
-import { buildTranscriptionParams } from "./import/transcriptionParams";
+import {
+  buildTranscriptionParams,
+  transcriptionOptionsFromSettings,
+} from "./import/transcriptionParams";
 import { stageAudioForEngine } from "./import/staging";
 import { formatTimecode } from "./import/format";
 import { HsButton } from "./components/primitives/Button";
@@ -381,6 +384,14 @@ export default function App() {
   const [nativeDrag, setNativeDrag] = useState(false);
   const [transcriptionOptions, setTranscriptionOptions] =
     useState<TranscriptionOptions>(DEFAULT_TRANSCRIPTION_OPTIONS);
+  // #264: a project open carries its saved transcription.settings —
+  // the audio-slot reset below must prefer them over global defaults
+  // so 採譜し直す reproduces the project's own conditions. Keyed by
+  // the audio identity so a stale project can't leak into a new file.
+  const projectOptionsRef = useRef<{
+    identity: string | null;
+    options: TranscriptionOptions;
+  } | null>(null);
   // 設定→採譜は採譜オプションの既定値: 新しい音源を開くたびに
   // 設定値でリセットする(表示だけの死んだ設定にしない)。
   // #227: settings 全体は ref で読む — 依存に入れるとテーマや
@@ -390,6 +401,18 @@ export default function App() {
   useEffect(() => {
     if (!importState.audio) return;
     const s = settingsRef.current;
+    // #264: opening a project restores its saved transcription
+    // settings (provenance) instead of the global defaults — the
+    // identity key keeps a stale entry from leaking into a new file.
+    const projectEntry = projectOptionsRef.current;
+    if (
+      projectEntry &&
+      projectEntry.identity === audioIdentityOf(importState.audio)
+    ) {
+      setTranscriptionOptions(projectEntry.options);
+      projectOptionsRef.current = null;
+      return;
+    }
     setTranscriptionOptions({
       ...DEFAULT_TRANSCRIPTION_OPTIONS,
       tempo: s.tempoMode,
@@ -517,6 +540,22 @@ export default function App() {
               ? `hash:${project.sourceHash}`
               : (audioIdentityRef.current ?? "?");
             setScreen("scoreReady");
+          },
+          onProjectOpened: (project) => {
+            // #264: the saved transcription.settings are this
+            // project's provenance — stage them so the audio-slot
+            // reset picks them up (fires before onAudioReady).
+            projectOptionsRef.current =
+              project.transcriptionSettings != null
+                ? {
+                    identity: project.sourceHash
+                      ? `hash:${project.sourceHash}`
+                      : null,
+                    options: transcriptionOptionsFromSettings(
+                      project.transcriptionSettings,
+                    ),
+                  }
+                : null;
           },
         },
         // Recent-project MRU persists in localStorage (web + webview).

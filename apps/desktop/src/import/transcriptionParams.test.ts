@@ -1,0 +1,85 @@
+/** #264: project transcription.settings -> 採譜オプション restore mapping. */
+import { describe, expect, it } from "vitest";
+import { transcriptionOptionsFromSettings } from "./transcriptionParams";
+import { DEFAULT_TRANSCRIPTION_OPTIONS } from "./types";
+
+describe("transcriptionOptionsFromSettings", () => {
+  it("restores the full engine settings echo", () => {
+    const o = transcriptionOptionsFromSettings({
+      tempoBpm: 96,
+      meter: "6/8",
+      minDurationQl: "1/8",
+      triplets: "always",
+      simplicity: "detailed",
+      range: "selection",
+      selectionStartSec: 12.5,
+      selectionEndSec: 40,
+      backend: "basicPitch",
+      texture: "melody",
+    });
+    expect(o).toEqual({
+      tempo: "manual",
+      tempoBpm: 96,
+      meter: "6/8",
+      // 1/8 ql = 32分音符
+      minDuration: "32",
+      triplets: "allow",
+      simplicity: "detailed",
+      range: "selection",
+      texture: "melody",
+      backend: "basicPitch",
+      selectionStartSec: 12.5,
+      selectionEndSec: 40,
+    });
+  });
+
+  it("maps engine triplet policy names to UI values", () => {
+    expect(
+      transcriptionOptionsFromSettings({ triplets: "never" }).triplets,
+    ).toBe("none");
+    expect(
+      transcriptionOptionsFromSettings({ triplets: "auto" }).triplets,
+    ).toBe("auto");
+  });
+
+  it("minDurationQl fractions map to UI denominators", () => {
+    expect(
+      transcriptionOptionsFromSettings({ minDurationQl: "1/2" }).minDuration,
+    ).toBe("8");
+    expect(
+      transcriptionOptionsFromSettings({ minDurationQl: "1/4" }).minDuration,
+    ).toBe("16");
+    // A value outside the UI's three choices falls back to default.
+    expect(
+      transcriptionOptionsFromSettings({ minDurationQl: "1/64" }).minDuration,
+    ).toBe(DEFAULT_TRANSCRIPTION_OPTIONS.minDuration);
+  });
+
+  it("auto tempo (null tempoBpm) restores the auto mode", () => {
+    const o = transcriptionOptionsFromSettings({ tempoBpm: null });
+    expect(o.tempo).toBe("auto");
+    expect(o.tempoBpm).toBeNull();
+  });
+
+  it("unknown/newer values fall back to defaults per key", () => {
+    const o = transcriptionOptionsFromSettings({
+      meter: "13/16",
+      texture: "orchestral",
+      backend: "demucs-v9",
+      triplets: "sometimes",
+      minDurationQl: "abc",
+      futureKey: true,
+    });
+    expect(o.meter).toBe("auto");
+    expect(o.texture).toBe("auto");
+    expect(o.backend).toBe("auto");
+    expect(o.triplets).toBe("auto");
+    expect(o.minDuration).toBe(DEFAULT_TRANSCRIPTION_OPTIONS.minDuration);
+  });
+
+  it("null settings yield the defaults", () => {
+    expect(transcriptionOptionsFromSettings(null)).toEqual(
+      DEFAULT_TRANSCRIPTION_OPTIONS,
+    );
+  });
+});

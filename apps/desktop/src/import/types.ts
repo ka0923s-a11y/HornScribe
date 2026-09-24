@@ -98,7 +98,12 @@ export interface ProjectSummary {
    *  this mirrors the completed-job `result` payload so the score can
    *  be restored without re-transcribing. Null for projects without
    *  saved score data (externally authored files). */
-  scoreResult: unknown | null;
+ scoreResult: unknown | null;
+  /** #264: the saved `transcription.settings` echo (provenance). The
+   *  host restores it into 採譜オプション so 採譜し直す reruns under
+   *  the conditions that produced this project, not the current
+   *  global defaults. Null for externally authored files. */
+  transcriptionSettings: Record<string, unknown> | null;
 }
 
 /** SOURCE_MISSING context: which project lost its audio, and whether the

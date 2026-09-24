@@ -806,6 +806,7 @@ const FIXTURE_PROJECT = {
   sourcePath: "C:\\audio\\etude-source.flac",
   sourceHash: "a1b2c3",
   scoreResult: null,
+  transcriptionSettings: null,
 };
 
 function importFixtureView(overrides: Partial<ImportView>): ImportView {

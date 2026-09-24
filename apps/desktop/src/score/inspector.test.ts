@@ -119,7 +119,7 @@ describe("buildScoreInspector", () => {
       meter: "4/4",
       keyFifths: -1,
       keyChanges: [],
-      keyMode: null as const,
+      keyMode: null,
       swingFeel: false,
       omittedIssueCount: 0,
       measureCount: 8,

@@ -26,6 +26,7 @@ import type {
   RecordedAudioRef,
   TranscriptionOptions,
 } from "./types";
+import { DEFAULT_TRANSCRIPTION_OPTIONS } from "./types";
 
 function audioPathOf(ref: AudioFileRef | RecordedAudioRef): string | null {
   if (ref.kind === "path") return ref.path;
@@ -100,4 +101,73 @@ export function buildTranscriptionParams(
     params.selectionEndSec = end;
   }
   return params;
+}
+
+/* ------------------------- #264 project settings ------------------------- */
+
+/** Engine `settings_dict()` keys -> 採譜オプション state. The saved
+ *  echo is authoritative provenance: on project open the popover is
+ *  restored to the conditions that produced the score, so 採譜し直す
+ *  reproduces them instead of silently using current global defaults.
+ *  Unknown/newer values fall back to DEFAULT per key. */
+export function transcriptionOptionsFromSettings(
+  settings: Record<string, unknown> | null | undefined,
+): TranscriptionOptions {
+  const s = settings ?? {};
+  const pick = <T extends string>(
+    key: string,
+    allowed: readonly T[],
+    fallback: T,
+  ): T => {
+    const v = s[key];
+    return typeof v === "string" && (allowed as readonly string[]).includes(v)
+      ? (v as T)
+      : fallback;
+  };
+  const num = (key: string): number | null => {
+    const v = s[key];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  };
+
+  const tempoBpm = num("tempoBpm");
+  // UI denominators are note values (16th = 1/4 ql); the engine echo
+  // stores quarter-length fractions ("1/4"). Only the three UI
+  // choices are restorable — anything else falls back to default.
+  const minDuration = (() => {
+    const raw = s["minDurationQl"];
+    if (typeof raw !== "string") return DEFAULT_TRANSCRIPTION_OPTIONS.minDuration;
+    const m = /^(\d+)\s*\/\s*(\d+)$/.exec(raw.trim());
+    if (!m) return DEFAULT_TRANSCRIPTION_OPTIONS.minDuration;
+    const ql = Number(m[1]) / Number(m[2]);
+    if (!(ql > 0)) return DEFAULT_TRANSCRIPTION_OPTIONS.minDuration;
+    const denom = Math.round(4 / ql);
+    return denom === 8 || denom === 16 || denom === 32
+      ? String(denom)
+      : DEFAULT_TRANSCRIPTION_OPTIONS.minDuration;
+  })();
+
+  const tripletsRaw = pick("triplets", ["auto", "always", "never"] as const, "auto");
+  return {
+    ...DEFAULT_TRANSCRIPTION_OPTIONS,
+    tempo: tempoBpm != null ? "manual" : "auto",
+    tempoBpm,
+    meter: pick(
+      "meter",
+      ["auto", "2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "9/8", "12/8"] as const,
+      "auto",
+    ),
+    minDuration,
+    // Engine values are the TripletPolicy names; the popover speaks
+    // allow/none/auto (always <-> allow, never <-> none).
+    triplets:
+      tripletsRaw === "always" ? "allow" : tripletsRaw === "never" ? "none" : "auto",
+    simplicity: pick("simplicity", ["standard", "simple", "detailed"] as const, "standard"),
+    range: pick("range", ["all", "selection"] as const, "all"),
+    texture: pick("texture", ["auto", "mono", "melody", "voices", "chords"] as const, "auto"),
+    backend: pick("backend", ["auto", "basicPitch", "pyin"] as const, "auto"),
+    // Selection seconds are source-relative; keep them verbatim so a
+    // restored 範囲指定 re-runs over the same span of the same audio.
+    selectionStartSec: num("selectionStartSec"),
+    selectionEndSec: num("selectionEndSec"),
+  };
 }

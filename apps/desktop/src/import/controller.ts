@@ -82,6 +82,11 @@ export interface ImportEvents {
       sourcePath: string | null;
     },
   ): void;
+  /** Optional (#264): a project document was opened (or relinked) —
+   *  fires before onAudioReady so the host can restore the saved
+   *  transcription settings into 採譜オプション before the audio
+   *  slot resets them to global defaults. */
+  onProjectOpened?(project: ProjectSummary): void;
 }
 
 type RecentStorage = Pick<Storage, "getItem" | "setItem"> | null;
@@ -358,6 +363,9 @@ export class ImportController {
         sourceMissing: null,
       });
       this.touchRecent(sm.project);
+      // #264: relink resumes the same project — restore its saved
+      // 採譜 settings before the audio slot resets options.
+      this.events.onProjectOpened?.(sm.project);
       this.events.onAudioReady(audio);
       // #106: the project's saved score (already restored in the
       // background) can now land — the relinked audio matches the
@@ -487,6 +495,10 @@ export class ImportController {
       sourceMissing: null,
     });
     this.touchRecent(project);
+    // #264: restore the saved 採譜 settings before the host's audio
+    // slot logic runs — 採譜し直す must default to the conditions
+    // that produced this project, not current global defaults.
+    this.events.onProjectOpened?.(project);
     this.events.onAudioReady(audio);
     // #106: a project saved with score extras skips re-transcription —
     // the host restores the document and lands on SCORE_READY.
@@ -580,7 +592,8 @@ export function parseProjectFile(
       source && typeof source.contentHash === "string"
         ? source.contentHash
         : null,
-    scoreResult: scoreResultFromProject(data),
+   scoreResult: scoreResultFromProject(data),
+    transcriptionSettings: transcriptionSettingsFromProject(data),
   };
 }
 
@@ -611,4 +624,17 @@ function scoreResultFromProject(
     scoreDocument: data.scoreDocument ?? null,
     meta: data.meta ?? {},
   };
+}
+
+/** #264: `transcription.settings` echo from the project file — the
+ *  authoritative provenance of the conditions that produced the
+ *  score. Unknown/malformed values stay raw here; the options mapper
+ *  (transcriptionParams) validates them into UI state. */
+function transcriptionSettingsFromProject(
+  data: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const record = data.transcription as Record<string, unknown> | null;
+  const settings = record?.settings;
+  if (typeof settings !== "object" || settings === null) return null;
+  return settings as Record<string, unknown>;
 }

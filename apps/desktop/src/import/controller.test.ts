@@ -16,6 +16,7 @@ import type { ScreenState } from "../workspace/screen";
 import type {
   AudioFileRef,
   LoadedAudio,
+  ProjectSummary,
   RecentProjectEntry,
 } from "./types";
 
@@ -47,6 +48,8 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
   const readyAudios: LoadedAudio[] = [];
   const recents: RecentProjectEntry[][] = [];
   const scoreResults: unknown[] = [];
+  const openedProjects: ProjectSummary[] = [];
+  const eventOrder: string[] = [];
   const store = new Map<string, Blob>();
 
   const events: ImportEvents = {
@@ -54,8 +57,15 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     onState: (s) => states.push(s),
     announce: (m) => announcements.push(m),
     onRecentChange: (e) => recents.push([...e]),
-    onAudioReady: (a) => readyAudios.push(a),
+    onAudioReady: (a) => {
+      eventOrder.push("audioReady");
+      readyAudios.push(a);
+    },
     onProjectScoreReady: (r) => scoreResults.push(r),
+    onProjectOpened: (p) => {
+      eventOrder.push("projectOpened");
+      openedProjects.push(p);
+    },
   };
 
   const ports: ImportPorts = {
@@ -94,6 +104,8 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     readyAudios,
     recents,
     scoreResults,
+    openedProjects,
+    eventOrder,
   };
 }
 
@@ -311,6 +323,24 @@ describe("openProject — source verification (store.py contract)", () => {
     expect(h.screens.at(-1)).toBe("audioReady");
   });
 
+  it("onProjectOpened fires before onAudioReady with saved settings (#264)", async () => {
+    const h = makeHarness();
+    const settings = { meter: "6/8", triplets: "always", backend: "basicPitch" };
+    h.store.set(entry.path, projectJson({
+      transcription: { revision: "tr-0123456789abcdef", settings },
+    }));
+    h.store.set("C:\\audio\\etude.wav", new Blob(["etude"]));
+    await h.controller.openProject(entry);
+    expect(h.openedProjects).toHaveLength(1);
+    expect(h.openedProjects[0].transcriptionSettings).toEqual(settings);
+    expect(h.readyAudios).toHaveLength(1);
+    // #264: the project event must precede the audio event so the
+    // host can stage options before the audio-slot reset reads them.
+    expect(h.eventOrder.indexOf("projectOpened")).toBeLessThan(
+      h.eventOrder.indexOf("audioReady"),
+    );
+  });
+
   it("SOURCE_MISSING still restores the score in the background (#106)", async () => {
     const h = makeHarness();
     h.store.set(entry.path, projectJson({
@@ -460,5 +490,28 @@ describe("parseProjectFile", () => {
   it("no MusicXML extras → scoreResult is null (#106)", () => {
     const p = parse({ schemaVersion: 1, projectId: "x", sourceAudio: null });
     expect(p.scoreResult).toBeNull();
+  });
+
+  it("extracts transcription.settings provenance (#264)", () => {
+    const p = parse({
+      schemaVersion: 1,
+      projectId: "x",
+      sourceAudio: null,
+      transcription: {
+        revision: "tr-0123456789abcdef",
+        backend: "basicPitch",
+        settings: { meter: "6/8", triplets: "always", minDurationQl: "1/8" },
+      },
+    });
+    expect(p.transcriptionSettings).toEqual({
+      meter: "6/8",
+      triplets: "always",
+      minDurationQl: "1/8",
+    });
+  });
+
+  it("no transcription record → settings are null (#264)", () => {
+    const p = parse({ schemaVersion: 1, projectId: "x", sourceAudio: null });
+    expect(p.transcriptionSettings).toBeNull();
   });
 });
