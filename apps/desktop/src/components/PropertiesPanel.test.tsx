@@ -1,0 +1,196 @@
+// @vitest-environment jsdom
+/**
+ * #249 tempo-map editor regression tests: mount the real
+ * PropertiesPanel with a 3-segment tempo map and exercise every row.
+ * Rows render editable, mid-piece marks delete, the add row commits
+ * on the FIRST click (the measure SpinButton only reports on blur,
+ * which is the same gesture as the click — a disabled button would
+ * swallow it), and the ÷2/×2 tempo-octave fixes stay available on
+ * multi-segment scores.
+ */
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { PropertiesPanel } from "./PropertiesPanel";
+import type { ScoreInspectorModel } from "../score/inspector";
+import { installJsdomStubs } from "../quality/testEnv";
+
+(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+installJsdomStubs();
+
+let root: Root | null = null;
+let host: HTMLDivElement | null = null;
+
+const MODEL: ScoreInspectorModel = {
+  kind: "score",
+  title: "T",
+  composer: null,
+  arranger: null,
+  tempoLabel: "120 BPM",
+  tempoBpm: 120,
+  meterLabel: "4/4",
+  meterBeats: 4,
+  meterUnit: 4,
+  keyLabel: "ハ長調",
+  keyFifths: 0,
+  keyMode: "major",
+  keyChangeCount: 1,
+  keyChanges: [{ measure: 1, fifths: 0, mode: "major" }],
+  tempoChanges: [
+    { measure: 1, bpm: 120, startBeat: "0/1" },
+    { measure: 3, bpm: 96, startBeat: "8/1" },
+    { measure: 3, bpm: 88, startBeat: "10/1" },
+  ],
+  measureCount: 8,
+  swingFeel: false,
+  measureLabel: "8 小節",
+  noteLabel: "10 音",
+  openIssueLabel: "0 件",
+};
+
+function mount(over: Record<string, unknown> = {}) {
+  host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+  const props = {
+    content: { kind: "none" as const },
+    model: MODEL,
+    width: 320,
+    min: 240,
+    max: 480,
+    overlay: false,
+    onResize: vi.fn(),
+    onReset: vi.fn(),
+    onClose: vi.fn(),
+    onTempoChange: vi.fn(),
+    onTempoScale: vi.fn(),
+    onTempoChangeAt: vi.fn(),
+    onRemoveTempoChange: vi.fn(),
+    ...over,
+  };
+  act(() => {
+    root!.render(<PropertiesPanel {...props} />);
+  });
+  return props;
+}
+
+afterEach(() => {
+  act(() => root?.unmount());
+  host?.remove();
+  root = null;
+  host = null;
+});
+
+describe("TempoMapEditor (mounted)", () => {
+  it("renders one row per mark plus the add row", () => {
+    mount();
+    const rows = host!.querySelectorAll(".hs-properties__keymap-row");
+    expect(rows.length).toBe(3);
+    const labels = [...host!.querySelectorAll(
+      ".hs-properties__keymap-measure",
+    )].map((el) => el.textContent);
+    expect(labels).toEqual(["冒頭", "第3小節", "第3小節"]);
+  });
+
+  it("mid-piece rows are editable and deletable", () => {
+    const props = mount();
+    const inputs = host!.querySelectorAll(
+      ".hs-properties__keymap-row input",
+    );
+    expect(inputs.length).toBe(3);
+    expect(
+      [...inputs].map((i) => (i as HTMLInputElement).disabled),
+    ).toEqual([false, false, false]);
+    const removeButtons = [...host!.querySelectorAll("button")].filter(
+      (b) => b.getAttribute("aria-label") === "このテンポ変化を削除",
+    );
+    expect(removeButtons.length).toBe(2);
+    act(() => removeButtons[0].click());
+    expect(props.onRemoveTempoChange).toHaveBeenCalledWith({
+      startBeat: "8/1",
+    });
+  });
+
+  it("keeps the tempo-octave quick fixes available", () => {
+    const props = mount();
+    const texts = [...host!.querySelectorAll("button")].map(
+      (b) => b.textContent,
+    );
+    expect(texts).toContain("÷2");
+    expect(texts).toContain("×2");
+    const halve = [...host!.querySelectorAll("button")].find(
+      (b) => b.textContent === "÷2",
+    )!;
+    act(() => halve.click());
+    expect(props.onTempoScale).toHaveBeenCalledWith(0.5);
+  });
+
+  it("add row commits a barline mark on the first click", () => {
+    const props = mount();
+    const addInputs = host!.querySelectorAll(
+      ".hs-properties__keymap-add input",
+    );
+    const measureInput = addInputs[0] as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(measureInput, "5");
+      measureInput.dispatchEvent(
+        new Event("input", { bubbles: true }),
+      );
+      measureInput.dispatchEvent(
+        new FocusEvent("focusout", { bubbles: true }),
+      );
+    });
+    const addButton = [...host!.querySelectorAll("button")].find(
+      (b) => b.textContent === "テンポ変化を追加",
+    )!;
+    // Regression: the button must not be disabled before the click —
+    // the blur-commit and the click are one user gesture.
+    expect(addButton.disabled).toBe(false);
+    act(() => addButton.click());
+    expect(props.onTempoChangeAt).toHaveBeenCalledWith({
+      bpm: 120,
+      startMeasure: 5,
+    });
+  });
+
+  it("add row flags an empty measure instead of a dead button", () => {
+    mount();
+    const addButton = [...host!.querySelectorAll("button")].find(
+      (b) => b.textContent === "テンポ変化を追加",
+    )!;
+    act(() => addButton.click());
+    expect(
+      host!.querySelector(".hs-properties__keymap-add .fui-Field")
+        ?.textContent,
+    ).toContain("追加先の小節を入力してください");
+  });
+
+  it("editing the head row commits at beat 0", () => {
+    const props = mount();
+    const headInput = host!.querySelector(
+      ".hs-properties__keymap-row input",
+    ) as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(headInput, "140");
+      headInput.dispatchEvent(
+        new Event("input", { bubbles: true }),
+      );
+      headInput.dispatchEvent(
+        new FocusEvent("focusout", { bubbles: true }),
+      );
+    });
+    expect(props.onTempoChangeAt).toHaveBeenCalledTimes(1);
+    expect(props.onTempoChangeAt).toHaveBeenCalledWith({
+      bpm: 140,
+      startBeat: "0/1",
+    });
+  });
+});

@@ -1379,6 +1379,17 @@ body {
   flex: 1 1 auto;
   gap: var(--hs-space-xs);
 }
+/* #249 tempo-map rows: the BPM field must claim the row's free space
+ *  like the key selects do, or the SpinButton collapses to its
+ *  intrinsic width and the row looks broken. */
+.hs-properties__keymap-row .hs-properties__tempo {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hs-properties__keymap-add > .hs-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .hs-properties__keymap-measure {
   flex: 0 0 auto;
   padding-bottom: var(--hs-space-xs);

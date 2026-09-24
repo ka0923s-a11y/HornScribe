@@ -362,6 +362,7 @@ function ScoreBody({
             measureCount={model.measureCount}
             onChange={(args) => onTempoChangeAt(args)}
             onRemove={(args) => onRemoveTempoChange(args)}
+            onScale={onTempoScale}
           />
         ) : model.tempoBpm != null && onTempoChange ? (
           <TempoField
@@ -556,8 +557,7 @@ function KeyMapEditor({
   const [addMeasure, setAddMeasure] = useState<number | null>(null);
   const [addFifths, setAddFifths] = useState(0);
   const [addMode, setAddMode] = useState<KeyMode>("major");
-  const addValid =
-    addMeasure != null && addMeasure >= 1 && addMeasure <= measureCount;
+  const [addError, setAddError] = useState<string | null>(null);
   return (
     <div className="hs-properties__keymap">
       {changes.map((c, i) => {
@@ -595,7 +595,11 @@ function KeyMapEditor({
           min={1}
           max={measureCount}
           step={1}
-          onChange={(v) => setAddMeasure(v)}
+          error={addError ?? undefined}
+          onChange={(v) => {
+            setAddMeasure(v);
+            setAddError(null);
+          }}
         />
         <KeySelects
           fifths={addFifths}
@@ -610,9 +614,16 @@ function KeyMapEditor({
         <HsButton
           variant="secondary"
           size="small"
-          disabled={!addValid}
           onClick={() => {
-            if (!addValid || addMeasure == null) return;
+            const valid =
+              addMeasure != null &&
+              addMeasure >= 1 &&
+              addMeasure <= measureCount;
+            if (!valid) {
+              setAddError(ja.inspector.keyMap.measureRequired);
+              return;
+            }
+            setAddError(null);
             onBoundaryChange(addMeasure, addFifths, addMode);
           }}
         >
@@ -650,6 +661,7 @@ function TempoMapEditor({
   measureCount,
   onChange,
   onRemove,
+  onScale,
 }: {
   changes: readonly {
     readonly measure: number;
@@ -663,21 +675,25 @@ function TempoMapEditor({
     startMeasure?: number;
   }): void;
   onRemove(args: { startBeat?: string; startMeasure?: number }): void;
+  /** #198: tempo-octave fix — scales BPM and note values together.
+   *  The map editor replaces TempoField, so the ÷2/×2 quick fixes
+   *  must live here too or multi-segment scores lose the one-tap
+   *  half/double correction entirely. */
+  onScale?(factor: number): void;
 }) {
   const tm = ja.inspector.tempoMap;
   const [addMeasure, setAddMeasure] = useState<number | null>(null);
   const [addBpm, setAddBpm] = useState<number | null>(120);
-  const addValid =
-    addMeasure != null &&
-    addMeasure >= 1 &&
-    addMeasure <= measureCount &&
-    addBpm != null &&
-    addBpm >= TEMPO_MIN_BPM &&
-    addBpm <= TEMPO_MAX_BPM;
+  const [addError, setAddError] = useState<string | null>(null);
+  const minBpm = Math.min(...changes.map((c) => c.bpm));
+  const maxBpm = Math.max(...changes.map((c) => c.bpm));
   return (
     <div className="hs-properties__keymap">
       {changes.map((c, i) => (
-        <div className="hs-properties__keymap-row" key={i}>
+        <div
+          className="hs-properties__keymap-row"
+          key={c.startBeat ?? "m" + c.measure + "-" + i}
+        >
           <span className="hs-properties__keymap-measure">
             {i === 0 ? tm.head : tm.measureAt(c.measure)}
           </span>
@@ -687,7 +703,7 @@ function TempoMapEditor({
             disabled={i > 0 && c.startBeat == null}
             onCommit={(bpm) =>
               i === 0
-                ? onChange({ bpm, startBeat: "0/1" })
+                ? onChange({ bpm, startBeat: c.startBeat ?? "0/1" })
                 : onChange({ bpm, startBeat: c.startBeat })
             }
           />
@@ -708,7 +724,11 @@ function TempoMapEditor({
           min={1}
           max={measureCount}
           step={1}
-          onChange={(v) => setAddMeasure(v)}
+          error={addError ?? undefined}
+          onChange={(v) => {
+            setAddMeasure(v);
+            setAddError(null);
+          }}
         />
         <HsNumericField
           label={tm.tempo}
@@ -722,15 +742,45 @@ function TempoMapEditor({
         <HsButton
           variant="secondary"
           size="small"
-          disabled={!addValid}
           onClick={() => {
-            if (!addValid || addMeasure == null || addBpm == null) return;
+            const valid =
+              addMeasure != null &&
+              addMeasure >= 1 &&
+              addMeasure <= measureCount &&
+              addBpm != null &&
+              addBpm >= TEMPO_MIN_BPM &&
+              addBpm <= TEMPO_MAX_BPM;
+            if (!valid) {
+              setAddError(ja.inspector.tempoMap.measureRequired);
+              return;
+            }
+            setAddError(null);
             onChange({ bpm: addBpm, startMeasure: addMeasure });
           }}
         >
           {tm.add}
         </HsButton>
       </div>
+      {onScale ? (
+        <div className="hs-properties__tempo-octave">
+          <HsButton
+            size="small"
+            variant="subtle"
+            disabled={minBpm / 2 < TEMPO_MIN_BPM}
+            onClick={() => onScale(0.5)}
+          >
+            {ja.inspector.tempoHalve}
+          </HsButton>
+          <HsButton
+            size="small"
+            variant="subtle"
+            disabled={maxBpm * 2 > TEMPO_MAX_BPM}
+            onClick={() => onScale(2)}
+          >
+            {ja.inspector.tempoDouble}
+          </HsButton>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -769,16 +819,7 @@ function TempoMapBpmField({
     if (v !== bpm) onCommit(v);
   };
   return (
-    <div
-      className="hs-properties__tempo"
-      onBlur={() => commitValue(draft)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          commitValue(draft);
-        }
-      }}
-    >
+    <div className="hs-properties__tempo">
       <HsNumericField
         label={label}
         value={draft}
@@ -790,7 +831,7 @@ function TempoMapBpmField({
         error={error ?? undefined}
         onChange={(v) => {
           setDraft(v);
-          if (v != null) commitValue(v);
+          commitValue(v);
         }}
       />
     </div>
@@ -866,18 +907,8 @@ function TempoField({
     setError(null);
     if (v !== bpm) onCommit(v);
   };
-  const commit = () => commitValue(draft);
   return (
-    <div
-      className="hs-properties__tempo"
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          commit();
-        }
-      }}
-    >
+    <div className="hs-properties__tempo">
       <HsNumericField
         label={f.tempo}
         value={draft}
@@ -888,7 +919,7 @@ function TempoField({
         error={error ?? undefined}
         onChange={(v) => {
           setDraft(v);
-          if (v != null) commitValue(v);
+          commitValue(v);
         }}
       />
       {/* #188: auto tempo estimation's classic failure is a half/
