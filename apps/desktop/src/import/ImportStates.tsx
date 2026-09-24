@@ -224,6 +224,7 @@ const TEXTURE_OPTIONS: readonly HsSelectOption[] = [
   { value: "auto", label: ja.import.audioOptions.textureAuto },
   { value: "mono", label: ja.import.audioOptions.textureMono },
   { value: "melody", label: ja.import.audioOptions.textureMelody },
+  { value: "voices", label: ja.import.audioOptions.textureVoices },
 ];
 const RANGE_OPTIONS: readonly HsSelectOption[] = [
   { value: "all", label: ja.import.audioOptions.rangeAll },

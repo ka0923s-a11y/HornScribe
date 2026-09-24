@@ -133,7 +133,7 @@ export interface TranscriptionOptions {
   range: "all" | "selection";
   /** 音源の種類 — mono=単旋律楽器, melody=メロディ優先(ミックス/JPOP),
       auto=重なりの多さからエンジンが自動判定。 */
-  texture: "auto" | "mono" | "melody";
+  texture: "auto" | "mono" | "melody" | "voices";
   /** 範囲指定時の開始/終了（秒）。null = 音声の端まで。 */
   selectionStartSec: number | null;
   selectionEndSec: number | null;

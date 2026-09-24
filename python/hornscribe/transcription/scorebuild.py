@@ -15,7 +15,7 @@ MusicXML ``<tuplet type="start|stop">`` convention).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Any
 
@@ -97,18 +97,126 @@ def build_score(
     source_audio_hash: str | None,
     settings: dict[str, Any],
     project_id: ProjectId | None = None,
+    extra_voices: tuple[QuantizationAlternative, ...] = (),
+    voice_names: tuple[str, ...] = (),
 ) -> BuiltScore:
     """Assemble the canonical payload + document for rank-1 output.
 
     ``event_by_id`` lets each canonical note recover its backend
     confidence/onset seconds for review-issue evidence.
+
+    extra_voices (#85): additional monophonic streams (voice 2+),
+    each quantized against the same meter/tempo. They become extra
+    parts on the shared measure layout; canonical note ids are
+    renumbered to continue after voice 1's sequence so every sn-*
+    stays unique across parts. voice_names overrides the default
+    part names ("Horn in F", "Horn in F (2nd voice)", ...).
     """
     ts = meter.time_signature
     beat_ql = _beat_ql(ts)
 
-    # Merged atom stream (notes + rests interleaved by onset, score
-    # order) — tuplet groups are marked across this whole stream so a
-    # group spanning a rest boundary is still bracketed correctly.
+    notes, rests, confidence, onsets = _part_content(
+        alternative, beat_ql, event_by_id
+    )
+
+    parts: list[Part] = [
+        Part(
+            id="part-1",
+            name=voice_names[0] if voice_names else "Horn in F",
+            notes=tuple(notes),
+            rests=tuple(rests),
+        )
+    ]
+    next_ordinal = len(notes) + 1
+    for vi, voice_alt in enumerate(extra_voices):
+        v_notes, v_rests, v_conf, v_onsets = _part_content(
+            voice_alt, beat_ql, event_by_id
+        )
+        # The quantizer's sn-* allocator restarts per stream — renumber
+        # so canonical ids stay unique across parts (review issues and
+        # client edits key on them).
+        renumbered: list[QuantizedNote] = []
+        for n in v_notes:
+            new_id = ScoreNoteId(f"sn-{next_ordinal:06d}")
+            next_ordinal += 1
+            renumbered.append(replace(n, id=new_id))
+            if n.id in v_conf:
+                confidence[new_id] = v_conf[n.id]
+            if n.id in v_onsets:
+                onsets[new_id] = v_onsets[n.id]
+        default_name = (
+            "Horn in F (2nd voice)"
+            if vi == 0
+            else f"Horn in F (voice {vi + 2})"
+        )
+        parts.append(
+            Part(
+                id=f"part-{vi + 2}",
+                name=voice_names[vi + 1] if len(voice_names) > vi + 1 else default_name,
+                notes=tuple(renumbered),
+                rests=tuple(v_rests),
+            )
+        )
+
+    # Pickup: the beat-map lift (tempo.py) says how long the anacrusis
+    # measure is; the meter segment's phase is its complement inside the
+    # measure cycle (phase = L - pickup, 0 when there is no pickup).
+    measure_ql = meter.measure_length_ql
+    pickup_ql = pickup_len_ql % measure_ql if pickup_len_ql else Fraction(0)
+    phase_ql = (measure_ql - pickup_ql) % measure_ql if pickup_ql else Fraction(0)
+    pickup_beats = pickup_ql / beat_ql
+    phase_beats = phase_ql / beat_ql
+    meter_changes = (
+        MeterChange(
+            start_beat=Fraction(0),
+            time_signature=ts,
+            measure_phase_beats=phase_beats,
+        ),
+    )
+    payload = ScoreRevisionPayload(
+        tempo_map=tempo_map,
+        time_signature=ts,
+        key_signature=key,
+        pickup_beats=pickup_beats,
+        parts=tuple(parts),
+        quantization_settings=settings,
+        meter_changes=meter_changes,
+    )
+    document = ScoreDocument(
+        project_id=project_id or derive_project_id({"audio": source_audio_path}),
+        payload=payload,
+        title=title,
+        source_audio_path=source_audio_path,
+        source_audio_hash=source_audio_hash,
+        transcription_backend="basic_pitch",
+        transcription_backend_version="0.4.0",
+        transcription_settings=settings,
+    )
+    return BuiltScore(
+        document=document,
+        payload=payload,
+        meter_segment=meter,
+        note_confidence=confidence,
+        note_onset_sec=onsets,
+    )
+
+
+def _part_content(
+    alternative: QuantizationAlternative,
+    beat_ql: Fraction,
+    event_by_id: dict[RawNoteEventId, RawNoteEvent],
+) -> tuple[
+    list[QuantizedNote],
+    list[ScoreRest],
+    dict[ScoreNoteId, float],
+    dict[ScoreNoteId, float],
+]:
+    """Notes + rests + evidence maps for one voice's alternative.
+
+    The merged atom stream (notes + rests interleaved by onset, score
+    order) gets tuplet group flags across the whole stream so a group
+    spanning a rest boundary is still bracketed correctly.
+    """
     stream: list[RhythmAtom] = []
     note_atom_ranges: list[tuple[int, int]] = [(0, 0)] * len(alternative.notes)
     rest_atom_ranges: list[tuple[int, int]] = [(0, 0)] * len(alternative.rests)
@@ -179,45 +287,4 @@ def build_score(
         )
         for r, (lo, hi) in zip(alternative.rests, rest_atom_ranges, strict=True)
     ]
-
-    # Pickup: the beat-map lift (tempo.py) says how long the anacrusis
-    # measure is; the meter segment's phase is its complement inside the
-    # measure cycle (phase = L - pickup, 0 when there is no pickup).
-    measure_ql = meter.measure_length_ql
-    pickup_ql = pickup_len_ql % measure_ql if pickup_len_ql else Fraction(0)
-    phase_ql = (measure_ql - pickup_ql) % measure_ql if pickup_ql else Fraction(0)
-    pickup_beats = pickup_ql / beat_ql
-    phase_beats = phase_ql / beat_ql
-    meter_changes = (
-        MeterChange(
-            start_beat=Fraction(0),
-            time_signature=ts,
-            measure_phase_beats=phase_beats,
-        ),
-    )
-    payload = ScoreRevisionPayload(
-        tempo_map=tempo_map,
-        time_signature=ts,
-        key_signature=key,
-        pickup_beats=pickup_beats,
-        parts=(Part(id="part-1", name="Horn in F", notes=tuple(notes), rests=tuple(rests)),),
-        quantization_settings=settings,
-        meter_changes=meter_changes,
-    )
-    document = ScoreDocument(
-        project_id=project_id or derive_project_id({"audio": source_audio_path}),
-        payload=payload,
-        title=title,
-        source_audio_path=source_audio_path,
-        source_audio_hash=source_audio_hash,
-        transcription_backend="basic_pitch",
-        transcription_backend_version="0.4.0",
-        transcription_settings=settings,
-    )
-    return BuiltScore(
-        document=document,
-        payload=payload,
-        meter_segment=meter,
-        note_confidence=confidence,
-        note_onset_sec=onsets,
-    )
+    return notes, rests, confidence, onsets

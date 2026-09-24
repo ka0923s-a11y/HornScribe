@@ -143,6 +143,9 @@ class TestParams:
         )
         assert p.texture == "melody"
         assert p.settings_dict()["texture"] == "melody"
+        assert TranscriptionParams.from_payload(
+            {"audioPath": "a", "texture": "voices"}
+        ).texture == "voices"
         assert TranscriptionParams.from_payload({"audioPath": "a"}).texture == "auto"
         with pytest.raises(ValueError, match="texture"):
             TranscriptionParams.from_payload({"audioPath": "a", "texture": "chord"})
@@ -363,6 +366,101 @@ class TestClean:
     def test_prefer_rejects_unknown_value(self) -> None:
         with pytest.raises(ValueError, match="prefer"):
             clean_monophonic(make_events([60]), prefer="loud")
+
+
+class TestSplitVoices:
+    """#85: polyphonic input partitions into two monophonic streams."""
+
+    def _ev(
+        self,
+        i: int,
+        pitch: float,
+        onset: float,
+        offset: float,
+        confidence: float = 0.9,
+    ) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=pitch,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=confidence,
+            velocity=90,
+            source="test",
+        )
+
+    def test_two_overlapping_lines_split(self) -> None:
+        from hornscribe.transcription.clean import split_voices
+
+        events = (
+            self._ev(1, 60, 0.0, 1.0),   # sustained low note
+            self._ev(2, 72, 0.1, 0.5),   # melody note over it
+            self._ev(3, 74, 0.5, 0.9),   # next melody note
+        )
+        out = split_voices(events)
+        assert len(out.voices[0]) == 2   # melody line (higher median)
+        assert len(out.voices[1]) == 1   # sustained low note
+        assert [e.pitch_midi for e in out.voices[0]] == [72.0, 74.0]
+        assert out.voices[1][0].pitch_midi == 60.0
+        assert out.dropped_beyond_voices == 0
+
+    def test_monophonic_input_stays_one_voice(self) -> None:
+        from hornscribe.transcription.clean import split_voices
+
+        out = split_voices(make_events([60, 62, 64]))
+        assert len(out.voices[0]) == 3
+        assert out.voices[1] == ()
+        assert out.dropped_beyond_voices == 0
+
+    def test_third_simultaneous_voice_is_dropped_and_counted(self) -> None:
+        from hornscribe.transcription.clean import split_voices
+
+        events = (
+            self._ev(1, 48, 0.0, 1.0),
+            self._ev(2, 60, 0.0, 1.0),
+            self._ev(3, 72, 0.2, 0.8),   # fits neither voice
+        )
+        out = split_voices(events)
+        assert len(out.voices[0]) + len(out.voices[1]) == 2
+        assert out.dropped_beyond_voices == 1
+
+    def test_same_pitch_merges_within_its_own_voice(self) -> None:
+        from hornscribe.transcription.clean import split_voices
+
+        events = (
+            self._ev(1, 60, 0.0, 0.4),
+            self._ev(2, 60, 0.42, 0.8),  # 20 ms gap -> merges in voice 1
+        )
+        out = split_voices(events)
+        assert len(out.voices[0]) == 1
+        assert out.voices[0][0].offset_sec == pytest.approx(0.8)
+        assert out.merged == 1
+
+    def test_harmonic_ghost_does_not_claim_the_second_voice(self) -> None:
+        from hornscribe.transcription.clean import split_voices
+
+        sustained = self._ev(1, 60, 0.0, 1.0, confidence=0.9)
+        ghost = self._ev(2, 72, 0.4, 0.48, confidence=0.4)  # short +12 overtone
+        out = split_voices((sustained, ghost))
+        assert out.ghost_dropped == 1
+        assert out.dropped_beyond_voices == 0
+        assert len(out.voices[0]) == 1
+        assert out.voices[1] == ()
+
+    def test_upper_voice_leads_by_median_pitch(self) -> None:
+        from hornscribe.transcription.clean import split_voices
+
+        # Low sustained line starts first, melody joins after — the
+        # higher-median stream must still land in voices[0].
+        events = (
+            self._ev(1, 50, 0.0, 2.0),
+            self._ev(2, 72, 0.5, 0.9),
+            self._ev(3, 74, 1.0, 1.4),
+        )
+        out = split_voices(events)
+        assert [e.pitch_midi for e in out.voices[0]] == [72.0, 74.0]
+        assert [e.pitch_midi for e in out.voices[1]] == [50.0]
 
 
 class TestMeter:
@@ -683,3 +781,46 @@ class TestPipeline:
         log_mono = run(tmp_path, tuple(events), {"texture": "mono"})
         assert log_mono[-1]["phase"] == "completed"
         assert log_mono[-1]["result"]["meta"]["noteCount"] == 16
+
+    def test_voices_texture_keeps_two_parts(self, tmp_path: Path) -> None:
+        # #85: a duet — sustained lower line under a melody — becomes a
+        # two-part score instead of collapsing to one line. Canonical
+        # ids stay unique across parts and both MusicXML bodies carry
+        # both staves.
+        events: list[RawNoteEvent] = []
+        for i in range(8):
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 1:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=76.0,
+                    onset_sec=i * 0.5,
+                    offset_sec=i * 0.5 + 0.45,
+                    confidence=0.9,
+                )
+            )
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 2:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=55.0,
+                    onset_sec=i * 0.5 + 0.2,
+                    offset_sec=i * 0.5 + 0.4,
+                    confidence=0.9,
+                )
+            )
+        log = run(tmp_path, tuple(events), {"texture": "voices"})
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        parts = result["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 2
+        ids = [n["id"] for p in parts for n in p["notes"]]
+        assert len(ids) == len(set(ids))
+        assert result["meta"]["partCount"] == 2
+        assert result["meta"]["noteCount"] == len(ids)
+        # Both parts reach both presentations.
+        assert result["musicXmlConcert"].count("<part ") == 2
+        assert result["musicXmlHornF"].count("<part ") == 2
+        # The split is reported, not silent.
+        reasons = {i["reason"] for i in result["reviewIssues"]}
+        assert "overlapping_candidates" in reasons

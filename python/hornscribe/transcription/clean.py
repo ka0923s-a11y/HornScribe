@@ -238,6 +238,109 @@ def _is_harmonic_ghost(prev: RawNoteEvent, ev: RawNoteEvent) -> bool:
         return False
     return ev.confidence < prev.confidence
 
+@dataclass(frozen=True)
+class VoiceSplit:
+    """Two monophonic streams partitioned from polyphonic input (#85).
+
+    voices[0] is the upper line (assigned first / higher pitch at a
+    shared onset), voices[1] the lower line.
+    """
+
+    voices: tuple[tuple[RawNoteEvent, ...], tuple[RawNoteEvent, ...]]
+    """(upper, lower) — each internally monophonic."""
+    dropped_too_short: int
+    merged: int
+    ghost_dropped: int
+    dropped_beyond_voices: int
+
+    def stats(self) -> dict[str, Any]:
+        return {
+            "droppedTooShort": self.dropped_too_short,
+            "merged": self.merged,
+            "ghostDropped": self.ghost_dropped,
+            "droppedBeyondVoices": self.dropped_beyond_voices,
+            "voiceEventCounts": [len(v) for v in self.voices],
+        }
+
+
+def split_voices(
+    events: tuple[RawNoteEvent, ...],
+    *,
+    min_event_sec: float = MIN_EVENT_SEC,
+    merge_gap_sec: float = MERGE_GAP_SEC,
+    max_voices: int = 2,
+) -> VoiceSplit:
+    """Partition raw events into up to max_voices monophonic lines.
+
+    Greedy earliest-free-slot assignment: each event joins the first
+    voice whose last note has already ended (onset order, higher pitch
+    first at a shared onset so the upper slot tends to carry the
+    melody). Same-pitch re-detections merge within their own voice;
+    harmonic ghosts are suppressed against the upper voice's tail (an
+    overtone artifact under a sustained note is not a second voice).
+    Events that fit no free voice count as dropped_beyond_voices.
+    """
+    ordered = sorted(events, key=lambda e: (e.onset_sec, -e.pitch_midi))
+    voices: list[list[RawNoteEvent]] = [[] for _ in range(max_voices)]
+    dropped = 0
+    merged = 0
+    ghosts = 0
+    beyond = 0
+    for ev in ordered:
+        if ev.offset_sec - ev.onset_sec < min_event_sec:
+            dropped += 1
+            continue
+        # Overtone artifact riding on the sustained upper voice — drop
+        # it before slotting (a free second voice must not be claimed
+        # by a short, weak harmonic ghost).
+        if (
+            voices[0]
+            and voices[0][-1].offset_sec > ev.onset_sec
+            and _is_harmonic_ghost(voices[0][-1], ev)
+        ):
+            ghosts += 1
+            continue
+        placed = False
+        for voice in voices:
+            if voice and voice[-1].offset_sec > ev.onset_sec:
+                continue
+            if voice:
+                prev = voice[-1]
+                same_pitch = int(round(prev.pitch_midi)) == int(
+                    round(ev.pitch_midi)
+                )
+                if same_pitch and ev.onset_sec - prev.offset_sec < merge_gap_sec:
+                    voice[-1] = _extend(prev, ev.offset_sec, ev.confidence)
+                    merged += 1
+                    placed = True
+                    break
+            voice.append(ev)
+            placed = True
+            break
+        if not placed:
+            beyond += 1
+    voices.sort(key=_voice_median_pitch, reverse=True)
+    while len(voices) < 2:
+        voices.append([])
+    return VoiceSplit(
+        voices=(tuple(voices[0]), tuple(voices[1])),
+        dropped_too_short=dropped,
+        merged=merged,
+        ghost_dropped=ghosts,
+        dropped_beyond_voices=beyond,
+    )
+
+
+def _voice_median_pitch(voice: list[RawNoteEvent]) -> float:
+    """Median pitch of a voice's events (ordering key for split_voices)."""
+    if not voice:
+        return float("-inf")
+    pitches = sorted(round(e.pitch_midi) for e in voice)
+    mid = len(pitches) // 2
+    if len(pitches) % 2:
+        return float(pitches[mid])
+    return (pitches[mid - 1] + pitches[mid]) / 2.0
+
 
 def _extend(ev: RawNoteEvent, offset_sec: float, confidence: float | None) -> RawNoteEvent:
     confidences = [c for c in (ev.confidence, confidence) if c is not None]

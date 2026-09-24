@@ -66,7 +66,7 @@ from .backend import (
     predict_note_events,
     require_module,
 )
-from .clean import clean_monophonic, clip_to_range
+from .clean import clean_monophonic, clip_to_range, split_voices
 from .key import estimate_key
 from .meter import estimate_meter
 from .options import TranscriptionParams
@@ -320,7 +320,15 @@ def run_transcription_job(
             raw_events, params.selection_start_sec, params.selection_end_sec
         )
         prefer = "top" if params.texture == "melody" else "onset"
-        cleaned = clean_monophonic(ranged, prefer=prefer)
+        voice_split = None
+        if params.texture == "voices":
+            # #85: keep up to two detected lines as separate parts.
+            voice_split = split_voices(ranged)
+            cleaned = clean_monophonic(voice_split.voices[0])
+            cleaned_lower = clean_monophonic(voice_split.voices[1])
+        else:
+            cleaned = clean_monophonic(ranged, prefer=prefer)
+            cleaned_lower = None
         if params.texture == "auto" and cleaned.events:
             overlap_ratio = cleaned.polyphonic_overlaps / len(cleaned.events)
             if (
@@ -409,6 +417,18 @@ def run_transcription_job(
             )
             return
         best = alternatives[0]
+        # #85 (voices texture): the second voice quantizes against the
+        # SAME tempo/meter map AND the same alignment shift — separate
+        # searches would let the parts drift against each other.
+        lower_alternatives = None
+        if cleaned_lower and cleaned_lower.events:
+            lower_alternatives = quantize_events(
+                cleaned_lower.events,
+                estimate.warp,
+                meter_map,
+                profile,
+                alignment_shift_sec=best.diagnostics.alignment_shift_sec,
+            )
         if stop(4):
             return
 
@@ -417,6 +437,9 @@ def run_transcription_job(
         event_by_id: dict[RawNoteEventId, RawNoteEvent] = {
             e.id: e for e in cleaned.events
         }
+        if cleaned_lower:
+            for e in cleaned_lower.events:
+                event_by_id.setdefault(e.id, e)
         key_pitches: list[int] = []
         key_durations: list[Fraction] = []
         for n in best.notes:
@@ -440,6 +463,9 @@ def run_transcription_job(
             source_audio_path=params.audio_path,
             source_audio_hash=audio_hash,
             settings=params.settings_dict(),
+            extra_voices=(
+                (lower_alternatives[0],) if lower_alternatives else ()
+            ),
         )
         payload = built.payload
         score_revision = payload.revision_id()
@@ -461,7 +487,9 @@ def run_transcription_job(
         )
         issues.extend(
             _extra_issues(
-                built.payload.parts[0].notes,
+                tuple(
+                    n for p in built.payload.parts for n in p.notes
+                ),
                 built.note_confidence,
                 built.note_onset_sec,
                 event_by_id,
@@ -487,7 +515,30 @@ def run_transcription_job(
                     },
                 )
             )
-        if cleaned.polyphonic_overlaps:
+        if voice_split is not None:
+            # #85 voices texture: overlaps were kept as a second part —
+            # report what the split saw (second-voice note count + notes
+            # beyond two voices that had to be dropped).
+            second_count = len(voice_split.voices[1])
+            if second_count or voice_split.dropped_beyond_voices:
+                issues.append(
+                    ReviewIssue(
+                        id="",
+                        score_revision=score_revision,
+                        canonical_note_ids=(),
+                        time_range=TimeRange(
+                            start_sec=0.0, end_sec=duration_sec
+                        ),
+                        reason=ReviewReason.OVERLAPPING_CANDIDATES,
+                        severity=Severity.CAUTION,
+                        evidence={
+                            "secondVoiceNotes": second_count,
+                            "droppedBeyondVoices": voice_split.dropped_beyond_voices,
+                            "note": "overlapping pitches were kept as a second part",
+                        },
+                    )
+                )
+        elif cleaned.polyphonic_overlaps:
             # The monophonic contract silently collapsed real overlaps —
             # warn so the user knows a second voice may have been lost.
             issues.append(
@@ -522,6 +573,42 @@ def run_transcription_job(
         musicxml_concert = export_concert_musicxml(built.document)
         musicxml_horn = export_horn_in_f_musicxml(built.document)
 
+        # The export path is verified, not trusted: read the emitted
+        # MusicXML back and compare committed rhythm per part (multi-
+        # voice scores verify every part, not just the first).
+        from hornscribe.export.musicxml import (  # noqa: PLC0415
+            verify_rhythm_roundtrip,
+        )
+        rhythm_problems = [
+            f"part {pi}: {p}"
+            for pi in range(len(payload.parts))
+            for p in verify_rhythm_roundtrip(
+                built.document, musicxml_concert, part_index=pi
+            )
+        ]
+        if rhythm_problems:
+            # Late verification issue: allocate an id like the others
+            # (issue ids were already renumbered above — keep them
+            # unique by continuing the same allocator).
+            issues.append(
+                replace(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=0.0, end_sec=duration_sec
+                    ),
+                    reason=ReviewReason.STRUCTURAL_MEASURE_CONFLICT,
+                    severity=Severity.WARNING,
+                    evidence={
+                        "rhythmRoundtripProblems": rhythm_problems[:10],
+                    },
+                ),
+                id=allocator.allocate(),
+                ),
+            )
+
         emit(
             "completed",
             stage=STAGES[6],
@@ -548,11 +635,16 @@ def run_transcription_job(
                     "keyFifths": key.fifths,
                     "keyMode": key.mode,
                     "keyConfidence": round(key_confidence, 3),
-                    "noteCount": len(best.notes),
+                    "noteCount": sum(len(p.notes) for p in payload.parts),
+                    "partCount": len(payload.parts),
                     "pickupBeats": str(payload.pickup_beats),
                     "alignmentShiftSec": round(shift, 4),
                     "reviewReasons": list(best.diagnostics.review_reasons),
-                    "cleaning": cleaned.stats(),
+                    "cleaning": (
+                        voice_split.stats()
+                        if voice_split is not None
+                        else cleaned.stats()
+                    ),
                     "settings": params.settings_dict(),
                 },
             },

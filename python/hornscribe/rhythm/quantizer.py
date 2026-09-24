@@ -580,6 +580,7 @@ def quantize_events(
     profile: QuantizationProfile | None = None,
     *,
     search_alignment: bool = True,
+    alignment_shift_sec: float | None = None,
     realize_durations: bool = True,
 ) -> tuple[QuantizationAlternative, ...]:
     """Quantize raw events end to end: alignment search -> normalize -> DP.
@@ -604,7 +605,12 @@ def quantize_events(
 
     shift = 0.0
     uncertain = False
-    if search_alignment and profile.max_alignment_shift_sec > 0:
+    if alignment_shift_sec is not None:
+        # #85: caller already estimated the global shift (voice 1 of a
+        # multi-voice job) — additional voices must share that grid, not
+        # search their own, or the parts would drift against each other.
+        shift = alignment_shift_sec
+    elif search_alignment and profile.max_alignment_shift_sec > 0:
         estimate = estimate_alignment_shift(events, warp, profile)
         # Design 6.3: an untrustworthy estimate (band edge / competing peaks)
         # is *not* auto-applied — it becomes a review reason instead.

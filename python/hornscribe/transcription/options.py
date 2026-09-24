@@ -57,7 +57,7 @@ _SUPPORTED_METERS = {
 
 _BACKENDS = {"auto", "basicPitch"}
 
-_TEXTURES = {"auto", "mono", "melody"}
+_TEXTURES = {"auto", "mono", "melody", "voices"}
 
 
 @dataclass(frozen=True)
@@ -82,6 +82,7 @@ class TranscriptionParams:
     single-instrument sources; ``melody`` keeps the highest voice on
     overlaps and widens the detection band (JPOP/mix melody extraction);
     ``auto`` cleans monophonically first and falls back to top-voice
+    voices keeps up to two detected lines as separate score parts;
     when the overlap evidence says the source is a mix."""
 
     @classmethod

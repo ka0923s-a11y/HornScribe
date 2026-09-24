@@ -864,6 +864,7 @@ export const ja = {
       textureAuto: "自動",
       textureMono: "単旋律（楽器・歌声のみ）",
       textureMelody: "メロディ優先（ミックス音源）",
+      textureVoices: "二声部として採譜（重奏・二重奏）",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {
