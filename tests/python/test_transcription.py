@@ -449,6 +449,55 @@ class TestSplitVoices:
         assert len(out.voices[0]) == 1
         assert out.voices[1] == ()
 
+    def test_harmonic_ghost_under_a_lower_voice_is_dropped(self) -> None:
+        # #85: the ghost check watched only the upper voice — a ghost
+        # riding on the lower sustained line still claimed a free slot.
+        from hornscribe.transcription.clean import split_voices
+
+        upper = self._ev(1, 76, 0.0, 1.0, confidence=0.9)
+        lower = self._ev(2, 48, 0.0, 1.0, confidence=0.9)
+        ghost = self._ev(3, 60, 0.4, 0.48, confidence=0.4)  # +12 over lower
+        out = split_voices((upper, lower, ghost))
+        assert out.ghost_dropped == 1
+        assert out.dropped_beyond_voices == 0
+        assert sum(len(v) for v in out.voices) == 2
+
+    def test_crossing_lines_keep_their_own_voice(self) -> None:
+        # #85: free voices are chosen by pitch proximity, so a line
+        # that dips under a held note still continues its own stream
+        # instead of stealing the other slot.
+        from hornscribe.transcription.clean import split_voices
+
+        events = (
+            self._ev(1, 72, 0.0, 0.4),   # upper line starts high
+            self._ev(2, 60, 0.1, 2.0),   # lower line holds long
+            self._ev(3, 74, 0.5, 0.9),   # upper line continues
+        )
+        out = split_voices(events, max_voices=2)
+        assert out.dropped_beyond_voices == 0
+        upper = [e.pitch_midi for e in out.voices[0]]
+        lower = [e.pitch_midi for e in out.voices[1]]
+        assert upper == [72.0, 74.0]
+        assert lower == [60.0]
+
+    def test_free_voice_picked_by_pitch_proximity(self) -> None:
+        # #85: when both slots are free the event continues the line
+        # whose last pitch is nearer — slot-order assignment used to
+        # park it in the upper voice and break the low line.
+        from hornscribe.transcription.clean import split_voices
+
+        events = (
+            self._ev(1, 72, 0.0, 0.4),   # upper line
+            self._ev(2, 60, 0.0, 0.4),   # lower line (simultaneous)
+            self._ev(3, 62, 0.5, 0.9),   # continues the low line
+        )
+        out = split_voices(events, max_voices=2)
+        assert out.dropped_beyond_voices == 0
+        upper = [e.pitch_midi for e in out.voices[0]]
+        lower = [e.pitch_midi for e in out.voices[1]]
+        assert upper == [72.0]
+        assert lower == [60.0, 62.0]
+
     def test_upper_voice_leads_by_median_pitch(self) -> None:
         from hornscribe.transcription.clean import split_voices
 

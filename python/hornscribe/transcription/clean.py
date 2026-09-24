@@ -273,12 +273,13 @@ def split_voices(
 ) -> VoiceSplit:
     """Partition raw events into up to max_voices monophonic lines.
 
-    Greedy earliest-free-slot assignment: each event joins the first
-    voice whose last note has already ended (onset order, higher pitch
-    first at a shared onset so the upper slot tends to carry the
-    melody). Same-pitch re-detections merge within their own voice;
-    harmonic ghosts are suppressed against the upper voice's tail (an
-    overtone artifact under a sustained note is not a second voice).
+    Greedy assignment, onset order with higher pitch first at a shared
+    onset (the upper slot tends to carry the melody). Each event joins
+    the free voice whose last pitch is closest to it — voice-leading
+    continuity beats slot order, so crossing lines keep their own
+    stream. Same-pitch re-detections merge within their own voice;
+    harmonic ghosts are suppressed against ANY sustained voice's tail
+    (an overtone artifact under a held note is not another voice).
     Events that fit no free voice count as dropped_beyond_voices.
     """
     ordered = sorted(events, key=lambda e: (e.onset_sec, -e.pitch_midi))
@@ -291,33 +292,44 @@ def split_voices(
         if ev.offset_sec - ev.onset_sec < min_event_sec:
             dropped += 1
             continue
-        # Overtone artifact riding on the sustained upper voice — drop
-        # it before slotting (a free second voice must not be claimed
-        # by a short, weak harmonic ghost).
-        if (
-            voices[0]
-            and voices[0][-1].offset_sec > ev.onset_sec
-            and _is_harmonic_ghost(voices[0][-1], ev)
+        # Overtone artifact riding on any sustained voice — drop it
+        # before slotting (a free voice must not be claimed by a short,
+        # weak harmonic ghost, whichever line it hangs under).
+        if any(
+            voice
+            and voice[-1].offset_sec > ev.onset_sec
+            and _is_harmonic_ghost(voice[-1], ev)
+            for voice in voices
         ):
             ghosts += 1
             continue
         placed = False
-        for voice in voices:
-            if voice and voice[-1].offset_sec > ev.onset_sec:
-                continue
-            if voice:
-                prev = voice[-1]
+        free = [
+            v for v in voices if not v or v[-1].offset_sec <= ev.onset_sec
+        ]
+        if free:
+            # The free voice continuing nearest this pitch keeps the
+            # line; min() is stable so ties keep the earlier slot.
+            best = min(
+                free,
+                key=lambda v: (
+                    abs(v[-1].pitch_midi - ev.pitch_midi)
+                    if v
+                    else float("inf")
+                ),
+            )
+            if best:
+                prev = best[-1]
                 same_pitch = int(round(prev.pitch_midi)) == int(
                     round(ev.pitch_midi)
                 )
                 if same_pitch and ev.onset_sec - prev.offset_sec < merge_gap_sec:
-                    voice[-1] = _extend(prev, ev.offset_sec, ev.confidence)
+                    best[-1] = _extend(prev, ev.offset_sec, ev.confidence)
                     merged += 1
                     placed = True
-                    break
-            voice.append(ev)
-            placed = True
-            break
+            if not placed:
+                best.append(ev)
+                placed = True
         if not placed:
             beyond += 1
     voices.sort(key=_voice_median_pitch, reverse=True)
