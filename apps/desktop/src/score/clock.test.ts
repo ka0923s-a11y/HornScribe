@@ -129,4 +129,30 @@ describe("ScoreCursorClock", () => {
     clock.dispose();
     vi.useRealTimers();
   });
+
+  it("setDuration clamps position and loop into the new span (#170)", () => {
+    const { raf, caf } = fakeRaf();
+    const clock = new ScoreCursorClock(4000, { raf, caf });
+    clock.seek(3500);
+    clock.setLoop({ startMs: 1000, endMs: 3000 });
+    // Shrink below the position + loop end: both re-clamp.
+    clock.setDuration(2000);
+    expect(clock.durationMs()).toBe(2000);
+    expect(clock.positionMs()).toBe(2000);
+    expect(clock.loopRange()).toEqual({ startMs: 1000, endMs: 2000 });
+    // Growing restores headroom; a fully out-of-range loop drops.
+    clock.setDuration(500);
+    expect(clock.loopRange()).toBeNull();
+    expect(clock.positionMs()).toBe(500);
+    clock.dispose();
+  });
+
+  it("setDuration ignores invalid input", () => {
+    const { raf, caf } = fakeRaf();
+    const clock = new ScoreCursorClock(4000, { raf, caf });
+    clock.setDuration(Number.NaN);
+    clock.setDuration(-5);
+    expect(clock.durationMs()).toBe(4000);
+    clock.dispose();
+  });
 });

@@ -36,6 +36,9 @@ export interface TransportClock {
   jumpBy(deltaMs: number): void;
   setLoop(range: LoopRange | null): void;
   setRate(rate: number): void;
+  /** #170: score edits change the notated length — keep the clock's
+   *  total span in step (clamps position + loop into the new range). */
+  setDuration(ms: number): void;
   /** Throttled state mirror (~10 Hz + every transition). */
   subscribe(cb: (s: ClockSnapshot) => void): () => void;
   dispose(): void;
@@ -51,7 +54,7 @@ const SNAPSHOT_INTERVAL_MS = 100;
  */
 export class ScoreCursorClock implements TransportClock {
   private pos = 0;
-  private readonly dur: number;
+  private dur: number;
   private playing = false;
   private playbackRate = 1;
   private loop: LoopRange | null = null;
@@ -149,6 +152,17 @@ export class ScoreCursorClock implements TransportClock {
   setRate(rate: number): void {
     if (!Number.isFinite(rate) || rate <= 0) return;
     this.playbackRate = rate;
+    this.emit(true);
+  }
+
+  setDuration(ms: number): void {
+    if (!Number.isFinite(ms) || ms < 0) return;
+    this.dur = ms;
+    if (this.pos > this.dur) this.pos = this.dur;
+    if (this.loop) {
+      this.setLoop(this.loop); // re-clamps / drops an out-of-range loop
+      return; // setLoop already emitted
+    }
     this.emit(true);
   }
 

@@ -49,6 +49,36 @@ interface ScheduledNote {
   startMs: number;
   endMs: number;
   freq: number;
+  /** MIDI velocity 0-127 (null = unknown -> default loudness). #168 */
+  velocity: number | null;
+}
+
+/**
+ * canonicalId -> MIDI velocity, read off the canonical payload's
+ * content.parts[].notes[].velocity (#168). The MusicXML ParsedNote view
+ * does not carry velocity, so the audition pulls it from canonical truth.
+ */
+export function velocityByCanonicalId(
+  canonicalDocument: unknown,
+): Map<string, number> {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  const parts = content?.["parts"];
+  const map = new Map<string, number>();
+  if (!Array.isArray(parts)) return map;
+  for (const rawPart of parts) {
+    const notes = (rawPart as Record<string, unknown>)["notes"];
+    if (!Array.isArray(notes)) continue;
+    for (const rawNote of notes) {
+      const n = rawNote as Record<string, unknown>;
+      const id = n["id"];
+      const v = n["velocity"];
+      if (typeof id === "string" && typeof v === "number") {
+        map.set(id, v);
+      }
+    }
+  }
+  return map;
 }
 
 export interface ScoreSynthOptions {
@@ -99,6 +129,7 @@ export class ScorePlaybackSynth {
   load(
     table: PlaybackTable,
     notesByCanonical: ReadonlyMap<string, readonly ParsedNote[]>,
+    velocities?: ReadonlyMap<string, number>,
   ): void {
     const notes: ScheduledNote[] = [];
     for (const seg of table.segments) {
@@ -112,6 +143,7 @@ export class ScorePlaybackSynth {
             startMs: seg.startMs,
             endMs: seg.endMs,
             freq: midiToFreq(midi),
+            velocity: velocities?.get(canonicalId) ?? null,
           });
           // 和音: chord メンバーは同じ onset を持つので、同じセグメントで
           // 別 ParsedNote として既に処理済み(frag 毎に 1 音追加)。
@@ -225,7 +257,7 @@ export class ScorePlaybackSynth {
       if (note.startMs < scheduleFrom) continue;
       const startSec = t0 + (note.startMs - windowStart) / rate / 1000;
       const durSec = Math.max(0.04, (note.endMs - note.startMs) / rate / 1000);
-      this.spawnVoice(note.freq, startSec, durSec);
+      this.spawnVoice(note.freq, startSec, durSec, note.velocity);
     }
     this.scheduledUntilMs = Math.max(this.scheduledUntilMs, windowEnd);
     this.lastTickAt = performance.now();
@@ -267,7 +299,12 @@ export class ScorePlaybackSynth {
   }
 
   /** 1 音を鳴らす。ホルンらしい柔らかさのため三角波+正弦波の 2 音構成。 */
-  private spawnVoice(freq: number, startSec: number, durSec: number): void {
+  private spawnVoice(
+    freq: number,
+    startSec: number,
+    durSec: number,
+    velocity: number | null = null,
+  ): void {
     const ctx = this.ctx;
     const master = this.master;
     if (!ctx || !master) return;
@@ -283,9 +320,15 @@ export class ScorePlaybackSynth {
 
     const env = ctx.createGain();
     // ADSR 風: 5ms attack, sustain, 40ms release。
+    // #168: scale the sustain peak by the note's velocity so the audition
+    // carries the detected dynamics (matches the MIDI export's note_on).
+    const peak =
+      velocity != null
+        ? 0.2 + 0.7 * (Math.min(127, Math.max(0, velocity)) / 127)
+        : 0.9;
     env.gain.setValueAtTime(0, startSec);
-    env.gain.linearRampToValueAtTime(0.9, startSec + 0.005);
-    env.gain.setValueAtTime(0.9, startSec + Math.max(0.005, durSec - 0.04));
+    env.gain.linearRampToValueAtTime(peak, startSec + 0.005);
+    env.gain.setValueAtTime(peak, startSec + Math.max(0.005, durSec - 0.04));
     env.gain.linearRampToValueAtTime(0, startSec + durSec);
 
     osc1.connect(env);

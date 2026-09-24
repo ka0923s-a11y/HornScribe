@@ -70,7 +70,7 @@ import {
   type PlaybackTable,
 } from "./playbackTable";
 import { ScoreCursorClock, type ClockSnapshot, type TransportClock } from "./clock";
-import { ScorePlaybackSynth } from "./playbackSynth";
+import { ScorePlaybackSynth, velocityByCanonicalId } from "./playbackSynth";
 import { buildSwingWarp } from "./swingWarp";
 import {
   allIssuesForCanonical,
@@ -519,7 +519,11 @@ export function ScoreReadyWorkspace({
         // audition exists to check the transcribed *sounding* result).
         const synth = new ScorePlaybackSynth();
         synthRef.current = synth;
-        synth.load(tableRef.current, notesByCanonical(concert));
+        synth.load(
+          tableRef.current,
+          notesByCanonical(concert),
+          velocityByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
+        );
         clock.subscribe((s) => {
           synth.setLoop(s.loop ? { startMs: s.loop.startMs, endMs: s.loop.endMs } : null);
           synth.sync(s.positionMs, s.isPlaying, s.rate);
@@ -858,6 +862,16 @@ export function ScoreReadyWorkspace({
         buildSwingWarp(scoreDoc.canonicalDocument?.() ?? null) ??
           undefined,
       );
+      // #170: the edit changed the notated content — refresh the audition
+      // note list and the score clock's total span so the heard score and
+      // the transport length match the edited score (previously both kept
+      // the pre-edit notes/duration).
+      synthRef.current?.load(
+        tableRef.current,
+        notesByCanonical(concert),
+        velocityByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
+      );
+      clockRef.current?.setDuration(tableRef.current.durationMs);
     }
   }, [scoreDoc, renderScore]);
 

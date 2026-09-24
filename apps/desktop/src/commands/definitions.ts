@@ -486,6 +486,7 @@ export function createCommandDefinitions(): readonly Command[] {
       id: "score.restToNote",
       title: ja.commands.restToNote,
       section: "score",
+      shortcuts: ["N"],
       isEnabled: (s) => s.hasScore && s.hasRestSelection && !s.reviewOpen,
       run: (ctx) => ctx.convertSelectedRest?.(),
     },
