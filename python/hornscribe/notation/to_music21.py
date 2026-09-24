@@ -497,7 +497,10 @@ def _render_layer(
                 head_fifths, key_changes, m.note_.start_beat
             )
             if presentation is PitchSpace.WRITTEN_HORN_F:
-                fifths += 1
+                # #257: same projection policy as the written key
+                # signature — a concert +7 key spells against written
+                # -4 (enharmonic fold), matching the printed signature.
+                fifths = horn_f.written_fifths(fifths)
             m21_note.pitch = pitch.Pitch(
                 spell_name(_pitch_midi(m.note_, presentation), fifths)
             )

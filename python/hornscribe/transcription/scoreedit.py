@@ -471,6 +471,53 @@ def _find_note(part: Part, note_id: ScoreNoteId) -> int:
     raise ScoreEditError(f"note {note_id} not found in the score")
 
 
+def _next_in_layer(
+    part: Part,
+    note_index: int,
+) -> int | None:
+    """Index of the next note in the selected note's notation layer (#260).
+
+    Merge/tie are temporal operations on one voice: the partner is the
+    first note of the NEXT onset group on the same layer — never a
+    chord mate (same onset, same layer) and never a note on another
+    layer. Raw ``notes[i + 1]`` adjacency breaks the moment a chord
+    member or secondary voice sits between the two notes.
+    """
+    notes = part.notes
+    sel = notes[note_index]
+    layers = note_layers(notes)
+    sel_layer = layers.get(sel.id, 0)
+    # Earliest onset strictly after the selection's onset, on the same
+    # layer. Chord mates share sel.start_beat and are excluded by the
+    # strict comparison.
+    next_start = min(
+        (
+            n.start_beat
+            for n in notes
+            if n.id != sel.id
+            and layers.get(n.id, 0) == sel_layer
+            and n.start_beat > sel.start_beat
+        ),
+        default=None,
+    )
+    if next_start is None:
+        return None
+    for i, n in enumerate(notes):
+        if (
+            n.start_beat == next_start
+            and layers.get(n.id, 0) == sel_layer
+            and n.pitch_midi == sel.pitch_midi
+        ):
+            return i
+    # The next onset group on this layer has no same-pitch note — the
+    # caller reports the usual same-pitch error (we never skip ahead
+    # to a later onset; that would jump over intervening material).
+    for i, n in enumerate(notes):
+        if n.start_beat == next_start and layers.get(n.id, 0) == sel_layer:
+            return i
+    return None
+
+
 def _clip_overlaps(
     notes: list[QuantizedNote],
     *,
@@ -855,10 +902,11 @@ def _apply_merge(
     """
     part = payload.parts[part_index]
     notes = list(part.notes)
-    if note_index + 1 >= len(notes):
-        raise ScoreEditError("there is no next note to merge with")
     cur = notes[note_index]
-    nxt = notes[note_index + 1]
+    next_index = _next_in_layer(part, note_index)
+    if next_index is None:
+        raise ScoreEditError("there is no next note to merge with")
+    nxt = notes[next_index]
     if cur.pitch_midi != nxt.pitch_midi:
         raise ScoreEditError("a merge needs the same pitch on both notes")
     if cur.end_beat != nxt.start_beat:
@@ -873,7 +921,13 @@ def _apply_merge(
         tie_start=nxt.tie_start,
         atoms=(),
     )
-    notes[note_index : note_index + 2] = [merged]
+    # The layer partner is not necessarily adjacent in storage order —
+    # remove it by index first (it always sits after cur in time, but
+    # not necessarily after cur in the array).
+    del notes[next_index]
+    if next_index < note_index:
+        note_index -= 1
+    notes[note_index] = merged
     return _retile_part(payload, part, notes, cur.start_beat, nxt.end_beat)
 
 
@@ -885,14 +939,15 @@ def _apply_tie_toggle(
     """Flip the tie between a note and the contiguous next same-pitch note."""
     part = payload.parts[part_index]
     notes = list(part.notes)
-    if note_index + 1 >= len(notes):
-        raise ScoreEditError("there is no next note to tie to")
     cur = notes[note_index]
-    nxt = notes[note_index + 1]
+    next_index = _next_in_layer(part, note_index)
+    if next_index is None:
+        raise ScoreEditError("there is no next note to tie to")
+    nxt = notes[next_index]
     tied = cur.tie_start and nxt.tie_stop
     if tied:
         notes[note_index] = replace(cur, tie_start=False)
-        notes[note_index + 1] = replace(nxt, tie_stop=False)
+        notes[next_index] = replace(nxt, tie_stop=False)
         return replace(part, notes=tuple(notes))
     if cur.pitch_midi != nxt.pitch_midi:
         raise ScoreEditError("a tie needs the same pitch on both notes")
@@ -902,7 +957,7 @@ def _apply_tie_toggle(
             "where this one ends)"
         )
     notes[note_index] = replace(cur, tie_start=True)
-    notes[note_index + 1] = replace(nxt, tie_stop=True)
+    notes[next_index] = replace(nxt, tie_stop=True)
     return replace(part, notes=tuple(notes))
 
 

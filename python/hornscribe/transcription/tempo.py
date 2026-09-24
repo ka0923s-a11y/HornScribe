@@ -225,22 +225,51 @@ def tempo_map_from_estimate(
     )
     beat_unit = meter.beat_unit_ql
     times = estimate.beat_times_sec
-    # Instantaneous tempo between consecutive anchors, keyed to the
-    # *segment start's* ql position (anchor i -> i*beat_unit after the
-    # alignment shift, recovered through the warp's beat map).
-    segments: list[TempoSegment] = []
     beat_ql = Fraction(4, meter.denominator)
-    last_bpm: float | None = None
+    # #248: aggregate instantaneous tempo per MEASURE before emitting —
+    # beat-tracker jitter inside a measure is not a tempo change. The
+    # pickup measure is index 0 (span [0, pickup)); full measures tile
+    # from pickup_ql, matching the measure_starts layout in pipeline.py.
+    measure_len_ql = meter.measure_length_ql
+    # MeterSegment.measure_index already implements the pickup-aware
+    # layout (phase -> the short first measure is index 0). When the
+    # caller passed a phase-less meter but the estimate carries a
+    # pickup, derive the phase from it so bucketing still matches the
+    # score's measure grid.
+    phase_ql = meter.measure_phase_ql
+    if not phase_ql and estimate.pickup_len_ql:
+        phase_ql = (measure_len_ql - estimate.pickup_len_ql) % measure_len_ql
+
+    def measure_index(pos_ql: Fraction) -> int:
+        return int((pos_ql - meter.start_ql + phase_ql) // measure_len_ql)
+
+    def measure_start_beats(index: int) -> Fraction:
+        ql = meter.start_ql + index * measure_len_ql - phase_ql
+        return max(Fraction(0), ql) / beat_ql
+
+    # Instantaneous tempo between consecutive anchors, bucketed by the
+    # measure containing the interval's start anchor (ql positions come
+    # from the warp's beat map, which already carries the pickup shift).
+    measure_bpms: dict[int, list[float]] = {}
     for i in range(len(times) - 1):
         dt = times[i + 1] - times[i]
         if dt <= 0:
             continue
         bpm = float(pulse_unit) * 60.0 / (dt * float(beat_unit))
         pos_ql = estimate.warp.seconds_to_ql(times[i])
-        pos_beats = pos_ql / beat_ql
+        measure_bpms.setdefault(measure_index(pos_ql), []).append(bpm)
+    # One robust value per measure (median rejects single-beat jitter);
+    # a segment is emitted only when the measure's tempo differs from
+    # the last EMITTED value by more than the merge ratio — a genuine
+    # rit./accel. survives as a stair-step across measure boundaries.
+    segments: list[TempoSegment] = []
+    last_bpm: float | None = None
+    for index in sorted(measure_bpms):
+        values = sorted(measure_bpms[index])
+        bpm = values[len(values) // 2]
         if last_bpm is None or abs(bpm - last_bpm) / last_bpm > _TEMPO_MERGE_RATIO:
             segments.append(
-                TempoSegment(start_beat=pos_beats, bpm=round(bpm, 2))
+                TempoSegment(start_beat=measure_start_beats(index), bpm=round(bpm, 2))
             )
             last_bpm = bpm
     if not segments or segments[0].start_beat != 0:

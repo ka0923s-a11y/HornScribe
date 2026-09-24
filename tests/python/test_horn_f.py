@@ -66,11 +66,33 @@ def test_key_signature_mode_preserved() -> None:
     assert written.mode == "minor"
 
 
-def test_key_signature_bounds() -> None:
-    with pytest.raises(ValueError):
-        horn_f.written_key_signature(KeySignature(fifths=7))  # 8 sharps invalid
-    with pytest.raises(ValueError):
-        horn_f.concert_key_signature(KeySignature(fifths=-7))  # 8 flats invalid
+def test_written_key_signature_folds_enharmonically() -> None:
+    """#257: concert +7 (C# major) -> written +8 is not a valid signature;
+    it folds to -4 (Ab major) — same sounding pitch, readable key."""
+    written = horn_f.written_key_signature(KeySignature(fifths=7, mode="major"))
+    assert written.fifths == -4
+    assert written.mode == "major"
+    # The inverse fold: written Cb major (-7) -> concert +4 (E major).
+    concert = horn_f.concert_key_signature(KeySignature(fifths=-7, mode="minor"))
+    assert concert.fifths == 4
+    assert concert.mode == "minor"
+
+
+def test_written_fifths_matches_key_signature_projection() -> None:
+    """The spelling helper and the signature helper share one policy."""
+    for concert_fifths in range(-7, 8):
+        ks = horn_f.written_key_signature(
+            KeySignature(fifths=concert_fifths, mode="major")
+        )
+        assert ks.fifths == horn_f.written_fifths(concert_fifths)
+        assert -7 <= ks.fifths <= 7
+
+
+def test_key_signature_roundtrip_in_range() -> None:
+    for concert_fifths in range(-7, 7):
+        concert = KeySignature(fifths=concert_fifths, mode="major")
+        written = horn_f.written_key_signature(concert)
+        assert horn_f.concert_key_signature(written) == concert
 
 
 # --- note / part projection ---------------------------------------------------

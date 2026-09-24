@@ -165,6 +165,37 @@ def test_key_changes_emit_per_measure_signatures() -> None:
     assert horn_fifths == [1, -4]
 
 
+def test_horn_export_concert_plus_seven_folds_to_readable_key() -> None:
+    """#257: concert C# major (+7) must not crash the horn export — the
+    written signature folds enharmonically to Ab major (-4) and the
+    sounding pitch still round-trips through <transpose>."""
+    score = make_score([(61, 0, 4), (66, 4, 4), (68, 8, 4)], fifths=7)
+    xml = export_horn_in_f_musicxml(score)
+    assert _fifths(xml) == -4
+    # Written pitch = concert +7 semitones; C#4 (61) -> G#4 (68).
+    written = [n.written_midi for n in _pitched(xml)]
+    assert written == [68, 73, 75]
+
+
+def test_horn_export_mid_piece_plus_seven_key_change() -> None:
+    """#257: a modulation INTO +7 mid-piece folds the same way —
+    signature and note spelling stay on the normalized written key."""
+    score = make_score([(60, 0, 4), (61, 4, 4)], fifths=0)
+    changes = (
+        KeyChange(Fraction(0), KeySignature(0, "major")),
+        KeyChange(Fraction(4), KeySignature(7, "major")),
+    )
+    score = replace(
+        score, payload=replace(score.payload, key_changes=changes)
+    )
+    horn = _root(export_horn_in_f_musicxml(score))
+    horn_fifths = [
+        int(el.text)
+        for el in horn.iter("fifths")
+        if el.text is not None
+    ]
+    assert horn_fifths == [1, -4]
+
 # --- identity ------------------------------------------------------------------
 
 

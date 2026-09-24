@@ -455,6 +455,115 @@ class TestSplitMerge:
         assert notes[0].duration_beats == Fraction(1)
 
 
+class TestLayerAwareMergeTie:
+    """#260: merge/tie resolve the partner by notation layer + temporal
+    adjacency — a chord mate in storage order is never the partner."""
+
+    @staticmethod
+    def _chord_doc() -> ScoreDocument:
+        # Two C+E chords a beat apart; storage order interleaves the
+        # members so notes[i+1] is the chord mate, not the next onset.
+        return _doc(
+            [
+                _note(1, 60, "0", "1"),  # C4 chord 1
+                _note(2, 64, "0", "1"),  # E4 chord 1
+                _note(3, 60, "1", "1"),  # C4 chord 2
+                _note(4, 64, "1", "1"),  # E4 chord 2
+            ]
+        )
+
+    def test_tie_inside_chord_picks_same_pitch_next_onset(self) -> None:
+        doc = self._chord_doc()
+        out = apply_score_edit(doc, _edit("toggleTie", "sn-000001"))
+        notes = {n.id: n for n in out.payload.parts[0].notes}
+        assert notes[ScoreNoteId("sn-000001")].tie_start is True
+        assert notes[ScoreNoteId("sn-000003")].tie_stop is True
+        # The chord mate is untouched.
+        assert notes[ScoreNoteId("sn-000002")].tie_stop is False
+        assert notes[ScoreNoteId("sn-000002")].tie_start is False
+
+    def test_tie_upper_chord_member(self) -> None:
+        doc = self._chord_doc()
+        out = apply_score_edit(doc, _edit("toggleTie", "sn-000002"))
+        notes = {n.id: n for n in out.payload.parts[0].notes}
+        assert notes[ScoreNoteId("sn-000002")].tie_start is True
+        assert notes[ScoreNoteId("sn-000004")].tie_stop is True
+
+    def test_merge_inside_chord_picks_same_pitch_next_onset(self) -> None:
+        doc = self._chord_doc()
+        out = apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+        notes = out.payload.parts[0].notes
+        ids = [n.id for n in notes]
+        assert ScoreNoteId("sn-000003") not in ids
+        merged = next(n for n in notes if n.id == ScoreNoteId("sn-000001"))
+        assert merged.duration_beats == Fraction(2)
+        assert merged.source_event_ids == (
+            RawNoteEventId("rne-000001"),
+            RawNoteEventId("rne-000003"),
+        )
+        # The E4 chord members survive untouched.
+        assert ScoreNoteId("sn-000002") in ids
+        assert ScoreNoteId("sn-000004") in ids
+
+    def test_merge_never_skips_intervening_onset(self) -> None:
+        """A different-pitch note at the next onset blocks the merge —
+        we never jump ahead to a later same-pitch note."""
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 62, "1", "1"),  # next onset, different pitch
+                _note(3, 60, "2", "1"),  # same pitch but NOT next onset
+            ]
+        )
+        with pytest.raises(ScoreEditError, match="same pitch"):
+            apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+
+    def test_merge_non_contiguous_next_onset_rejected(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 64, "0", "1"),  # chord mate
+                _note(3, 60, "3", "1"),  # same pitch, not contiguous
+            ]
+        )
+        with pytest.raises(ScoreEditError, match="contiguous"):
+            apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+
+    def test_tie_secondary_voice_partner(self) -> None:
+        """An overlapping (non-chord) note gets its own layer; the
+        partner lookup stays inside the selected note's layer."""
+        doc = _doc(
+            [
+                _note(1, 60, "0", "2"),  # half note, layer 0
+                _note(2, 64, "0", "1"),  # quarter, layer 1
+                _note(3, 60, "2", "1"),  # layer 0 again
+                _note(4, 64, "1", "1"),  # layer 1
+            ]
+        )
+        out = apply_score_edit(doc, _edit("toggleTie", "sn-000001"))
+        notes = {n.id: n for n in out.payload.parts[0].notes}
+        assert notes[ScoreNoteId("sn-000001")].tie_start is True
+        assert notes[ScoreNoteId("sn-000003")].tie_stop is True
+        # Layer 1 (the 64s) is untouched.
+        assert notes[ScoreNoteId("sn-000002")].tie_start is False
+        assert notes[ScoreNoteId("sn-000004")].tie_stop is False
+
+    def test_merge_secondary_voice_partner(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "2"),
+                _note(2, 64, "0", "1"),
+                _note(3, 60, "2", "1"),
+                _note(4, 64, "1", "1"),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+        notes = out.payload.parts[0].notes
+        ids = [n.id for n in notes]
+        assert ScoreNoteId("sn-000003") not in ids
+        merged = next(n for n in notes if n.id == ScoreNoteId("sn-000001"))
+        assert merged.duration_beats == Fraction(3)
+
 class TestRequantize:
     def test_ids_preserved_positionally(self) -> None:
         doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])

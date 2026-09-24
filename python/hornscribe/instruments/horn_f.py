@@ -60,22 +60,51 @@ def written_to_concert_midi(pitch_midi: int) -> int:
 # --- key signature projection -------------------------------------------------
 
 
+def _fold_fifths(fifths: int) -> int:
+    """Fold a fifths value into the valid [-7, +7] key-signature range.
+
+    Adding 12 fifths respells the key enharmonically (C# major +7 <->
+    Db major -5): the sounding pitch collection is identical, only the
+    printed signature changes. Used when the +P5 projection would
+    leave the valid range (concert +7 -> written +8 folds to -4, i.e.
+    C# major sounds on Horn in F as written Ab major).
+    """
+    folded = fifths
+    while folded > 7:
+        folded -= 12
+    while folded < -7:
+        folded += 12
+    return folded
+
+
+def written_fifths(concert_fifths: int) -> int:
+    """Concert fifths -> Horn in F written fifths (+1, enharmonically folded).
+
+    The single projection policy for written-key spelling (#257): key
+    signatures and note spelling must agree, so both go through this
+    helper instead of a bare ``+1``.
+    """
+    return _fold_fifths(concert_fifths + 1)
+
+
 def written_key_signature(key: KeySignature) -> KeySignature:
     """Concert key signature -> Horn in F written key signature (+1 fifth).
 
     C major (0) -> G major (+1), F major (-1) -> C major (0),
-    Bb major (-2) -> F major (-1). Mode is preserved.
+    Bb major (-2) -> F major (-1). Mode is preserved. A concert key
+    of +7 (C# major / A# minor) projects to +8, which is not a valid
+    signature — it folds enharmonically to -4 (Ab major), keeping the
+    sounding pitch identical (#257).
     """
-    if key.fifths + 1 > 7:
-        raise ValueError(f"written key would exceed 7 sharps: {key.fifths=} + 1")
-    return replace(key, fifths=key.fifths + 1)
+    return replace(key, fifths=written_fifths(key.fifths))
 
 
 def concert_key_signature(key: KeySignature) -> KeySignature:
     """Horn in F written key signature -> concert key signature (-1 fifth)."""
-    if key.fifths - 1 < -7:
-        raise ValueError(f"concert key would exceed 7 flats: {key.fifths=} - 1")
-    return replace(key, fifths=key.fifths - 1)
+    # A written key of -7 (Cb major / Ab minor) projects to -8, which
+    # folds enharmonically to +4 (E major) — the inverse of the
+    # written projection's fold (#257).
+    return replace(key, fifths=_fold_fifths(key.fifths - 1))
 
 
 # --- note / part projection ----------------------------------------------------
