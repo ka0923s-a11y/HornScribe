@@ -950,3 +950,40 @@ class TestPipeline:
         # The split is reported, not silent.
         reasons = {i["reason"] for i in result["reviewIssues"]}
         assert "overlapping_candidates" in reasons
+
+    def test_voices_texture_keeps_three_parts(self, tmp_path: Path) -> None:
+        # #85: a triad texture — melody + mid + bass — becomes a
+        # three-part score; nothing past three voices is silently
+        # dropped (droppedBeyondVoices stays 0 here).
+        events: list[RawNoteEvent] = []
+        for i in range(8):
+            for lane, pitch in enumerate((76.0, 64.0, 48.0)):
+                events.append(
+                    RawNoteEvent(
+                        id=RawNoteEventId(f"rne-{i * 3 + lane + 1:06d}"),
+                        transcription_revision=_REV,
+                        pitch_midi=pitch,
+                        onset_sec=i * 0.5 + lane * 0.05,
+                        offset_sec=i * 0.5 + 0.45,
+                        confidence=0.9,
+                    )
+                )
+        log = run(tmp_path, tuple(events), {"texture": "voices"})
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        parts = result["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 3
+        assert [p["name"] for p in parts] == [
+            "Horn in F",
+            "Horn in F (2nd voice)",
+            "Horn in F (voice 3)",
+        ]
+        ids = [n["id"] for p in parts for n in p["notes"]]
+        assert len(ids) == len(set(ids))
+        assert result["musicXmlConcert"].count("<part ") == 3
+        overlap = [
+            i for i in result["reviewIssues"]
+            if i["reason"] == "overlapping_candidates"
+        ]
+        assert overlap
+        assert overlap[0]["evidence"]["voiceCounts"][0] > 0

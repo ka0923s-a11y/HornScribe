@@ -166,7 +166,9 @@ function inspectorCopy(): InspectorCopy {
         // evidence — "kept N notes as a second voice, dropped M beyond
         // two voices" — instead of the generic overlap copy.
         if (issue.reason === "overlapping_candidates") {
-          const second = numEvidence(issue, "secondVoiceNotes");
+          const second =
+            numEvidence(issue, "extraVoiceNotes") ??
+            numEvidence(issue, "secondVoiceNotes");
           const dropped = numEvidence(issue, "droppedBeyondVoices");
           if (second != null || dropped != null) {
             return ja.reviewEvidence.secondVoice(second ?? 0, dropped ?? 0);

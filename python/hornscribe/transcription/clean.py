@@ -240,14 +240,15 @@ def _is_harmonic_ghost(prev: RawNoteEvent, ev: RawNoteEvent) -> bool:
 
 @dataclass(frozen=True)
 class VoiceSplit:
-    """Two monophonic streams partitioned from polyphonic input (#85).
+    """Monophonic streams partitioned from polyphonic input (#85).
 
     voices[0] is the upper line (assigned first / higher pitch at a
-    shared onset), voices[1] the lower line.
+    shared onset); the rest descend by median pitch. Length equals
+    max_voices — trailing voices may be empty.
     """
 
-    voices: tuple[tuple[RawNoteEvent, ...], tuple[RawNoteEvent, ...]]
-    """(upper, lower) — each internally monophonic."""
+    voices: tuple[tuple[RawNoteEvent, ...], ...]
+    """Highest-to-lowest lines — each internally monophonic."""
     dropped_too_short: int
     merged: int
     ghost_dropped: int
@@ -320,10 +321,10 @@ def split_voices(
         if not placed:
             beyond += 1
     voices.sort(key=_voice_median_pitch, reverse=True)
-    while len(voices) < 2:
+    while len(voices) < max_voices:
         voices.append([])
     return VoiceSplit(
-        voices=(tuple(voices[0]), tuple(voices[1])),
+        voices=tuple(tuple(v) for v in voices[:max_voices]),
         dropped_too_short=dropped,
         merged=merged,
         ghost_dropped=ghosts,

@@ -323,13 +323,17 @@ def run_transcription_job(
         prefer = "top" if params.texture == "melody" else "onset"
         voice_split = None
         if params.texture == "voices":
-            # #85: keep up to two detected lines as separate parts.
-            voice_split = split_voices(ranged)
+            # #85: keep up to three detected lines as separate parts —
+            # a triad survives as three voices instead of dropping the
+            # lowest note.
+            voice_split = split_voices(ranged, max_voices=3)
             cleaned = clean_monophonic(voice_split.voices[0])
-            cleaned_lower = clean_monophonic(voice_split.voices[1])
+            cleaned_lowers = [
+                clean_monophonic(v) for v in voice_split.voices[1:]
+            ]
         else:
             cleaned = clean_monophonic(ranged, prefer=prefer)
-            cleaned_lower = None
+            cleaned_lowers = []
         if params.texture == "auto" and cleaned.events:
             overlap_ratio = cleaned.polyphonic_overlaps / len(cleaned.events)
             if (
@@ -421,15 +425,19 @@ def run_transcription_job(
         # #85 (voices texture): the second voice quantizes against the
         # SAME tempo/meter map AND the same alignment shift — separate
         # searches would let the parts drift against each other.
-        lower_alternatives = None
-        if cleaned_lower and cleaned_lower.events:
-            lower_alternatives = quantize_events(
+        lower_alternatives = []
+        for cleaned_lower in cleaned_lowers:
+            if not cleaned_lower.events:
+                continue
+            alts = quantize_events(
                 cleaned_lower.events,
                 estimate.warp,
                 meter_map,
                 profile,
                 alignment_shift_sec=best.diagnostics.alignment_shift_sec,
             )
+            if alts:
+                lower_alternatives.append(alts)
         if stop(4):
             return
 
@@ -438,7 +446,7 @@ def run_transcription_job(
         event_by_id: dict[RawNoteEventId, RawNoteEvent] = {
             e.id: e for e in cleaned.events
         }
-        if cleaned_lower:
+        for cleaned_lower in cleaned_lowers:
             for e in cleaned_lower.events:
                 event_by_id.setdefault(e.id, e)
         key_pitches: list[int] = []
@@ -489,7 +497,7 @@ def run_transcription_job(
             source_audio_hash=audio_hash,
             settings=params.settings_dict(),
             extra_voices=(
-                (lower_alternatives[0],) if lower_alternatives else ()
+                tuple(alts[0] for alts in lower_alternatives)
             ),
             key_changes=key_changes,
         )
@@ -545,8 +553,8 @@ def run_transcription_job(
             # #85 voices texture: overlaps were kept as a second part —
             # report what the split saw (second-voice note count + notes
             # beyond two voices that had to be dropped).
-            second_count = len(voice_split.voices[1])
-            if second_count or voice_split.dropped_beyond_voices:
+            extra_counts = [len(v) for v in voice_split.voices[1:]]
+            if any(extra_counts) or voice_split.dropped_beyond_voices:
                 issues.append(
                     ReviewIssue(
                         id="",
@@ -558,9 +566,13 @@ def run_transcription_job(
                         reason=ReviewReason.OVERLAPPING_CANDIDATES,
                         severity=Severity.CAUTION,
                         evidence={
-                            "secondVoiceNotes": second_count,
+                            "secondVoiceNotes": extra_counts[0],
+                            "extraVoiceNotes": sum(extra_counts),
+                            "voiceCounts": [
+                                len(voice_split.voices[0])
+                            ] + extra_counts,
                             "droppedBeyondVoices": voice_split.dropped_beyond_voices,
-                            "note": "overlapping pitches were kept as a second part",
+                            "note": "overlapping pitches were kept as extra parts",
                         },
                     )
                 )
