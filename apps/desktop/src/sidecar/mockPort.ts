@@ -111,7 +111,9 @@ export class MockSidecarPort implements SidecarPort {
   closeStdin(): void {
     // stdin EOF → implicit graceful shutdown: cancel the active job
     // cooperatively (its terminal event still goes out), then exit 0.
-    if (!this.alive) return;
+    // A wedged dispatch loop never reads stdin — the EOF goes
+    // unnoticed, exactly like the real worker's debug.hang (#233).
+    if (!this.alive || this.wedged) return;
     const job = this.job;
     if (job && !job.done) {
       job.cancelled = true;
@@ -138,6 +140,18 @@ export class MockSidecarPort implements SidecarPort {
   /** Wedge the dispatch loop: inbound frames are ignored, no frames out. */
   simulateHang(): void {
     this.wedged = true;
+    const job = this.job;
+    if (job?.timer) {
+      clearTimeout(job.timer);
+      job.timer = null;
+    }
+  }
+
+  /** #233: model blocking ML inference — the dispatch loop still
+   *  answers requests (job.cancel gets its ack), but the job thread is
+   *  inside a non-interruptible call and never reaches the cancel
+   *  checkpoint, so no terminal event ever arrives. */
+  simulateBlockingInference(): void {
     const job = this.job;
     if (job?.timer) {
       clearTimeout(job.timer);

@@ -104,16 +104,24 @@ export interface TranscriptionSessionOptions {
   clientOptions?: SidecarClientOptions;
   /** Max retained diagnostic lines. */
   diagnosticLogLimit?: number;
+  /** #233: grace between the cooperative job.cancel ack and the
+   *  terminate+restart fallback. Blocking inference cannot answer
+   *  mid-call, so a terminal event that never arrives within this
+   *  window escalates to killing the worker and respawning a fresh
+   *  engine. */
+  cancelGraceMs?: number;
   /** Wall clock — injectable for tests. */
   now?: () => number;
 }
 
 const DEFAULT_DIAGNOSTIC_LIMIT = 80;
+const DEFAULT_CANCEL_GRACE_MS = 4_000;
 
 export class TranscriptionSession {
   private readonly portFactory: () => SidecarPort;
   private readonly clientOptions?: SidecarClientOptions;
   private readonly logLimit: number;
+  private readonly cancelGraceMs: number;
   private readonly now: () => number;
   private client: SidecarClient | null = null;
   private readonly listeners = new Set<Listener>();
@@ -133,6 +141,7 @@ export class TranscriptionSession {
     this.portFactory = opts.portFactory;
     this.clientOptions = opts.clientOptions;
     this.logLimit = opts.diagnosticLogLimit ?? DEFAULT_DIAGNOSTIC_LIMIT;
+    this.cancelGraceMs = opts.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS;
     this.now = opts.now ?? (() => Date.now());
   }
 
@@ -161,8 +170,15 @@ export class TranscriptionSession {
 
   private buildClient(): SidecarClient {
     const client = new SidecarClient(this.portFactory(), this.clientOptions);
-    client.onJobEvent((e) => this.onJobEvent(e));
-    client.onStateChange((s) => this.onClientState(s));
+    // #233: only the CURRENT client may move the session — a replaced
+    // worker's late exit/state frames must not downgrade the fresh
+    // engine or rewrite the settled job view.
+    client.onJobEvent((e) => {
+      if (this.client === client) this.onJobEvent(e);
+    });
+    client.onStateChange((s) => {
+      if (this.client === client) this.onClientState(s);
+    });
     client.onDiagnostic((l) => this.log(l));
     return client;
   }
@@ -204,7 +220,10 @@ export class TranscriptionSession {
     const old = this.client;
     this.client = null;
     if (old) {
-      old.shutdown(800).catch(() => undefined);
+      // #233: await the teardown — shutdown() now kills the worker when
+      // the graceful path times out, and the respawn must not race a
+      // still-living process (ENGINE_ALREADY_RUNNING).
+      await old.shutdown(800).catch(() => undefined);
     }
     this.update({ engine: "starting", failure: null });
     const client = this.buildClient();
@@ -385,6 +404,45 @@ export class TranscriptionSession {
         this.update({ job: { ...current, phase: "running" } });
       }
       throw e;
+    }
+    // #233: cooperative cancel is a checkpoint poll — a job inside
+    // blocking inference (Basic Pitch / pYIN) cannot check the flag
+    // until the call returns, so the terminal event may never arrive
+    // within a reasonable window. After the grace period, escalate to
+    // the documented terminate+restart fallback: mark the job cancelled
+    // (before the kill so the exit path cannot label it a crash), kill
+    // the worker, and respawn a fresh engine. Audio, prior scores, and
+    // project state all live outside the worker and are untouched.
+    const graceDeadline = Date.now() + this.cancelGraceMs;
+    while (
+      this.snap.job?.jobId === job.jobId &&
+      !isSettled(this.snap.job) &&
+      Date.now() < graceDeadline
+    ) {
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    const afterGrace = this.snap.job;
+    if (
+      afterGrace &&
+      afterGrace.jobId === job.jobId &&
+      !isSettled(afterGrace) &&
+      this.client === client
+    ) {
+      this.log(
+        `cancel grace ${this.cancelGraceMs}ms elapsed — terminating worker`,
+      );
+      this.update({
+        job: { ...afterGrace, phase: "cancelled" },
+      });
+      const dying = this.client;
+      this.client = null;
+      if (dying) await dying.terminate();
+      try {
+        await this.restartEngine();
+      } catch {
+        // Restart failure is already surfaced via engine/failure state;
+        // the job itself stays honestly cancelled.
+      }
     }
   }
 

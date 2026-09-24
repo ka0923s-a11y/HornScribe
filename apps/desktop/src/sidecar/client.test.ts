@@ -311,7 +311,7 @@ describe("malformed-frame containment (worker contract)", () => {
     expect(errs.some((l) => l.includes("ignoring inbound"))).toBe(true);
   });
 
-  it("client routes the null-id error response to diagnostics, not a request", async () => {
+ it("client routes the null-id error response to diagnostics, not a request", async () => {
     const { port, client, diags } = connect();
     await client.start();
     // Garbage INTO the port → mock answers MALFORMED_MESSAGE with id:null
@@ -321,5 +321,36 @@ describe("malformed-frame containment (worker contract)", () => {
     await until(() => diags.some((l) => l.includes("null-id error response")));
     const pong = await client.ping("ok");
     expect(pong.echo).toBe("ok");
+  });
+
+  // #233: the terminate/restart fallback — the pieces the session
+  // escalates to when graceful paths cannot reach the worker.
+  it("shutdown() kills the worker when the graceful path times out", async () => {
+    const { port, client } = connect();
+    await client.start();
+    let exitCode: number | null | undefined;
+    port.onExit((c) => {
+      exitCode = c;
+    });
+    port.simulateHang(); // wedged dispatch: no shutdown ack, no stdin EOF
+    await client.shutdown(120);
+    expect(client.getState()).toBe("closed");
+    // The port really died — the process exited, not merely marked
+    // closed on our side — so a respawn cannot hit
+    // ENGINE_ALREADY_RUNNING.
+    expect(exitCode).not.toBeUndefined();
+  });
+
+  it("terminate() kills immediately and rejects pending requests", async () => {
+    const { port, client } = connect();
+    await client.start();
+    port.simulateHang(); // wedge first so the ping stays in flight
+    const pending = client.ping("late").then(
+      () => "resolved",
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    );
+    await client.terminate();
+    expect(client.getState()).toBe("closed");
+    await expect(pending).resolves.toMatch(/terminated|shut down|not ready/i);
   });
 });

@@ -244,8 +244,55 @@ export class SidecarClient {
     ) {
       await new Promise((r) => setTimeout(r, 15));
     }
+    // #233: a wedged dispatch loop sees neither the shutdown request nor
+    // the stdin EOF — kill the process so the supervisor slot is freed.
+    // Without this a respawn races the zombie and hits
+    // ENGINE_ALREADY_RUNNING.
+    if (this.getState() !== "closed" && this.getState() !== "crashed") {
+      this.diagnose("graceful shutdown timed out — killing worker");
+      try {
+        this.port.kill();
+      } catch {
+        /* port already dead */
+      }
+      const killDeadline = Date.now() + 1_000;
+      while (
+        this.getState() !== "closed" &&
+        this.getState() !== "crashed" &&
+        Date.now() < killDeadline
+      ) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    }
     this.clearWatchdog();
     this.rejectAllPending(new SidecarError(ERR.ENGINE_NOT_READY, "client shut down"));
+    this.setState("closed");
+  }
+
+  /** Immediate terminate — skips the graceful request entirely (the
+   *  cancel-escalation path: the worker is mid-inference and cannot
+   *  answer anyway). Waits briefly for the exit event so a respawn does
+   *  not race the dying process. */
+  async terminate(): Promise<void> {
+    if (this.state === "closed" || this.state === "crashed") return;
+    this.shutdownRequested = true;
+    this.clearWatchdog();
+    try {
+      this.port.kill();
+    } catch {
+      /* port already dead */
+    }
+    const deadline = Date.now() + 1_000;
+    while (
+      this.getState() !== "closed" &&
+      this.getState() !== "crashed" &&
+      Date.now() < deadline
+    ) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    this.rejectAllPending(
+      new SidecarError(ERR.ENGINE_NOT_READY, "worker terminated"),
+    );
     this.setState("closed");
   }
 

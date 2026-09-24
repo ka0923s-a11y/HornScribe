@@ -305,7 +305,7 @@ describe("TranscriptionSession", () => {
     await session.dispose();
   });
 
-  it("a job.start that gets no response fails honestly (no stuck screen)", async () => {
+ it("a job.start that gets no response fails honestly (no stuck screen)", async () => {
     const { session, port } = makeSession();
     // Warm the engine to ready, then wedge it before the next start so
     // job.start itself times out — the screen must land on the failure
@@ -320,6 +320,83 @@ describe("TranscriptionSession", () => {
     const s = session.getSnapshot();
     expect(s.failure?.kind).toBe("transcriptionFailed");
     expect(s.job).toBeNull();
+    await session.dispose();
+  });
+
+  // #233: terminate+restart fallback for non-interruptible inference.
+  it("cancel during blocking inference escalates to terminate+restart", async () => {
+    const ports: MockSidecarPort[] = [];
+    const session = new TranscriptionSession({
+      portFactory: () => {
+        const p = new MockSidecarPort();
+        ports.push(p);
+        return p;
+      },
+      clientOptions: {
+        requestTimeoutMs: 250,
+        handshakeTimeoutMs: 500,
+        watchdogMs: 60_000, // keep the watchdog out of this scenario
+        pingTimeoutMs: 30,
+      },
+      cancelGraceMs: 60,
+    });
+    await session.startTranscription({ steps: 100, stepDurationMs: 5 });
+    await until(() => (session.getSnapshot().job?.progress ?? 0) > 0);
+    // The job is now inside a non-interruptible call: job.cancel gets
+    // its ack, but no terminal event can arrive.
+    ports[0].simulateBlockingInference();
+    await session.cancelTranscription();
+    const s = session.getSnapshot();
+    // The user asked to cancel — the job ends honestly 'cancelled',
+    // never 'failed', and the engine is a fresh worker.
+    expect(s.job?.phase).toBe("cancelled");
+    expect(s.failure).toBeNull();
+    expect(s.engine).toBe("ready");
+    expect(ports.length).toBe(2); // the wedged worker was replaced
+    await session.dispose();
+  });
+
+  it("cooperative cancel within the grace period never kills the worker", async () => {
+    let spawns = 0;
+    const session = new TranscriptionSession({
+      portFactory: () => {
+        spawns += 1;
+        return new MockSidecarPort();
+      },
+      clientOptions: { requestTimeoutMs: 250, handshakeTimeoutMs: 500 },
+      cancelGraceMs: 500,
+    });
+    await session.startTranscription({ steps: 50, stepDurationMs: 4 });
+    await until(() => session.getSnapshot().job?.phase === "running");
+    await session.cancelTranscription();
+    const s = session.getSnapshot();
+    expect(s.job?.phase).toBe("cancelled");
+    expect(s.engine).toBe("ready");
+    expect(spawns).toBe(1); // same worker — no unnecessary kill
+    await session.dispose();
+  });
+
+  it("restartEngine kills a wedged worker whose graceful shutdown times out", async () => {
+    const ports: MockSidecarPort[] = [];
+    const session = new TranscriptionSession({
+      portFactory: () => {
+        const p = new MockSidecarPort();
+        ports.push(p);
+        return p;
+      },
+      clientOptions: { requestTimeoutMs: 120, handshakeTimeoutMs: 500 },
+    });
+    await session.startTranscription(FAST);
+    await until(() => session.getSnapshot().job?.phase === "completed");
+    session.clearJob();
+    ports[0].simulateHang();
+    // engine.shutdown + stdin EOF both go unnoticed by a wedged
+    // dispatch loop — shutdown(800) must fall back to kill() before
+    // the respawn, or the old process keeps the supervisor slot.
+    await session.restartEngine();
+    const s = session.getSnapshot();
+    expect(s.engine).toBe("ready");
+    expect(ports.length).toBe(2);
     await session.dispose();
   });
 });
