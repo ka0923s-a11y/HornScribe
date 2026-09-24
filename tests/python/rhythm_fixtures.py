@@ -227,7 +227,10 @@ def eighths_jitter80() -> RhythmFixture:
         jitter_range_ms=80.0,
         duration_ql=Fraction(2, 5),
         expected_durations_ql=[Fraction(1, 2)] * 11 + [Fraction(1, 2)],
-        expected_rest_spans_ql=(),
+        # The run ends mid-measure (last eighth ends at 6 QL inside a 4/4
+        # bar), so the realized score carries the designed trailing rest
+        # [6,8) — assemble_path_rests tiles every touched measure.
+        expected_rest_spans_ql=[(Fraction(6), Fraction(2))],
         expected_tuplet_groups=0,
         layer="jitter",
     )

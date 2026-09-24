@@ -144,7 +144,13 @@ def build_score(
             max((e.confidence for e in src_events if e.confidence is not None),
                 default=None)
         )
-        velocity = src_events[0].velocity if src_events else None
+        # Merged notes keep the strongest source velocity (mirrors the
+        # confidence max above): the first segment is not always the
+        # performed attack.
+        velocity = max(
+            (e.velocity for e in src_events if e.velocity is not None),
+            default=None,
+        )
         notes.append(
             QuantizedNote(
                 id=qn.canonical_note_id,

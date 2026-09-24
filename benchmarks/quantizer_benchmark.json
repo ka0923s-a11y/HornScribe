@@ -1,5 +1,5 @@
 {
-  "benchmark_wall_time_sec": 8.380304599995725,
+  "benchmark_wall_time_sec": 5.579234400065616,
   "corpus": {
     "fixture_count": 33,
     "names": [
@@ -37,18 +37,18 @@
       "horn_legato_overlap",
       "horn_phrase_gap"
     ],
-    "sha256": "0c986d9d291d5907be49c83dd20a7828b9814871b40d235f32d3da23093dbaac"
+    "sha256": "be6f0222236c28b105934026b73039cefa5bfb0e4720841722ac5e6a720e3531"
   },
   "environment": {
     "music21": "10.5.0",
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.12.10"
   },
-  "generated_at_utc": "2026-09-22T07:03:11Z",
+  "generated_at_utc": "2026-09-24T02:57:42Z",
   "git": {
-    "branch": "qnt-007-bench",
-    "commit": "b3740d46ffbfa59aa0e3ebf5764dc6d8f592f79f",
-    "dirty": false
+    "branch": "codex/fixture-rest-velocity",
+    "commit": "518a023ea23594c41a1f137ef201af19617bfd46",
+    "dirty": true
   },
   "issue": "QNT-007 (#21): quantizer benchmark + weights v1 freeze",
   "quantizer": {
@@ -87,7 +87,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 8.020002860575914e-05
+        "runtime_sec": 6.909994408488274e-05
       },
       "B1": {
         "metrics": {
@@ -118,7 +118,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00013780000153928995
+        "runtime_sec": 0.00012149999383836985
       },
       "B2": {
         "metrics": {
@@ -149,7 +149,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0005821000086143613
+        "runtime_sec": 0.0005278999451547861
       },
       "B3": {
         "metrics": {
@@ -180,7 +180,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.027548000100068748
+        "runtime_sec": 0.016929000033997
       },
       "B3-no-ioi": {
         "metrics": {
@@ -211,7 +211,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029035700019448996
+        "runtime_sec": 0.01852419995702803
       },
       "B4": {
         "metrics": {
@@ -242,7 +242,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.023506500059738755
+        "runtime_sec": 0.021971400012262166
       },
       "B4-no-ioi": {
         "metrics": {
@@ -273,7 +273,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.01860020007006824
+        "runtime_sec": 0.016307100071571767
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -304,7 +304,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.027005299925804138
+        "runtime_sec": 0.0219932000618428
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -335,7 +335,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.025796600035391748
+        "runtime_sec": 0.01925960008520633
       }
     },
     "barline_tie_44": {
@@ -368,7 +368,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00024309998843818903
+        "runtime_sec": 5.8200093917548656e-05
       },
       "B1": {
         "metrics": {
@@ -399,7 +399,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0001805999781936407
+        "runtime_sec": 9.049999061971903e-05
       },
       "B2": {
         "metrics": {
@@ -430,7 +430,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0011492000194266438
+        "runtime_sec": 0.0003703999100252986
       },
       "B3": {
         "metrics": {
@@ -461,7 +461,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03135369997471571
+        "runtime_sec": 0.01716589997522533
       },
       "B3-no-ioi": {
         "metrics": {
@@ -492,7 +492,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029187300009652972
+        "runtime_sec": 0.013269499992020428
       },
       "B4": {
         "metrics": {
@@ -523,7 +523,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.030859600054100156
+        "runtime_sec": 0.015868899994529784
       },
       "B4-no-ioi": {
         "metrics": {
@@ -554,7 +554,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.027496600057929754
+        "runtime_sec": 0.014041900052689016
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -585,7 +585,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029867200064472854
+        "runtime_sec": 0.013415999943390489
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -616,7 +616,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029486500076018274
+        "runtime_sec": 0.013961900025606155
       }
     },
     "binary_triplet_binary": {
@@ -649,7 +649,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00016679998952895403
+        "runtime_sec": 0.00014539994299411774
       },
       "B1": {
         "metrics": {
@@ -680,7 +680,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0002688000677153468
+        "runtime_sec": 0.00028410006780177355
       },
       "B2": {
         "metrics": {
@@ -711,7 +711,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0008935000514611602
+        "runtime_sec": 0.0008562000002712011
       },
       "B3": {
         "metrics": {
@@ -742,7 +742,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 1
         },
-        "runtime_sec": 0.06329239998012781
+        "runtime_sec": 0.04487610002979636
       },
       "B3-no-ioi": {
         "metrics": {
@@ -773,7 +773,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 1
         },
-        "runtime_sec": 0.052959199994802475
+        "runtime_sec": 0.04467190010473132
       },
       "B4": {
         "metrics": {
@@ -804,7 +804,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 1
         },
-        "runtime_sec": 0.054900099989026785
+        "runtime_sec": 0.04298529995139688
       },
       "B4-no-ioi": {
         "metrics": {
@@ -835,7 +835,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 1
         },
-        "runtime_sec": 0.0566176000284031
+        "runtime_sec": 0.03914300003089011
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -866,7 +866,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 1
         },
-        "runtime_sec": 0.05251519999001175
+        "runtime_sec": 0.044583600014448166
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -897,7 +897,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 1
         },
-        "runtime_sec": 0.06326179997995496
+        "runtime_sec": 0.045881600002758205
       }
     },
     "eighths_exact": {
@@ -930,7 +930,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.000291000003926456
+        "runtime_sec": 0.00026590004563331604
       },
       "B1": {
         "metrics": {
@@ -961,7 +961,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0004061999497935176
+        "runtime_sec": 0.0005675000138580799
       },
       "B2": {
         "metrics": {
@@ -992,7 +992,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0011292999843135476
+        "runtime_sec": 0.0010180000681430101
       },
       "B3": {
         "metrics": {
@@ -1023,7 +1023,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03173629997763783
+        "runtime_sec": 0.02104749996215105
       },
       "B3-no-ioi": {
         "metrics": {
@@ -1054,7 +1054,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02481079997960478
+        "runtime_sec": 0.017193400068208575
       },
       "B4": {
         "metrics": {
@@ -1085,7 +1085,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03780859999824315
+        "runtime_sec": 0.021676599979400635
       },
       "B4-no-ioi": {
         "metrics": {
@@ -1116,7 +1116,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.04566559998784214
+        "runtime_sec": 0.018657199922017753
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -1147,7 +1147,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029716999968513846
+        "runtime_sec": 0.01924890000373125
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -1178,7 +1178,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03160079999361187
+        "runtime_sec": 0.018316600006073713
       }
     },
     "eighths_jitter80": {
@@ -1187,7 +1187,7 @@
           "exact_duration_rate": 0.8333333333333334,
           "exact_onset_rate": 0.9166666666666666,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": null,
           "matched_count": 11,
           "max_abs_onset_error_ql": 0.25,
@@ -1198,7 +1198,7 @@
           "note_count": 12,
           "rest_count": null,
           "rest_exact_count": 0,
-          "rest_exact_rate": 1.0,
+          "rest_exact_rate": 0.0,
           "rest_extra_count": 0,
           "review_issue_count": null,
           "second_dot_count": null,
@@ -1211,14 +1211,14 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.000202000024728477
+        "runtime_sec": 0.00011360005009919405
       },
       "B1": {
         "metrics": {
           "exact_duration_rate": 0.8333333333333334,
           "exact_onset_rate": 0.9166666666666666,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": null,
           "matched_count": 11,
           "max_abs_onset_error_ql": 0.25,
@@ -1229,7 +1229,7 @@
           "note_count": 12,
           "rest_count": null,
           "rest_exact_count": 0,
-          "rest_exact_rate": 1.0,
+          "rest_exact_rate": 0.0,
           "rest_extra_count": 0,
           "review_issue_count": null,
           "second_dot_count": null,
@@ -1242,14 +1242,14 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00044319999869912863
+        "runtime_sec": 0.00022369995713233948
       },
       "B2": {
         "metrics": {
           "exact_duration_rate": 1.0,
           "exact_onset_rate": 0.9166666666666666,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": null,
           "matched_count": 11,
           "max_abs_onset_error_ql": 0.25,
@@ -1260,7 +1260,7 @@
           "note_count": 12,
           "rest_count": null,
           "rest_exact_count": 0,
-          "rest_exact_rate": 1.0,
+          "rest_exact_rate": 0.0,
           "rest_extra_count": 0,
           "review_issue_count": null,
           "second_dot_count": null,
@@ -1273,14 +1273,14 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.001739199971780181
+        "runtime_sec": 0.0008067999733611941
       },
       "B3": {
         "metrics": {
           "exact_duration_rate": 0.9166666666666666,
           "exact_onset_rate": 1.0,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": 0,
           "matched_count": 12,
           "max_abs_onset_error_ql": 0.0,
@@ -1290,9 +1290,9 @@
           "monotonic": true,
           "note_count": 12,
           "rest_count": 2,
-          "rest_exact_count": 0,
-          "rest_exact_rate": 0.0,
-          "rest_extra_count": 2,
+          "rest_exact_count": 1,
+          "rest_exact_rate": 1.0,
+          "rest_extra_count": 1,
           "review_issue_count": 2,
           "second_dot_count": 0,
           "strong_boundary_obscured_count": 0,
@@ -1304,14 +1304,14 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02822480001486838
+        "runtime_sec": 0.020407099975273013
       },
       "B3-no-ioi": {
         "metrics": {
           "exact_duration_rate": 0.8333333333333334,
           "exact_onset_rate": 0.9166666666666666,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": 0,
           "matched_count": 11,
           "max_abs_onset_error_ql": 0.25,
@@ -1321,9 +1321,9 @@
           "monotonic": true,
           "note_count": 12,
           "rest_count": 3,
-          "rest_exact_count": 0,
-          "rest_exact_rate": 0.0,
-          "rest_extra_count": 3,
+          "rest_exact_count": 1,
+          "rest_exact_rate": 1.0,
+          "rest_extra_count": 2,
           "review_issue_count": 2,
           "second_dot_count": 0,
           "strong_boundary_obscured_count": 0,
@@ -1335,14 +1335,14 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03547819994855672
+        "runtime_sec": 0.021296899998560548
       },
       "B4": {
         "metrics": {
           "exact_duration_rate": 1.0,
           "exact_onset_rate": 1.0,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": 0,
           "matched_count": 12,
           "max_abs_onset_error_ql": 0.0,
@@ -1352,9 +1352,9 @@
           "monotonic": true,
           "note_count": 12,
           "rest_count": 1,
-          "rest_exact_count": 0,
-          "rest_exact_rate": 0.0,
-          "rest_extra_count": 1,
+          "rest_exact_count": 1,
+          "rest_exact_rate": 1.0,
+          "rest_extra_count": 0,
           "review_issue_count": 2,
           "second_dot_count": 0,
           "strong_boundary_obscured_count": 0,
@@ -1366,14 +1366,14 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.031038899905979633
+        "runtime_sec": 0.021974100032821298
       },
       "B4-no-ioi": {
         "metrics": {
           "exact_duration_rate": 0.9166666666666666,
           "exact_onset_rate": 0.9166666666666666,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": 0,
           "matched_count": 11,
           "max_abs_onset_error_ql": 0.25,
@@ -1383,9 +1383,9 @@
           "monotonic": true,
           "note_count": 12,
           "rest_count": 2,
-          "rest_exact_count": 0,
-          "rest_exact_rate": 0.0,
-          "rest_extra_count": 2,
+          "rest_exact_count": 1,
+          "rest_exact_rate": 1.0,
+          "rest_extra_count": 1,
           "review_issue_count": 2,
           "second_dot_count": 0,
           "strong_boundary_obscured_count": 0,
@@ -1397,14 +1397,14 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.037630600039847195
+        "runtime_sec": 0.019830500008538365
       },
       "B4-no-mode-switch": {
         "metrics": {
           "exact_duration_rate": 1.0,
           "exact_onset_rate": 1.0,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": 0,
           "matched_count": 12,
           "max_abs_onset_error_ql": 0.0,
@@ -1414,9 +1414,9 @@
           "monotonic": true,
           "note_count": 12,
           "rest_count": 1,
-          "rest_exact_count": 0,
-          "rest_exact_rate": 0.0,
-          "rest_extra_count": 1,
+          "rest_exact_count": 1,
+          "rest_exact_rate": 1.0,
+          "rest_extra_count": 0,
           "review_issue_count": 2,
           "second_dot_count": 0,
           "strong_boundary_obscured_count": 0,
@@ -1428,14 +1428,14 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.033996200072579086
+        "runtime_sec": 0.02208299993071705
       },
       "B4-no-tiny-rest": {
         "metrics": {
           "exact_duration_rate": 1.0,
           "exact_onset_rate": 1.0,
           "expected_count": 12,
-          "expected_rest_count": 0,
+          "expected_rest_count": 1,
           "expected_tuplet_group_count": 0,
           "matched_count": 12,
           "max_abs_onset_error_ql": 0.0,
@@ -1445,9 +1445,9 @@
           "monotonic": true,
           "note_count": 12,
           "rest_count": 1,
-          "rest_exact_count": 0,
-          "rest_exact_rate": 0.0,
-          "rest_extra_count": 1,
+          "rest_exact_count": 1,
+          "rest_exact_rate": 1.0,
+          "rest_extra_count": 0,
           "review_issue_count": 2,
           "second_dot_count": 0,
           "strong_boundary_obscured_count": 0,
@@ -1459,7 +1459,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.042556900065392256
+        "runtime_sec": 0.020230700029060245
       }
     },
     "eighths_jitter_straight": {
@@ -1492,7 +1492,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00017629994545131922
+        "runtime_sec": 0.00014649995137006044
       },
       "B1": {
         "metrics": {
@@ -1523,7 +1523,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00031429994851350784
+        "runtime_sec": 0.0002856000792235136
       },
       "B2": {
         "metrics": {
@@ -1554,7 +1554,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.000936900032684207
+        "runtime_sec": 0.0009759000968188047
       },
       "B3": {
         "metrics": {
@@ -1585,7 +1585,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029562899959273636
+        "runtime_sec": 0.020582000026479363
       },
       "B3-no-ioi": {
         "metrics": {
@@ -1616,7 +1616,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02429260010831058
+        "runtime_sec": 0.020657600020058453
       },
       "B4": {
         "metrics": {
@@ -1647,7 +1647,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02757679997012019
+        "runtime_sec": 0.022083699936047196
       },
       "B4-no-ioi": {
         "metrics": {
@@ -1678,7 +1678,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029896199936047196
+        "runtime_sec": 0.02335419994778931
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -1709,7 +1709,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.026583799975924194
+        "runtime_sec": 0.01773049996700138
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -1740,7 +1740,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.026869199937209487
+        "runtime_sec": 0.024291399982757866
       }
     },
     "horn_breath_gaps": {
@@ -1773,7 +1773,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 8.620007429271936e-05
+        "runtime_sec": 0.0001810999820008874
       },
       "B1": {
         "metrics": {
@@ -1804,7 +1804,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00013599998783320189
+        "runtime_sec": 0.00034339993726462126
       },
       "B2": {
         "metrics": {
@@ -1835,7 +1835,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0005663998890668154
+        "runtime_sec": 0.0006497000576928258
       },
       "B3": {
         "metrics": {
@@ -1866,7 +1866,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.030197700019925833
+        "runtime_sec": 0.015350500005297363
       },
       "B3-no-ioi": {
         "metrics": {
@@ -1897,7 +1897,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.028998799971304834
+        "runtime_sec": 0.019996699993498623
       },
       "B4": {
         "metrics": {
@@ -1928,7 +1928,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03271329996641725
+        "runtime_sec": 0.020581600023433566
       },
       "B4-no-ioi": {
         "metrics": {
@@ -1959,7 +1959,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.031246299971826375
+        "runtime_sec": 0.01992470002733171
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -1990,7 +1990,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.026066399994306266
+        "runtime_sec": 0.01915690000168979
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -2021,7 +2021,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.024582100100815296
+        "runtime_sec": 0.01915389997884631
       }
     },
     "horn_legato_overlap": {
@@ -2054,7 +2054,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00011909997556358576
+        "runtime_sec": 0.00010750000365078449
       },
       "B1": {
         "metrics": {
@@ -2085,7 +2085,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00016359996516257524
+        "runtime_sec": 0.00011509994510561228
       },
       "B2": {
         "metrics": {
@@ -2116,7 +2116,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0007299000862985849
+        "runtime_sec": 0.0007422000635415316
       },
       "B3": {
         "metrics": {
@@ -2147,7 +2147,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0200076000764966
+        "runtime_sec": 0.012700999970547855
       },
       "B3-no-ioi": {
         "metrics": {
@@ -2178,7 +2178,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.019459900096990168
+        "runtime_sec": 0.01422629994340241
       },
       "B4": {
         "metrics": {
@@ -2209,7 +2209,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.020272399997338653
+        "runtime_sec": 0.013767599943093956
       },
       "B4-no-ioi": {
         "metrics": {
@@ -2240,7 +2240,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02219109993893653
+        "runtime_sec": 0.015387399937026203
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -2271,7 +2271,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02309789997525513
+        "runtime_sec": 0.013543499982915819
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -2302,7 +2302,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02134989993646741
+        "runtime_sec": 0.014886899967677891
       }
     },
     "horn_phrase_gap": {
@@ -2335,7 +2335,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00016960001084953547
+        "runtime_sec": 0.00017089990433305502
       },
       "B1": {
         "metrics": {
@@ -2366,7 +2366,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0005278999451547861
+        "runtime_sec": 0.00022030004765838385
       },
       "B2": {
         "metrics": {
@@ -2397,7 +2397,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.002050900016911328
+        "runtime_sec": 0.0007926999824121594
       },
       "B3": {
         "metrics": {
@@ -2428,7 +2428,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.05029899999499321
+        "runtime_sec": 0.03435580001678318
       },
       "B3-no-ioi": {
         "metrics": {
@@ -2459,7 +2459,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.05797570000868291
+        "runtime_sec": 0.037391799967736006
       },
       "B4": {
         "metrics": {
@@ -2490,7 +2490,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.045484400005079806
+        "runtime_sec": 0.03248250007163733
       },
       "B4-no-ioi": {
         "metrics": {
@@ -2521,7 +2521,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.04322739993222058
+        "runtime_sec": 0.025569100049324334
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -2552,7 +2552,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.04822430002968758
+        "runtime_sec": 0.03576829994563013
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -2583,7 +2583,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.04110829997807741
+        "runtime_sec": 0.033631999976933
       }
     },
     "horn_repeated_tongued": {
@@ -2616,7 +2616,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00017310003750026226
+        "runtime_sec": 0.00015950005035847425
       },
       "B1": {
         "metrics": {
@@ -2647,7 +2647,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00033080007415264845
+        "runtime_sec": 0.00028709997422993183
       },
       "B2": {
         "metrics": {
@@ -2678,7 +2678,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0012197999749332666
+        "runtime_sec": 0.001052499981597066
       },
       "B3": {
         "metrics": {
@@ -2709,7 +2709,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.028144199983216822
+        "runtime_sec": 0.024811199982650578
       },
       "B3-no-ioi": {
         "metrics": {
@@ -2740,7 +2740,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02927199995610863
+        "runtime_sec": 0.02637959993444383
       },
       "B4": {
         "metrics": {
@@ -2771,7 +2771,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.030059200013056397
+        "runtime_sec": 0.01937940006610006
       },
       "B4-no-ioi": {
         "metrics": {
@@ -2802,7 +2802,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02917280001565814
+        "runtime_sec": 0.019787699915468693
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -2833,7 +2833,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03590309992432594
+        "runtime_sec": 0.023687400040216744
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -2864,7 +2864,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.027323500020429492
+        "runtime_sec": 0.023044100031256676
       }
     },
     "horn_sustained_whole": {
@@ -2897,7 +2897,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00013329996727406979
+        "runtime_sec": 9.42000187933445e-05
       },
       "B1": {
         "metrics": {
@@ -2928,7 +2928,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00017570005729794502
+        "runtime_sec": 0.00015209999401122332
       },
       "B2": {
         "metrics": {
@@ -2959,7 +2959,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0007492000004276633
+        "runtime_sec": 0.0005471999756991863
       },
       "B3": {
         "metrics": {
@@ -2990,7 +2990,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.028326500090770423
+        "runtime_sec": 0.019896100042387843
       },
       "B3-no-ioi": {
         "metrics": {
@@ -3021,7 +3021,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02678610000293702
+        "runtime_sec": 0.021540699992328882
       },
       "B4": {
         "metrics": {
@@ -3052,7 +3052,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029194400063715875
+        "runtime_sec": 0.019282599911093712
       },
       "B4-no-ioi": {
         "metrics": {
@@ -3083,7 +3083,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03144270007032901
+        "runtime_sec": 0.021389000001363456
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -3114,7 +3114,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02887040004134178
+        "runtime_sec": 0.022681500064209104
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -3145,7 +3145,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03699529997538775
+        "runtime_sec": 0.02148289990145713
       }
     },
     "ioi_pair": {
@@ -3178,7 +3178,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 5.8600096963346004e-05
+        "runtime_sec": 5.959998816251755e-05
       },
       "B1": {
         "metrics": {
@@ -3209,7 +3209,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 7.639999967068434e-05
+        "runtime_sec": 6.969994865357876e-05
       },
       "B2": {
         "metrics": {
@@ -3240,7 +3240,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0004260001005604863
+        "runtime_sec": 0.0003714000340551138
       },
       "B3": {
         "metrics": {
@@ -3271,7 +3271,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.009428800083696842
+        "runtime_sec": 0.0056897999020293355
       },
       "B3-no-ioi": {
         "metrics": {
@@ -3302,7 +3302,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.007614300004206598
+        "runtime_sec": 0.005239299964159727
       },
       "B4": {
         "metrics": {
@@ -3333,7 +3333,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.008606399991549551
+        "runtime_sec": 0.005882699973881245
       },
       "B4-no-ioi": {
         "metrics": {
@@ -3364,7 +3364,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.00926740001887083
+        "runtime_sec": 0.005535000003874302
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -3395,7 +3395,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.009287599939852953
+        "runtime_sec": 0.005445300019346178
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -3426,7 +3426,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.007495400030165911
+        "runtime_sec": 0.005318499985150993
       }
     },
     "isolated_late_note": {
@@ -3459,7 +3459,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00017200002912431955
+        "runtime_sec": 0.00013940001372247934
       },
       "B1": {
         "metrics": {
@@ -3490,7 +3490,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00032789993565529585
+        "runtime_sec": 0.00027089996729046106
       },
       "B2": {
         "metrics": {
@@ -3521,7 +3521,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0011021000100299716
+        "runtime_sec": 0.0009153999853879213
       },
       "B3": {
         "metrics": {
@@ -3552,7 +3552,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02103149995673448
+        "runtime_sec": 0.02232059999369085
       },
       "B3-no-ioi": {
         "metrics": {
@@ -3583,7 +3583,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.025885400013066828
+        "runtime_sec": 0.022823199979029596
       },
       "B4": {
         "metrics": {
@@ -3614,7 +3614,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02792529994621873
+        "runtime_sec": 0.022133999969810247
       },
       "B4-no-ioi": {
         "metrics": {
@@ -3645,7 +3645,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02833110000938177
+        "runtime_sec": 0.022005600039847195
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -3676,7 +3676,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02586440008599311
+        "runtime_sec": 0.02125690004322678
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -3707,7 +3707,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029244800098240376
+        "runtime_sec": 0.02083280007354915
       }
     },
     "meter_24_eighths": {
@@ -3740,7 +3740,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0001599999377503991
+        "runtime_sec": 9.34000127017498e-05
       },
       "B1": {
         "metrics": {
@@ -3771,7 +3771,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00032570003531873226
+        "runtime_sec": 0.00018269999418407679
       },
       "B2": {
         "metrics": {
@@ -3802,7 +3802,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0010936999460682273
+        "runtime_sec": 0.0007182999979704618
       },
       "B3": {
         "metrics": {
@@ -3833,7 +3833,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.022654199972748756
+        "runtime_sec": 0.01234449993353337
       },
       "B3-no-ioi": {
         "metrics": {
@@ -3864,7 +3864,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.019956200034357607
+        "runtime_sec": 0.012164800078608096
       },
       "B4": {
         "metrics": {
@@ -3895,7 +3895,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.020322700031101704
+        "runtime_sec": 0.012223100056871772
       },
       "B4-no-ioi": {
         "metrics": {
@@ -3926,7 +3926,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.020383700029924512
+        "runtime_sec": 0.011336500057950616
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -3957,7 +3957,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.019055099925026298
+        "runtime_sec": 0.013053500093519688
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -3988,7 +3988,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02034089993685484
+        "runtime_sec": 0.01605020009446889
       }
     },
     "meter_34_quarters": {
@@ -4021,7 +4021,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0001680999994277954
+        "runtime_sec": 0.00010259996633976698
       },
       "B1": {
         "metrics": {
@@ -4052,7 +4052,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00027110008522868156
+        "runtime_sec": 0.00020570005290210247
       },
       "B2": {
         "metrics": {
@@ -4083,7 +4083,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0009105999488383532
+        "runtime_sec": 0.0007657000096514821
       },
       "B3": {
         "metrics": {
@@ -4114,7 +4114,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03250029997434467
+        "runtime_sec": 0.01578040001913905
       },
       "B3-no-ioi": {
         "metrics": {
@@ -4145,7 +4145,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0292375999270007
+        "runtime_sec": 0.015490000019781291
       },
       "B4": {
         "metrics": {
@@ -4176,7 +4176,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03178509999997914
+        "runtime_sec": 0.015570500050671399
       },
       "B4-no-ioi": {
         "metrics": {
@@ -4207,7 +4207,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.023785300087183714
+        "runtime_sec": 0.01674980006646365
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -4238,7 +4238,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.028592500020749867
+        "runtime_sec": 0.018443900044076145
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -4269,7 +4269,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.024916700087487698
+        "runtime_sec": 0.016730999923311174
       }
     },
     "meter_68_dotted_beats": {
@@ -4302,7 +4302,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00011820008512586355
+        "runtime_sec": 5.819997750222683e-05
       },
       "B1": {
         "metrics": {
@@ -4333,7 +4333,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00019940000493079424
+        "runtime_sec": 9.769992902874947e-05
       },
       "B2": {
         "metrics": {
@@ -4364,7 +4364,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0006862999871373177
+        "runtime_sec": 0.0004094000905752182
       },
       "B3": {
         "metrics": {
@@ -4395,7 +4395,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.017328200046904385
+        "runtime_sec": 0.009034300106577575
       },
       "B3-no-ioi": {
         "metrics": {
@@ -4426,7 +4426,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.017544700065627694
+        "runtime_sec": 0.008746500010602176
       },
       "B4": {
         "metrics": {
@@ -4457,7 +4457,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.018242300022393465
+        "runtime_sec": 0.010620899964123964
       },
       "B4-no-ioi": {
         "metrics": {
@@ -4488,7 +4488,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.015122400014661252
+        "runtime_sec": 0.009759100037626922
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -4519,7 +4519,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.019363500061444938
+        "runtime_sec": 0.008298899978399277
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -4550,7 +4550,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.015102600096724927
+        "runtime_sec": 0.009028199943713844
       }
     },
     "meter_68_eighths": {
@@ -4583,7 +4583,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0002573999809101224
+        "runtime_sec": 0.00013509998098015785
       },
       "B1": {
         "metrics": {
@@ -4614,7 +4614,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0005110000493004918
+        "runtime_sec": 0.0002821999369189143
       },
       "B2": {
         "metrics": {
@@ -4645,7 +4645,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.001726199989207089
+        "runtime_sec": 0.0010034000733867288
       },
       "B3": {
         "metrics": {
@@ -4676,7 +4676,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03442379995249212
+        "runtime_sec": 0.021689700079150498
       },
       "B3-no-ioi": {
         "metrics": {
@@ -4707,7 +4707,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03222900000400841
+        "runtime_sec": 0.01678069995250553
       },
       "B4": {
         "metrics": {
@@ -4738,7 +4738,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03131489991210401
+        "runtime_sec": 0.019847200019285083
       },
       "B4-no-ioi": {
         "metrics": {
@@ -4769,7 +4769,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.034445199999026954
+        "runtime_sec": 0.018323700060136616
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -4800,7 +4800,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.030050599947571754
+        "runtime_sec": 0.016344400006346405
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -4831,7 +4831,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03583680000156164
+        "runtime_sec": 0.01747409999370575
       }
     },
     "meter_change_44_68": {
@@ -4864,7 +4864,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0002704999642446637
+        "runtime_sec": 0.00013559998478740454
       },
       "B1": {
         "metrics": {
@@ -4895,7 +4895,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0005640999879688025
+        "runtime_sec": 0.0002911000046879053
       },
       "B2": {
         "metrics": {
@@ -4926,7 +4926,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0018801999976858497
+        "runtime_sec": 0.0010621999390423298
       },
       "B3": {
         "metrics": {
@@ -4957,7 +4957,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.07871869998052716
+        "runtime_sec": 0.03588270000182092
       },
       "B3-no-ioi": {
         "metrics": {
@@ -4988,7 +4988,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.08090429997537285
+        "runtime_sec": 0.03561770007945597
       },
       "B4": {
         "metrics": {
@@ -5019,7 +5019,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.07046250009443611
+        "runtime_sec": 0.03525750001426786
       },
       "B4-no-ioi": {
         "metrics": {
@@ -5050,7 +5050,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.07516260002739727
+        "runtime_sec": 0.03369620000012219
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -5081,7 +5081,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0758399999467656
+        "runtime_sec": 0.034214300103485584
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -5112,7 +5112,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.07297899993136525
+        "runtime_sec": 0.03682520007714629
       }
     },
     "pickup_44_quarter": {
@@ -5145,7 +5145,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00016759999562054873
+        "runtime_sec": 7.119996007531881e-05
       },
       "B1": {
         "metrics": {
@@ -5176,7 +5176,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00030610000248998404
+        "runtime_sec": 0.00012909993529319763
       },
       "B2": {
         "metrics": {
@@ -5207,7 +5207,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0010263000149279833
+        "runtime_sec": 0.0005342999938875437
       },
       "B3": {
         "metrics": {
@@ -5238,7 +5238,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.027034300030209124
+        "runtime_sec": 0.01373760006390512
       },
       "B3-no-ioi": {
         "metrics": {
@@ -5269,7 +5269,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03112260007765144
+        "runtime_sec": 0.01823140005581081
       },
       "B4": {
         "metrics": {
@@ -5300,7 +5300,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029492500005289912
+        "runtime_sec": 0.013434399967081845
       },
       "B4-no-ioi": {
         "metrics": {
@@ -5331,7 +5331,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02753570000641048
+        "runtime_sec": 0.013054699986241758
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -5362,7 +5362,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03396320005413145
+        "runtime_sec": 0.014507599989883602
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -5393,7 +5393,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029933600104413927
+        "runtime_sec": 0.013834599987603724
       }
     },
     "quarters_exact": {
@@ -5426,7 +5426,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0001721000298857689
+        "runtime_sec": 0.00021700002253055573
       },
       "B1": {
         "metrics": {
@@ -5457,7 +5457,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.000264700036495924
+        "runtime_sec": 0.00022149994038045406
       },
       "B2": {
         "metrics": {
@@ -5488,7 +5488,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.7074193999869749
+        "runtime_sec": 0.5978472999995574
       },
       "B3": {
         "metrics": {
@@ -5519,7 +5519,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.021965899970382452
+        "runtime_sec": 0.015640099998563528
       },
       "B3-no-ioi": {
         "metrics": {
@@ -5550,7 +5550,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02485990000423044
+        "runtime_sec": 0.01697320002131164
       },
       "B4": {
         "metrics": {
@@ -5581,7 +5581,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.023927500005811453
+        "runtime_sec": 0.015204699942842126
       },
       "B4-no-ioi": {
         "metrics": {
@@ -5612,7 +5612,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.020282800076529384
+        "runtime_sec": 0.01613650005310774
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -5643,7 +5643,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.030739600071683526
+        "runtime_sec": 0.019214499974623322
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -5674,7 +5674,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.022270500077866018
+        "runtime_sec": 0.019464600016362965
       }
     },
     "quarters_jitter20": {
@@ -5707,7 +5707,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00010439998004585505
+        "runtime_sec": 9.450002107769251e-05
       },
       "B1": {
         "metrics": {
@@ -5738,7 +5738,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00019339995924383402
+        "runtime_sec": 0.00017779995687305927
       },
       "B2": {
         "metrics": {
@@ -5769,7 +5769,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0008375999750569463
+        "runtime_sec": 0.0008097999962046742
       },
       "B3": {
         "metrics": {
@@ -5800,7 +5800,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.024192000040784478
+        "runtime_sec": 0.01702060003299266
       },
       "B3-no-ioi": {
         "metrics": {
@@ -5831,7 +5831,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.024662999901920557
+        "runtime_sec": 0.01611980004236102
       },
       "B4": {
         "metrics": {
@@ -5862,7 +5862,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.025371999945491552
+        "runtime_sec": 0.01608430000487715
       },
       "B4-no-ioi": {
         "metrics": {
@@ -5893,7 +5893,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.028924299986101687
+        "runtime_sec": 0.01642919995356351
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -5924,7 +5924,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.023338000057265162
+        "runtime_sec": 0.016458900063298643
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -5955,7 +5955,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.031415500096045434
+        "runtime_sec": 0.017113199923187494
       }
     },
     "quarters_jitter50": {
@@ -5988,7 +5988,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00017550005577504635
+        "runtime_sec": 8.720008190721273e-05
       },
       "B1": {
         "metrics": {
@@ -6019,7 +6019,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0003285000566393137
+        "runtime_sec": 0.0001669001067057252
       },
       "B2": {
         "metrics": {
@@ -6050,7 +6050,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.000900499988347292
+        "runtime_sec": 0.0006163000361993909
       },
       "B3": {
         "metrics": {
@@ -6081,7 +6081,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.033772599999792874
+        "runtime_sec": 0.019766399986110628
       },
       "B3-no-ioi": {
         "metrics": {
@@ -6112,7 +6112,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03078899998217821
+        "runtime_sec": 0.017552300007082522
       },
       "B4": {
         "metrics": {
@@ -6143,7 +6143,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.028027900028973818
+        "runtime_sec": 0.017103899968788028
       },
       "B4-no-ioi": {
         "metrics": {
@@ -6174,7 +6174,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.029983900021761656
+        "runtime_sec": 0.01632749999407679
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -6205,7 +6205,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.025825899909250438
+        "runtime_sec": 0.016448600101284683
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -6236,7 +6236,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.026847900007851422
+        "runtime_sec": 0.01653010002337396
       }
     },
     "quarters_latency40": {
@@ -6269,7 +6269,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00012139999307692051
+        "runtime_sec": 9.410001803189516e-05
       },
       "B1": {
         "metrics": {
@@ -6300,7 +6300,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00021329999435693026
+        "runtime_sec": 0.00017820007633417845
       },
       "B2": {
         "metrics": {
@@ -6331,7 +6331,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0009138999739661813
+        "runtime_sec": 0.0007570999441668391
       },
       "B3": {
         "metrics": {
@@ -6362,7 +6362,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02712250000331551
+        "runtime_sec": 0.01732879993505776
       },
       "B3-no-ioi": {
         "metrics": {
@@ -6393,7 +6393,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02473130007274449
+        "runtime_sec": 0.01493170007597655
       },
       "B4": {
         "metrics": {
@@ -6424,7 +6424,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0223280000500381
+        "runtime_sec": 0.015567500027827919
       },
       "B4-no-ioi": {
         "metrics": {
@@ -6455,7 +6455,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.026286899927072227
+        "runtime_sec": 0.01489450002554804
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -6486,7 +6486,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.023339899955317378
+        "runtime_sec": 0.015352000016719103
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -6517,7 +6517,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.026909700012765825
+        "runtime_sec": 0.015307100024074316
       }
     },
     "quarters_latency40_slow": {
@@ -6550,7 +6550,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00011339993216097355
+        "runtime_sec": 8.399994112551212e-05
       },
       "B1": {
         "metrics": {
@@ -6581,7 +6581,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00021139997988939285
+        "runtime_sec": 0.00016050005797296762
       },
       "B2": {
         "metrics": {
@@ -6612,7 +6612,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0009678000351414084
+        "runtime_sec": 0.0007170999888330698
       },
       "B3": {
         "metrics": {
@@ -6643,7 +6643,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03319809993263334
+        "runtime_sec": 0.015266899950802326
       },
       "B3-no-ioi": {
         "metrics": {
@@ -6674,7 +6674,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02554119995329529
+        "runtime_sec": 0.016434999997727573
       },
       "B4": {
         "metrics": {
@@ -6705,7 +6705,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.025168700027279556
+        "runtime_sec": 0.017584300017915666
       },
       "B4-no-ioi": {
         "metrics": {
@@ -6736,7 +6736,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.021498400019481778
+        "runtime_sec": 0.017017400008626282
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -6767,7 +6767,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.019430699991062284
+        "runtime_sec": 0.015802399953827262
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -6798,7 +6798,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02302239998243749
+        "runtime_sec": 0.01599220000207424
       }
     },
     "quarters_latency65": {
@@ -6831,7 +6831,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00012339989189058542
+        "runtime_sec": 9.829993359744549e-05
       },
       "B1": {
         "metrics": {
@@ -6862,7 +6862,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00017920008394867182
+        "runtime_sec": 0.00015950005035847425
       },
       "B2": {
         "metrics": {
@@ -6893,7 +6893,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0009104999480769038
+        "runtime_sec": 0.0008211999665945768
       },
       "B3": {
         "metrics": {
@@ -6924,7 +6924,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.01936469995416701
+        "runtime_sec": 0.011704099946655333
       },
       "B3-no-ioi": {
         "metrics": {
@@ -6955,7 +6955,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.019546500057913363
+        "runtime_sec": 0.011648799991235137
       },
       "B4": {
         "metrics": {
@@ -6986,7 +6986,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.016901400056667626
+        "runtime_sec": 0.012422899948433042
       },
       "B4-no-ioi": {
         "metrics": {
@@ -7017,7 +7017,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02023010002449155
+        "runtime_sec": 0.013500700006261468
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -7048,7 +7048,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.01609310007188469
+        "runtime_sec": 0.0112421999219805
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -7079,7 +7079,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.018316399888135493
+        "runtime_sec": 0.012886499986052513
       }
     },
     "rests_44": {
@@ -7112,7 +7112,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00013189995661377907
+        "runtime_sec": 6.059999577701092e-05
       },
       "B1": {
         "metrics": {
@@ -7143,7 +7143,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00020330003462731838
+        "runtime_sec": 0.00010529998689889908
       },
       "B2": {
         "metrics": {
@@ -7174,7 +7174,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0006469999207183719
+        "runtime_sec": 0.0004016000311821699
       },
       "B3": {
         "metrics": {
@@ -7205,7 +7205,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.06472320004832
+        "runtime_sec": 0.028498400002717972
       },
       "B3-no-ioi": {
         "metrics": {
@@ -7236,7 +7236,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.05403110000770539
+        "runtime_sec": 0.02624669997021556
       },
       "B4": {
         "metrics": {
@@ -7267,7 +7267,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.06456309999339283
+        "runtime_sec": 0.027292300015687943
       },
       "B4-no-ioi": {
         "metrics": {
@@ -7298,7 +7298,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0588642000220716
+        "runtime_sec": 0.02752840006724
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -7329,7 +7329,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.058619000017642975
+        "runtime_sec": 0.02596650004852563
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -7360,7 +7360,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.06634859996847808
+        "runtime_sec": 0.028773099998943508
       }
     },
     "rests_sixteenth": {
@@ -7393,7 +7393,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00012449990026652813
+        "runtime_sec": 5.8399979025125504e-05
       },
       "B1": {
         "metrics": {
@@ -7424,7 +7424,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00018720002844929695
+        "runtime_sec": 0.00010179996024817228
       },
       "B2": {
         "metrics": {
@@ -7455,7 +7455,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0007674000225961208
+        "runtime_sec": 0.00042779999785125256
       },
       "B3": {
         "metrics": {
@@ -7486,7 +7486,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.023787899990566075
+        "runtime_sec": 0.0148192000342533
       },
       "B3-no-ioi": {
         "metrics": {
@@ -7517,7 +7517,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0246167000150308
+        "runtime_sec": 0.01318759995047003
       },
       "B4": {
         "metrics": {
@@ -7548,7 +7548,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02208330004941672
+        "runtime_sec": 0.019464400014840066
       },
       "B4-no-ioi": {
         "metrics": {
@@ -7579,7 +7579,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.022297699935734272
+        "runtime_sec": 0.018406699993647635
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -7610,7 +7610,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.027862299932166934
+        "runtime_sec": 0.013666599988937378
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -7641,7 +7641,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0226044999435544
+        "runtime_sec": 0.01577629998791963
       }
     },
     "sixteenths_exact": {
@@ -7674,7 +7674,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00023739994503557682
+        "runtime_sec": 0.00016739999409765005
       },
       "B1": {
         "metrics": {
@@ -7705,7 +7705,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0004144000122323632
+        "runtime_sec": 0.0003418000414967537
       },
       "B2": {
         "metrics": {
@@ -7736,7 +7736,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0010547999991104007
+        "runtime_sec": 0.0008901999099180102
       },
       "B3": {
         "metrics": {
@@ -7767,7 +7767,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0246284999884665
+        "runtime_sec": 0.016243900055997074
       },
       "B3-no-ioi": {
         "metrics": {
@@ -7798,7 +7798,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.020057299989275634
+        "runtime_sec": 0.017990099964663386
       },
       "B4": {
         "metrics": {
@@ -7829,7 +7829,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.030303600011393428
+        "runtime_sec": 0.016826300066895783
       },
       "B4-no-ioi": {
         "metrics": {
@@ -7860,7 +7860,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.024156500003300607
+        "runtime_sec": 0.016635200008749962
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -7891,7 +7891,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0225695000262931
+        "runtime_sec": 0.01913609995972365
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -7922,7 +7922,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.025014099897816777
+        "runtime_sec": 0.01680580002721399
       }
     },
     "syncopated_exact": {
@@ -7955,7 +7955,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 8.789997082203627e-05
+        "runtime_sec": 6.449990905821323e-05
       },
       "B1": {
         "metrics": {
@@ -7986,7 +7986,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00015380000695586205
+        "runtime_sec": 0.00011200003791600466
       },
       "B2": {
         "metrics": {
@@ -8017,7 +8017,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0005878000520169735
+        "runtime_sec": 0.0004626000300049782
       },
       "B3": {
         "metrics": {
@@ -8048,7 +8048,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.01807410002220422
+        "runtime_sec": 0.011795799946412444
       },
       "B3-no-ioi": {
         "metrics": {
@@ -8079,7 +8079,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.023382400046102703
+        "runtime_sec": 0.013684600009582937
       },
       "B4": {
         "metrics": {
@@ -8110,7 +8110,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02505100006237626
+        "runtime_sec": 0.011736199958249927
       },
       "B4-no-ioi": {
         "metrics": {
@@ -8141,7 +8141,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02057950000744313
+        "runtime_sec": 0.013177499989978969
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -8172,7 +8172,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.021523200091905892
+        "runtime_sec": 0.01583819999359548
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -8203,7 +8203,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.019808800076134503
+        "runtime_sec": 0.01567689992953092
       }
     },
     "tempo_change_beatmap": {
@@ -8236,7 +8236,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00016050005797296762
+        "runtime_sec": 7.660000119358301e-05
       },
       "B1": {
         "metrics": {
@@ -8267,7 +8267,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00027160008903592825
+        "runtime_sec": 0.00013399997260421515
       },
       "B2": {
         "metrics": {
@@ -8298,7 +8298,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0013101000804454088
+        "runtime_sec": 0.0005817000055685639
       },
       "B3": {
         "metrics": {
@@ -8329,7 +8329,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03715240000747144
+        "runtime_sec": 0.02057029993738979
       },
       "B3-no-ioi": {
         "metrics": {
@@ -8360,7 +8360,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.033218600088730454
+        "runtime_sec": 0.023891099961474538
       },
       "B4": {
         "metrics": {
@@ -8391,7 +8391,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03394500003196299
+        "runtime_sec": 0.021461699972860515
       },
       "B4-no-ioi": {
         "metrics": {
@@ -8422,7 +8422,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.03351789992302656
+        "runtime_sec": 0.020710899960249662
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -8453,7 +8453,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.04251589998602867
+        "runtime_sec": 0.022214099997654557
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -8484,7 +8484,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.0356370999943465
+        "runtime_sec": 0.021253200015053153
       }
     },
     "triplet_eighths_exact": {
@@ -8517,7 +8517,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0002367000561207533
+        "runtime_sec": 0.00013780000153928995
       },
       "B1": {
         "metrics": {
@@ -8548,7 +8548,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00031999999191612005
+        "runtime_sec": 0.00017340003978461027
       },
       "B2": {
         "metrics": {
@@ -8579,7 +8579,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0009507000213488936
+        "runtime_sec": 0.0006994000868871808
       },
       "B3": {
         "metrics": {
@@ -8610,7 +8610,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.04857300000730902
+        "runtime_sec": 0.034372399910353124
       },
       "B3-no-ioi": {
         "metrics": {
@@ -8641,7 +8641,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.053657300071790814
+        "runtime_sec": 0.043023500009439886
       },
       "B4": {
         "metrics": {
@@ -8672,7 +8672,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.051831900025717914
+        "runtime_sec": 0.036200599977746606
       },
       "B4-no-ioi": {
         "metrics": {
@@ -8703,7 +8703,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.052615299937315285
+        "runtime_sec": 0.041153899976052344
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -8734,7 +8734,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.05886079999618232
+        "runtime_sec": 0.04345859994646162
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -8765,7 +8765,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.05827459995634854
+        "runtime_sec": 0.04297199996653944
       }
     },
     "triplet_eighths_jitter": {
@@ -8798,7 +8798,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0001417000312358141
+        "runtime_sec": 0.00011600006837397814
       },
       "B1": {
         "metrics": {
@@ -8829,7 +8829,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0002661000471562147
+        "runtime_sec": 0.00019869999960064888
       },
       "B2": {
         "metrics": {
@@ -8860,7 +8860,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0008949999464675784
+        "runtime_sec": 0.0006295000202953815
       },
       "B3": {
         "metrics": {
@@ -8891,7 +8891,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.04530580004211515
+        "runtime_sec": 0.036009900039061904
       },
       "B3-no-ioi": {
         "metrics": {
@@ -8922,7 +8922,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.04821279994212091
+        "runtime_sec": 0.03542290010955185
       },
       "B4": {
         "metrics": {
@@ -8953,7 +8953,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.07245980005245656
+        "runtime_sec": 0.058604000019840896
       },
       "B4-no-ioi": {
         "metrics": {
@@ -8984,7 +8984,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.045370199950411916
+        "runtime_sec": 0.03629930003080517
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -9015,7 +9015,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.04894909996073693
+        "runtime_sec": 0.027967800037004054
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -9046,7 +9046,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 2
         },
-        "runtime_sec": 0.03861169994343072
+        "runtime_sec": 0.03219679999165237
       }
     },
     "weak_start_crossing": {
@@ -9079,7 +9079,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 8.400005754083395e-05
+        "runtime_sec": 5.010003224015236e-05
       },
       "B1": {
         "metrics": {
@@ -9110,7 +9110,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.00014009990263730288
+        "runtime_sec": 7.740000728517771e-05
       },
       "B2": {
         "metrics": {
@@ -9141,7 +9141,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.0005856000352650881
+        "runtime_sec": 0.00038139999378472567
       },
       "B3": {
         "metrics": {
@@ -9172,7 +9172,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.025129699963144958
+        "runtime_sec": 0.010931700002402067
       },
       "B3-no-ioi": {
         "metrics": {
@@ -9203,7 +9203,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.02261520002502948
+        "runtime_sec": 0.012183999991975725
       },
       "B4": {
         "metrics": {
@@ -9234,7 +9234,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.021676399977877736
+        "runtime_sec": 0.009339800104498863
       },
       "B4-no-ioi": {
         "metrics": {
@@ -9265,7 +9265,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.021842599962837994
+        "runtime_sec": 0.0093846000963822
       },
       "B4-no-mode-switch": {
         "metrics": {
@@ -9296,7 +9296,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.022797900019213557
+        "runtime_sec": 0.01032830006442964
       },
       "B4-no-tiny-rest": {
         "metrics": {
@@ -9327,7 +9327,7 @@
           "triplet_missed_groups": 0,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 0.018292600056156516
+        "runtime_sec": 0.009856400080025196
       }
     }
   },
@@ -9362,7 +9362,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": null
         },
-        "runtime_sec": 0.006762099917978048
+        "runtime_sec": 0.0037941999034956098
       },
       "B4": {
         "metrics": {
@@ -9393,7 +9393,7 @@
           "triplet_missed_groups": null,
           "tuplet_group_count": 0
         },
-        "runtime_sec": 1.3147000999888405
+        "runtime_sec": 0.9482754999771714
       }
     },
     "audio_sec": 180.0,
@@ -9410,11 +9410,11 @@
       "mean_exact_onset_rate": 0.9191919191919191,
       "mean_onset_error_ql": 0.012205387205387205,
       "rest_exact": 0,
-      "rest_expected": 32,
+      "rest_expected": 33,
       "rest_extra": 0,
       "rest_fixtures": 33,
       "review_issues": 0,
-      "runtime_sec": 0.0052278999937698245,
+      "runtime_sec": 0.003713499871082604,
       "tiny_rests": 0,
       "triplet_fp": 0,
       "triplet_missed": 0
@@ -9428,11 +9428,11 @@
       "mean_exact_onset_rate": 0.9191919191919191,
       "mean_onset_error_ql": 0.012205387205387205,
       "rest_exact": 0,
-      "rest_expected": 32,
+      "rest_expected": 33,
       "rest_extra": 0,
       "rest_fixtures": 33,
       "review_issues": 0,
-      "runtime_sec": 0.009013600298203528,
+      "runtime_sec": 0.006528800004161894,
       "tiny_rests": 0,
       "triplet_fp": 0,
       "triplet_missed": 0
@@ -9446,11 +9446,11 @@
       "mean_exact_onset_rate": 0.9191919191919191,
       "mean_onset_error_ql": 0.012205387205387205,
       "rest_exact": 0,
-      "rest_expected": 32,
+      "rest_expected": 33,
       "rest_extra": 0,
       "rest_fixtures": 33,
       "review_issues": 0,
-      "runtime_sec": 0.7393459000159055,
+      "runtime_sec": 0.6201626001857221,
       "tiny_rests": 0,
       "triplet_fp": 0,
       "triplet_missed": 0
@@ -9463,12 +9463,12 @@
       "fixtures": 33,
       "mean_exact_onset_rate": 0.9696969696969697,
       "mean_onset_error_ql": 0.007575757575757576,
-      "rest_exact": 30,
-      "rest_expected": 32,
-      "rest_extra": 29,
+      "rest_exact": 31,
+      "rest_expected": 33,
+      "rest_extra": 28,
       "rest_fixtures": 33,
       "review_issues": 12,
-      "runtime_sec": 1.0588033001404256,
+      "runtime_sec": 0.6545702998992056,
       "tiny_rests": 26,
       "triplet_fp": 0,
       "triplet_missed": 0
@@ -9481,12 +9481,12 @@
       "fixtures": 33,
       "mean_exact_onset_rate": 0.9671717171717172,
       "mean_onset_error_ql": 0.008207070707070708,
-      "rest_exact": 30,
-      "rest_expected": 32,
-      "rest_extra": 27,
+      "rest_exact": 31,
+      "rest_expected": 33,
+      "rest_extra": 26,
       "rest_fixtures": 33,
       "review_issues": 13,
-      "runtime_sec": 1.0326727003557608,
+      "runtime_sec": 0.6695335002150387,
       "tiny_rests": 24,
       "triplet_fp": 0,
       "triplet_missed": 0
@@ -9499,12 +9499,12 @@
       "fixtures": 33,
       "mean_exact_onset_rate": 1.0,
       "mean_onset_error_ql": 0.0,
-      "rest_exact": 32,
-      "rest_expected": 32,
-      "rest_extra": 1,
+      "rest_exact": 33,
+      "rest_expected": 33,
+      "rest_extra": 0,
       "rest_fixtures": 33,
       "review_issues": 12,
-      "runtime_sec": 1.0652055003447458,
+      "runtime_sec": 0.6819168999791145,
       "tiny_rests": 1,
       "triplet_fp": 0,
       "triplet_missed": 0
@@ -9517,12 +9517,12 @@
       "fixtures": 33,
       "mean_exact_onset_rate": 0.9974747474747476,
       "mean_onset_error_ql": 0.0006313131313131313,
-      "rest_exact": 32,
-      "rest_expected": 32,
-      "rest_extra": 2,
+      "rest_exact": 33,
+      "rest_expected": 33,
+      "rest_extra": 1,
       "rest_fixtures": 33,
       "review_issues": 13,
-      "runtime_sec": 1.0336708000395447,
+      "runtime_sec": 0.6414547003805637,
       "tiny_rests": 2,
       "triplet_fp": 0,
       "triplet_missed": 0
@@ -9535,12 +9535,12 @@
       "fixtures": 33,
       "mean_exact_onset_rate": 1.0,
       "mean_onset_error_ql": 0.0,
-      "rest_exact": 32,
-      "rest_expected": 32,
-      "rest_extra": 1,
+      "rest_exact": 33,
+      "rest_expected": 33,
+      "rest_extra": 0,
       "rest_fixtures": 33,
       "review_issues": 12,
-      "runtime_sec": 1.0463286000303924,
+      "runtime_sec": 0.6585524003021419,
       "tiny_rests": 1,
       "triplet_fp": 0,
       "triplet_missed": 0
@@ -9553,12 +9553,12 @@
       "fixtures": 33,
       "mean_exact_onset_rate": 1.0,
       "mean_onset_error_ql": 0.0,
-      "rest_exact": 30,
-      "rest_expected": 32,
-      "rest_extra": 8,
+      "rest_exact": 31,
+      "rest_expected": 33,
+      "rest_extra": 7,
       "rest_fixtures": 33,
       "review_issues": 12,
-      "runtime_sec": 1.0401551002869383,
+      "runtime_sec": 0.670840400038287,
       "tiny_rests": 8,
       "triplet_fp": 0,
       "triplet_missed": 0
