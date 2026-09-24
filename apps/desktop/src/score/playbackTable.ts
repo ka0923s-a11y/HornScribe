@@ -39,7 +39,14 @@ export interface PlaybackTable {
  * a note ending exactly on the boundary does not bleed into the next
  * segment (a tied note's sounding span is covered by its fragments).
  */
-export function buildPlaybackTable(timemap: readonly VerovioTimemapEntry[]): PlaybackTable {
+export function buildPlaybackTable(
+  timemap: readonly VerovioTimemapEntry[],
+  /** #156: written->sounding time warp (swing). Applied to every
+   *  tstamp so segments, onsets and duration all land on sounding
+   *  time; the warp's beat boundary fixed-points keep ordering. */
+  warp?: (writtenMs: number) => number,
+): PlaybackTable {
+  const t = warp ?? ((ms: number) => ms);
   const segments: PlaybackSegment[] = [];
   const sounding = new Set<string>();
   const onsetMsByExportId = new Map<string, number>();
@@ -47,10 +54,11 @@ export function buildPlaybackTable(timemap: readonly VerovioTimemapEntry[]): Pla
 
   for (let i = 0; i < timemap.length; i++) {
     const entry = timemap[i];
+    const entryMs = t(entry.tstamp);
     for (const id of entry.off ?? []) sounding.delete(id);
     for (const id of entry.on ?? []) {
       sounding.add(id);
-      if (!onsetMsByExportId.has(id)) onsetMsByExportId.set(id, entry.tstamp);
+      if (!onsetMsByExportId.has(id)) onsetMsByExportId.set(id, entryMs);
       const canonical = canonicalNoteIdFromMusicxml(id);
       if (canonical) {
         const list = fragments.get(canonical) ?? [];
@@ -59,8 +67,8 @@ export function buildPlaybackTable(timemap: readonly VerovioTimemapEntry[]): Pla
       }
     }
     const next = timemap[i + 1];
-    const startMs = entry.tstamp;
-    const endMs = next ? next.tstamp : startMs;
+    const startMs = entryMs;
+    const endMs = next ? t(next.tstamp) : startMs;
     if (sounding.size === 0) continue;
     segments.push({
       startMs,
@@ -85,7 +93,7 @@ export function buildPlaybackTable(timemap: readonly VerovioTimemapEntry[]): Pla
   }
 
   let durationMs = 0;
-  for (const entry of timemap) durationMs = Math.max(durationMs, entry.tstamp);
+  for (const entry of timemap) durationMs = Math.max(durationMs, t(entry.tstamp));
 
   return {
     segments,

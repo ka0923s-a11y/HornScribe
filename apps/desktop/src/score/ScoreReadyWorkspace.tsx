@@ -71,6 +71,7 @@ import {
 } from "./playbackTable";
 import { ScoreCursorClock, type ClockSnapshot, type TransportClock } from "./clock";
 import { ScorePlaybackSynth } from "./playbackSynth";
+import { buildSwingWarp } from "./swingWarp";
 import {
   allIssuesForCanonical,
   markedCanonicalIds,
@@ -495,7 +496,14 @@ export function ScoreReadyWorkspace({
         renderScore(pitchRef.current);
         // Canonical timing is identical across presentations (same
         // durations + tempo), so the playback table is built once.
-        tableRef.current = buildPlaybackTable(r.timemap());
+        // #156: swing-marked scores get a written->sounding warp so
+        // audition + follow land on the swung positions (Verovio's
+        // timemap ignores <swing>).
+        tableRef.current = buildPlaybackTable(
+          r.timemap(),
+          buildSwingWarp(scoreDoc.canonicalDocument?.() ?? null) ??
+            undefined,
+        );
         const clock = new ScoreCursorClock(tableRef.current.durationMs);
         clockRef.current = clock;
         clock.subscribe(setClockSnap);
@@ -838,7 +846,13 @@ export function ScoreReadyWorkspace({
     };
     renderScore(pitchRef.current, { keepScroll: true });
     const r = rendererRef.current;
-    if (r) tableRef.current = buildPlaybackTable(r.timemap());
+    if (r) {
+      tableRef.current = buildPlaybackTable(
+        r.timemap(),
+        buildSwingWarp(scoreDoc.canonicalDocument?.() ?? null) ??
+          undefined,
+      );
+    }
   }, [scoreDoc, renderScore]);
 
   /** Apply a session action: bump the document version so derived views
