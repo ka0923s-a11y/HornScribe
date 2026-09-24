@@ -40,6 +40,7 @@ const ARTIFACT_NAMES: Record<ExportFormatId, string> = {
   concertPdf: "concert.pdf",
   hornPdf: "horn_in_f.pdf",
   playbackMidi: "playback.mid",
+  sourceAudio: "source.wav",
 };
 
 const MOCK_ENGINE: EngineInfo = {
@@ -62,6 +63,8 @@ const DEV_FAILURE_CODES: Record<string, ExportErrorCode> = {
 export interface MockExportPortOptions {
   museScore?: ToolInfo;
   ffmpeg?: ToolInfo;
+  /** Simulated audioAvailable capability (#87) — default true. */
+  audioAvailable?: boolean;
   /** Simulated latency for capabilities()/export(). */
   latencyMs?: number;
   /** Deterministic failure for export() — recovery-path tests. */
@@ -123,6 +126,7 @@ export class MockExportPort implements ExportPort {
       backend: "basic-pitch (mock)",
       museScore: withPathOverride(museScore, overrides?.museScorePath),
       ffmpeg: withPathOverride(ffmpeg, overrides?.ffmpegPath),
+      audioAvailable: this.options.audioAvailable ?? true,
     };
   }
 

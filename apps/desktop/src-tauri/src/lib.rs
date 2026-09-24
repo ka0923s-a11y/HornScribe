@@ -128,6 +128,7 @@ pub fn run() {
             export::export_pick_dir,
             export::export_default_dir,
             export::export_write_files,
+            export::export_copy_audio,
             export::detect_tools,
             export::reveal_in_explorer,
             export::render_pdf,

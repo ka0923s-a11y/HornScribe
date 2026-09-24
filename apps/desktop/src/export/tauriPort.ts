@@ -34,6 +34,9 @@ const ARTIFACT_NAMES: Record<ExportFormatId, string> = {
   concertPdf: "concert.pdf",
   hornPdf: "horn_in_f.pdf",
   playbackMidi: "playback.mid",
+  // The real artifact keeps the source's own extension — this is only
+  // the display-name fallback when the copy result has no file name.
+  sourceAudio: "source.wav",
 };
 
 /** What the port needs from the app at export time. */
@@ -42,6 +45,11 @@ export interface ExportSource {
   readonly doc: ScoreDocumentPort | null;
   /** Default file basename — audio file stem or score title. */
   readonly basename: string;
+  /** Absolute path of the loaded audio when it lives on disk — enables
+   *  the sourceAudio bundle format (#87). Null for browser-held bytes. */
+   readonly audioPath: string | null;
+  /** Original audio file name (extension kept) for the bundle copy. */
+   readonly audioName: string | null;
 }
 
 interface DetectedToolWire {
@@ -124,6 +132,7 @@ export class TauriExportPort implements ExportPort {
       backend: null,
       museScore,
       ffmpeg,
+      audioAvailable: this.source()?.audioPath != null,
     };
   }
 
@@ -155,6 +164,27 @@ export class TauriExportPort implements ExportPort {
     );
     const dir = request.destination;
     const files: ExportedFile[] = [];
+
+    // #87: bundle the source audio itself — a straight fs copy through
+    // export_copy_audio (no base64 round-trip for what can be a large
+    // file). Runs first so a missing source fails before partial
+    // artifacts are written.
+    if (request.formats.includes("sourceAudio") && source.audioPath) {
+      try {
+        const path = await invoke<string>("export_copy_audio", {
+          src: source.audioPath,
+          dir,
+          basename,
+        });
+        files.push({
+          format: "sourceAudio",
+          name: path.split(/[\\/]/).pop() ?? `${basename}.wav`,
+          path,
+        });
+      } catch (err) {
+        throw mapInvokeError(err);
+      }
+    }
 
     // Text/binary artifacts first (single batched write call).
     const batch: { format: ExportFormatId; name: string; dataBase64: string }[] = [];

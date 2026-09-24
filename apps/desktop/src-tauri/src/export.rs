@@ -144,6 +144,56 @@ pub fn export_write_files(
     Ok(written)
 }
 
+/// `export_copy_audio`: copy the source audio file into the export
+/// destination (#87 成果物同梱 — a recording→score bundle carries its
+/// own audio). Reads `src` (user-owned, never modified) and writes
+/// `dir/<basename>.<ext>` where `ext` is the source's own extension;
+/// the destination dir is gated by the same allowlist as
+/// `export_write_files`, and the file name is sanitized to a stem plus
+/// a known audio extension so the command cannot write anything but
+/// an audio artifact.
+#[tauri::command]
+pub fn export_copy_audio(
+    app: tauri::AppHandle,
+    src: String,
+    dir: String,
+    basename: String,
+) -> Result<String, String> {
+    const AUDIO_EXTENSIONS: [&str; 5] = ["wav", "mp3", "flac", "m4a", "ogg"];
+    let src_path = PathBuf::from(&src);
+    if !src_path.is_file() {
+        return Err(format!("source audio not found: {src}"));
+    }
+    let ext = src_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !AUDIO_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!("unsupported audio extension: {ext}"));
+    }
+    let dir_path = PathBuf::from(&dir);
+    if !dir_allowed(&app, &dir_path) {
+        return Err("PERMISSION_DENIED".to_string());
+    }
+    std::fs::create_dir_all(&dir_path)
+        .map_err(|e| format!("create {}: {e}", dir_path.display()))?;
+    let stem: String = basename
+        .chars()
+        .map(|c| match c {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '.' => '_',
+            _ => c,
+        })
+        .collect::<String>()
+        .trim()
+        .to_string();
+    let stem = if stem.is_empty() { "audio" } else { &stem };
+    let dest = dir_path.join(format!("{stem}.{ext}"));
+    std::fs::copy(&src_path, &dest)
+        .map_err(|e| format!("copy {}: {e}", dest.display()))?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
 /// `detect_tools`: probe MuseScore/ffmpeg for the export + diagnostics
 /// surfaces. PATH first, then the standard MuseScore install dirs.
 #[tauri::command]

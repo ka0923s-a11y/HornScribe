@@ -323,8 +323,22 @@ export default function App() {
   useEffect(() => {
     const fileName = importState.audio?.fileName ?? "";
     const stem = fileName.replace(/\.[^.]*$/, "");
+    // #87: path-backed refs can be bundled into the export; in-browser
+    // bytes (kind:"file" drops, pathless recordings) cannot be copied.
+    const ref = importState.audio?.ref;
+    const audioPath =
+      ref?.kind === "path"
+        ? ref.path
+        : ref?.kind === "recording"
+          ? (ref.path ?? null)
+          : null;
     exportSourceRef.current = scoreDocument
-      ? { doc: scoreDocument, basename: stem || scoreDocument.meta.title }
+      ? {
+          doc: scoreDocument,
+          basename: stem || scoreDocument.meta.title,
+          audioPath,
+          audioName: audioPath ? fileName || null : null,
+        }
       : null;
   }, [scoreDocument, importState.audio]);
 

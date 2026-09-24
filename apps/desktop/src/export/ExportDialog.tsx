@@ -83,6 +83,7 @@ export function ExportDialog({
     concertPdf: true,
     hornPdf: true,
     playbackMidi: true,
+    sourceAudio: true,
   });
   const [result, setResult] = useState<ExportResult | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind>("failed");
@@ -106,6 +107,7 @@ export function ExportDialog({
       concertPdf: true,
       hornPdf: true,
       playbackMidi: true,
+      sourceAudio: true,
     });
     let cancelled = false;
     void (async () => {
@@ -141,6 +143,9 @@ export function ExportDialog({
   }, [onOpenChange]);
 
   const blocked = caps ? pdfBlocked(caps) : false;
+  // #87: the audio bundle needs a real path — browser-held bytes and
+  // pathless recordings keep the checkbox off with an honest tooltip.
+  const audioBlocked = caps != null && !caps.audioAvailable;
   const anyChecked = Object.values(selected).some(Boolean);
   const running = phase === "running";
 
@@ -149,7 +154,12 @@ export function ExportDialog({
     setPhase("running");
     const formats = (
       Object.keys(selected) as ExportFormatId[]
-    ).filter((f) => selected[f] && !(blocked && EXPORT_FORMAT_GROUPS[f] === "pdf"));
+    ).filter(
+      (f) =>
+        selected[f] &&
+        !(blocked && EXPORT_FORMAT_GROUPS[f] === "pdf") &&
+        !(audioBlocked && f === "sourceAudio"),
+    );
     try {
       const res = await port.export({ formats, destination });
       if (generation.current !== gen) return;
@@ -170,7 +180,7 @@ export function ExportDialog({
       );
       setPhase("error");
     }
-  }, [selected, blocked, port, destination, onAnnounce]);
+  }, [selected, blocked, audioBlocked, port, destination, onAnnounce]);
 
   const pickDestination = useCallback(async () => {
     try {
@@ -207,7 +217,9 @@ export function ExportDialog({
         : e.title;
 
   const formatRow = (id: ExportFormatId) => {
-    const disabled = running || (blocked && EXPORT_FORMAT_GROUPS[id] === "pdf");
+    const pdfOff = blocked && EXPORT_FORMAT_GROUPS[id] === "pdf";
+    const audioOff = audioBlocked && id === "sourceAudio";
+    const disabled = running || pdfOff || audioOff;
     const checkbox = (
       <Checkbox
         checked={selected[id]}
@@ -217,7 +229,18 @@ export function ExportDialog({
       />
     );
     // Disabled checkboxes can't announce *why* — the spec'd tooltip does.
-    return blocked && EXPORT_FORMAT_GROUPS[id] === "pdf" ? (
+    if (audioOff) {
+      return (
+        <Tooltip
+          key={id}
+          content={e.audioDisabledTooltip}
+          relationship="label"
+        >
+          <span className="hs-export__option">{checkbox}</span>
+        </Tooltip>
+      );
+    }
+    return pdfOff ? (
       <Tooltip
         key={id}
         content={e.pdfDisabledTooltip}
@@ -326,6 +349,9 @@ export function ExportDialog({
 
           <h3 className="hs-export__section">{e.midiSection}</h3>
           <div className="hs-export__group">{formatRow("playbackMidi")}</div>
+
+          <h3 className="hs-export__section">{e.audioSection}</h3>
+          <div className="hs-export__group">{formatRow("sourceAudio")}</div>
 
           <div className="hs-export__dest">
             <span className="hs-export__dest-label">{e.destination}</span>

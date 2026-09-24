@@ -24,16 +24,21 @@ import type {
  *   would be ambiguous about its own pitch space (再生用MIDIは実音);
  * - `concertPdf` / `hornPdf` → rendered through MuseScore, hence gated by
  *   the MuseScore tool capability.
+ * - `sourceAudio` → the original audio file copied alongside the score
+ *   artifacts (#87 成果物同梱): a recording→score bundle stays usable
+ *   outside the app. Gated by `capabilities.audioAvailable` — only refs
+ *   backed by a real path can be copied.
  */
 export type ExportFormatId =
   | "concertMusicxml"
   | "hornMusicxml"
   | "concertPdf"
   | "hornPdf"
-  | "playbackMidi";
+  | "playbackMidi"
+  | "sourceAudio";
 
-/** Checkbox grouping from the spec mock-up (楽譜 / PDF / MIDI). */
-export type ExportFormatGroup = "score" | "pdf" | "midi";
+/** Checkbox grouping from the spec mock-up (楽譜 / PDF / MIDI / 音声). */
+export type ExportFormatGroup = "score" | "pdf" | "midi" | "audio";
 
 export const EXPORT_FORMAT_GROUPS: Record<ExportFormatId, ExportFormatGroup> = {
   concertMusicxml: "score",
@@ -41,6 +46,7 @@ export const EXPORT_FORMAT_GROUPS: Record<ExportFormatId, ExportFormatGroup> = {
   concertPdf: "pdf",
   hornPdf: "pdf",
   playbackMidi: "midi",
+  sourceAudio: "audio",
 };
 
 export const EXPORT_FORMAT_IDS: readonly ExportFormatId[] = [
@@ -49,6 +55,7 @@ export const EXPORT_FORMAT_IDS: readonly ExportFormatId[] = [
   "concertPdf",
   "hornPdf",
   "playbackMidi",
+  "sourceAudio",
 ];
 
 /**
@@ -63,6 +70,9 @@ export interface ExportCapabilities {
   readonly backend: string | null;
   readonly museScore: ToolInfo;
   readonly ffmpeg: ToolInfo;
+  /** True when the loaded audio is backed by a real path and can be
+   *  copied into the export bundle (sourceAudio format, #87). */
+  readonly audioAvailable: boolean;
 }
 
 /** PDF export requires MuseScore; everything else stays available (§17). */

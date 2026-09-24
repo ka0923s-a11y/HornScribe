@@ -1177,12 +1177,14 @@ export const ja = {
     scoreSection: "楽譜",
     pdfSection: "PDF",
     midiSection: "MIDI",
+    audioSection: "音声",
     options: {
       concertMusicxml: "コンサートピッチ MusicXML",
       hornMusicxml: "F管ホルン MusicXML",
       concertPdf: "コンサートピッチ PDF",
       hornPdf: "F管ホルン PDF",
       playbackMidi: "再生用MIDI（実音）",
+      sourceAudio: "元の音声ファイル",
     },
     destination: "保存先",
     chooseDestination: "保存先を選ぶ",
@@ -1192,6 +1194,8 @@ export const ja = {
     museScoreMissingNote:
       "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。",
     pdfDisabledTooltip: "MuseScoreが見つからないためPDFを書き出せません",
+    audioDisabledTooltip:
+      "元の音声がディスク上にないため同梱できません",
     specifyMuseScore: "MuseScoreの場所を指定",
     completeTitle: "書き出しが完了しました",
     completeCount: "{count}件のファイルを書き出しました",

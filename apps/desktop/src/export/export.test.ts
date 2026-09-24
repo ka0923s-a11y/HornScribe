@@ -46,6 +46,21 @@ describe("MockExportPort.export", () => {
     expect(res.files.map((f) => f.format)).toEqual(EXPORT_FORMAT_IDS);
   });
 
+  it("bundles the source audio as <basename>_source.wav (#87)", async () => {
+    const res = await port().export({
+      formats: ["sourceAudio"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    expect(res.files).toEqual([
+      {
+        format: "sourceAudio",
+        name: "take1_source.wav",
+        path: "C:\\out\\take1_source.wav",
+      },
+    ]);
+  });
+
   it("rejects with a typed ExportError when nothing is selected", async () => {
     await expect(
       port().export({ formats: [], destination: "C:\\out" }),
@@ -92,6 +107,13 @@ describe("capabilities + pdf gate", () => {
       path: "D:\\MuseScore\\MuseScore4.exe",
     });
     expect(pdfBlocked(caps)).toBe(false);
+  });
+
+  it("audioAvailable defaults true; false gates the audio bundle (#87)", async () => {
+    expect((await port().capabilities()).audioAvailable).toBe(true);
+    expect(
+      (await port({ audioAvailable: false }).capabilities()).audioAvailable,
+    ).toBe(false);
   });
 });
 
