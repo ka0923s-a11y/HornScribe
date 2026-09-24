@@ -2,7 +2,11 @@ name: Release
 
 # Tag push (v*) or manual dispatch builds the desktop app on a hosted
 # Windows runner (MSVC toolchain is preinstalled there) and publishes the
-# NSIS installer + a portable exe zip to a GitHub Release.
+# NSIS installer + a portable zip to a GitHub Release.  #244: the
+# frozen transcription engine (PyInstaller onefile, ~130 MB) is built
+# and smoke-tested here too — the bundled config ships it inside the
+# installer and beside the portable exe so transcription works on a
+# machine with no Python at all.
 
 on:
   push:
@@ -30,6 +34,10 @@ jobs:
     steps:
       - name: Verify tag exists
         shell: bash
+        # #250: this step runs BEFORE checkout, so the job-level
+        # apps/desktop working-directory does not exist yet — the
+        # workspace root does.
+        working-directory: ${{ github.workspace }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -54,6 +62,12 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
+      - uses: actions/setup-python@v5
+        with:
+          # ENGINE_RUNTIME_MATRIX.md: Python 3.12 + ONNX Runtime is
+          # the measured-good engine runtime (plain pip install of
+          # basic-pitch fails on 3.12 — see the --no-deps step).
+          python-version: "3.12"
       - name: Verify tag matches app version
         shell: bash
         run: |
@@ -72,16 +86,72 @@ jobs:
       - name: Typecheck + unit tests
         run: npx tsc --noEmit && npx vitest run
 
-      - name: Build NSIS installer
-        run: npm run tauri build
+      - name: Rust tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --locked
+
+      - name: Python engine tests
+        working-directory: ${{ github.workspace }}
+        run: |
+          pip install pytest -e .
+          pytest tests/python -q
+
+      - name: Install engine runtime (known-good ONNX set)
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          # docs/ENGINE_RUNTIME_MATRIX.md: basic-pitch metadata
+          # demands a nonexistent TensorFlow on Windows+3.12, so the
+          # wheel goes in --no-deps and the ONNX dep set is explicit.
+          pip download basic-pitch==0.4.0 --no-deps -d .work/bp_pkg
+          pip install --no-deps .work/bp_pkg/basic_pitch-0.4.0-py2.py3-none-any.whl
+          pip install onnxruntime librosa mir-eval "numpy<2" pretty-midi \
+                      "resampy<0.4.3" scikit-learn scipy typing-extensions \
+                      "setuptools<81" soundfile pyinstaller
+
+      - name: Build frozen engine
+        working-directory: ${{ github.workspace }}
+        run: python scripts/build_engine.py
+
+      - name: Smoke-test frozen engine
+        working-directory: ${{ github.workspace }}
+        run: |
+          # Handshake + one real offline Basic Pitch transcription —
+          # a broken bundle fails here, not on a user's machine.
+          python scripts/smoke_engine.py apps/desktop/src-tauri/resources/engine/hornscribe-engine.exe
+
+      - name: Build NSIS installer (bundled engine)
+        run: npm run tauri build -- --config src-tauri/tauri.bundled.json
 
       - name: Package portable zip
         shell: pwsh
         run: |
+          # #244: the portable layout must ship the engine/ resource
+          # dir next to the exe — engine.rs probes exe_dir/engine/.
           $exe = "src-tauri/target/release/hornscribe-desktop.exe"
+          $engine = "src-tauri/resources/engine"
+          $stage = "src-tauri/target/release/portable-stage"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item $exe $stage
+          Copy-Item $engine "$stage/engine" -Recurse
           $zip = "src-tauri/target/release/HornScribe_${{ env.RELEASE_TAG }}_x64-portable.zip"
-          Compress-Archive -Path $exe -DestinationPath $zip -Force
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
           Get-Item $zip | Select-Object Name, Length
+
+      - name: Verify artifacts contain the engine
+        shell: pwsh
+        run: |
+          # The engine binary is ~130 MB — an installer or zip under
+          # 50 MB cannot contain it (v0.1.0 shipped 4-5 MB assets).
+          $installer = Get-Item src-tauri/target/release/bundle/nsis/*-setup.exe
+          $zip = Get-Item src-tauri/target/release/*-portable.zip
+          if ($installer.Length -lt 50MB) { throw "installer too small to contain the engine: $($installer.Length)" }
+          if ($zip.Length -lt 50MB) { throw "portable zip too small to contain the engine: $($zip.Length)" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $entries = [IO.Compression.ZipFile]::OpenRead($zip.FullName).Entries
+          if (-not ($entries | Where-Object { $_.FullName -eq "engine/hornscribe-engine.exe" })) {
+            throw "portable zip does not contain engine/hornscribe-engine.exe"
+          }
 
       - name: Publish release assets
         shell: bash
