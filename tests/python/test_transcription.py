@@ -207,6 +207,59 @@ class TestClean:
         assert out.octave_corrected == 0
         assert [int(e.pitch_midi) for e in out.events] == [60, 72, 67]
 
+    def test_harmonic_ghost_dropped_not_clipped(self) -> None:
+        # A short, weaker octave-up note starting under a sustained
+        # note is an overtone artifact: drop the ghost and keep the
+        # real note's tail instead of clipping at the ghost onset.
+        sustained = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.0,
+            offset_sec=0.9,
+            confidence=0.9,
+        )
+        ghost = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=72,  # octave up
+            onset_sec=0.3,
+            offset_sec=0.38,  # 80 ms — under the ghost cap
+            confidence=0.5,  # weaker than the sustained note
+        )
+        out = clean_monophonic((sustained, ghost))
+        assert len(out.events) == 1
+        assert out.events[0].offset_sec == pytest.approx(0.9)
+        assert out.ghost_dropped == 1
+        assert out.clipped_overlaps == 0
+
+    def test_strong_overlap_still_clips(self) -> None:
+        # Same shape as the ghost case but equal confidence and a
+        # non-harmonic interval — a real second voice, so the
+        # monophonic clip still applies and the warning counts.
+        sustained = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.0,
+            offset_sec=0.9,
+            confidence=0.5,
+        )
+        second = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=62,  # whole step — not a harmonic interval
+            onset_sec=0.3,
+            offset_sec=0.6,
+            confidence=0.9,
+        )
+        out = clean_monophonic((sustained, second))
+        assert len(out.events) == 2
+        assert out.events[0].offset_sec == pytest.approx(0.3)
+        assert out.clipped_overlaps == 1
+        assert out.polyphonic_overlaps == 1
+        assert out.ghost_dropped == 0
+
 
 class TestMeter:
     def _beats(self, n: int, period: float = 0.5) -> tuple[float, ...]:
@@ -236,6 +289,48 @@ class TestMeter:
         )
         est = estimate_meter(self._beats(n, period=0.25), strengths)
         assert est.meter == "6/8"
+        assert est.tracked_eighths
+
+    def test_five_four(self) -> None:
+        # Accents every 5th beat — the odd-meter extension must be
+        # scorable by auto estimation, not just explicit selection.
+        n = 30
+        strengths = tuple(3.0 if i % 5 == 0 else 1.0 for i in range(n))
+        est = estimate_meter(self._beats(n), strengths)
+        assert est.meter == "5/4"
+        assert not est.tracked_eighths
+
+    def test_nine_eight(self) -> None:
+        # Eighth pulse: downbeat every 9 eighths with the three
+        # dotted-quarter group accents at lags 3 and 6.
+        n = 45
+        strengths = tuple(
+            3.0 if i % 9 == 0 else (1.4 if i % 3 == 0 else 1.0)
+            for i in range(n)
+        )
+        est = estimate_meter(self._beats(n, period=0.25), strengths)
+        assert est.meter == "9/8"
+        assert est.tracked_eighths
+
+    def test_twelve_eight(self) -> None:
+        # Eighth pulse: downbeat every 12 eighths, mid-bar accent at
+        # lag 6 clearly weaker than the downbeat (equal = 6/8).
+        n = 48
+        strengths = tuple(
+            3.0 if i % 12 == 0 else (1.4 if i % 3 == 0 else 1.0)
+            for i in range(n)
+        )
+        est = estimate_meter(self._beats(n, period=0.25), strengths)
+        assert est.meter == "12/8"
+        assert est.tracked_eighths
+
+    def test_seven_eight(self) -> None:
+        # Eighth pulse with a strong accent every 7 eighths that beats
+        # the compound-meter lag evidence.
+        n = 42
+        strengths = tuple(3.0 if i % 7 == 0 else 1.0 for i in range(n))
+        est = estimate_meter(self._beats(n, period=0.25), strengths)
+        assert est.meter == "7/8"
         assert est.tracked_eighths
 
     def test_too_few_beats_uncertain(self) -> None:

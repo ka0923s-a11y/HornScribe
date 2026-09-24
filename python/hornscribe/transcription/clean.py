@@ -18,6 +18,11 @@ duplicates — so this stage repairs them *before* quantization:
   artifacts) — dropped count is reported in the job meta;
 * ``range`` params clip the accepted window: notes overlapping the
   selection are trimmed to it, notes fully outside are dropped.
+* harmonic ghosts are suppressed *before* clipping: a short,
+  lower-confidence note a stable harmonic interval (octave/fifth) away
+  that starts under a sustained note is almost always a Basic Pitch
+  overtone artifact — clipping the sustained note to the ghost's onset
+  silently deletes the tail of a real note.
 
 Pitch is rounded to the nearest semitone here — canonical notes are
 integer MIDI (pitch spelling is a downstream concern, flagged via
@@ -38,6 +43,13 @@ from hornscribe.domain.events import RawNoteEvent
 MIN_EVENT_SEC = 0.04
 MERGE_GAP_SEC = 0.03
 
+# Harmonic-ghost suppression: a note this short starting under a
+# sustained note, a stable harmonic interval away and at lower
+# confidence, is an overtone artifact, not a second voice.
+GHOST_MAX_SEC = 0.12
+GHOST_INTERVALS = (3, 4, 7, 12, 19, 24)  # m3/M3/P5/octave/octave+P5/2oct
+GHOST_MIN_LEAD_SEC = 0.02  # ghost attack must land after the real attack
+
 
 @dataclass(frozen=True)
 class CleanedEvents:
@@ -49,6 +61,8 @@ class CleanedEvents:
     polyphonic_overlaps: int = 0
     """Overlaps between *different* pitch classes — likely real
     polyphony (or strong octave ghosts), worth a review warning."""
+    ghost_dropped: int = 0
+    """Short harmonic-interval overlaps suppressed as overtone ghosts"""
 
     def stats(self) -> dict[str, Any]:
         return {
@@ -57,6 +71,7 @@ class CleanedEvents:
             "clippedOverlaps": self.clipped_overlaps,
             "octaveCorrected": self.octave_corrected,
             "polyphonicOverlaps": self.polyphonic_overlaps,
+            "ghostDropped": self.ghost_dropped,
             "eventCount": len(self.events),
         }
 
@@ -128,17 +143,26 @@ def clean_monophonic(
 
     clipped = 0
     polyphonic = 0
-    for i in range(len(kept) - 1):
-        nxt = kept[i + 1]
-        cur = kept[i]
-        if cur.offset_sec > nxt.onset_sec:
-            kept[i] = _replace_offset(cur, nxt.onset_sec)
-            clipped += 1
-            if (
-                int(round(cur.pitch_midi)) % 12
-                != int(round(nxt.pitch_midi)) % 12
-            ):
-                polyphonic += 1
+    ghosts = 0
+    final_events: list[RawNoteEvent] = []
+    for ev in kept:
+        if final_events:
+            prev = final_events[-1]
+            if prev.offset_sec > ev.onset_sec:
+                if _is_harmonic_ghost(prev, ev):
+                    # Overtone artifact under a sustained note — drop the
+                    # ghost instead of clipping the real note's tail.
+                    ghosts += 1
+                    continue
+                final_events[-1] = _replace_offset(prev, ev.onset_sec)
+                clipped += 1
+                if (
+                    int(round(prev.pitch_midi)) % 12
+                    != int(round(ev.pitch_midi)) % 12
+                ):
+                    polyphonic += 1
+        final_events.append(ev)
+    kept = final_events
     # A clip can leave a zero-length note; drop it honestly.
     final = [e for e in kept if e.offset_sec - e.onset_sec >= min_event_sec]
     dropped += len(kept) - len(final)
@@ -171,7 +195,30 @@ def clean_monophonic(
         clipped_overlaps=clipped,
         octave_corrected=octave_fixed,
         polyphonic_overlaps=polyphonic,
+        ghost_dropped=ghosts,
     )
+
+
+def _is_harmonic_ghost(prev: RawNoteEvent, ev: RawNoteEvent) -> bool:
+    """True when *ev* is an overtone artifact riding on *prev*.
+
+    Basic Pitch frequently emits a short, weaker note a stable harmonic
+    interval (octave/fifth/third) away that starts under a sustained
+    note. Under the monophonic contract clipping the sustained note at
+    the ghost's onset throws away the real tail, so the ghost loses.
+    Deliberately conservative: requires a short span, a later attack,
+    a harmonic interval, and strictly lower confidence.
+    """
+    if ev.offset_sec - ev.onset_sec > GHOST_MAX_SEC:
+        return False
+    if ev.onset_sec - prev.onset_sec < GHOST_MIN_LEAD_SEC:
+        return False
+    interval = abs(int(round(ev.pitch_midi)) - int(round(prev.pitch_midi)))
+    if interval not in GHOST_INTERVALS:
+        return False
+    if ev.confidence is None or prev.confidence is None:
+        return False
+    return ev.confidence < prev.confidence
 
 
 def _extend(ev: RawNoteEvent, offset_sec: float, confidence: float | None) -> RawNoteEvent:
