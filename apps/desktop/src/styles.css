@@ -1082,7 +1082,9 @@ body {
 /* Text badge (§15: never color-only — a labelled glyph + dotted edge). */
 .hs-score-reviewbar__badge {
   border: 1px dashed var(--hs-review-ink);
-  border-radius: var(--hs-radius-sm);
+  /* --hs-radius-sm is not a defined token; --hs-radius-input (6px) is
+   *  the small-radius token the other badges use. */
+  border-radius: var(--hs-radius-input);
   padding: 0 var(--hs-space-xs);
   font-weight: 600;
   white-space: nowrap;
@@ -1607,6 +1609,17 @@ body {
   flex: 0 0 auto;
   color: var(--hs-text-secondary);
   font-size: var(--hs-font-size-compact);
+}
+/* #147: managed-source "referenced by a project" marker — a text
+ *  badge, not color alone (the name cell keeps truncating). */
+.hs-settings__recording-ref {
+  margin-inline-start: var(--hs-space-sm);
+  padding: 0 var(--hs-space-xs);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-input);
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+  white-space: nowrap;
 }
 .hs-settings__tool {
   display: flex;

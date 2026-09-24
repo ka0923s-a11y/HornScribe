@@ -1223,6 +1223,7 @@ export default function App() {
                 onOpenDiagnostics={() => setDiagnosticsOpen(true)}
                 onAnnounce={setStatusMessage}
                 focusCategory={settingsFocus}
+                recentProjects={recentProjects}
               />
             </div>
           ) : (

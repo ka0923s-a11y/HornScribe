@@ -588,7 +588,6 @@ pub fn delete_recording(app: tauri::AppHandle, name: String) -> Result<(), Strin
 /// セッションを妨げない。
 #[tauri::command]
 pub fn copy_recording_to_managed(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    use tauri::Manager;
     if name.is_empty()
         || name.contains('\\')
         || name.contains('/')
@@ -602,11 +601,7 @@ pub fn copy_recording_to_managed(app: tauri::AppHandle, name: String) -> Result<
     if !meta.is_file() {
         return Err(format!("not a file: {name}"));
     }
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app data dir: {e}"))?
-        .join("sources");
+    let dir = sources_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("sources dir: {e}"))?;
 
     // Same-name reuse when bytes match; otherwise find a free -N suffix.
@@ -636,6 +631,110 @@ pub fn copy_recording_to_managed(app: tauri::AppHandle, name: String) -> Result<
     }
     std::fs::copy(&src, &candidate).map_err(|e| format!("copy {name}: {e}"))?;
     Ok(candidate.to_string_lossy().into_owned())
+}
+
+/* ------------------------- managed sources (#147) -------------------------- */
+
+/// appDataDir/sources/ — copy_recording_to_managed の書き出し先。
+/// プロジェクトが参照する永続領域で、recordings/ の保持ポリシーは
+/// 適用しない(削除はユーザー操作のみ)。
+fn sources_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("sources"))
+}
+
+/// sources/ の場所・件数・使用量(#147)。recordings_info の sources 版。
+#[tauri::command]
+pub fn sources_info(app: tauri::AppHandle) -> Result<RecordingsInfo, String> {
+    let dir = sources_dir(&app)?;
+    let mut file_count = 0u32;
+    let mut total_bytes = 0u64;
+    if dir.is_dir() {
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("wav")
+                && path.is_file()
+            {
+                file_count += 1;
+                total_bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    Ok(RecordingsInfo {
+        dir: dir.to_string_lossy().into_owned(),
+        file_count,
+        total_bytes,
+    })
+}
+
+/// sources/ の WAV 一覧(#147)。recordings_list と同じ形・同じ順序。
+#[tauri::command]
+pub fn sources_list(app: tauri::AppHandle) -> Result<Vec<RecordingFile>, String> {
+    let dir = sources_dir(&app)?;
+    let mut files = Vec::new();
+    if dir.is_dir() {
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("wav")
+                || !path.is_file()
+            {
+                continue;
+            }
+            let meta = entry.metadata().ok();
+            let modified = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            files.push(RecordingFile {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                bytes: meta.map(|m| m.len()).unwrap_or(0),
+                modified_sec: modified,
+            });
+        }
+    }
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(files)
+}
+
+/// sources/ をエクスプローラーで開く(#147)。
+#[tauri::command]
+pub fn open_sources_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = sources_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("sources dir: {e}"))?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("explorer {}: {e}", dir.display()))?;
+    Ok(())
+}
+
+/// sources/ の WAV を1件削除する(#147)。bare-name 検証は
+/// delete_recording と同じ。録音中でも許可する: sources/ は完成済み
+/// WAV のコピー置き場で、録画セッションの保存先ではない。
+/// プロジェクトが参照するファイルの削除は UI 側が警告する — ここでは
+/// 拒否しない(参照は別プロジェクトの所有物であり、削除権限はユーザー)。
+#[tauri::command]
+pub fn delete_source(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    if name.is_empty()
+        || name.contains('\\')
+        || name.contains('/')
+        || name.contains("..")
+        || !name.to_lowercase().ends_with(".wav")
+    {
+        return Err("invalid source name".to_string());
+    }
+    let path = sources_dir(&app)?.join(&name);
+    std::fs::remove_file(&path).map_err(|e| format!("delete {name}: {e}"))
 }
 
 /* ------------------------------- internals -------------------------------- */

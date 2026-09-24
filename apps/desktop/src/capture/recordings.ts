@@ -171,6 +171,54 @@ export function recordingNameUnder(
   return path.slice(dirNorm.length);
 }
 
+/* ------------------------- managed sources (#147) --------------------------
+ * appDataDir/sources/ — プロジェクト保存時に録音をコピーした永続領域
+ * (#132)。保持ポリシーは適用されず、削除はユーザー操作のみ。形は
+ * recordings/* と同じ(件数・一覧・開く・個別削除)。 */
+
+/** sources/ フォルダの情報。Tauri 以外/失敗時は null。 */
+export async function getSourcesInfo(): Promise<RecordingsInfo | null> {
+  if (!isTauriRuntime()) return null;
+  try {
+    return await invoke<RecordingsInfo>("sources_info");
+  } catch {
+    return null;
+  }
+}
+
+/** sources/ の WAV 一覧。Tauri 以外/失敗時は null。 */
+export async function listSources(): Promise<RecordingFile[] | null> {
+  if (!isTauriRuntime()) return null;
+  try {
+    return await invoke<RecordingFile[]>("sources_list");
+  } catch {
+    return null;
+  }
+}
+
+/** sources/ フォルダをエクスプローラーで開く。成功時 true。 */
+export async function openSourcesDir(): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
+  try {
+    await invoke("open_sources_dir");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** sources/ の WAV を1件削除する。成功時 true。参照中プロジェクトの
+ *  警告は呼び出し側(UI)が出す — ここでは拒否しない。 */
+export async function deleteSource(name: string): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
+  try {
+    await invoke("delete_source", { name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** バイト数の人間向け表示(日本語 UI: MB 単位中心)。 */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -212,6 +212,20 @@ export const ja = {
     recordingsPruned: (n: number) => `古い録音を ${n} 件削除しました`,
     recordingsUnavailable:
       "録音の管理はデスクトップアプリで利用できます。",
+    /* #147: managed 音源 appDataDir/sources/ — プロジェクト保存時に
+     *  録音をコピーした永続領域 (#132)。保持ポリシー対象外なので
+     *  容量管理はここで行う。 */
+    sourcesSection: "プロジェクトの音源",
+    sourcesCount: (n: number) => n + " 件の音源",
+    sourcesEmpty: "保存された音源はありません",
+    sourcesReferenced: "プロジェクトが参照中",
+    sourcesDeleteConfirmTitle: "この音源を削除しますか?",
+    sourcesDeleteConfirmBody: (name: string) =>
+      name + " を削除します。この操作は取り消せません。",
+    sourcesDeleteConfirmBodyReferenced: (name: string) =>
+      name +
+      " は保存済みプロジェクトから参照されています。削除すると、そのプロジェクトを開いたときに音源が見つかりません。この操作は取り消せません。",
+    sourcesDeleted: "音源を削除しました",
   },
 
   time: {

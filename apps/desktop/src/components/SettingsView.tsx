@@ -29,15 +29,23 @@ import {
 } from "../settings/store";
 import {
   clearRecordings,
+  collectReferencedRecordingNames,
   deleteRecording,
+  deleteSource,
   formatBytes,
   getRecordingsInfo,
+  getSourcesInfo,
   listRecordings,
+  listSources,
   openRecordingsDir,
+  openSourcesDir,
   type RecordingFile,
   type RecordingsInfo,
 } from "../capture/recordings";
 import { HsDialog } from "./primitives/Dialog";
+import { createImportPorts } from "../import/runtimePorts";
+import { parseProjectFile } from "../import/controller";
+import type { RecentProjectEntry } from "../import/types";
 
 const CATEGORY_LABEL: Record<SettingsCategory, string> = {
   appearance: ja.settings.appearanceSection,
@@ -131,6 +139,7 @@ export function SettingsView({
   onOpenDiagnostics,
   onAnnounce,
   focusCategory,
+  recentProjects = [],
 }: {
   themeMode: ThemeMode;
   onThemeMode(m: ThemeMode): void;
@@ -144,6 +153,9 @@ export function SettingsView({
   onAnnounce(message: string): void;
   /** Deep-link target (e.g. "export" from the MuseScore recovery action). */
   focusCategory?: SettingsCategory;
+  /** #147: MRU projects — used to flag managed sources still referenced
+   *  by a saved project before the user deletes them. */
+  recentProjects?: readonly RecentProjectEntry[];
 }) {
   const s = ja.settings;
   const [category, setCategory] = useState<SettingsCategory>(
@@ -207,6 +219,39 @@ export function SettingsView({
   useEffect(() => {
     if (category === "recordings") refreshRecordings();
   }, [category, refreshRecordings]);
+
+  // #147: managed 音源(sources/) — プロジェクト保存時にコピーされた
+  // 録音の永続領域。参照判定は最近のプロジェクト(MRU)で行い、
+  // 読めない/履歴外のプロジェクトは fail-open(参照なし扱い)。
+  const [srcInfo, setSrcInfo] = useState<RecordingsInfo | null>(null);
+  const [srcFiles, setSrcFiles] = useState<RecordingFile[] | null>(null);
+  const [srcReferenced, setSrcReferenced] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const [srcDeleteTarget, setSrcDeleteTarget] = useState<string | null>(
+    null,
+  );
+  const refreshSources = useCallback(() => {
+    void getSourcesInfo().then((info) => {
+      setSrcInfo(info);
+      if (!info) {
+        setSrcReferenced(new Set());
+        return;
+      }
+      const ports = createImportPorts();
+      void collectReferencedRecordingNames({
+        readProjectBytes: ports.readProjectBytes,
+        entries: recentProjects,
+        dir: info.dir,
+        sourcePathOf: async (blob) =>
+          parseProjectFile(await blob.arrayBuffer(), "").sourcePath,
+      }).then(setSrcReferenced);
+    });
+    void listSources().then(setSrcFiles);
+  }, [recentProjects]);
+  useEffect(() => {
+    if (category === "recordings") refreshSources();
+  }, [category, refreshSources]);
 
   const section = (() => {
     switch (category) {
@@ -341,6 +386,62 @@ export function SettingsView({
                 onSettingsChange({ recordingsRetentionDays: Number(v) })
               }
             />
+            {/* #147: プロジェクト保存時にコピーされた managed 音源。
+                保持ポリシーは掛からないので容量はユーザー管理 — 件数・
+                使用量・個別削除をここに集約する。 */}
+            <div className="hs-settings__field">
+              <Label>{s.sourcesSection}</Label>
+              <div className="hs-settings__path-row">
+                <p className="hs-settings__value">
+                  {srcInfo
+                    ? srcInfo.fileCount > 0
+                      ? s.sourcesCount(srcInfo.fileCount) +
+                        " — " +
+                        formatBytes(srcInfo.totalBytes)
+                      : s.sourcesEmpty
+                    : s.recordingsUnavailable}
+                </p>
+                <HsButton
+                  size="small"
+                  disabled={!srcInfo}
+                  onClick={() => {
+                    void openSourcesDir().then((ok) => {
+                      if (!ok) onAnnounce(s.recordingsUnavailable);
+                    });
+                  }}
+                >
+                  {s.recordingsOpen}
+                </HsButton>
+              </div>
+            </div>
+            {srcFiles && srcFiles.length > 0 && (
+              <div className="hs-settings__field">
+                <ul className="hs-settings__recording-list">
+                  {srcFiles.map((f) => (
+                    <li key={f.name} className="hs-settings__recording-item">
+                      <span className="hs-settings__recording-name">
+                        {f.name}
+                        {srcReferenced.has(f.name) ? (
+                          <span className="hs-settings__recording-ref">
+                            {s.sourcesReferenced}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="hs-settings__recording-size">
+                        {formatBytes(f.bytes)}
+                      </span>
+                      <HsButton
+                        size="small"
+                        variant="secondary"
+                        onClick={() => setSrcDeleteTarget(f.name)}
+                      >
+                        {s.recordingsDelete}
+                      </HsButton>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </>
         );
 
@@ -674,6 +775,51 @@ export function SettingsView({
       >
         <p style={{ margin: 0 }}>
           {deleteTarget ? s.recordingsDeleteConfirmBody(deleteTarget) : ""}
+        </p>
+      </HsDialog>
+
+      {/* #147: managed 音源の削除 — 保存済みプロジェクトが参照する
+          ファイルは警告文を変えて知らせる(削除自体は許可: 参照は別
+          プロジェクトの所有物で、判断はユーザー)。 */}
+      <HsDialog
+        open={srcDeleteTarget !== null}
+        modalType="alert"
+        title={s.sourcesDeleteConfirmTitle}
+        onOpenChange={(open) => {
+          if (!open) setSrcDeleteTarget(null);
+        }}
+        actions={
+          <>
+            <HsButton
+              variant="danger"
+              onClick={() => {
+                const name = srcDeleteTarget;
+                setSrcDeleteTarget(null);
+                if (name) {
+                  void deleteSource(name).then((ok) => {
+                    if (ok) onAnnounce(s.sourcesDeleted);
+                    refreshSources();
+                  });
+                }
+              }}
+            >
+              {s.recordingsDelete}
+            </HsButton>
+            <HsButton
+              variant="secondary"
+              onClick={() => setSrcDeleteTarget(null)}
+            >
+              {ja.capture.replaceCancel}
+            </HsButton>
+          </>
+        }
+      >
+        <p style={{ margin: 0 }}>
+          {srcDeleteTarget
+            ? srcReferenced.has(srcDeleteTarget)
+              ? s.sourcesDeleteConfirmBodyReferenced(srcDeleteTarget)
+              : s.sourcesDeleteConfirmBody(srcDeleteTarget)
+            : ""}
         </p>
       </HsDialog>
     </div>
