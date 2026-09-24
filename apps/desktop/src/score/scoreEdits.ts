@@ -15,20 +15,30 @@
  */
 import { canonicalNoteIdFromMusicxml } from "./ids";
 
-/** One canonical note's user edit — cumulative, never incremental state. */
+/** One canonical note's user edit - cumulative, never incremental state. */
 export interface ScoreNoteEdit {
   /** Semitone offset vs. the document's emitted pitch (0 = unchanged). */
   readonly pitchDelta: number;
-  /** User deleted this note — rendered as a rest so measure timing stays
+  /** User deleted this note - rendered as a rest so measure timing stays
    *  intact (a removal would shift every later onset). */
   readonly deleted: boolean;
+  /** #114 (spec 13): enharmonic respell toggle - the sounding pitch is
+   *  unchanged; the written spelling flips to the other accidental
+   *  family (sharp <-> flat). Applied after pitchDelta. */
+  readonly enharmonic?: boolean;
 }
 
-/** The identity edit — absence of a map entry means the same thing. */
-export const NO_NOTE_EDIT: ScoreNoteEdit = { pitchDelta: 0, deleted: false };
+/** The identity edit - absence of a map entry means the same thing. */
+export const NO_NOTE_EDIT: ScoreNoteEdit = {
+  pitchDelta: 0,
+  deleted: false,
+  enharmonic: false,
+};
 
 export function isEmptyNoteEdit(edit: ScoreNoteEdit): boolean {
-  return edit.pitchDelta === 0 && !edit.deleted;
+  return (
+    edit.pitchDelta === 0 && !edit.deleted && !(edit.enharmonic ?? false)
+  );
 }
 
 const STEP_PC: Record<string, number> = {
@@ -97,6 +107,35 @@ export function shiftPitch(
   return { step: s, alter: a, octave: Math.floor(midi / 12) - 1 };
 }
 
+/** #114 (spec 13 異名同音): respell the SAME sounding pitch in the other
+ *  accidental family (sharp <-> flat). Prefers a single accidental; when
+ *  both candidates need a double accidental the flat family wins (B# ->
+ *  C keeps naturals stable). Returns null for unspellable input. */
+export function enharmonicRespell(
+  step: string,
+  alter: number,
+  octave: number,
+): { step: string; alter: number; octave: number } | null {
+  const pc0 = STEP_PC[step];
+  if (pc0 === undefined) return null;
+  const midi = (octave + 1) * 12 + pc0 + alter;
+  const pc = ((midi % 12) + 12) % 12;
+  const sharp = SPELL_SHARP[pc];
+  const flat = SPELL_FLAT[pc];
+  const currentIsFlat = alter < 0;
+  const [first, second] = currentIsFlat ? [sharp, flat] : [flat, sharp];
+  const pick = Math.abs(first[1]) <= 1 ? first : second;
+  // No-op guard: the other family is the same spelling (naturals).
+  if (pick[0] === step && pick[1] === alter) return null;
+  // STEP_PC+alter can leave [0,11] (B#=12, Cb=-1), so solve the octave
+  // from midi - (step+alter) instead of midi/12.
+  return {
+    step: pick[0],
+    alter: pick[1],
+    octave: Math.floor((midi - (STEP_PC[pick[0]] + pick[1])) / 12) - 1,
+  };
+}
+
 function setChildText(
   parent: Element,
   doc: XMLDocument,
@@ -118,18 +157,14 @@ function setChildText(
   parent.insertBefore(el, before ?? null);
 }
 
-/** Rewrite a <note>'s <pitch>/<alter>/<octave> and its <accidental> text
- *  so the rendered glyph matches the shifted sounding pitch. */
-function shiftNotePitch(noteEl: Element, doc: XMLDocument, delta: number): void {
-  const pitch = noteEl.querySelector(":scope > pitch");
-  if (!pitch) return; // already a rest — nothing to transpose
-  const step = pitch.querySelector("step")?.textContent ?? "";
-  const alterText = pitch.querySelector("alter")?.textContent;
-  const octaveText = pitch.querySelector("octave")?.textContent;
-  const octave = octaveText != null ? Number(octaveText) : NaN;
-  if (!Number.isFinite(octave)) return;
-  const next = shiftPitch(step, alterText != null ? Number(alterText) : 0, octave, delta);
-  if (!next) return;
+/** Write a (step, alter, octave) spelling back into <pitch> and sync the
+ *  <accidental> element so the rendered glyph matches. */
+function writeSpelling(
+  noteEl: Element,
+  pitch: Element,
+  doc: XMLDocument,
+  next: { step: string; alter: number; octave: number },
+): void {
   const octaveEl = pitch.querySelector("octave");
   setChildText(pitch, doc, "step", next.step, pitch.querySelector("alter") ?? octaveEl);
   setChildText(
@@ -149,6 +184,41 @@ function shiftNotePitch(noteEl: Element, doc: XMLDocument, delta: number): void 
     el.textContent = accName;
     noteEl.appendChild(el);
   }
+}
+
+/** Read the note's current (step, alter, octave), or null for rests /
+ *  unspellable pitches. */
+function readSpelling(
+  noteEl: Element,
+): { step: string; alter: number; octave: number } | null {
+  const pitch = noteEl.querySelector(":scope > pitch");
+  if (!pitch) return null; // already a rest - nothing to transpose
+  const step = pitch.querySelector("step")?.textContent ?? "";
+  const alterText = pitch.querySelector("alter")?.textContent;
+  const octaveText = pitch.querySelector("octave")?.textContent;
+  const octave = octaveText != null ? Number(octaveText) : NaN;
+  if (!Number.isFinite(octave) || !(step in STEP_PC)) return null;
+  return { step, alter: alterText != null ? Number(alterText) : 0, octave };
+}
+
+/** Rewrite a <note>'s <pitch>/<alter>/<octave> and its <accidental> text
+ *  so the rendered glyph matches the shifted sounding pitch. */
+function shiftNotePitch(noteEl: Element, doc: XMLDocument, delta: number): void {
+  const cur = readSpelling(noteEl);
+  if (!cur) return;
+  const next = shiftPitch(cur.step, cur.alter, cur.octave, delta);
+  if (!next) return;
+  writeSpelling(noteEl, noteEl.querySelector(":scope > pitch")!, doc, next);
+}
+
+/** #114: enharmonic respell - same sounding pitch, other accidental
+ *  family (spec 13). */
+function respellNotePitch(noteEl: Element, doc: XMLDocument): void {
+  const cur = readSpelling(noteEl);
+  if (!cur) return;
+  const next = enharmonicRespell(cur.step, cur.alter, cur.octave);
+  if (!next) return;
+  writeSpelling(noteEl, noteEl.querySelector(":scope > pitch")!, doc, next);
 }
 
 /** Convert a pitched <note> into a same-duration rest, keeping the
@@ -189,9 +259,17 @@ export function applyNoteEdits(
     if (edit.deleted) {
       noteToRest(noteEl, doc);
       changed = true;
-    } else if (edit.pitchDelta !== 0) {
-      shiftNotePitch(noteEl, doc, edit.pitchDelta);
-      changed = true;
+    } else {
+      // pitchDelta first, then the enharmonic respell of the shifted
+      // pitch (edit semantics: respell applies to the edited spelling).
+      if (edit.pitchDelta !== 0) {
+        shiftNotePitch(noteEl, doc, edit.pitchDelta);
+        changed = true;
+      }
+      if (edit.enharmonic) {
+        respellNotePitch(noteEl, doc);
+        changed = true;
+      }
     }
   }
   return changed ? new XMLSerializer().serializeToString(doc) : xml;

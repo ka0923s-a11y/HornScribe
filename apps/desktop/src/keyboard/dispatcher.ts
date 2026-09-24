@@ -136,14 +136,24 @@ export class KeyboardDispatcher {
     const tryMatch = (
       events: readonly KeyChord[],
     ): { type: "full"; command: Command } | { type: "partial" } | null => {
+      // #114: several commands may share one chord (shareShortcut) with
+      // mutually exclusive isEnabled predicates - take the first enabled
+      // candidate; when every candidate is disabled, the first still
+      // swallows the key (disabled commands stay non-executable).
+      let firstDisabled: Command | null = null;
+      const snapshot = this.options.getSnapshot();
       for (const { command, sequence } of eligible) {
         if (
           sequence.length === events.length &&
           isSequencePrefix(events, sequence)
         ) {
-          return { type: "full", command };
+          if (command.isEnabled?.(snapshot) ?? true) {
+            return { type: "full", command };
+          }
+          firstDisabled ??= command;
         }
       }
+      if (firstDisabled) return { type: "full", command: firstDisabled };
       for (const { sequence } of eligible) {
         if (
           sequence.length > events.length &&

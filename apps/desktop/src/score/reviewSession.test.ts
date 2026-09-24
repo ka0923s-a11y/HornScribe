@@ -71,6 +71,7 @@ describe("ReviewSession corrections", () => {
     expect(session.noteEditOf("sn-000012")).toEqual({
       pitchDelta: 1,
       deleted: false,
+      enharmonic: false,
     });
     // The document's MusicXML carries the correction (export sees it too).
     const xml = doc.musicXml("concert");
@@ -143,5 +144,43 @@ describe("revision binding (domain/review.py contract)", () => {
     const sessionB = new ReviewSession(revB);
     expect(sessionB.canUndo).toBe(false);
     expect(openIssues(sessionB.issues())).toHaveLength(3);
+  });
+});
+
+describe("editNote (#114 - direct edits outside review)", () => {
+  it("patches a canonical note and lands on the shared undo stack", () => {
+    const doc = createFixtureScoreDocument();
+    const session = new ReviewSession(doc);
+    const edit = session.editNote("sn-000012", { pitchDelta: 1 });
+    expect(edit).not.toBeNull();
+    expect(edit!.issueId).toBeNull();
+    expect(session.noteEditOf("sn-000012").pitchDelta).toBe(1);
+    // Undo restores the previous edit without touching issue status.
+    expect(session.undo()).not.toBeNull();
+    expect(session.noteEditOf("sn-000012")).toEqual(NO_NOTE_EDIT);
+    expect(session.statusOf("ri-000001")).toBe("open");
+    expect(session.redo()).not.toBeNull();
+    expect(session.noteEditOf("sn-000012").pitchDelta).toBe(1);
+  });
+
+  it("toggles delete and enharmonic flags", () => {
+    const doc = createFixtureScoreDocument();
+    const session = new ReviewSession(doc);
+    session.editNote("sn-000012", { enharmonic: true });
+    expect(session.noteEditOf("sn-000012").enharmonic).toBe(true);
+    // The respell reaches the emitted MusicXML (Bb3 -> A#3).
+    const note = new DOMParser()
+      .parseFromString(doc.musicXml("concert"), "application/xml")
+      .querySelector('note[id="hs-sn-000012"]')!;
+    expect(note.querySelector("pitch step")!.textContent).toBe("A");
+    expect(note.querySelector("pitch alter")!.textContent).toBe("1");
+    session.editNote("sn-000012", { deleted: true });
+    expect(session.isDeleted("sn-000012")).toBe(true);
+  });
+
+  it("returns null on a no-op patch", () => {
+    const session = new ReviewSession(createFixtureScoreDocument());
+    expect(session.editNote("sn-000012", { pitchDelta: 0 })).toBeNull();
+    expect(session.editNote("sn-000012", { deleted: false })).toBeNull();
   });
 });

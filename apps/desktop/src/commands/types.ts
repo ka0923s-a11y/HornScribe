@@ -130,6 +130,13 @@ export interface CommandContext {
   zoomScoreOut(): void;
   zoomScoreFit(): void;
   clearSelection(): void;
+  /** #114 (spec 10): select the previous/next note (score workspace). */
+  selectAdjacentNote?(direction: 1 | -1): void;
+  /** #114 (spec 13): semitone-shift / delete / respell the selected
+   *  note outside the review workspace (undoable). */
+  editSelectedPitch?(delta: number): void;
+  toggleSelectedDeleted?(): void;
+  toggleSelectedEnharmonic?(): void;
   /** #113: Esc on a waveform selection (AUDIO_READY) - clears the range
    *  back to "all" (spec 8: Esc -> 選択解除). Optional: absent = no-op. */
   clearWaveformSelection?(): void;
@@ -167,6 +174,14 @@ export interface Command {
    * binding shown in tooltips / aria-keyshortcuts.
    */
   readonly shortcuts?: readonly string[];
+  /**
+   * #114: opt-in to sharing a chord with another command whose
+   * `isEnabled` predicate is mutually exclusive (e.g. ArrowRight =
+   * review.next while reviewing, score.selectNext otherwise). Every
+   * command on the shared chord must set this flag; the dispatcher
+   * activates the first *enabled* candidate.
+   */
+  readonly shareShortcut?: boolean;
   /**
    * May run against this snapshot. Default: enabled. Disabled commands are
    * non-executable everywhere — toolbar, menu AND shortcut (issue req:

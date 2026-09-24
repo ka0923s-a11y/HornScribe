@@ -829,6 +829,78 @@ export function ScoreReadyWorkspace({
     );
   }, [issueAtCursor, session, runReviewEdit]);
 
+  /* #114 (spec 10/13): score-workspace note navigation + direct edits.
+   *  Arrow keys walk canonical notes in document order; Alt+arrows /
+   *  Delete / E edit the selection through the shared undo stack. */
+  const selectAdjacentNote = useCallback(
+    (direction: 1 | -1) => {
+      const docs = docsRef.current;
+      if (!docs) return;
+      const canonicals = docs.concert.notes
+        .map((n) => n.canonicalId)
+        .filter((id): id is string => id != null);
+      if (canonicals.length === 0) return;
+      const cur = selectionRef.current?.canonicalId ?? null;
+      let next: string;
+      if (cur == null) {
+        next = direction === 1 ? canonicals[0] : canonicals[canonicals.length - 1];
+      } else {
+        const i = canonicals.indexOf(cur);
+        const j = i < 0 ? (direction === 1 ? 0 : canonicals.length - 1) : i + direction;
+        if (j < 0 || j >= canonicals.length) return; // stay at the edges
+        next = canonicals[j];
+      }
+      const exportId = docs.concertByCanonical.get(next)?.[0]?.exportId;
+      if (exportId) selectExportId(exportId, { scroll: true });
+    },
+    [selectExportId],
+  );
+
+  const editSelectedPitch = useCallback(
+    (delta: number) => {
+      const canonicalId = selectionRef.current?.canonicalId;
+      if (!canonicalId) return;
+      if (
+        !runReviewEdit(
+          session.editNote(canonicalId, {
+            pitchDelta: session.noteEditOf(canonicalId).pitchDelta + delta,
+          }),
+          ja.review.feedback.pitchFixed,
+          { reload: true },
+        )
+      ) {
+        announce(ja.review.feedback.noIssues);
+      }
+    },
+    [session, runReviewEdit, announce],
+  );
+
+  const toggleSelectedDeleted = useCallback(() => {
+    const canonicalId = selectionRef.current?.canonicalId;
+    if (!canonicalId) return;
+    const deleted = session.isDeleted(canonicalId);
+    runReviewEdit(
+      session.editNote(canonicalId, { deleted: !deleted }),
+      deleted ? ja.review.feedback.noteRestored : ja.review.feedback.noteDeleted,
+      { reload: true },
+    );
+  }, [session, runReviewEdit]);
+
+  const toggleSelectedEnharmonic = useCallback(() => {
+    const canonicalId = selectionRef.current?.canonicalId;
+    if (!canonicalId) return;
+    const cur = session.noteEditOf(canonicalId).enharmonic ?? false;
+    if (
+      !runReviewEdit(
+        session.editNote(canonicalId, { enharmonic: !cur }),
+        ja.review.feedback.respelled,
+        { reload: true },
+      )
+    ) {
+      announce(ja.review.feedback.noIssues);
+    }
+  }, [session, runReviewEdit, announce]);
+
   const reviewUndo = useCallback(() => {
     const edit = session.undo();
     if (!edit) {
@@ -962,6 +1034,11 @@ export function ScoreReadyWorkspace({
       exitReview: () => exitReview(),
       undo: () => reviewUndo(),
       redo: () => reviewRedo(),
+      // #114: score-workspace navigation + direct note edits (spec 10/13).
+      selectAdjacentNote: (direction) => selectAdjacentNote(direction),
+      editSelectedPitch: (delta) => editSelectedPitch(delta),
+      toggleSelectedDeleted: () => toggleSelectedDeleted(),
+      toggleSelectedEnharmonic: () => toggleSelectedEnharmonic(),
     };
     controllerRef(controller);
     return () => controllerRef(null);
@@ -981,6 +1058,10 @@ export function ScoreReadyWorkspace({
     reviewDeleteOrRestore,
     reviewUndo,
     reviewRedo,
+    selectAdjacentNote,
+    editSelectedPitch,
+    toggleSelectedDeleted,
+    toggleSelectedEnharmonic,
     announce,
   ]);
 

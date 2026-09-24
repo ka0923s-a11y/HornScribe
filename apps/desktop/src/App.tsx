@@ -837,6 +837,15 @@ export default function App() {
           setTranscriptionOptions({ ...transcriptionOptions, range: "all" });
         }
       },
+      // #114: score note navigation + direct edits (spec 10/13).
+      selectAdjacentNote: (direction) =>
+        scoreCtlRef.current?.selectAdjacentNote?.(direction),
+      editSelectedPitch: (delta) =>
+        scoreCtlRef.current?.editSelectedPitch?.(delta),
+      toggleSelectedDeleted: () =>
+        scoreCtlRef.current?.toggleSelectedDeleted?.(),
+      toggleSelectedEnharmonic: () =>
+        scoreCtlRef.current?.toggleSelectedEnharmonic?.(),
       openSettings: () => {
         setSettingsFocus(undefined);
         setView("settings");

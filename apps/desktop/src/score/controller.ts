@@ -12,8 +12,19 @@ export interface ScoreWorkspaceController {
   zoomFit(): void;
 
   // ---- selection ----
-  /** Esc — exits review mode first, then clears the note selection. */
+  /** Esc - exits review mode first, then clears the note selection. */
   clearSelection(): void;
+  /** #114 (spec 10): move the selection to the previous/next note in
+   *  document order. No-op without a score or at the edges. */
+  selectAdjacentNote?(direction: 1 | -1): void;
+  /** #114 (spec 13): shift the selected note by `delta` semitones
+   *  (undoable, outside the review workspace). */
+  editSelectedPitch?(delta: number): void;
+  /** #114 (spec 13): toggle the selected note's deleted flag. */
+  toggleSelectedDeleted?(): void;
+  /** #114 (spec 13 異名同音): respell the selected note in the other
+   *  accidental family (sounding pitch unchanged). */
+  toggleSelectedEnharmonic?(): void;
 
   // ---- transport (§9) — no-ops until a clock exists ----
   togglePlayPause(): void;

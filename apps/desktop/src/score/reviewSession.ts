@@ -25,11 +25,13 @@ export interface ReviewNoteChange {
   readonly next: ScoreNoteEdit;
 }
 
-/** A recorded review action — the undo/redo unit (§14 "review decision"). */
+/** A recorded review action - the undo/redo unit (§14 "review decision"). */
 export interface ReviewEdit {
-  readonly issueId: string;
-  readonly prevStatus: ReviewIssueStatus;
-  readonly nextStatus: ReviewIssueStatus;
+  /** Issue this edit is bound to; null for a direct note edit made
+   *  outside the review workspace (#114 - the undo stack is shared). */
+  readonly issueId: string | null;
+  readonly prevStatus: ReviewIssueStatus | null;
+  readonly nextStatus: ReviewIssueStatus | null;
   /** Note corrections applied alongside the status change (empty for a
    *  pure decision like 問題なし). */
   readonly noteChanges: readonly ReviewNoteChange[];
@@ -162,6 +164,34 @@ export class ReviewSession {
     return this.decide(issueId, "open");
   }
 
+  /** #114 (spec 13): edit a canonical note directly, outside any review
+   *  issue - pitch shift, delete/restore and enharmonic respell share
+   *  the same undo stack as review corrections. `patch` is applied on
+   *  top of the note's current edit; returns null on a no-op. */
+  editNote(
+    canonicalId: string,
+    patch: Partial<ScoreNoteEdit>,
+  ): ReviewEdit | null {
+    const prev = editOf(this.doc, canonicalId);
+    const next: ScoreNoteEdit = { ...prev, ...patch };
+    if (
+      next.pitchDelta === prev.pitchDelta &&
+      next.deleted === prev.deleted &&
+      (next.enharmonic ?? false) === (prev.enharmonic ?? false)
+    ) {
+      return null;
+    }
+    const edit: ReviewEdit = {
+      issueId: null,
+      prevStatus: null,
+      nextStatus: null,
+      noteChanges: [{ canonicalId, prev, next }],
+    };
+    this.doc.setNoteEdit(canonicalId, next);
+    this.push(edit);
+    return edit;
+  }
+
   /** Undo the most recent review action. Returns it, or null when the
    *  stack is empty. */
   undo(): ReviewEdit | null {
@@ -192,24 +222,30 @@ export class ReviewSession {
     for (const change of edit.noteChanges) {
       this.doc.setNoteEdit(change.canonicalId, change.next);
     }
-    this.doc.recordReviewDecision(edit.issueId, edit.nextStatus);
+    if (edit.issueId != null && edit.nextStatus != null) {
+      this.doc.recordReviewDecision(edit.issueId, edit.nextStatus);
+    }
     this.push(edit);
     return edit;
   }
 
   private applyInverse(edit: ReviewEdit): void {
-    // Restore note edits first, then the status — a consumer that
+    // Restore note edits first, then the status - a consumer that
     // re-renders once sees a consistent state either way.
     for (const change of edit.noteChanges) {
       this.doc.setNoteEdit(change.canonicalId, change.prev);
     }
-    this.doc.recordReviewDecision(edit.issueId, edit.prevStatus);
+    if (edit.issueId != null && edit.prevStatus != null) {
+      this.doc.recordReviewDecision(edit.issueId, edit.prevStatus);
+    }
   }
 
   private applyForward(edit: ReviewEdit): void {
     for (const change of edit.noteChanges) {
       this.doc.setNoteEdit(change.canonicalId, change.next);
     }
-    this.doc.recordReviewDecision(edit.issueId, edit.nextStatus);
+    if (edit.issueId != null && edit.nextStatus != null) {
+      this.doc.recordReviewDecision(edit.issueId, edit.nextStatus);
+    }
   }
 }

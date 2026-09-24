@@ -130,17 +130,23 @@ export class CommandRegistry {
    * scope, so overlapping `isEnabled` predicates cannot rescue it.
    */
   detectConflicts(): ShortcutConflict[] {
-    const bySequence = new Map<string, Set<string>>();
+    const bySequence = new Map<string, Command[]>();
     for (const binding of this.bindingList) {
       const key = sequenceKey(binding.sequence);
-      const ids = bySequence.get(key) ?? new Set<string>();
-      ids.add(binding.command.id);
-      bySequence.set(key, ids);
+      const list = bySequence.get(key) ?? [];
+      list.push(binding.command);
+      bySequence.set(key, list);
     }
     const conflicts: ShortcutConflict[] = [];
-    for (const [shortcut, ids] of bySequence) {
-      if (ids.size > 1) {
-        conflicts.push({ shortcut, commandIds: [...ids] });
+    for (const [shortcut, cmds] of bySequence) {
+      // #114: a shared chord is legal only when EVERY command on it opts
+      // in via `shareShortcut` - the dispatcher then picks the first
+      // enabled candidate. An unflagged sharer is a real conflict.
+      if (cmds.length > 1 && cmds.some((c) => c.shareShortcut !== true)) {
+        conflicts.push({
+          shortcut,
+          commandIds: cmds.map((c) => c.id),
+        });
       }
     }
     return conflicts;

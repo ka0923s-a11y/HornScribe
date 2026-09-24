@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import concertXml from "./fixtures/score_concert.musicxml?raw";
 import {
   applyNoteEdits,
+  enharmonicRespell,
   isEmptyNoteEdit,
   NO_NOTE_EDIT,
   shiftPitch,
@@ -94,5 +95,67 @@ describe("applyNoteEdits", () => {
     // An identity edit maps back to the untouched document.
     expect(applyNoteEdits(concertXml, new Map())).toBe(concertXml);
     expect(deleted).not.toBe(concertXml);
+  });
+
+  it("enharmonic respells the same sounding pitch (#114)", () => {
+    // sn-000012 is Bb3 -> respelled as A#3 (same MIDI 58).
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000012", { pitchDelta: 0, deleted: false, enharmonic: true }],
+    ]);
+    const after = applyNoteEdits(concertXml, edits);
+    const note = noteXml(after, "hs-sn-000012")!;
+    expect(note.querySelector("pitch step")!.textContent).toBe("A");
+    expect(note.querySelector("pitch alter")!.textContent).toBe("1");
+    expect(note.querySelector("pitch octave")!.textContent).toBe("3");
+    expect(note.querySelector("accidental")!.textContent).toBe("sharp");
+  });
+
+  it("enharmonic applies after a pitch shift", () => {
+    // Bb3 +3 semitones = C#4 (shift respells sharp-side); respelled
+    // -> Db4 (same MIDI 61).
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000012", { pitchDelta: 3, deleted: false, enharmonic: true }],
+    ]);
+    const after = applyNoteEdits(concertXml, edits);
+    const note = noteXml(after, "hs-sn-000012")!;
+    expect(note.querySelector("pitch step")!.textContent).toBe("D");
+    expect(note.querySelector("pitch alter")!.textContent).toBe("-1");
+    expect(note.querySelector("pitch octave")!.textContent).toBe("4");
+  });
+});
+
+describe("enharmonicRespell", () => {
+  it("flips sharp/flat families keeping the same pitch class", () => {
+    expect(enharmonicRespell("C", 1, 4)).toEqual({
+      step: "D",
+      alter: -1,
+      octave: 4,
+    });
+    expect(enharmonicRespell("B", -1, 3)).toEqual({
+      step: "A",
+      alter: 1,
+      octave: 3,
+    });
+  });
+
+  it("keeps the sounding octave across boundary spellings", () => {
+    // B#3 (MIDI 60) -> C4; Cb4 (MIDI 59) -> B3.
+    expect(enharmonicRespell("B", 1, 3)).toEqual({
+      step: "C",
+      alter: 0,
+      octave: 4,
+    });
+    expect(enharmonicRespell("C", -1, 4)).toEqual({
+      step: "B",
+      alter: 0,
+      octave: 3,
+    });
+  });
+
+  it("returns null when the other family is the same spelling", () => {
+    // Naturals have no single-accidental partner (E#/Cb spellings are
+    // deliberately not produced), so respell is a no-op there.
+    expect(enharmonicRespell("F", 0, 4)).toBeNull();
+    expect(enharmonicRespell("C", 0, 4)).toBeNull();
   });
 });

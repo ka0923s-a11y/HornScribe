@@ -440,6 +440,13 @@ export const ja = {
     toggleSourceMute: "元音源のミュート",
     /* #100: project save */
     saveProject: "プロジェクトを保存",
+    /* #114 (spec 10/13): score note navigation + edits outside review */
+    selectNextNote: "次の音符へ",
+    selectPreviousNote: "前の音符へ",
+    notePitchUp: "半音上げる",
+    notePitchDown: "半音下げる",
+    noteToggleDeleted: "音符を削除 / 復元",
+    noteEnharmonic: "異名同音で書き換える",
   },
 
   /**
@@ -1172,6 +1179,8 @@ export const ja = {
       pitchFixed: "音高を修正しました",
       noteDeleted: "音符を削除しました",
       noteRestored: "音符を復元しました",
+      // #114: direct note edits outside the review workspace (spec 13).
+      respelled: "異名同音で書き換えました",
       undone: "元に戻しました",
       redone: "やり直しました",
       nothingToUndo: "元に戻す操作はありません",

@@ -267,6 +267,9 @@ export function createCommandDefinitions(): readonly Command[] {
       // §12 header has a 次へ button too — the arrow keys keep review
       // processing menu-free (acceptance: 20 items without menus).
       shortcuts: ["ArrowRight"],
+      // #114: shared with score.selectNext - mutually exclusive by
+      // reviewOpen; the dispatcher picks the enabled one.
+      shareShortcut: true,
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewNext(),
@@ -276,6 +279,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.reviewPrevious,
       section: "review",
       shortcuts: ["ArrowLeft"],
+      shareShortcut: true, // shared with score.selectPrevious (#114)
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewPrevious(),
@@ -312,6 +316,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.reviewPitchUp,
       section: "review",
       shortcuts: ["Alt+ArrowUp"],
+      shareShortcut: true, // shared with score.pitchUp (#114)
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewPitchUp?.(),
@@ -321,6 +326,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.reviewPitchDown,
       section: "review",
       shortcuts: ["Alt+ArrowDown"],
+      shareShortcut: true, // shared with score.pitchDown (#114)
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewPitchDown?.(),
@@ -330,6 +336,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.reviewDeleteOrRestore,
       section: "review",
       shortcuts: ["Delete", "Backspace"],
+      shareShortcut: true, // shared with score.toggleDeleted (#114)
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewDeleteOrRestore?.(),
@@ -343,6 +350,63 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.exitReview?.(),
+    },
+
+    // ---- score note navigation + edits (#114, spec 10/13) ----
+    // Arrow keys are shared with the review workspace: these stay
+    // disabled while review is open so review.next/previous own them.
+    {
+      id: "score.selectNext",
+      title: ja.commands.selectNextNote,
+      section: "score",
+      shortcuts: ["ArrowRight"],
+      shareShortcut: true, // shared with review.next (#114)
+      isEnabled: (s) => s.hasScore && !s.reviewOpen,
+      run: (ctx) => ctx.selectAdjacentNote?.(1),
+    },
+    {
+      id: "score.selectPrevious",
+      title: ja.commands.selectPreviousNote,
+      section: "score",
+      shortcuts: ["ArrowLeft"],
+      shareShortcut: true, // shared with review.previous (#114)
+      isEnabled: (s) => s.hasScore && !s.reviewOpen,
+      run: (ctx) => ctx.selectAdjacentNote?.(-1),
+    },
+    {
+      id: "score.pitchUp",
+      title: ja.commands.notePitchUp,
+      section: "score",
+      shortcuts: ["Alt+ArrowUp"],
+      shareShortcut: true, // shared with review.pitchUp (#114)
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.editSelectedPitch?.(1),
+    },
+    {
+      id: "score.pitchDown",
+      title: ja.commands.notePitchDown,
+      section: "score",
+      shortcuts: ["Alt+ArrowDown"],
+      shareShortcut: true, // shared with review.pitchDown (#114)
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.editSelectedPitch?.(-1),
+    },
+    {
+      id: "score.toggleDeleted",
+      title: ja.commands.noteToggleDeleted,
+      section: "score",
+      shortcuts: ["Delete", "Backspace"],
+      shareShortcut: true, // shared with review.deleteOrRestore (#114)
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.toggleSelectedDeleted?.(),
+    },
+    {
+      id: "score.toggleEnharmonic",
+      title: ja.commands.noteEnharmonic,
+      section: "score",
+      shortcuts: ["E"],
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.toggleSelectedEnharmonic?.(),
     },
 
     // ---- edit (§14: every fix is a command) ----

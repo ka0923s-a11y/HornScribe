@@ -280,7 +280,11 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
     ).toBe("edit.clearSelection");
     expect(h.open).toBe(false);
     expect(dispatcher.handleKeyDown(key("o")).kind).toBe("disabled");
-    expect(dispatcher.handleKeyDown(key("ArrowRight")).kind).toBe("disabled");
+    // #114: ArrowRight is shared - outside review it routes to the
+    // score's next-note navigation instead of being swallowed.
+    expect(dispatcher.handleKeyDown(key("ArrowRight")).commandId).toBe(
+      "score.selectNext",
+    );
   });
 
   it("all 20 items stay resolved after the pass (decisions persisted)", () => {
