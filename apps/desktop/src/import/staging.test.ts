@@ -143,4 +143,32 @@ describe("buildTranscriptionParams staged path", () => {
       ).texture,
     ).toBe("mono");
   });
+
+  it("per-job backend pin wins over the global setting (#189)", () => {
+    const a = audio({
+      ref: { kind: "path", path: "C:/orig.wav", name: "orig.wav" },
+    });
+    // Job option pins pyin even though the global setting says
+    // basicPitch; "auto" inherits the global choice.
+    expect(
+      buildTranscriptionParams(
+        a,
+        { ...DEFAULT_TRANSCRIPTION_OPTIONS, backend: "pyin" },
+        null,
+        "basicPitch",
+      ).backend,
+    ).toBe("pyin");
+    expect(
+      buildTranscriptionParams(
+        a,
+        DEFAULT_TRANSCRIPTION_OPTIONS,
+        null,
+        "basicPitch",
+      ).backend,
+    ).toBe("basicPitch");
+    expect(
+      buildTranscriptionParams(a, DEFAULT_TRANSCRIPTION_OPTIONS, null, "auto")
+        .backend,
+    ).toBeUndefined();
+  });
 });

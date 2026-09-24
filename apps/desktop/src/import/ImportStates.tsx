@@ -226,6 +226,11 @@ const TEXTURE_OPTIONS: readonly HsSelectOption[] = [
   { value: "melody", label: ja.import.audioOptions.textureMelody },
   { value: "voices", label: ja.import.audioOptions.textureVoices },
 ];
+const BACKEND_OPTIONS: readonly HsSelectOption[] = [
+  { value: "auto", label: ja.import.audioOptions.backendAuto },
+  { value: "basicPitch", label: "Basic Pitch" },
+  { value: "pyin", label: "pYIN（単音）" },
+];
 const RANGE_OPTIONS: readonly HsSelectOption[] = [
   { value: "all", label: ja.import.audioOptions.rangeAll },
   // #88: 時刻指定の範囲採譜。波形ドラッグ選択は別issueで検討中だが、
@@ -287,6 +292,15 @@ function AudioReadyBody({
               value={options.texture}
               onChange={(v) =>
                 set({ texture: v as TranscriptionOptions["texture"] })
+              }
+            />
+            <HsSelect
+              label={ja.import.audioOptions.backend}
+              options={BACKEND_OPTIONS}
+              value={options.backend}
+              hint={ja.import.audioOptions.backendHint}
+              onChange={(v) =>
+                set({ backend: v as TranscriptionOptions["backend"] })
               }
             />
             <HsSelect

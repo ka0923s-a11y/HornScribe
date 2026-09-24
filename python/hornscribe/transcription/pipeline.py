@@ -359,6 +359,12 @@ def run_transcription_job(
         revision = new_transcription_revision(
             params.audio_path, params.settings_dict()
         )
+        # #189: "auto" picks the engine that fits the declared
+        # texture — a declared-mono source gets the monophonic
+        # tracker; mixes keep the polyphonic model.
+        resolved_pyin = params.backend == "pyin" or (
+            params.backend == "auto" and params.texture == "mono"
+        )
         if backend is not None:
             run_backend = backend
         else:
@@ -369,7 +375,7 @@ def run_transcription_job(
                 if params.texture == "melody"
                 else None
             )
-            if params.backend == "pyin":
+            if resolved_pyin:
                 # #175: monophonic tracker — better for a single sung line.
                 run_backend = lambda path: predict_note_events_pyin(  # noqa: E731
                     path,
@@ -388,11 +394,9 @@ def run_transcription_job(
 
         # Resolved backend identity for provenance — used by both the
         # ScoreDocument fields and the job meta (pyin -> librosa ver).
-        backend_id = (
-            PYIN_BACKEND_ID if params.backend == "pyin" else BACKEND_ID
-        )
+        backend_id = PYIN_BACKEND_ID if resolved_pyin else BACKEND_ID
         backend_version = BACKEND_VERSION
-        if params.backend == "pyin":
+        if resolved_pyin:
             try:
                 import librosa  # noqa: PLC0415
 
@@ -410,7 +414,7 @@ def run_transcription_job(
         # re-articulations at onset times — re-merging same-pitch
         # neighbours inside clean_monophonic would undo that split.
         clean_merge_gap = (
-            0.0 if params.backend == "pyin" else MERGE_GAP_SEC
+            0.0 if resolved_pyin else MERGE_GAP_SEC
         )
         voice_split = None
         if params.texture == "voices":
@@ -733,7 +737,7 @@ def run_transcription_job(
         # #181: pYIN is a monophonic tracker — under voices/auto the
         # user asked for (or allowed) polyphony, so surface that the
         # result is one line by construction.
-        if params.backend == "pyin" and params.texture in (
+        if resolved_pyin and params.texture in (
             "voices",
             "auto",
         ):

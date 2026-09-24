@@ -331,6 +331,8 @@ export default function App() {
       // region-gated 自動判定(auto)に任せる — always だと全拍に
       // 三連符候補が乗り既定挙動が変わるため。
       triplets: settings.triplets ? "auto" : "none",
+      // #189: the per-job engine pin defaults to the global selector.
+      backend: settings.backend,
     });
   }, [importState.audio, settings]);
 
@@ -704,7 +706,7 @@ export default function App() {
    * their own path. #148: overrides pin job options (voices retry)
    * without a stale transcriptionOptions read. */
   const startTranscriptionJob = useCallback(
-    (overrides?: Partial<TranscriptionOptions>, backendOverride?: string) => {
+    (overrides?: Partial<TranscriptionOptions>) => {
       setScreen("transcribing");
       setStatusMessage(ja.transcription.start);
       void stageAudioForEngine(importState.audio)
@@ -714,7 +716,7 @@ export default function App() {
               importState.audio,
               { ...transcriptionOptions, ...overrides },
               staged,
-              backendOverride ?? settings.backend,
+              settings.backend,
             ),
           ),
         )
@@ -1428,7 +1430,13 @@ export default function App() {
                      * the job itself so a stale settings read cannot
                      * sneak pYIN back in. */
                     updateSettings({ backend: "basicPitch" });
-                    startTranscriptionJob(undefined, "basicPitch");
+                    /* #189: a per-job pyin pin would outrank the
+                     * backend arg, so pin the job options too. */
+                    setTranscriptionOptions((o) => ({
+                      ...o,
+                      backend: "basicPitch",
+                    }));
+                    startTranscriptionJob({ backend: "basicPitch" });
                   }}
                 />
                 {propertiesVisible ? (

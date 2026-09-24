@@ -57,9 +57,15 @@ export function buildTranscriptionParams(
   const path = stagedAudioPath ?? (audio ? audioPathOf(audio.ref) : null);
   if (path) params.audioPath = path;
 
-  // #108: the 設定 → 詳細設定 backend selector was a dead setting —
-  // wire it so an explicit Basic Pitch pin reaches the engine.
-  if (backend && backend !== "auto") params.backend = backend;
+  // #108/#189: the engine pin reaches the job. A per-job override
+  // (options.backend) wins over the global 設定→詳細設定 choice.
+  const resolvedBackend =
+    options.backend && options.backend !== "auto"
+      ? options.backend
+      : backend;
+  if (resolvedBackend && resolvedBackend !== "auto") {
+    params.backend = resolvedBackend;
+  }
 
   if (options.tempo === "manual" && options.tempoBpm != null) {
     params.tempoBpm = options.tempoBpm;

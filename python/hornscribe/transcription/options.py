@@ -22,10 +22,12 @@ Wire contract (camelCase, additive-optional; see PROTOCOL.md):
   (same contract as ``demoLongTask``).
 * ``backend`` — ``"auto"`` | ``"basicPitch"`` | ``"pyin"``; the
   transcription backend selector from 設定 → 詳細設定 (#108).
-  ``"auto"`` resolves to Basic Pitch today; ``"pyin"`` (#175) is the
-  monophonic librosa tracker better suited to a single sung/played
-  line. The raw selector value is echoed in ``meta.settings`` while
-  ``meta.backend`` reports the resolved engine.
+  ``"auto"`` resolves to the engine that fits the declared texture —
+  pYIN (#175, the monophonic librosa tracker) for a declared-mono
+  source, Basic Pitch otherwise. ``"pyin"`` pins the monophonic
+  tracker explicitly. The raw selector value is echoed in
+  ``meta.settings`` while ``meta.backend`` reports the resolved
+  engine.
 """
 
 from __future__ import annotations

@@ -893,6 +893,10 @@ export const ja = {
       textureMono: "単旋律（楽器・歌声のみ）",
       textureMelody: "メロディ優先（ミックス音源）",
       textureVoices: "複数声部として採譜（重奏・和音を含む演奏）",
+      /* #189: per-job engine override — "auto" inherits 設定→詳細設定. */
+      backend: "採譜エンジン",
+      backendAuto: "自動（設定に従う）",
+      backendHint: "pYINは歌声や単一旋律の採譜に向いています（単音専用）。",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {

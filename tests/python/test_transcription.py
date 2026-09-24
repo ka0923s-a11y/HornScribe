@@ -841,6 +841,22 @@ class TestSwing:
         assert doc["transcriptionBackend"] == "pyin"
         assert log[-1]["result"]["meta"]["backend"] == "pyin"
 
+    def test_auto_backend_resolves_pyin_for_mono(
+        self, tmp_path: Path
+    ) -> None:
+        # #189: "auto" picks the engine that fits the declared
+        # texture — a declared-mono source gets the tracker.
+        log = run(
+            tmp_path,
+            self._events([i * 0.5 for i in range(8)]),
+            {"backend": "auto", "texture": "mono"},
+        )
+        result = log[-1]["result"]
+        assert result["meta"]["backend"] == "pyin"
+        assert result["scoreDocument"]["transcriptionBackend"] == "pyin"
+        reasons = {i["reason"] for i in result["reviewIssues"]}
+        assert "monophonic_backend" not in reasons
+
     def test_basic_pitch_under_voices_no_warn(
         self, tmp_path: Path
     ) -> None:
