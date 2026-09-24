@@ -20,10 +20,12 @@ Wire contract (camelCase, additive-optional; see PROTOCOL.md):
   ``selectionEndSec`` clipping the accepted note window.
 * ``deadlineMs`` — engine-side wall-clock cap, checked between stages
   (same contract as ``demoLongTask``).
-* ``backend`` — ``"auto"`` | ``"basicPitch"``; the transcription
-  backend selector from 設定 → 詳細設定 (#108). ``"auto"`` resolves
-  to the only engine backend today (basic_pitch) and is echoed in
-  ``meta.settings`` so a future second backend honours the contract.
+* ``backend`` — ``"auto"`` | ``"basicPitch"`` | ``"pyin"``; the
+  transcription backend selector from 設定 → 詳細設定 (#108).
+  ``"auto"`` resolves to Basic Pitch today; ``"pyin"`` (#175) is the
+  monophonic librosa tracker better suited to a single sung/played
+  line. The raw selector value is echoed in ``meta.settings`` while
+  ``meta.backend`` reports the resolved engine.
 """
 
 from __future__ import annotations
@@ -55,7 +57,7 @@ _SUPPORTED_METERS = {
     "4/4", "3/4", "2/4", "5/4", "6/8", "7/8", "9/8", "12/8",
 }
 
-_BACKENDS = {"auto", "basicPitch"}
+_BACKENDS = {"auto", "basicPitch", "pyin"}
 
 _TEXTURES = {"auto", "mono", "melody", "voices"}
 

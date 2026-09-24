@@ -31,6 +31,7 @@ import contextlib
 import importlib.util
 import io
 import logging
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -44,6 +45,9 @@ from hornscribe.domain.ids import (
 
 BACKEND_ID = "basic_pitch"
 BACKEND_VERSION = "0.4.0"
+# #175: librosa.pyin monophonic tracker — same RawNoteEvent surface,
+# different engine provenance.
+PYIN_BACKEND_ID = "pyin"
 
 log = logging.getLogger(__name__)
 
@@ -93,10 +97,136 @@ def _bend_points(
     return tuple(out)
 
 
+def frames_to_note_events(
+    f0_hz: Any,
+    times_sec: Any,
+    voiced_flag: Any,
+    voiced_prob: Any,
+    *,
+    min_note_sec: float = 0.07,
+) -> list[tuple[float, float, float, float, list[int]]]:
+    """librosa.pyin frame output -> Basic-Pitch-style note tuples (#175).
+
+    pyin is a monophonic tracker: each frame is either unvoiced (f0 NaN /
+    voiced_flag False) or carries a continuous f0 in Hz. We group voiced
+    frames into runs whose rounded MIDI pitch stays constant (a vibrato
+    oscillation stays on one note instead of splitting), merge runs
+    separated by a single unvoiced frame, and drop runs shorter than
+    min_note_sec. Each surviving run becomes
+    (onset, offset, pitch_midi, amplitude, bends) — the same tuple shape
+    predict_note_events consumes — where pitch_midi is the run's
+    quantized median pitch and bends are the per-frame MIDI pitch-bend
+    units of the continuous f0 measured from that note pitch, so
+    note + bend reproduces the tracked contour (vibrato, scoops).
+    """
+    f0 = [float(x) for x in f0_hz]
+    times = [float(x) for x in times_sec]
+    voiced = [bool(x) for x in voiced_flag]
+    prob = [float(x) for x in voiced_prob]
+    n = len(f0)
+    if n == 0:
+        return []
+    frame_dt = (times[1] - times[0]) if n > 1 else 0.01
+
+    def to_midi(hz: float) -> float:
+        return 69.0 + 12.0 * math.log2(hz / 440.0)
+
+    # Runs of consecutive voiced frames sharing one rounded pitch.
+    runs: list[list[int]] = []
+    cur: list[int] = []
+    cur_pc: int | None = None
+    for i in range(n):
+        if not voiced[i] or math.isnan(f0[i]) or f0[i] <= 0:
+            if cur:
+                runs.append(cur)
+                cur = []
+                cur_pc = None
+            continue
+        pc = int(round(to_midi(f0[i])))
+        if cur and pc == cur_pc:
+            cur.append(i)
+        else:
+            if cur:
+                runs.append(cur)
+            cur = [i]
+            cur_pc = pc
+    if cur:
+        runs.append(cur)
+
+    # Merge runs split by a single unvoiced frame (tracker dropout).
+    merged: list[list[int]] = []
+    for run in runs:
+        if (
+            merged
+            and run[0] - merged[-1][-1] == 2
+            and int(round(to_midi(f0[run[0]])))
+            == int(round(to_midi(f0[merged[-1][-1]])))
+        ):
+            merged[-1].extend(range(merged[-1][-1] + 1, run[0]))
+            merged[-1].extend(run)
+        else:
+            merged.append(list(run))
+
+    out: list[tuple[float, float, float, float, list[int]]] = []
+    for run in merged:
+        onset = times[run[0]]
+        offset = times[run[-1]] + frame_dt
+        if offset - onset < min_note_sec:
+            continue
+        # Interior unvoiced frames (merged single-frame dropouts) have no
+        # usable f0 — pyin emits NaN there — so borrow the nearest voiced
+        # neighbour for the bend series instead of feeding NaN to log2.
+        midis = [to_midi(f0[i]) if f0[i] > 0 else float("nan") for i in run]
+        for k in range(len(run)):
+            if not math.isnan(midis[k]):
+                continue
+            prev = midis[k - 1] if k > 0 else None
+            nxt = (
+                to_midi(f0[run[k + 1]])
+                if k + 1 < len(run) and f0[run[k + 1]] > 0
+                else None
+            )
+            if prev is not None and nxt is not None:
+                midis[k] = (prev + nxt) / 2.0
+            elif prev is not None:
+                midis[k] = prev
+            elif nxt is not None:
+                midis[k] = nxt
+            else:
+                midis[k] = 0.0
+        midis_sorted = sorted(midis)
+        center = midis_sorted[len(midis_sorted) // 2]
+        # Bend baseline is the quantized note pitch (same convention as
+        # Basic Pitch), not the raw median — otherwise a run centred
+        # between semitones would lose its +0.5 st offset on playback.
+        note_pitch = float(int(round(center)))
+        # Voiced probability can be NaN on dropout frames; average over
+        # the finite values so confidence stays a real number.
+        probs = [prob[i] for i in run if not math.isnan(prob[i])]
+        amp = sum(probs) / len(probs) if probs else 0.0
+        bends = [
+            max(
+                0,
+                min(
+                    16383,
+                    int(
+                        round(
+                            8192 + (m - note_pitch) * _BEND_UNITS_PER_SEMITONE
+                        )
+                    ),
+                ),
+            )
+            for m in midis
+        ]
+        out.append((onset, offset, note_pitch, amp, bends))
+    return out
+
+
 def _to_raw_event(
     note_event: Any,
     event_id: RawNoteEventId,
     revision: TranscriptionRevisionId,
+    source: str = BACKEND_ID,
 ) -> RawNoteEvent:
     """Map one backend note tuple to RawNoteEvent, keeping bends (#169)."""
     onset_s, offset_s, pitch_midi, amplitude = note_event[:4]
@@ -111,7 +241,7 @@ def _to_raw_event(
         offset_sec=offset_f,
         confidence=float(amplitude),
         velocity=max(1, min(127, int(round(float(amplitude) * 110)))),
-        source=BACKEND_ID,
+        source=source,
         pitch_bends=_bend_points(bends, onset_f, offset_f),
     )
 
@@ -204,6 +334,59 @@ def predict_note_events(
                 note_event,
                 allocator.allocate_raw_event_id(),
                 revision,
+            )
+        )
+    return tuple(events)
+
+
+def predict_note_events_pyin(
+    audio_path: str,
+    *,
+    revision: TranscriptionRevisionId,
+    min_frequency_hz: float = MIN_FREQUENCY_HZ,
+    max_frequency_hz: float = MAX_FREQUENCY_HZ,
+) -> tuple[RawNoteEvent, ...]:
+    """Run librosa.pyin on *audio_path* -> raw note events (#175).
+
+    pyin is a monophonic probabilistic-YIN tracker: better suited to a
+    single sung/played line (JPOP vocals, horn) than the polyphonic
+    Basic Pitch model — it tracks continuous f0 per frame, so vibrato
+    stays inside one note and octave flicker is rare. The frame output
+    is converted by frames_to_note_events into the same tuple shape
+    Basic Pitch emits, keeping the downstream pipeline identical.
+
+    pyin is a single blocking call — cooperative cancellation cannot
+    interrupt it (same caveat as predict_note_events); the worker's
+    terminate/restart fallback covers aborting mid-inference.
+    """
+    require_module("librosa")
+    import librosa  # noqa: PLC0415
+
+    try:
+        samples, sr = librosa.load(audio_path, sr=22050, mono=True)
+        f0, voiced_flag, voiced_prob = librosa.pyin(
+            samples,
+            fmin=min_frequency_hz,
+            fmax=max_frequency_hz,
+            sr=sr,
+        )
+    except Exception as exc:
+        raise ValueError(f"pyin inference failed: {exc}") from exc
+    times = librosa.times_like(f0, sr=sr)
+    note_events = frames_to_note_events(
+        f0, times, voiced_flag, voiced_prob,
+        min_note_sec=MINIMUM_NOTE_LENGTH_MS / 1000.0,
+    )
+
+    allocator = IdAllocator("rne")
+    events: list[RawNoteEvent] = []
+    for note_event in note_events:
+        events.append(
+            _to_raw_event(
+                note_event,
+                allocator.allocate_raw_event_id(),
+                revision,
+                source=PYIN_BACKEND_ID,
             )
         )
     return tuple(events)

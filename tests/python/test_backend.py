@@ -8,7 +8,11 @@ exercise without basic_pitch installed.
 from __future__ import annotations
 
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
-from hornscribe.transcription.backend import _bend_points, _to_raw_event
+from hornscribe.transcription.backend import (
+    _bend_points,
+    _to_raw_event,
+    frames_to_note_events,
+)
 
 
 def _rev() -> TranscriptionRevisionId:
@@ -68,3 +72,91 @@ class TestToRawEvent:
         assert ev.velocity == 88
         assert ev.source == "basic_pitch"
 
+    def test_source_override(self):
+        ev = _to_raw_event(
+            (0.5, 1.5, 60.0, 0.8, []),
+            RawNoteEventId("rne-000001"),
+            _rev(),
+            source="pyin",
+        )
+        assert ev.source == "pyin"
+
+
+class TestFramesToNoteEvents:
+    """librosa.pyin frame output -> note tuples (#175)."""
+
+    def _frames(self, midis, voiced=None, dt=0.01):
+        """Build (f0_hz, times, voiced_flag, voiced_prob) from MIDI list."""
+        n = len(midis)
+        f0 = [440.0 * (2 ** ((m - 69) / 12)) for m in midis]
+        times = [i * dt for i in range(n)]
+        voiced = ([True] * n) if voiced is None else voiced
+        prob = [0.9] * n
+        # pyin emits NaN f0 on unvoiced frames — mirror that so dropout
+        # tests exercise the real merge path.
+        for i in range(n):
+            if not voiced[i]:
+                f0[i] = float("nan")
+        return f0, times, voiced, prob
+
+    def test_single_run_one_note(self):
+        f0, t, v, p = self._frames([60] * 20)
+        ev = frames_to_note_events(f0, t, v, p)
+        assert len(ev) == 1
+        onset, offset, pitch, amp, bends = ev[0]
+        assert onset == 0.0
+        assert pitch == 60.0
+
+    def test_vibrato_stays_one_note(self):
+        # Oscillating +/-0.4 semitone around 60 stays a single note.
+        midis = [60 + (0.4 if i % 2 else -0.4) for i in range(20)]
+        f0, t, v, p = self._frames(midis)
+        ev = frames_to_note_events(f0, t, v, p)
+        assert len(ev) == 1
+
+    def test_pitch_change_splits(self):
+        midis = [60] * 10 + [64] * 10
+        f0, t, v, p = self._frames(midis)
+        ev = frames_to_note_events(f0, t, v, p)
+        assert len(ev) == 2
+        assert ev[0][2] == 60.0
+        assert ev[1][2] == 64.0
+
+    def test_single_frame_dropout_merges(self):
+        midis = [60] * 10 + [60] * 10
+        voiced = [True] * 10 + [False] + [True] * 9
+        f0, t, v, p = self._frames(midis, voiced=voiced)
+        ev = frames_to_note_events(f0, t, v, p)
+        assert len(ev) == 1
+        # The merged gap frame borrows the neighbour pitch (bend ~0).
+        assert ev[0][4][10] == 8192
+
+    def test_nan_probabilities_ignored(self):
+        f0, t, v, p = self._frames([60] * 10)
+        p[3] = float("nan")
+        ev = frames_to_note_events(f0, t, v, p)
+        assert len(ev) == 1
+        assert abs(ev[0][3] - 0.9) < 1e-9
+
+    def test_short_run_dropped(self):
+        f0, t, v, p = self._frames([60] * 3)  # 30ms < 70ms default
+        ev = frames_to_note_events(f0, t, v, p)
+        assert ev == []
+
+    def test_bends_capture_deviation(self):
+        midis = [60.0] * 10 + [60.5] * 10
+        f0, t, v, p = self._frames(midis)
+        ev = frames_to_note_events(f0, t, v, p)
+        assert len(ev) == 1
+        bends = ev[0][4]
+        # The run quantizes to 60 (banker's rounding of the 60.5
+        # median); the second half sits ~+0.5 st above the note pitch.
+        assert ev[0][2] == 60.0
+        assert bends[-1] > 8192
+
+    def test_empty_input(self):
+        assert frames_to_note_events([], [], [], []) == []
+
+    def test_unvoiced_only(self):
+        f0, t, v, p = self._frames([60] * 10, voiced=[False] * 10)
+        assert frames_to_note_events(f0, t, v, p) == []

@@ -41,7 +41,7 @@ export type MeterSetting =
   | "12/8";
 export type MinDurationSetting = "eighth" | "sixteenth" | "thirtySecond";
 export type ScoreViewMode = "continuous" | "page";
-export type BackendSetting = "auto" | "basicPitch";
+export type BackendSetting = "auto" | "basicPitch" | "pyin";
 
 export interface AppSettings {
   /** 再生 → 標準再生速度 (0.5–2.0). */
@@ -108,7 +108,7 @@ const MIN_DURATIONS: readonly MinDurationSetting[] = [
   "thirtySecond",
 ];
 const VIEWS: readonly ScoreViewMode[] = ["continuous", "page"];
-const BACKENDS: readonly BackendSetting[] = ["auto", "basicPitch"];
+const BACKENDS: readonly BackendSetting[] = ["auto", "basicPitch", "pyin"];
 
 function num(v: unknown, min: number, max: number): number | null {
   return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max

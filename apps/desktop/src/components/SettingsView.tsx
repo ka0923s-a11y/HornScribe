@@ -617,10 +617,13 @@ export function SettingsView({
               options={[
                 { value: "auto", label: s.tempoAuto },
                 { value: "basicPitch", label: "Basic Pitch" },
+                { value: "pyin", label: "pYIN（単音）" },
               ]}
+              hint={s.backendHint}
               onChange={(v) =>
                 onSettingsChange({
-                  backend: v === "basicPitch" ? "basicPitch" : "auto",
+                  backend:
+                    v === "basicPitch" || v === "pyin" ? v : "auto",
                 })
               }
             />

@@ -60,11 +60,15 @@ from hornscribe.worker.protocol import (
 )
 
 from .backend import (
+    BACKEND_ID,
+    BACKEND_VERSION,
     MELODY_MAX_FREQUENCY_HZ,
+    PYIN_BACKEND_ID,
     EngineDependencyError,
     load_mono_audio,
     new_transcription_revision,
     predict_note_events,
+    predict_note_events_pyin,
     require_module,
 )
 from .clean import clean_monophonic, clip_to_range, split_voices
@@ -360,11 +364,19 @@ def run_transcription_job(
                 if params.texture == "melody"
                 else None
             )
-            run_backend = lambda path: predict_note_events(  # noqa: E731
-                path,
-                revision=revision,
-                **({"max_frequency_hz": max_hz} if max_hz else {}),
-            )
+            if params.backend == "pyin":
+                # #175: monophonic tracker — better for a single sung line.
+                run_backend = lambda path: predict_note_events_pyin(  # noqa: E731
+                    path,
+                    revision=revision,
+                    **({"max_frequency_hz": max_hz} if max_hz else {}),
+                )
+            else:
+                run_backend = lambda path: predict_note_events(  # noqa: E731
+                    path,
+                    revision=revision,
+                    **({"max_frequency_hz": max_hz} if max_hz else {}),
+                )
         raw_events = run_backend(params.audio_path)
         if stop(1):
             return
@@ -754,6 +766,15 @@ def run_transcription_job(
                 ),
             )
 
+        # Resolved backend identity for provenance (pyin -> librosa ver).
+        backend_version = BACKEND_VERSION
+        if params.backend == "pyin":
+            try:
+                import librosa  # noqa: PLC0415
+
+                backend_version = librosa.__version__
+            except Exception:
+                backend_version = "unknown"
         emit(
             "completed",
             stage=STAGES[6],
@@ -765,8 +786,12 @@ def run_transcription_job(
                 "musicXmlConcert": musicxml_concert,
                 "musicXmlHornF": musicxml_horn,
                 "meta": {
-                    "backend": "basic_pitch",
-                    "backendVersion": "0.4.0",
+                    "backend": (
+                        PYIN_BACKEND_ID
+                        if params.backend == "pyin"
+                        else BACKEND_ID
+                    ),
+                    "backendVersion": backend_version,
                     # #100: project.save needs the tr-* id for the
                     # TranscriptionRecord in .hornscribe.json.
                     "transcriptionRevision": str(revision),

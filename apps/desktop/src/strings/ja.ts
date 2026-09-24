@@ -186,6 +186,9 @@ export const ja = {
     pathPlaceholder: "自動検出",
     modelInfo: "モデル情報",
     backendLabel: "採譜エンジン",
+    // #175: pYIN tracks one continuous f0 line — better for a single
+    // sung/played melody; Basic Pitch stays the polyphonic default.
+    backendHint: "pYINは歌声や単一旋律の採譜に向いています（単音専用）。",
     cache: "キャッシュの場所",
     logs: "ログの場所",
     openLogs: "ログフォルダを開く",
