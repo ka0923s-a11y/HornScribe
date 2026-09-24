@@ -1273,6 +1273,12 @@ body {
   gap: var(--hs-space-xs);
   font-size: var(--hs-font-size-compact);
 }
+/* #188: ÷2/×2 quick fixes beside the tempo field. */
+.hs-properties__tempo-octave {
+  display: flex;
+  gap: var(--hs-space-xs);
+  margin-top: var(--hs-space-xs);
+}
 .hs-properties__row {
   display: grid;
   grid-template-columns: minmax(5.5em, auto) 1fr;

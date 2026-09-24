@@ -1079,6 +1079,9 @@ export const ja = {
     issuesSection: "要確認",
     selectHint: "音符を選択すると、ここに情報が表示されます。",
     tempoRangeError: "テンポは 20〜400 BPM の範囲で入力してください",
+    /* #188: one-tap fixes for the classic half/double tempo pick. */
+    tempoHalve: "÷2",
+    tempoDouble: "×2",
     fields: {
       pitch: "音高",
       concertPitch: "コンサートピッチ",

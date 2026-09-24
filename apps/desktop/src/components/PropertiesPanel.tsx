@@ -3,6 +3,7 @@ import { mergeClasses } from "@fluentui/react-components";
 import { Dismiss16Regular } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import { HsIconButton } from "./primitives/IconButton";
+import { HsButton } from "./primitives/Button";
 import { HsNumericField } from "./primitives/NumericField";
 import { HsSelect } from "./primitives/Select";
 import type { InspectorContent } from "../workspace/inspector";
@@ -317,6 +318,26 @@ function TempoField({
           if (v != null) commitValue(v);
         }}
       />
+      {/* #188: auto tempo estimation's classic failure is a half/
+          double-octave pick — one-tap ×2/÷2 beats re-transcribing. */}
+      <div className="hs-properties__tempo-octave">
+        <HsButton
+          size="small"
+          variant="subtle"
+          disabled={bpm / 2 < TEMPO_MIN_BPM}
+          onClick={() => commitValue(Math.round(bpm / 2))}
+        >
+          {ja.inspector.tempoHalve}
+        </HsButton>
+        <HsButton
+          size="small"
+          variant="subtle"
+          disabled={bpm * 2 > TEMPO_MAX_BPM}
+          onClick={() => commitValue(Math.round(bpm * 2))}
+        >
+          {ja.inspector.tempoDouble}
+        </HsButton>
+      </div>
     </div>
   );
 }
