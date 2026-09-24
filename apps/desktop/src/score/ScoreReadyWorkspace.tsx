@@ -176,6 +176,15 @@ function inspectorCopy(): InspectorCopy {
             return ja.reviewEvidence.mergedOverlaps(merged);
           }
         }
+        // #134 swing feel: report the offbeat census the detector saw
+        // so the user can judge whether the piece is really a shuffle.
+        if (issue.reason === "swing_feel") {
+          const offbeats = numEvidence(issue, "offbeatOnsets");
+          const swing = numEvidence(issue, "swingOnsets");
+          if (offbeats != null && swing != null) {
+            return ja.reviewEvidence.swingFeel(offbeats, swing);
+          }
+        }
         return (REASON_DECK[issue.reason] ?? ja.reviewReasons.other).detail;
       },
       severityLabel: (s) => ja.reviewSeverity[s] ?? ja.reviewSeverity.info,

@@ -19,6 +19,7 @@ export const REVIEW_REASONS = [
   "outside_preferred_horn_range",
   "structural_measure_conflict",
   "meter_conflict",
+  "swing_feel",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
@@ -41,6 +42,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "offset_ambiguous",
   "pickup_ambiguous",
   "meter_conflict",
+  "swing_feel",
   "onset_uncertain",
   "pitch_uncertain",
   "multiple_candidates",

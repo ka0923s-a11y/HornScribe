@@ -34,6 +34,10 @@ class ReviewReason(Enum):
     # Auto-meter estimation could not justify its pick — the UI copy
     # deck already carries `meter_conflict` for this surface.
     METER_CONFLICT = "meter_conflict"
+    # #134: offbeat onsets cluster at the triplet's third position —
+    # the piece is probably swung, but the notation wrote straight
+    # eighths or triplets.
+    SWING_FEEL = "swing_feel"
 
 
 class Severity(Enum):

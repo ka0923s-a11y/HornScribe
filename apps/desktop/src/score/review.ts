@@ -29,6 +29,7 @@ export type ReviewReason =
   | "offset_ambiguous"
   | "pickup_ambiguous"
   | "meter_conflict"
+  | "swing_feel"
   | "onset_uncertain"
   | "pitch_uncertain"
   | "multiple_candidates"

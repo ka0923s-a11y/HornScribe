@@ -26,6 +26,7 @@ from hornscribe.transcription.pipeline import (
     STAGES,
     run_transcription_job,
 )
+from hornscribe.transcription.swing import detect_swing
 
 _REV = TranscriptionRevisionId("tr-" + "0" * 16)
 
@@ -644,6 +645,67 @@ class TestKeySegments:
         assert changes == ()
         assert head.fifths == 0
         assert conf == 0.0
+
+
+class TestSwing:
+    """#134: offbeat onset census -> swing_feel review issue."""
+
+    def _events(self, onsets: list[float]) -> tuple:
+        return tuple(
+            RawNoteEvent(
+                id=RawNoteEventId(f"rne-{i + 1:06d}"),
+                transcription_revision=_REV,
+                pitch_midi=60 + (i % 7),
+                onset_sec=t,
+                offset_sec=t + 0.3,
+                confidence=0.9,
+                velocity=90,
+            )
+            for i, t in enumerate(onsets)
+        )
+
+    def test_offbeat_census(self) -> None:
+        # Quarter-note beats (QL): offbeats at 2/3 of a beat.
+        onsets = [
+            Fraction(i) + Fraction(2, 3) if i % 2 else Fraction(i)
+            for i in range(40)
+        ]
+        est = detect_swing(tuple(onsets))
+        assert est.detected
+        assert est.offbeats == 20
+        assert est.swing == 20
+
+    def test_straight_eighths_not_swing(self) -> None:
+        onsets = [Fraction(i, 2) for i in range(80)]  # eighths on the half beat
+        est = detect_swing(tuple(onsets))
+        assert not est.detected
+        assert est.straight == 40
+
+    def test_true_triplets_not_swing(self) -> None:
+        # Both 1/3 and 2/3 clusters occupied -> triplet writing.
+        onsets = []
+        for b in range(24):
+            onsets += [Fraction(b), Fraction(b) + Fraction(1, 3), Fraction(b) + Fraction(2, 3)]
+        est = detect_swing(tuple(onsets))
+        assert not est.detected
+        assert est.triplet == 24
+
+    def test_pipeline_emits_swing_issue(self, tmp_path: Path) -> None:
+        # 120bpm -> 0.5s per quarter beat; offbeats at 2/3 of the beat.
+        onsets = [
+            i * 0.5 + (2.0 / 3.0) * 0.5 if i % 2 else i * 0.5
+            for i in range(40)
+        ]
+        log = run(tmp_path, self._events(onsets))
+        assert log[-1]["phase"] == "completed"
+        reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
+        assert "swing_feel" in reasons
+
+    def test_pipeline_straight_no_issue(self, tmp_path: Path) -> None:
+        log = run(tmp_path, self._events([i * 0.25 for i in range(40)]))
+        assert log[-1]["phase"] == "completed"
+        reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
+        assert "swing_feel" not in reasons
 
 
 class TestPipeline:

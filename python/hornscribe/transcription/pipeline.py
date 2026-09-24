@@ -71,6 +71,7 @@ from .key import estimate_key, estimate_key_segments
 from .meter import estimate_meter
 from .options import TranscriptionParams
 from .scorebuild import build_score
+from .swing import detect_swing
 from .tempo import estimate_tempo, tempo_map_from_estimate
 
 JOB_KIND_TRANSCRIPTION = "transcription"
@@ -579,6 +580,34 @@ def run_transcription_job(
                     evidence={
                         "polyphonicOverlaps": cleaned.polyphonic_overlaps,
                         "note": "overlapping pitches were merged into a single line",
+                    },
+                )
+            )
+        # #134 swing feel: census the normalized offbeat onsets — a
+        # dominant 2/3-of-beat cluster with a quiet 1/3 cluster reads
+        # as shuffle, not triplets. Report-only for now: the score is
+        # left as written and the issue tells the user to check.
+        swing_est = detect_swing(
+            tuple(n.onset_ql for n in normalized),
+            Fraction(4, meter.denominator),
+        )
+        if swing_est.detected:
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=0.0, end_sec=duration_sec
+                    ),
+                    reason=ReviewReason.SWING_FEEL,
+                    severity=Severity.CAUTION,
+                    evidence={
+                        "offbeatOnsets": swing_est.offbeats,
+                        "swingOnsets": swing_est.swing,
+                        "tripletOnsets": swing_est.triplet,
+                        "straightOnsets": swing_est.straight,
+                        "swingRatio": round(swing_est.swing_ratio, 3),
                     },
                 )
             )

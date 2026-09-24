@@ -1145,6 +1145,10 @@ export const ja = {
       title: "拍子を確認してください",
       detail: "小節内の音価と拍子が合っていない可能性があります。",
     },
+    swing_feel: {
+      title: "スウィングの可能性があります",
+      detail: "八分の裏拍が三連符の3つ目に寄っています（シャッフル系）。記譜は通常の八分または三連符になっているため、元音源と聴き比べてください。",
+    },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
       detail: "音の開始位置が曖昧です。",
@@ -1187,6 +1191,8 @@ export const ja = {
         : "重なった音を第2声部として " + kept + " 個残しました",
     mergedOverlaps: (count: number) =>
       count + " 箇所の音の重なりを検出し、1つの旋律にまとめました（別の声部が失われた可能性があります）",
+    swingFeel: (offbeats: number, swing: number) =>
+      "裏拍の音 " + offbeats + " 個中 " + swing + " 個が三連符の3つ目の位置に寄っています",
   },
 
   /* #130 (§14): re-quantize dialog — change the quantization settings
