@@ -133,7 +133,7 @@ export interface TranscriptionOptions {
 export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   tempo: "auto",
   tempoBpm: null,
-  meter: "4/4",
+  meter: "auto",
   minDuration: "16",
   triplets: "auto",
   simplicity: "standard",

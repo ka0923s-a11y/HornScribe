@@ -800,6 +800,7 @@ export const ja = {
       tempoManual: "手動",
       tempoBpm: "テンポ（手動）",
       meter: "拍子",
+      meterAuto: "自動",
       minDuration: "最小音価",
       minDuration8: "8分音符",
       minDuration16: "16分音符",

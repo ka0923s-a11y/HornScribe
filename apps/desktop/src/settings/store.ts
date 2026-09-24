@@ -29,7 +29,7 @@ export const SETTINGS_CATEGORIES = [
 export type SettingsCategory = (typeof SETTINGS_CATEGORIES)[number];
 
 export type TempoMode = "auto" | "manual";
-export type MeterSetting = "auto" | "4/4" | "3/4" | "6/8" | "2/4" | "5/4";
+export type MeterSetting = "auto" | "4/4" | "3/4" | "6/8" | "2/4";
 export type MinDurationSetting = "eighth" | "sixteenth" | "thirtySecond";
 export type ScoreViewMode = "continuous" | "page";
 export type BackendSetting = "auto" | "basicPitch";
@@ -88,7 +88,6 @@ const METERS: readonly MeterSetting[] = [
   "3/4",
   "6/8",
   "2/4",
-  "5/4",
 ];
 const MIN_DURATIONS: readonly MinDurationSetting[] = [
   "eighth",

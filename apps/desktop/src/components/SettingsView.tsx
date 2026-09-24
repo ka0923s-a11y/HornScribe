@@ -378,7 +378,6 @@ export function SettingsView({
                 { value: "3/4", label: "3/4" },
                 { value: "6/8", label: "6/8" },
                 { value: "2/4", label: "2/4" },
-                { value: "5/4", label: "5/4" },
               ]}
               onChange={(v) =>
                 onSettingsChange({
