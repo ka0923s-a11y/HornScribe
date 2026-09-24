@@ -252,9 +252,23 @@ def test_min_note_value_limits_depth() -> None:
 
 
 def test_unsupported_meter_fails_clearly() -> None:
-    for numerator, denominator in ((5, 4), (7, 8), (9, 8), (12, 8), (3, 8)):
+    for numerator, denominator in ((11, 8), (5, 8), (3, 8), (7, 4), (13, 16)):
         with pytest.raises(UnsupportedMeterError, match="unsupported meter"):
             MetricalTree(numerator, denominator)
+
+
+def test_odd_meters_build() -> None:
+    # 5/4 = 3+2 quarter-beat groups; 7/8 = 2+2+3 eighth-beat groups;
+    # 9/8 and 12/8 = compound (3 and 4 dotted-quarter beats).
+    t54 = MetricalTree(5, 4)
+    assert t54.beat_count == 5
+    assert t54.leaf_positions_ql[0] == Fraction(0)
+    t78 = MetricalTree(7, 8)
+    assert t78.beat_count == 7
+    t98 = MetricalTree(9, 8)
+    assert t98.beat_count == 3
+    t128 = MetricalTree(12, 8)
+    assert t128.beat_count == 4
 
 
 def test_tree_constructors() -> None:

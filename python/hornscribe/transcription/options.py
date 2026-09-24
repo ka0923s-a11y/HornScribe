@@ -5,8 +5,8 @@ Wire contract (camelCase, additive-optional; see PROTOCOL.md):
 * ``audioPath`` (required) — absolute path to the audio file.
 * ``tempoBpm`` — manual tempo in primary-beat BPM (4/4: quarter note,
   6/8: dotted quarter). ``None`` -> beat tracking.
-* ``meter`` — ``"auto"`` or ``"N/D"``; HSQ-v1 supports the
-  ``4/4, 3/4, 2/4, 6/8`` set (``meter.py``). ``"auto"`` currently
+ * ``meter`` — ``"auto"`` or ``"N/D"``; the supported set is
+  ``4/4, 3/4, 2/4, 5/4, 6/8, 7/8, 9/8, 12/8`` (``meter.py``). ``"auto"``
   estimates from beat-aligned onset accents (``meter.py`` module),
   falling back to 4/4 with a ``meter_conflict`` review issue when
   the evidence is weak; the pick is reported in the result meta.
@@ -47,7 +47,9 @@ _PROFILES = {
     "detailed": QuantizationProfile.close_to_performance,
 }
 
-_SUPPORTED_METERS = {"4/4", "3/4", "2/4", "6/8"}
+_SUPPORTED_METERS = {
+    "4/4", "3/4", "2/4", "5/4", "6/8", "7/8", "9/8", "12/8",
+}
 
 
 @dataclass(frozen=True)

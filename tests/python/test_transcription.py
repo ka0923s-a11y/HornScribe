@@ -107,7 +107,7 @@ class TestParams:
             {"audioPath": "a", "meter": "6/8"}
         ).meter_segment().beat_unit_ql == Fraction(3, 2)
         with pytest.raises(ValueError, match="meter"):
-            TranscriptionParams.from_payload({"audioPath": "a", "meter": "7/8"})
+            TranscriptionParams.from_payload({"audioPath": "a", "meter": "5/8"})
 
     def test_selection_requires_bounds(self) -> None:
         with pytest.raises(ValueError, match="selectionStartSec"):

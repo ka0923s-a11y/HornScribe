@@ -168,7 +168,7 @@ payload below).
 |----------------------|---------|----------------------------------------------|
 | `audioPath`          | string  | required — absolute path the engine reads    |
 | `tempoBpm`           | number  | manual tempo (primary-beat BPM); omit = auto |
-| `meter`              | string  | `"auto"` (accent-estimated) or `4/4,3/4,2/4,6/8` |
+| `meter`              | string  | `"auto"` (accent-estimated) or `4/4,3/4,2/4,5/4,6/8,7/8,9/8,12/8` |
 | `minDuration`        | string  | `"8"`/`"16"`/`"32"` — finest notated value    |
 | `triplets`           | string  | `"auto"`/`"allow"`/`"none"`                   |
 | `simplicity`         | string  | `"standard"`/`"simple"`/`"detailed"`          |

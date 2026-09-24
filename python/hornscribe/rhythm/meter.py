@@ -8,10 +8,13 @@
   uses instead of a flat grid (design section 7): measure -> beat groups ->
   beats -> subdivisions, with exact :class:`~fractions.Fraction` positions.
 
-Supported HSQ-v1 meters: 4/4, 3/4, 2/4, 6/8 (design section 28). In 6/8 the
-two compound beats of ``3/2`` ql each split into three eighths of ``1/2`` ql —
+Supported HSQ-v1 meters: 4/4, 3/4, 2/4, 5/4, 6/8, 7/8, 9/8, 12/8
+(design section 28 + the odd-meter extension). In 6/8 the two compound
+beats of ``3/2`` ql each split into three eighths of ``1/2`` ql —
 that native ternary subdivision is meter structure, *never* a tuplet, so it
 carries ``is_tuplet=False`` and receives no tuplet penalty (design 7.3).
+Odd meters carry conventional beat groupings: 5/4 = 3+2, 7/8 = 2+2+3,
+9/8 and 12/8 = compound (three and four dotted-quarter beats).
 """
 
 from __future__ import annotations
@@ -32,7 +35,7 @@ class MeterError(ValueError):
 
 
 class UnsupportedMeterError(MeterError):
-    """Meter outside the HSQ-v1 supported set (4/4, 3/4, 2/4, 6/8)."""
+    """Meter outside the supported set (see ``_SUPPORTED_METERS``)."""
 
 
 class MeterMapError(MeterError):
@@ -45,7 +48,16 @@ def _is_power_of_two(value: int) -> bool:
     ) == 0
 
 
-_SUPPORTED_METERS: tuple[tuple[int, int], ...] = ((4, 4), (3, 4), (2, 4), (6, 8))
+_SUPPORTED_METERS: tuple[tuple[int, int], ...] = (
+    (4, 4),
+    (3, 4),
+    (2, 4),
+    (5, 4),
+    (6, 8),
+    (7, 8),
+    (9, 8),
+    (12, 8),
+)
 
 
 @dataclass(frozen=True)
@@ -374,10 +386,76 @@ def _build_compound_68(length: Fraction, min_value: Fraction) -> MetricalNode:
     return MetricalNode(Fraction(0), length, MetricalLevel.MEASURE, 0, 1, False, tuple(beats))
 
 
+def _build_compound(length: Fraction, beat_count: int, min_value: Fraction) -> MetricalNode:
+    """Compound meter: ``beat_count`` dotted-quarter beats, each three
+    eighths (9/8 -> 3 beats, 12/8 -> 4)."""
+    beat_dur = length / beat_count  # 3/2 ql
+    eighth_dur = beat_dur / 3  # 1/2 ql
+    beats: list[MetricalNode] = []
+    for i in range(beat_count):
+        beat_start = beat_dur * i
+        children: tuple[MetricalNode, ...] = ()
+        if eighth_dur >= min_value:
+            children = tuple(
+                _subdivision(beat_start + eighth_dur * j, eighth_dur, 2, 3, min_value)
+                for j in range(3)
+            )
+        beats.append(
+            MetricalNode(beat_start, beat_dur, MetricalLevel.BEAT, 1, 2, False, children)
+        )
+    return MetricalNode(Fraction(0), length, MetricalLevel.MEASURE, 0, 1, False, tuple(beats))
+
+
+def _build_grouped(
+    length: Fraction,
+    group_sizes: tuple[int, ...],
+    denominator: int,
+    min_value: Fraction,
+) -> MetricalNode:
+    """Odd simple meter with conventional beat groups (5/4 = 3+2,
+    7/8 = 2+2+3). Each group holds ``size`` uniform beats of
+    ``4/denominator`` ql with binary subdivisions."""
+    beat_dur = Fraction(4, denominator)
+    groups: list[MetricalNode] = []
+    pos = Fraction(0)
+    for size in group_sizes:
+        beats = tuple(
+            MetricalNode(
+                pos + Fraction(i) * beat_dur,
+                beat_dur,
+                MetricalLevel.BEAT,
+                1,
+                2,
+                False,
+                _binary_children(pos + Fraction(i) * beat_dur, beat_dur, 2, min_value),
+            )
+            for i in range(size)
+        )
+        groups.append(
+            MetricalNode(
+                pos,
+                beat_dur * size,
+                MetricalLevel.BEAT_GROUP,
+                1,
+                size,
+                False,
+                beats,
+            )
+        )
+        pos += beat_dur * size
+    return MetricalNode(Fraction(0), length, MetricalLevel.MEASURE, 0, 1, False, tuple(groups))
+
+
 def _build_root(numerator: int, denominator: int, min_value: Fraction) -> MetricalNode:
     length = Fraction(numerator * 4, denominator)
     if (numerator, denominator) == (6, 8):
         return _build_compound_68(length, min_value)
+    if (numerator, denominator) in ((9, 8), (12, 8)):
+        return _build_compound(length, numerator // 3, min_value)
+    if (numerator, denominator) == (5, 4):
+        return _build_grouped(length, (3, 2), denominator, min_value)
+    if (numerator, denominator) == (7, 8):
+        return _build_grouped(length, (2, 2, 3), denominator, min_value)
 
     # Simple meters 4/4, 3/4, 2/4: quarter-note beats, binary subdivisions.
     beat_dur = Fraction(4, denominator)
@@ -422,9 +500,10 @@ def _build_root(numerator: int, denominator: int, min_value: Fraction) -> Metric
 class MetricalTree:
     """Hierarchical meter structure of one measure (design section 7).
 
-    Supported HSQ-v1 meters: ``4/4``, ``3/4``, ``2/4``, ``6/8``; anything else
-    raises :class:`UnsupportedMeterError` (odd meters arrive with custom
-    grouping in v1+, design section 28).
+    Supported meters: ``4/4``, ``3/4``, ``2/4``, ``5/4``, ``6/8``,
+    ``7/8``, ``9/8``, ``12/8``; anything else raises
+    :class:`UnsupportedMeterError`. Odd meters carry conventional
+    groupings (5/4 = 3+2, 7/8 = 2+2+3).
 
     ``min_note_value_ql`` bounds the finest subdivision level — default
     ``Fraction(1, 4)`` = sixteenth note (design 8.1). Structural levels
@@ -450,7 +529,7 @@ class MetricalTree:
         if key not in _SUPPORTED_METERS:
             raise UnsupportedMeterError(
                 f"unsupported meter {self.numerator}/{self.denominator}: "
-                "HSQ-v1 supports 4/4, 3/4, 2/4 and 6/8"
+                "supported meters are 4/4, 3/4, 2/4, 5/4, 6/8, 7/8, 9/8, 12/8"
             )
         length = Fraction(self.numerator * 4, self.denominator)
         if not 0 < self.min_note_value_ql <= length:
