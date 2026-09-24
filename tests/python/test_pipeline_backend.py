@@ -153,6 +153,91 @@ def test_auto_mono_resolves_pyin_identity(tmp_path, monkeypatch) -> None:
     assert result["meta"]["transcriptionRevision"] == captured["revision"]
 
 
+def test_vocal_isolation_resolves_pyin(tmp_path, monkeypatch) -> None:
+    """#316: a successfully isolated vocal is monophonic — the auto
+    backend resolves to pYIN (the singing tracker), not Basic Pitch."""
+    monkeypatch.setattr(
+        pipeline,
+        "vocal_wav",
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs"),
+    )
+    called: list[str] = []
+
+    def fake_pyin(path, revision, **kw):
+        called.append("pyin")
+        return _events()
+
+    def fake_bp(path, revision, **kw):
+        called.append("bp")
+        return _events()
+
+    monkeypatch.setattr(pipeline, "predict_note_events_pyin", fake_pyin)
+    monkeypatch.setattr(pipeline, "predict_note_events", fake_bp)
+    result = _run(
+        tmp_path, {"backend": "auto", "vocalIsolation": True}
+    )
+    assert called == ["pyin"]
+    assert result["meta"]["backend"] == PYIN_BACKEND_ID
+    # pYIN on an isolated vocal is the right engine — the
+    # monophonic-backend warning stays off.
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "monophonic_backend" not in reasons
+
+
+def test_vocal_isolation_failure_keeps_basic_pitch(
+    tmp_path, monkeypatch
+) -> None:
+    """#316: isolation that produced nothing leaves the polyphonic
+    model in place — the raw mix is not a monophonic vocal."""
+    monkeypatch.setattr(
+        pipeline,
+        "vocal_wav",
+        lambda *a, **k: (None, "unavailable", False, None),
+    )
+    called: list[str] = []
+
+    monkeypatch.setattr(
+        pipeline,
+        "predict_note_events_pyin",
+        lambda *a, **k: called.append("pyin") or _events(),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "predict_note_events",
+        lambda *a, **k: called.append("bp") or _events(),
+    )
+    _run(tmp_path, {"backend": "auto", "vocalIsolation": True})
+    assert called == ["bp"]
+
+
+def test_vocal_isolation_voices_keeps_polyphonic(
+    tmp_path, monkeypatch
+) -> None:
+    """#316: voices/chords asked for every detected line — the
+    # polyphonic model stays even on an isolated vocal."""
+    monkeypatch.setattr(
+        pipeline,
+        "vocal_wav",
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs"),
+    )
+    called: list[str] = []
+    monkeypatch.setattr(
+        pipeline,
+        "predict_note_events_pyin",
+        lambda *a, **k: called.append("pyin") or _events(),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "predict_note_events",
+        lambda *a, **k: called.append("bp") or _events(),
+    )
+    _run(
+        tmp_path,
+        {"backend": "auto", "texture": "voices", "vocalIsolation": True},
+    )
+    assert called == ["bp"]
+
+
 def test_vocal_isolation_stages_isolated_wav(tmp_path, monkeypatch) -> None:
     """#187: vocalIsolation=on runs the backend on the isolated WAV,
     marks the result, and echoes the option in settings."""

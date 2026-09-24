@@ -490,11 +490,58 @@ def run_transcription_job(
 
         # ---- transcribing (blocking ONNX call) ------------------------
         stage(1, 0.15)
+        # #229: the backend reads a file path — stage the slice as a
+        # temp WAV so inference only processes the selected span. A
+        # staging failure falls back to the original file (correct, just
+        # slower); the temp is always removed after the blocking call.
+        # #187: opt-in vocal isolation replaces the staged input with a
+        # center-extracted vocal estimate (cache-managed when possible).
+        staged_path: str | None = None
+        vocal_path: str | None = None
+        vocal_managed = False
+        vocal_reason: str | None = None
+        vocal_method: str | None = None
+        if params.vocal_isolation:
+            # Isolation covers exactly the backend's span: the
+            # selection when one is set, else the whole file. A stray
+            # selection_start_sec under range=all must not leak in.
+            vis_lo = (
+                params.selection_start_sec or 0.0
+                if params.range_kind == "selection"
+                else 0.0
+            )
+            vis_hi = (
+                params.selection_end_sec
+                if params.range_kind == "selection"
+                else None
+            )
+            vocal_path, vocal_reason, vocal_managed, vocal_method = vocal_wav(
+                params.audio_path,
+                audio_hash,
+                vis_lo,
+                vis_hi,
+                sample_rate,
+            )
+        if vocal_path is None and params.range_kind == "selection":
+            staged_path = _stage_selection_wav(samples, sample_rate)
+        backend_path = vocal_path or staged_path or params.audio_path
         # #189: "auto" picks the engine that fits the declared
         # texture — a declared-mono source gets the monophonic
         # tracker; mixes keep the polyphonic model.
+        # #316: a successfully isolated vocal is itself monophonic —
+        # the singing-voice tracker is the right engine for it, not
+        # the polyphonic model. voices/chords keep the polyphonic
+        # model (the user asked for every line); an explicit backend
+        # pin still wins over everything.
         resolved_pyin = params.backend == "pyin" or (
-            params.backend == "auto" and params.texture == "mono"
+            params.backend == "auto"
+            and (
+                params.texture == "mono"
+                or (
+                    vocal_path is not None
+                    and params.texture not in ("voices", "chords")
+                )
+            )
         )
         # Resolved backend identity for provenance — used by the
         # ScoreDocument fields, the job meta, AND the transcription
@@ -542,41 +589,6 @@ def run_transcription_job(
                     revision=revision,
                     **({"max_frequency_hz": max_hz} if max_hz else {}),
                 )
-        # #229: the backend reads a file path — stage the slice as a
-        # temp WAV so inference only processes the selected span. A
-        # staging failure falls back to the original file (correct, just
-        # slower); the temp is always removed after the blocking call.
-        # #187: opt-in vocal isolation replaces the staged input with a
-        # center-extracted vocal estimate (cache-managed when possible).
-        staged_path: str | None = None
-        vocal_path: str | None = None
-        vocal_managed = False
-        vocal_reason: str | None = None
-        vocal_method: str | None = None
-        if params.vocal_isolation:
-            # Isolation covers exactly the backend's span: the
-            # selection when one is set, else the whole file. A stray
-            # selection_start_sec under range=all must not leak in.
-            vis_lo = (
-                params.selection_start_sec or 0.0
-                if params.range_kind == "selection"
-                else 0.0
-            )
-            vis_hi = (
-                params.selection_end_sec
-                if params.range_kind == "selection"
-                else None
-            )
-            vocal_path, vocal_reason, vocal_managed, vocal_method = vocal_wav(
-                params.audio_path,
-                audio_hash,
-                vis_lo,
-                vis_hi,
-                sample_rate,
-            )
-        if vocal_path is None and params.range_kind == "selection":
-            staged_path = _stage_selection_wav(samples, sample_rate)
-        backend_path = vocal_path or staged_path or params.audio_path
         try:
             raw_events = run_backend(backend_path)
         finally:
@@ -1035,10 +1047,17 @@ def run_transcription_job(
         # #181: pYIN is a monophonic tracker — under voices/auto the
         # user asked for (or allowed) polyphony, so surface that the
         # result is one line by construction.
-        if resolved_pyin and params.texture in (
-            "voices",
-            "chords",
-            "auto",
+        # #316: when vocal isolation fed pYIN a genuinely monophonic
+        # vocal the tracker was the *right* engine — the one-line
+        # result is intentional, not a collapsed-mix warning — but
+        # only for single-line textures; voices/chords still warn.
+        if (
+            resolved_pyin
+            and params.texture in ("voices", "chords", "auto")
+            and (
+                vocal_path is None
+                or params.texture in ("voices", "chords")
+            )
         ):
             issues.append(
                 ReviewIssue(
