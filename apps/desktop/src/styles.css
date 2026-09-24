@@ -1400,6 +1400,33 @@ body {
   font-size: var(--hs-font-size-compact);
   overflow-wrap: anywhere;
 }
+.hs-settings__recording-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+}
+.hs-settings__recording-item {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  min-width: 0;
+}
+.hs-settings__recording-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hs-font-size-compact);
+}
+.hs-settings__recording-size {
+  flex: 0 0 auto;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+}
 .hs-settings__tool {
   display: flex;
   flex-direction: column;

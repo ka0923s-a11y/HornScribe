@@ -49,6 +49,36 @@ export async function clearRecordings(): Promise<number | null> {
   }
 }
 
+export interface RecordingFile {
+  /** ファイル名(表示・削除キー)。 */
+  name: string;
+  /** バイト数。 */
+  bytes: number;
+  /** 更新時刻(UNIX秒)。 */
+  modifiedSec: number;
+}
+
+/** 録音 WAV の一覧(#78)。Tauri 以外/失敗時は null。 */
+export async function listRecordings(): Promise<RecordingFile[] | null> {
+  if (!isTauriRuntime()) return null;
+  try {
+    return await invoke<RecordingFile[]>("recordings_list");
+  } catch {
+    return null;
+  }
+}
+
+/** 録音 WAV を1件削除する。成功時 true。 */
+export async function deleteRecording(name: string): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
+  try {
+    await invoke("delete_recording", { name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** バイト数の人間向け表示(日本語 UI: MB 単位中心)。 */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

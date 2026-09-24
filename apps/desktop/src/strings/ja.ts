@@ -191,6 +191,11 @@ export const ja = {
       "保存先フォルダ内の録音ファイルをすべて削除します。この操作は取り消せません。",
     recordingsClearConfirm: "削除する",
     recordingsCleared: "録音を削除しました",
+    recordingsDelete: "削除",
+    recordingsDeleteConfirmTitle: "この録音を削除しますか?",
+    recordingsDeleteConfirmBody: (name: string) =>
+      `${name} を削除します。この操作は取り消せません。`,
+    recordingsDeleted: "録音を削除しました",
     recordingsUnavailable:
       "録音の管理はデスクトップアプリで利用できます。",
   },

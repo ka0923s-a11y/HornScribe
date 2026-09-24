@@ -458,6 +458,25 @@ def run_transcription_job(
                     },
                 )
             )
+        if cleaned.polyphonic_overlaps:
+            # The monophonic contract silently collapsed real overlaps —
+            # warn so the user knows a second voice may have been lost.
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=0.0, end_sec=duration_sec
+                    ),
+                    reason=ReviewReason.OVERLAPPING_CANDIDATES,
+                    severity=Severity.CAUTION,
+                    evidence={
+                        "polyphonicOverlaps": cleaned.polyphonic_overlaps,
+                        "note": "overlapping pitches were merged into a single line",
+                    },
+                )
+            )
         # Deterministic renumber across the merged set.
         issues.sort(
             key=lambda i: (i.time_range.start_sec, i.reason.value)

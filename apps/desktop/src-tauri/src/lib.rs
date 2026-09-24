@@ -118,6 +118,8 @@ pub fn run() {
             capture::recordings_info,
             capture::open_recordings_dir,
             capture::clear_recordings,
+            capture::recordings_list,
+            capture::delete_recording,
             engine::engine_spawn,
             engine::engine_write,
             engine::engine_close_stdin,

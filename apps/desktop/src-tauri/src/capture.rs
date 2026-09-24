@@ -509,6 +509,74 @@ pub fn clear_recordings(app: tauri::AppHandle) -> Result<u64, String> {
     Ok(freed)
 }
 
+/// `recordings_list` の1件分 — 設定画面の個別管理用(#78)。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingFile {
+    /// ファイル名(表示・削除キー)。パスではなく名前だけを往復させる。
+    pub name: String,
+    /// バイト数。
+    pub bytes: u64,
+    /// 更新時刻(UNIX秒)。
+    pub modified_sec: u64,
+}
+
+/// 録音 WAV の一覧(#78)。ファイル名の昇順で返す。
+#[tauri::command]
+pub fn recordings_list(app: tauri::AppHandle) -> Result<Vec<RecordingFile>, String> {
+    let dir = recordings_dir(&app)?;
+    let mut files = Vec::new();
+    if dir.is_dir() {
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("wav")
+                || !path.is_file()
+            {
+                continue;
+            }
+            let meta = entry.metadata().ok();
+            let modified = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            files.push(RecordingFile {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                bytes: meta.map(|m| m.len()).unwrap_or(0),
+                modified_sec: modified,
+            });
+        }
+    }
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(files)
+}
+
+/// 録音 WAV を1件削除する(#78)。`name` はファイル名のみ許可 —
+/// パス区切りを含む入力は recordings/ 外を指せるので拒否する。
+/// 録音中は CAPTURE_BUSY で拒否(全削除と同じガード)。
+#[tauri::command]
+pub fn delete_recording(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    if name.is_empty()
+        || name.contains('\\')
+        || name.contains('/')
+        || name.contains("..")
+        || !name.to_lowercase().ends_with(".wav")
+    {
+        return Err("invalid recording name".to_string());
+    }
+    {
+        let guard = SESSION.lock().map_err(|_| "capture session lock")?;
+        if guard.is_some() {
+            return Err("CAPTURE_BUSY".to_string());
+        }
+    }
+    let path = recordings_dir(&app)?.join(&name);
+    std::fs::remove_file(&path).map_err(|e| format!("delete {name}: {e}"))
+}
+
 /* ------------------------------- internals -------------------------------- */
 
 /// 既定デバイスの表示名と共有モードフォーマットを掴む。

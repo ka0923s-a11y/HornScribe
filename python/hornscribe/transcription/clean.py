@@ -46,6 +46,9 @@ class CleanedEvents:
     merged: int
     clipped_overlaps: int
     octave_corrected: int = 0
+    polyphonic_overlaps: int = 0
+    """Overlaps between *different* pitch classes — likely real
+    polyphony (or strong octave ghosts), worth a review warning."""
 
     def stats(self) -> dict[str, Any]:
         return {
@@ -53,6 +56,7 @@ class CleanedEvents:
             "merged": self.merged,
             "clippedOverlaps": self.clipped_overlaps,
             "octaveCorrected": self.octave_corrected,
+            "polyphonicOverlaps": self.polyphonic_overlaps,
             "eventCount": len(self.events),
         }
 
@@ -123,12 +127,18 @@ def clean_monophonic(
         kept.append(ev)
 
     clipped = 0
+    polyphonic = 0
     for i in range(len(kept) - 1):
         nxt = kept[i + 1]
         cur = kept[i]
         if cur.offset_sec > nxt.onset_sec:
             kept[i] = _replace_offset(cur, nxt.onset_sec)
             clipped += 1
+            if (
+                int(round(cur.pitch_midi)) % 12
+                != int(round(nxt.pitch_midi)) % 12
+            ):
+                polyphonic += 1
     # A clip can leave a zero-length note; drop it honestly.
     final = [e for e in kept if e.offset_sec - e.onset_sec >= min_event_sec]
     dropped += len(kept) - len(final)
@@ -160,6 +170,7 @@ def clean_monophonic(
         merged=merged,
         clipped_overlaps=clipped,
         octave_corrected=octave_fixed,
+        polyphonic_overlaps=polyphonic,
     )
 
 

@@ -29,9 +29,12 @@ import {
 } from "../settings/store";
 import {
   clearRecordings,
+  deleteRecording,
   formatBytes,
   getRecordingsInfo,
+  listRecordings,
   openRecordingsDir,
+  type RecordingFile,
   type RecordingsInfo,
 } from "../capture/recordings";
 import { HsDialog } from "./primitives/Dialog";
@@ -194,9 +197,12 @@ export function SettingsView({
 
   // #78: 録音ファイル管理 — カテゴリを開いた時に情報を取り直す。
   const [recInfo, setRecInfo] = useState<RecordingsInfo | null>(null);
+  const [recFiles, setRecFiles] = useState<RecordingFile[] | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const refreshRecordings = useCallback(() => {
     void getRecordingsInfo().then(setRecInfo);
+    void listRecordings().then(setRecFiles);
   }, []);
   useEffect(() => {
     if (category === "recordings") refreshRecordings();
@@ -296,6 +302,30 @@ export function SettingsView({
                 </HsButton>
               </div>
             </div>
+            {/* #78: 個別削除 — 全削除だけだと「残したい録音」も消える。 */}
+            {recFiles && recFiles.length > 0 && (
+              <div className="hs-settings__field">
+                <ul className="hs-settings__recording-list">
+                  {recFiles.map((f) => (
+                    <li key={f.name} className="hs-settings__recording-item">
+                      <span className="hs-settings__recording-name">
+                        {f.name}
+                      </span>
+                      <span className="hs-settings__recording-size">
+                        {formatBytes(f.bytes)}
+                      </span>
+                      <HsButton
+                        size="small"
+                        variant="secondary"
+                        onClick={() => setDeleteTarget(f.name)}
+                      >
+                        {s.recordingsDelete}
+                      </HsButton>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </>
         );
 
@@ -588,6 +618,45 @@ export function SettingsView({
         }
       >
         <p style={{ margin: 0 }}>{s.recordingsClearConfirmBody}</p>
+      </HsDialog>
+
+      {/* #78: 個別削除も破壊的 — ファイル名を明示して確認する。 */}
+      <HsDialog
+        open={deleteTarget !== null}
+        modalType="alert"
+        title={s.recordingsDeleteConfirmTitle}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        actions={
+          <>
+            <HsButton
+              variant="danger"
+              onClick={() => {
+                const name = deleteTarget;
+                setDeleteTarget(null);
+                if (name) {
+                  void deleteRecording(name).then((ok) => {
+                    if (ok) onAnnounce(s.recordingsDeleted);
+                    refreshRecordings();
+                  });
+                }
+              }}
+            >
+              {s.recordingsDelete}
+            </HsButton>
+            <HsButton
+              variant="secondary"
+              onClick={() => setDeleteTarget(null)}
+            >
+              {ja.capture.replaceCancel}
+            </HsButton>
+          </>
+        }
+      >
+        <p style={{ margin: 0 }}>
+          {deleteTarget ? s.recordingsDeleteConfirmBody(deleteTarget) : ""}
+        </p>
       </HsDialog>
     </div>
   );
