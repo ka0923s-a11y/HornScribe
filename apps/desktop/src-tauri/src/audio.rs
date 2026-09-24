@@ -636,3 +636,144 @@ pub fn media_scheme_handler<R: tauri::Runtime>(
         responder.respond(serve_media(&request));
     });
 }
+
+/* ------------------------- #230 memory gate tests -------------------------
+ *
+ * The acceptance criterion "3min/10min sources: measure peak memory and
+ * gate it" runs here: a synthesized ~10-minute stereo WAV (~106 MB) is
+ * probed while the process PeakWorkingSetSize is sampled. The probe is
+ * streaming, so the budget is a small constant — a regression that
+ * buffers the file (or decodes it whole) trips the assert in CI.
+ *
+ * PeakWorkingSetSize is a process-wide high-water mark: other tests in
+ * the same binary could inflate the baseline and mask a regression, so
+ * the measurement runs in a child process running only the child test
+ * (--exact --nocapture --include-ignored). */
+
+#[cfg(test)]
+mod memory_gate {
+    use super::*;
+    use std::io::Write;
+
+    /// Peak working set of the current process in bytes (0 off Windows
+    /// — CI runs this gate on windows-latest).
+    fn peak_working_set() -> usize {
+        #[cfg(windows)]
+        {
+            use windows::Win32::System::ProcessStatus::{
+                GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+            };
+            use windows::Win32::System::Threading::GetCurrentProcess;
+            let mut counters = PROCESS_MEMORY_COUNTERS::default();
+            counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+            if unsafe {
+                GetProcessMemoryInfo(
+                    GetCurrentProcess(),
+                    &mut counters,
+                    counters.cb,
+                )
+            }
+            .is_ok()
+            {
+                return counters.PeakWorkingSetSize;
+            }
+        }
+        0
+    }
+
+    /// Synthesize a PCM16 stereo WAV of the given length at 44.1 kHz —
+    /// the probe only needs a well-formed header; sample content is a
+    /// repeated ramp block.
+    fn write_test_wav(path: &Path, seconds: u32) -> u64 {
+        let rate = 44_100u32;
+        let channels = 2u16;
+        let align = 4u32; // 2ch * 16bit
+        let frames = rate as u64 * seconds as u64;
+        let data_size = frames * align as u64;
+        let mut f = std::fs::File::create(path).expect("create wav");
+        let mut w = |bytes: &[u8]| f.write_all(bytes).expect("write wav");
+        w(b"RIFF");
+        w(&(36u64 + data_size).to_le_bytes()[..4]);
+        w(b"WAVE");
+        w(b"fmt ");
+        w(&16u32.to_le_bytes());
+        w(&1u16.to_le_bytes()); // PCM
+        w(&channels.to_le_bytes());
+        w(&rate.to_le_bytes());
+        w(&(rate * align).to_le_bytes()); // byte rate
+        w(&(align as u16).to_le_bytes()); // block align
+        w(&16u16.to_le_bytes()); // bits
+        w(b"data");
+        w(&data_size.to_le_bytes()[..4]);
+        let block = [0x11u8; 1 << 16];
+        let mut left = data_size;
+        while left > 0 {
+            let n = left.min(block.len() as u64) as usize;
+            w(&block[..n]);
+            left -= n as u64;
+        }
+        data_size
+    }
+
+    /// Child-process body: generate ~10 min of WAV, sample the peak
+    /// working set around probe_wav + sha256_file, assert the growth
+    /// stays a small constant. #[ignore] — the parent test spawns it.
+    #[test]
+    #[ignore]
+    fn memory_gate_child() {
+        let dir = std::env::temp_dir().join(format!(
+            "hs-memgate-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let wav = dir.join("ten-minutes.wav");
+        let data_size = write_test_wav(&wav, 600);
+        assert!(data_size > 100 * 1024 * 1024);
+
+        let before = peak_working_set();
+        let probed = probe_wav(wav.to_str().expect("utf8 path"))
+            .expect("probe wav");
+        assert_eq!(probed.sample_rate, 44_100);
+        assert!((probed.duration_seconds - 600.0).abs() < 0.01);
+        assert_eq!(probed.peaks.len(), PEAK_BUCKETS);
+        // The ramp block decodes as 0x1111 -> nonzero peaks, proving
+        // the stream was actually walked.
+        assert!(probed.peaks.iter().all(|p| *p > 0.0));
+        let hash = sha256_file(wav.to_str().expect("utf8 path"))
+            .expect("sha256");
+        assert_eq!(hash.len(), 64);
+        let after = peak_working_set();
+
+        std::fs::remove_dir_all(&dir).ok();
+        // Streaming budget: ~1 MiB read buffer + peaks + hash state +
+        // allocator slack. The file is ~106 MB — a whole-file buffer
+        // blows through this instantly.
+        const BUDGET: usize = 32 * 1024 * 1024;
+        assert!(
+            after.saturating_sub(before) <= BUDGET,
+            "probe peak working set grew {} bytes over a {} byte file",
+            after.saturating_sub(before),
+            data_size
+        );
+    }
+
+    #[test]
+    fn wav_probe_peak_memory_is_file_size_independent() {
+        let exe = std::env::current_exe().expect("test exe");
+        let out = std::process::Command::new(exe)
+            .args([
+                "audio::memory_gate::memory_gate_child",
+                "--exact",
+                "--nocapture",
+                "--include-ignored",
+            ])
+            .output()
+            .expect("spawn memory gate child");
+        assert!(
+            out.status.success(),
+            "memory gate child failed\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
