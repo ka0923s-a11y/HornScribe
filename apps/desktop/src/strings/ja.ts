@@ -481,6 +481,10 @@ export const ja = {
     noteSplit: "音符を分割",
     noteMerge: "次の音符と結合",
     restToNote: "休符を音符に変換",
+    /* #267: octave arrange — REAL sounding pitch changes (not the
+     *  F管 written-pitch projection), one canonical edit. */
+    scoreOctaveUp: "全曲を1オクターブ上げる",
+    scoreOctaveDown: "全曲を1オクターブ下げる",
   },
 
   /**
@@ -513,6 +517,7 @@ export const ja = {
     keyChanged: "調を変更しました",
     keyChangeRemoved: "転調を削除しました",
     metadataChanged: "譜面情報を更新しました",
+    octaveShifted: "実音を1オクターブ変更しました",
     requantized: "採譜設定を適用して楽譜を更新しました",
     noteSplit: "音符を分割しました",
     notesMerged: "音符を結合しました",
@@ -1344,6 +1349,11 @@ export const ja = {
     applyAlternative: "別の解釈に切り替え",
     /** #212: rewrite the flagged beat as triplets. */
     applyTriplet: "三連符に直す",
+    /** #261: the range issue's octave fix — direction comes from the
+     *  pitch evidence (high → down, low → up); the copy makes the
+     *  real-pitch change explicit. */
+    octaveDown: "1オクターブ下げる",
+    octaveUp: "1オクターブ上げる",
     pitchUp: "半音上げる",
     pitchDown: "半音下げる",
     deleteNote: "削除",

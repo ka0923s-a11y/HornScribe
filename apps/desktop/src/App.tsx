@@ -1148,6 +1148,13 @@ export default function App() {
       // #131 (spec 13 post-MVP): split/merge via the workspace.
       splitSelectedNote: () => scoreCtlRef.current?.splitSelectedNote?.(),
       mergeSelectedNotes: () => scoreCtlRef.current?.mergeSelectedNotes?.(),
+      // #163: rest→note conversion via the workspace (was unwired).
+      convertSelectedRest: () =>
+        scoreCtlRef.current?.convertSelectedRest?.(),
+      // #267: octave arrange — canonical transposeRange on the whole
+      // score through the workspace's serialized edit queue.
+      transposeScore: (semitones) =>
+        scoreCtlRef.current?.transposeScore?.(semitones),
       openSettings: () => {
         setSettingsFocus(undefined);
         setView("settings");

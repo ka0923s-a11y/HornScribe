@@ -164,6 +164,9 @@ export interface CommandContext {
   mergeSelectedNotes?(): void;
   /** #163: convert the selected rest to a note (missed detection). */
   convertSelectedRest?(): void;
+  /** #267: whole-score arrangement transpose — canonical engine edit,
+   *  one undo entry; ±12 for the octave actions. */
+  transposeScore?(semitones: number): void;
   /** #113: Esc on a waveform selection (AUDIO_READY) - clears the range
    *  back to "all" (spec 8: Esc -> 選択解除). Optional: absent = no-op. */
   clearWaveformSelection?(): void;

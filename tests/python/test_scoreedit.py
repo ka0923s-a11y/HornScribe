@@ -906,6 +906,105 @@ class TestSetMetadata:
             _edit("setMetadata", "", metadata={"composer": 3})
 
 
+class TestTranspose:
+    """#267/#261: canonical octave/semitone transposes."""
+
+    def test_transpose_note_octave_down(self) -> None:
+        doc = _doc(
+            [_note(1, 96, "0", "1"), _note(2, 62, "1", "1")]
+        )
+        out = apply_score_edit(
+            doc, _edit("transposeNote", "sn-000001", semitones=-12)
+        )
+        notes = out.payload.parts[0].notes
+        assert notes[0].pitch_midi == 84
+        assert notes[1].pitch_midi == 62
+        assert out.revision != doc.revision
+
+    def test_transpose_note_out_of_range_rejected(self) -> None:
+        doc = _doc([_note(1, 120, "0", "1")])
+        with pytest.raises(ScoreEditError, match="0-127"):
+            apply_score_edit(
+                doc, _edit("transposeNote", "sn-000001", semitones=12)
+            )
+
+    def test_transpose_range_whole_score(self) -> None:
+        doc = _doc(
+            [_note(1, 60, "0", "1"), _note(2, 64, "1", "1")]
+        )
+        out = apply_score_edit(
+            doc, _edit("transposeRange", "", semitones=-12)
+        )
+        assert [n.pitch_midi for n in out.payload.parts[0].notes] == [
+            48,
+            52,
+        ]
+
+    def test_transpose_range_bounded(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 64, "4", "1"),
+                _note(3, 67, "8", "1"),
+            ]
+        )
+        out = apply_score_edit(
+            doc,
+            _edit(
+                "transposeRange", "",
+                semitones=12, startBeat="4/1", endBeat="8/1",
+            ),
+        )
+        assert [n.pitch_midi for n in out.payload.parts[0].notes] == [
+            60,
+            76,
+            67,
+        ]
+
+    def test_transpose_range_atomic_rejection(self) -> None:
+        # One out-of-range target rejects the whole batch — no
+        # partial octave shift.
+        doc = _doc(
+            [_note(1, 60, "0", "1"), _note(2, 120, "1", "1")]
+        )
+        with pytest.raises(ScoreEditError, match="0-127"):
+            apply_score_edit(
+                doc, _edit("transposeRange", "", semitones=12)
+            )
+
+    def test_transpose_range_empty_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="no notes"):
+            apply_score_edit(
+                doc,
+                _edit(
+                    "transposeRange", "",
+                    semitones=12, startBeat="40/1",
+                ),
+            )
+
+    def test_transpose_range_bad_bounds_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="endBeat"):
+            apply_score_edit(
+                doc,
+                _edit(
+                    "transposeRange", "",
+                    semitones=12, startBeat="4/1", endBeat="4/1",
+                ),
+            )
+
+    def test_transpose_validated(self) -> None:
+        with pytest.raises(ScoreEditError, match="semitones"):
+            _edit("transposeRange", "")
+        with pytest.raises(ScoreEditError, match="semitones"):
+            _edit("transposeRange", "", semitones=0)
+        with pytest.raises(ScoreEditError, match="semitones"):
+            _edit("transposeRange", "", semitones=100)
+        with pytest.raises(ScoreEditError, match="semitones"):
+            _edit("transposeRange", "", semitones=1.5)
+
+
 class TestKeyChanges:
     """#133: the key map on ScoreRevisionPayload."""
 

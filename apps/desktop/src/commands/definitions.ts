@@ -491,6 +491,25 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.convertSelectedRest?.(),
     },
 
+    // #267: octave arrange — one canonical transposeRange edit for
+    // the whole score (a real pitch change, NOT the F管 view
+    // projection); the engine rejects moves that would leave MIDI
+    // 0..127.
+    {
+      id: "score.octaveUp",
+      title: ja.commands.scoreOctaveUp,
+      section: "score",
+      isEnabled: (s) => s.hasScore && !s.reviewOpen,
+      run: (ctx) => ctx.transposeScore?.(12),
+    },
+    {
+      id: "score.octaveDown",
+      title: ja.commands.scoreOctaveDown,
+      section: "score",
+      isEnabled: (s) => s.hasScore && !s.reviewOpen,
+      run: (ctx) => ctx.transposeScore?.(-12),
+    },
+
     // ---- edit (§14: every fix is a command) ----
     {
       id: "edit.undo",

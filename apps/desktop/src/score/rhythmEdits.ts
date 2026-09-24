@@ -30,7 +30,9 @@ export type RhythmEditKind =
   | "scaleTempo"
   | "applyAlternative"
   | "applyTriplet"
-  | "setMetadata";
+  | "setMetadata"
+  | "transposeNote"
+  | "transposeRange";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -83,6 +85,13 @@ export interface RhythmEditOp {
     readonly composer?: string;
     readonly arranger?: string;
   };
+  /** transposeNote/transposeRange only (#267/#261): signed semitones
+   *  (±12 for the octave actions); the engine rejects moves that
+   *  would leave MIDI 0-127. */
+  readonly semitones?: number;
+  /** transposeRange only (#267): optional upper bound — a note is in
+   *  range when its onset falls inside [startBeat, endBeat). */
+  readonly endBeat?: string;
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

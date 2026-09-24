@@ -1312,6 +1312,20 @@ const setKey = useCallback(
     [applyRhythmEdit],
   );
 
+  /* #267: octave arrange — one canonical transposeRange over the
+   *  whole score (real sounding pitch, not the F管 projection).
+   *  The engine rejects moves that would leave MIDI 0-127; undo is
+   *  a single doc-swap entry. */
+  const transposeScore = useCallback(
+    (semitones: number) => {
+      applyRhythmEdit(
+        () => ({ kind: "transposeRange", noteId: "", semitones }),
+        ja.commandFeedback.octaveShifted,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   /* #130 (spec 14): re-quantize the whole score under changed
    * quantization settings — the engine replays the canonical notes
    * through the DP with the merged profile. */
@@ -1533,6 +1547,7 @@ const setKey = useCallback(
       keyChangeAt: (args) => keyChangeAt(args),
       removeKeyChange: (m) => removeKeyChange(m),
       setMetadata: (md) => setMetadata(md),
+      transposeScore: (s) => transposeScore(s),
       requantize: (settings) => requantize(settings),
       splitSelectedNote: () => splitSelectedNote(),
       mergeSelectedNotes: () => mergeSelectedNotes(),
@@ -1570,6 +1585,7 @@ const setKey = useCallback(
     keyChangeAt,
     removeKeyChange,
     setMetadata,
+    transposeScore,
     requantize,
     splitSelectedNote,
     mergeSelectedNotes,
@@ -1792,6 +1808,17 @@ const setKey = useCallback(
             ) {
               return ja.review.applyTriplet;
             }
+            // #261: the range issue's explicit octave fix — the
+            // pitch evidence decides direction (high → down an
+            // octave, low → up); never applied automatically.
+            if (
+              issue.reason === "outside_preferred_horn_range" &&
+              typeof issue.evidence["pitchMidi"] === "number"
+            ) {
+              return (issue.evidence["pitchMidi"] as number) > 79
+                ? ja.review.octaveDown
+                : ja.review.octaveUp;
+            }
             return null;
           })()}
           onAction={(() => {
@@ -1864,6 +1891,25 @@ const setKey = useCallback(
                 applyRhythmEdit(
                   () => ({ kind: "applyTriplet", noteId: "", startBeat }),
                   ja.commandFeedback.rhythmEdited,
+                  () => markIssueFixed(issue.id),
+                );
+              };
+            }
+            if (
+              issue.reason === "outside_preferred_horn_range" &&
+              typeof issue.evidence["pitchMidi"] === "number" &&
+              issue.canonicalNoteIds.length > 0
+            ) {
+              // #261: one canonical transposeNote (+12 below the
+              // sounding band, -12 above it) — a single undo entry,
+              // marked fixed only when the engine edit lands.
+              const noteId = issue.canonicalNoteIds[0];
+              const semitones =
+                (issue.evidence["pitchMidi"] as number) > 79 ? -12 : 12;
+              return () => {
+                applyRhythmEdit(
+                  () => ({ kind: "transposeNote", noteId, semitones }),
+                  ja.commandFeedback.octaveShifted,
                   () => markIssueFixed(issue.id),
                 );
               };

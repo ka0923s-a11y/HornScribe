@@ -61,6 +61,11 @@ export interface ScoreWorkspaceController {
     composer?: string;
     arranger?: string;
   }): void;
+  /** #267: whole-score arrangement transpose — canonical engine
+   *  edit (transposeRange), one undo entry; ±12 for the octave
+   *  actions. This changes REAL sounding pitch, unlike the F管
+   *  written-pitch view. */
+  transposeScore?(semitones: number): void;
   /** #130 (spec 14): re-quantize the whole score under changed
    *  quantization settings — undoable engine edit. */
   requantize?(settings: Record<string, unknown>): void;

@@ -102,6 +102,12 @@ class ScoreEdit:
     # #271: setMetadata — {title?, composer?, arranger?}; present
     # keys are applied verbatim ("" clears), absent keys keep.
     metadata: dict[str, Any] | None = None
+    # #267/#261: transposeNote/transposeRange — signed semitones
+    # (±12 for the octave actions).
+    semitones: int | None = None
+    # #267: transposeRange's optional upper bound (startBeat is the
+    # lower bound, both exclusive of rests).
+    end_beat: Fraction | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -123,12 +129,15 @@ class ScoreEdit:
             "applyAlternative",
             "applyTriplet",
             "setMetadata",
+            "transposeNote",
+            "transposeRange",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
                 "setTempo/setMeter/requantize/splitNote/mergeNotes/"
                 "setKey/keyChangeAt/removeKeyChange/restToNote/"
-                "scaleTempo/applyAlternative/applyTriplet/setMetadata, "
+                "scaleTempo/applyAlternative/applyTriplet/setMetadata/"
+                "transposeNote/transposeRange, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -144,6 +153,7 @@ class ScoreEdit:
             "applyAlternative",
             "applyTriplet",
             "setMetadata",
+            "transposeRange",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -211,6 +221,22 @@ class ScoreEdit:
             if start_beat < 0:
                 raise ScoreEditError(
                     f"edit.startBeat must be >= 0, got {start_beat}"
+                )
+        end_beat_raw = data.get("endBeat")
+        end_beat: Fraction | None = None
+        if end_beat_raw is not None:
+            try:
+                end_beat = Fraction(end_beat_raw)
+                if isinstance(end_beat_raw, bool):
+                    raise ValueError("bool")
+            except (TypeError, ValueError, ZeroDivisionError) as exc:
+                raise ScoreEditError(
+                    f"edit.endBeat is not a rational number: "
+                    f"{end_beat_raw!r}"
+                ) from exc
+            if end_beat < 0:
+                raise ScoreEditError(
+                    f"edit.endBeat must be >= 0, got {end_beat}"
                 )
         start_measure_raw = data.get("startMeasure")
         start_measure: int | None = None
@@ -318,6 +344,24 @@ class ScoreEdit:
             metadata = dict(metadata_raw)
         if kind == "setMetadata" and not metadata:
             raise ScoreEditError("setMetadata requires metadata")
+        semitones_raw = data.get("semitones")
+        semitones: int | None = None
+        if semitones_raw is not None:
+            if (
+                isinstance(semitones_raw, bool)
+                or not isinstance(semitones_raw, int)
+            ):
+                raise ScoreEditError(
+                    f"edit.semitones must be an int, got {semitones_raw!r}"
+                )
+            if not (-48 <= semitones_raw <= 48) or semitones_raw == 0:
+                raise ScoreEditError(
+                    f"edit.semitones {semitones_raw} outside the "
+                    "nonzero -48..+48 range"
+                )
+            semitones = semitones_raw
+        if kind in ("transposeNote", "transposeRange") and semitones is None:
+            raise ScoreEditError(f"{kind} requires semitones")
         return cls(
             kind=kind,
             note_id=ScoreNoteId(note_id),
@@ -331,11 +375,13 @@ class ScoreEdit:
             mode=mode,
             start_beat=start_beat,
             start_measure=start_measure,
+            end_beat=end_beat,
             part_id=part_id,
             pitch_midi=pitch_midi,
             factor=factor,
             alternative_notes=alternative_notes,
             metadata=metadata,
+            semitones=semitones,
         )
 
 
@@ -1643,6 +1689,88 @@ def _apply_remove_key_change(
     return replace(payload, key_changes=tuple(kept))
 
 
+def _transposed(note: QuantizedNote, semitones: int) -> QuantizedNote:
+    """Shift one canonical note's sounding pitch (#267/#261).
+
+    MIDI 0..127 is a hard bound — the edit is rejected outright
+    rather than silently clipped (the issue's acceptance: refuse
+    out-of-range moves up front)."""
+    new_pitch = note.pitch_midi + semitones
+    if not (0 <= new_pitch <= 127):
+        raise ScoreEditError(
+            f"transpose would move note {note.id} to MIDI "
+            f"{new_pitch} (outside 0-127)"
+        )
+    return replace(note, pitch_midi=new_pitch)
+
+
+def _apply_transpose_range(
+    payload: ScoreRevisionPayload,
+    semitones: int,
+    part_id: str | None,
+    start_beat: Fraction | None,
+    end_beat: Fraction | None,
+) -> ScoreRevisionPayload:
+    """Transpose every note in a range (#267).
+
+    All bounds omitted = the whole score (the MVP octave arrange).
+    A note belongs to the range when its onset falls inside
+    [start_beat, end_beat); rests are layout, never transposed.
+    The whole edit validates before anything moves — one out-of-
+    range target rejects the batch instead of half-applying it.
+    """
+    if (
+        start_beat is not None
+        and end_beat is not None
+        and end_beat <= start_beat
+    ):
+        raise ScoreEditError(
+            f"edit.endBeat {end_beat} must be > startBeat {start_beat}"
+        )
+    if part_id is not None and not any(
+        p.id == part_id for p in payload.parts
+    ):
+        raise ScoreEditError(f"no part {part_id} in the score")
+
+    def in_range(n: QuantizedNote) -> bool:
+        if start_beat is not None and n.start_beat < start_beat:
+            return False
+        return end_beat is None or n.start_beat < end_beat
+
+    targets = [
+        n
+        for p in payload.parts
+        if part_id is None or p.id == part_id
+        for n in p.notes
+        if in_range(n)
+    ]
+    if not targets:
+        raise ScoreEditError("transposeRange matched no notes")
+    # Validate before mutating anything (atomic rejection).
+    for n in targets:
+        if not (0 <= n.pitch_midi + semitones <= 127):
+            raise ScoreEditError(
+                f"transposeRange would move note {n.id} to MIDI "
+                f"{n.pitch_midi + semitones} (outside 0-127)"
+            )
+    target_ids = {n.id for n in targets}
+    return replace(
+        payload,
+        parts=tuple(
+            replace(
+                part,
+                notes=tuple(
+                    _transposed(n, semitones)
+                    if n.id in target_ids
+                    else n
+                    for n in part.notes
+                ),
+            )
+            for part in payload.parts
+        ),
+    )
+
+
 def _edit_boundary_beat(
     payload: ScoreRevisionPayload, edit: ScoreEdit
 ) -> Fraction:
@@ -1753,6 +1881,40 @@ def apply_score_edit(
         if "arranger" in edit.metadata:
             updates["arranger"] = edit.metadata["arranger"] or None
         return replace(document, **updates)
+    if edit.kind == "transposeRange":
+        if edit.semitones is None:
+            raise ScoreEditError("transposeRange requires semitones")
+        # #267: whole-score (or bounded) arrangement transpose —
+        # pitch_midi is canonical content, so the revision changes.
+        new_payload = _apply_transpose_range(
+            payload,
+            edit.semitones,
+            edit.part_id,
+            edit.start_beat,
+            edit.end_beat,
+        )
+        return replace(document, payload=new_payload)
+    if edit.kind == "transposeNote":
+        if edit.semitones is None:
+            raise ScoreEditError("transposeNote requires semitones")
+        # #261: one canonical note's octave fix — same part-scan as
+        # the other note edits below.
+        for pi, part in enumerate(payload.parts):
+            try:
+                ni = _find_note(part, edit.note_id)
+            except ScoreEditError:
+                continue
+            notes = list(part.notes)
+            notes[ni] = _transposed(notes[ni], edit.semitones)
+            new_parts = list(payload.parts)
+            new_parts[pi] = replace(part, notes=tuple(notes))
+            return replace(
+                document,
+                payload=replace(payload, parts=tuple(new_parts)),
+            )
+        raise ScoreEditError(
+            f"note {edit.note_id} not found in the score"
+        )
     if edit.kind == "restToNote":
         if (
             edit.part_id is None
