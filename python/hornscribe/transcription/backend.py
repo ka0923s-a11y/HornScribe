@@ -507,17 +507,32 @@ def new_transcription_revision(
     settings: dict[str, Any],
     backend_id: str = BACKEND_ID,
     backend_version: str = BACKEND_VERSION,
+    preprocess: dict[str, Any] | None = None,
 ) -> TranscriptionRevisionId:
     """Content-derived ``tr-*`` id for one backend run (ids.py contract).
 
     #237: identity follows the RESOLVED backend (auto+mono -> pyin) and
     the source content hash, not the pickup path — a moved file keeps
     the same transcription identity.
+
+    #319: ``preprocess`` names the effective pre-backend chain that
+    actually ran (e.g. vocal isolation method+version, or the reason
+    it did not). Two installs can resolve different audio for the
+    same settings — the identity must follow what the backend saw,
+    not just what the user asked for.
     """
-    return derive_transcription_revision_id(
-        {"backend": backend_id, "version": backend_version,
-         "audioHash": audio_hash, "settings": settings}
-    )
+    material: dict[str, Any] = {
+        "backend": backend_id,
+        "version": backend_version,
+        "audioHash": audio_hash,
+        "settings": settings,
+    }
+    # Absent for the ordinary path so existing tr-* identities stay
+    # stable — only a job that actually preprocessed its input mints
+    # the extra identity material.
+    if preprocess is not None:
+        material["preprocess"] = preprocess
+    return derive_transcription_revision_id(material)
 
 
 def backend_available() -> bool:

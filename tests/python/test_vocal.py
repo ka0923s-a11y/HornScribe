@@ -103,13 +103,13 @@ def test_vocal_wav_cache_and_reason(tmp_path, monkeypatch):
     cache_dir.mkdir()
     monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
 
-    path, reason, managed, method = vocal_wav(src, "hash1", 0.0, None, 22050)
+    path, reason, managed, method, _ver = vocal_wav(src, "hash1", 0.0, None, 22050)
     assert reason == "applied"
     assert managed is True
     assert method == "center_extraction"
     assert path is not None and path.endswith(".wav")
     # Second call hits the cache — same path, no recompute.
-    path2, reason2, _, _ = vocal_wav(src, "hash1", 0.0, None, 22050)
+    path2, reason2, _, _, _ = vocal_wav(src, "hash1", 0.0, None, 22050)
     assert reason2 == "applied"
     assert path2 == path
 
@@ -139,7 +139,7 @@ def test_vocal_wav_prefers_demucs_when_available(tmp_path, monkeypatch):
     monkeypatch.setattr(vocal_mod, "isolate_demucs_vocals", fake_demucs)
     monkeypatch.setattr(vocal_mod, "isolate_center_vocals", fake_center)
 
-    path, reason, managed, method = vocal_wav("a.wav", "h", 0.0, None, 22050)
+    path, reason, managed, method, _ver = vocal_wav("a.wav", "h", 0.0, None, 22050)
     assert calls == ["demucs"]  # center never ran
     assert method == "demucs"
     assert reason == "applied" and managed is True
@@ -165,7 +165,7 @@ def test_vocal_wav_falls_back_to_center_on_demucs_failure(
         lambda *a: np.zeros(22050, dtype=np.float32),
     )
 
-    path, reason, managed, method = vocal_wav("a.wav", "h", 0.0, None, 22050)
+    path, reason, managed, method, _ver = vocal_wav("a.wav", "h", 0.0, None, 22050)
     assert method == "center_extraction"
     assert reason == "applied"
     # The fallback result is keyed as center_extraction — a later run
@@ -239,3 +239,77 @@ class TestDemucsSpanStaging:
         staged, seen_cmd, _ = self._run(monkeypatch, 0.0, None)
         assert staged == []  # no staging for a whole-file job
         assert seen_cmd and seen_cmd[0][-1] == "src.wav"
+
+
+class TestIsolationProvenance:
+    """#319: the transcription revision must name the preprocess that
+    actually ran — method AND version — so the same settings on two
+    installs never share a tr-* identity over different input audio."""
+
+    def test_method_version_tracks_the_method(self, monkeypatch):
+        import hornscribe.transcription.vocal as vocal_mod
+
+        monkeypatch.setattr(
+            vocal_mod, "_demucs_version", lambda: "4.0.1"
+        )
+        assert vocal_mod.method_version("demucs") == "4.0.1"
+        assert vocal_mod.method_version("center_extraction") == "1"
+        assert vocal_mod.method_version(None) is None
+        # A missing demucs version still names the method honestly.
+        monkeypatch.setattr(vocal_mod, "_demucs_version", lambda: None)
+        assert vocal_mod.method_version("demucs") == "unknown"
+
+    def test_revision_distinguishes_methods_and_fallback(self):
+        from hornscribe.transcription.backend import (
+            new_transcription_revision,
+        )
+
+        base = dict(
+            audio_hash="h",
+            settings={"vocalIsolation": True},
+            backend_id="pyin",
+            backend_version="1.0",
+        )
+        demucs = new_transcription_revision(
+            **base,
+            preprocess={
+                "vocalIsolation": True,
+                "method": "demucs",
+                "methodVersion": "4.0.1",
+            },
+        )
+        center = new_transcription_revision(
+            **base,
+            preprocess={
+                "vocalIsolation": True,
+                "method": "center_extraction",
+                "methodVersion": "1",
+            },
+        )
+        fallback = new_transcription_revision(
+            **base,
+            preprocess={
+                "vocalIsolation": True,
+                "method": "none",
+                "methodVersion": None,
+                "fallbackReason": "unavailable",
+            },
+        )
+        # demucs != center != raw-fallback — each is a different
+        # effective input and must mint its own tr-*.
+        assert len({demucs, center, fallback}) == 3
+        # A demucs upgrade is a new identity too.
+        demucs_new = new_transcription_revision(
+            **base,
+            preprocess={
+                "vocalIsolation": True,
+                "method": "demucs",
+                "methodVersion": "5.0.0",
+            },
+        )
+        assert demucs_new != demucs
+        # No preprocess requested -> identical to the pre-#319 form.
+        plain = new_transcription_revision(**base)
+        assert plain != demucs
+
+

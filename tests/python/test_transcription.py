@@ -1657,3 +1657,81 @@ class TestRawEvidence:
         restored = ScoreDocument.from_dict(doc)
         assert restored.raw_evidence is not None
         assert len(restored.raw_evidence["parts"][0]["events"]) == 2
+
+
+class TestVocalProvenance:
+    """#319: the effective isolation chain lands on the tr-* identity
+    and the result meta — the same settings over different preprocess
+    methods must not share a transcription revision."""
+
+    def _run_isolated(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        method: str | None,
+        version: str | None,
+        reason: str,
+    ) -> dict[str, Any]:
+        import hornscribe.transcription.pipeline as pipeline_mod
+
+        if method is not None:
+            staged = tmp_path / "vocal.wav"
+            staged.write_bytes(b"x")
+
+            monkeypatch.setattr(
+                pipeline_mod,
+                "vocal_wav",
+                lambda *a, **k: (str(staged), "applied", False, method, version),
+            )
+        else:
+            monkeypatch.setattr(
+                pipeline_mod,
+                "vocal_wav",
+                lambda *a, **k: (None, reason, False, None, None),
+            )
+        log = run(tmp_path, make_events([60, 62, 64]), {"vocalIsolation": True})
+        assert log[-1]["phase"] == "completed"
+        return log[-1]["result"]
+
+    def test_meta_records_the_effective_chain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        res = self._run_isolated(
+            tmp_path, monkeypatch, "center_extraction", "1", "applied"
+        )
+        assert res["meta"]["preprocess"] == {
+            "vocalIsolation": True,
+            "method": "center_extraction",
+            "methodVersion": "1",
+        }
+
+    def test_method_and_fallback_change_the_revision(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        demucs = self._run_isolated(
+            tmp_path, monkeypatch, "demucs", "4.0.1", "applied"
+        )
+        center = self._run_isolated(
+            tmp_path, monkeypatch, "center_extraction", "1", "applied"
+        )
+        failed = self._run_isolated(
+            tmp_path, monkeypatch, None, None, "unavailable"
+        )
+        revs = {
+            r["meta"]["transcriptionRevision"]
+            for r in (demucs, center, failed)
+        }
+        # demucs / center / raw-fallback each minted a distinct tr-*.
+        assert len(revs) == 3
+        assert failed["meta"]["preprocess"]["method"] == "none"
+        assert failed["meta"]["preprocess"]["fallbackReason"] == (
+            "unavailable"
+        )
+
+    def test_no_isolation_leaves_meta_clean(
+        self, tmp_path: Path
+    ) -> None:
+        res = run(tmp_path, make_events([60]))[-1]["result"]
+        assert "preprocess" not in res["meta"]
+
+

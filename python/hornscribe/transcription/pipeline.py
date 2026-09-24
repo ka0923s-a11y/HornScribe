@@ -510,6 +510,7 @@ def run_transcription_job(
         vocal_managed = False
         vocal_reason: str | None = None
         vocal_method: str | None = None
+        vocal_method_version: str | None = None
         if params.vocal_isolation:
             # Isolation covers exactly the backend's span: the
             # selection when one is set, else the whole file. A stray
@@ -524,7 +525,13 @@ def run_transcription_job(
                 if params.range_kind == "selection"
                 else None
             )
-            vocal_path, vocal_reason, vocal_managed, vocal_method = vocal_wav(
+            (
+                vocal_path,
+                vocal_reason,
+                vocal_managed,
+                vocal_method,
+                vocal_method_version,
+            ) = vocal_wav(
                 params.audio_path,
                 audio_hash,
                 vis_lo,
@@ -565,11 +572,31 @@ def run_transcription_job(
                 backend_version = librosa.__version__
             except Exception:
                 backend_version = "unknown"
+        # #319: the revision must name the preprocess that actually
+        # ran — the same settings on two installs can feed different
+        # audio to the backend (demucs vs center vs raw fallback),
+        # so the tr-* identity follows the effective chain, not the
+        # request. Recorded on the result meta for provenance too.
+        preprocess: dict[str, Any] | None = None
+        if params.vocal_isolation:
+            preprocess = {
+                "vocalIsolation": True,
+                "method": vocal_method or "none",
+                "methodVersion": vocal_method_version,
+                # Why isolation did not apply (mono_source /
+                # unavailable) — absent on a successful run.
+                **(
+                    {"fallbackReason": vocal_reason}
+                    if vocal_path is None and vocal_reason
+                    else {}
+                ),
+            }
         revision = new_transcription_revision(
             audio_hash or params.audio_path,
             params.settings_dict(),
             backend_id=backend_id,
             backend_version=backend_version,
+            preprocess=preprocess,
         )
         if backend is not None:
             run_backend = backend
@@ -1223,6 +1250,15 @@ def run_transcription_job(
                     "transcriptionRevision": str(revision),
                     "audioPath": params.audio_path,
                     "durationSec": round(duration_sec, 3),
+                    # #319: the effective pre-backend chain — which
+                    # isolation method+version (or why it did not run)
+                    # produced the audio the backend saw. Absent when
+                    # no preprocessing was requested.
+                    **(
+                        {"preprocess": preprocess}
+                        if preprocess is not None
+                        else {}
+                    ),
                     "tempoBpm": round(estimate.median_bpm, 2),
                     "tempoAuto": estimate.auto,
                     "meter": f"{meter.numerator}/{meter.denominator}",

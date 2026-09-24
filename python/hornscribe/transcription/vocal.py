@@ -307,6 +307,37 @@ def _method() -> str:
     return "demucs" if _demucs_available() else "center_extraction"
 
 
+def _demucs_version() -> str | None:
+    """Installed demucs package version — None when absent. Read via
+    importlib.metadata so the engine never pays torch's import cost."""
+    try:
+        import importlib.metadata
+
+        return importlib.metadata.version("demucs")
+    except Exception:
+        return None
+
+
+# #319: the center-extraction algorithm carries its own version — bump
+# it whenever the mask/STFT geometry changes so a behavior change mints
+# a new transcription identity instead of silently rewriting one.
+_CENTER_EXTRACTION_VERSION = "1"
+
+
+def method_version(method: str | None) -> str | None:
+    """Version string for the isolation method that produced the audio.
+
+    #319: the transcription revision must name what actually ran —
+    a demucs upgrade or a center-mask change is a different preprocess
+    and has to mint a new tr-* identity.
+    """
+    if method == "demucs":
+        return _demucs_version() or "unknown"
+    if method == "center_extraction":
+        return _CENTER_EXTRACTION_VERSION
+    return None
+
+
 def _write_mono_wav(path: str, samples: Any, sample_rate: int) -> bool:
     """PCM16 write mirroring _stage_selection_wav contract."""
     try:
@@ -338,8 +369,8 @@ def vocal_wav(
     start_sec: float,
     end_sec: float | None,
     sample_rate: int,
-) -> tuple[str | None, str, bool, str | None]:
-    """Isolated-vocal WAV -> (path, reason, managed, method).
+) -> tuple[str | None, str, bool, str | None, str | None]:
+    """Isolated-vocal WAV -> (path, reason, managed, method, method_version).
 
     ``reason`` maps to a review issue: "applied" on success,
     "mono_source" for mono input, "unavailable" for decode or
@@ -349,14 +380,17 @@ def vocal_wav(
     keyed, per the issue's cache note).
     ``method`` names the backend that produced the audio — "demucs"
     (#302) or "center_extraction" — so the pipeline can report which
-    estimate the tracker actually saw.
+    estimate the tracker actually saw. ``method_version`` is the
+    provenance version of that method (#319) — folded into the
+    transcription revision so an engine/model upgrade mints a new
+    tr-* identity.
     """
     _sweep_cache(time.time())
     preferred = _method()
     key = _cache_key(audio_path, content_hash, start_sec, end_sec, preferred)
     cached = os.path.join(_cache_dir(), f"{_CACHE_PREFIX}{key}.wav")
     if os.path.isfile(cached):
-        return cached, "applied", True, preferred
+        return cached, "applied", True, preferred, method_version(preferred)
 
     samples: Any | None = None
     method: str | None = None
@@ -385,26 +419,27 @@ def vocal_wav(
         except Exception:
             reason = "unavailable"
 
-        return None, reason, False, None
+        return None, reason, False, None, None
 
     # Cache under the method that actually produced the audio — a
     # demucs failure cached as center must not pin future runs to the
     # weaker estimate once demucs works again.
     assert method is not None  # samples is not None implies a method
+    version = method_version(method)
     if preferred != method:
         key = _cache_key(audio_path, content_hash, start_sec, end_sec, method)
         cached = os.path.join(_cache_dir(), f"{_CACHE_PREFIX}{key}.wav")
         if os.path.isfile(cached):
-            return cached, "applied", True, method
+            return cached, "applied", True, method, version
     if _write_mono_wav(cached, samples, sample_rate):
-        return cached, "applied", True, method
+        return cached, "applied", True, method, version
     # Cache write failed (read-only temp) — stage a plain temp file so
     # this job still gets the isolated input.
     fd, tmp = tempfile.mkstemp(prefix="hornscribe-vocal-", suffix=".wav")
     with contextlib.suppress(OSError):
         os.close(fd)
     if _write_mono_wav(tmp, samples, sample_rate):
-        return tmp, "applied", False, method
+        return tmp, "applied", False, method, version
     with contextlib.suppress(OSError):
         os.unlink(tmp)
-    return None, "unavailable", False, None
+    return None, "unavailable", False, None, None
