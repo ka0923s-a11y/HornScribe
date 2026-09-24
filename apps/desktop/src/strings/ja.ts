@@ -1192,6 +1192,10 @@ export const ja = {
         : "重なった音を追加の声部として " + kept + " 個残しました",
     mergedOverlaps: (count: number) =>
       count + " 箇所の音の重なりを検出し、1つの旋律にまとめました（別の声部が失われた可能性があります）",
+    /** #148: same warning plus the voices-retry pointer — shown when
+     *  auto texture detected a real mix. */
+    mergedOverlapsSuggest: (count: number) =>
+      count + " 箇所の音の重なりを検出し、1つの旋律にまとめました。「複数声部として採譜」で重なった音を別の声部として採譜し直せます",
     swingFeel: (offbeats: number, swing: number) =>
       "裏拍の音 " + offbeats + " 個中 " + swing + " 個が三連符の3つ目の位置に寄っています",
   },
@@ -1221,6 +1225,11 @@ export const ja = {
     playSource: "元音源を再生",
     markOk: "問題なし",
     dismiss: "対応不要にする",
+    /** #148: one-click remedy on the merged-overlap issue when auto
+     *  texture detected a mix — re-runs the job with 複数声部. */
+    retranscribeVoices: "複数声部として採譜",
+    retranscribeVoicesTip:
+      "重なった音を別の声部として採譜し直します（現在の編集は破棄されます）",
     pitchUp: "半音上げる",
     pitchDown: "半音下げる",
     deleteNote: "削除",

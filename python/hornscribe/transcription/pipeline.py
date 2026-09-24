@@ -334,6 +334,10 @@ def run_transcription_job(
         else:
             cleaned = clean_monophonic(ranged, prefer=prefer)
             cleaned_lowers = []
+        # #148: remember when auto detected a mix — the overlap warning
+        # then suggests re-transcribing with the voices texture so the
+        # accompaniment is not silently merged into the melody.
+        auto_mix_detected = False
         if params.texture == "auto" and cleaned.events:
             overlap_ratio = cleaned.polyphonic_overlaps / len(cleaned.events)
             if (
@@ -342,6 +346,7 @@ def run_transcription_job(
             ):
                 # Mix detected — keep the melody line instead of clipping it.
                 cleaned = clean_monophonic(ranged, prefer="top")
+                auto_mix_detected = True
         if not cleaned.events:
             emit(
                 "failed",
@@ -592,6 +597,10 @@ def run_transcription_job(
                     evidence={
                         "polyphonicOverlaps": cleaned.polyphonic_overlaps,
                         "note": "overlapping pitches were merged into a single line",
+                        # #148: auto detected a real mix — the voices
+                        # texture would keep those lines as separate
+                        # parts, so the UI offers a one-click re-run.
+                        "suggestVoicesTexture": auto_mix_detected,
                     },
                 )
             )

@@ -70,7 +70,12 @@ export interface CommandSnapshot {
  */
 export interface CommandContext {
   openAudio(): void;
-  transcribe(): void;
+  /** Start a transcription job. #148: callers may pin option overrides
+   *  (e.g. the review bar's voices-texture retry) without mutating the
+   *  stored settings first — avoids a stale-options race. */
+  transcribe(overrides?: {
+    texture?: "auto" | "mono" | "melody" | "voices";
+  }): void;
   /**
    * Cooperative `job.cancel` (UI-040): requests cancellation of the
    * in-flight transcription; the job still ends in a terminal `cancelled`

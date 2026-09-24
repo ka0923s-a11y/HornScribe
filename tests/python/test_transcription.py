@@ -908,6 +908,56 @@ class TestPipeline:
         assert log_mono[-1]["phase"] == "completed"
         assert log_mono[-1]["result"]["meta"]["noteCount"] == 16
 
+    def test_auto_texture_suggests_voices_retry(
+        self, tmp_path: Path
+    ) -> None:
+        # #148: auto detected a dense mix — the overlap warning carries
+        # suggestVoicesTexture so the UI can offer a one-click re-run
+        # with the voices texture. An explicit mono choice gets the same
+        # warning but no suggestion (the user already picked a mode).
+        events: list[RawNoteEvent] = []
+        for i in range(8):
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 1:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=76.0,
+                    onset_sec=i * 0.5,
+                    offset_sec=i * 0.5 + 0.45,
+                    confidence=0.9,
+                )
+            )
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 2:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=55.0,
+                    onset_sec=i * 0.5 + 0.2,
+                    offset_sec=i * 0.5 + 0.4,
+                    confidence=0.9,
+                )
+            )
+        result = run(tmp_path, tuple(events))[-1]["result"]
+        merged = [
+            i
+            for i in result["reviewIssues"]
+            if i["reason"] == "overlapping_candidates"
+            and "polyphonicOverlaps" in i["evidence"]
+        ]
+        assert merged
+        assert merged[0]["evidence"]["suggestVoicesTexture"] is True
+        mono = run(tmp_path, tuple(events), {"texture": "mono"})[-1][
+            "result"
+        ]
+        merged_mono = [
+            i
+            for i in mono["reviewIssues"]
+            if i["reason"] == "overlapping_candidates"
+            and "polyphonicOverlaps" in i["evidence"]
+        ]
+        assert merged_mono
+        assert merged_mono[0]["evidence"]["suggestVoicesTexture"] is False
+
     def test_voices_texture_keeps_two_parts(self, tmp_path: Path) -> None:
         # #85: a duet — sustained lower line under a melody — becomes a
         # two-part score instead of collapsing to one line. Canonical

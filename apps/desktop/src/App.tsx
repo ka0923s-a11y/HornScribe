@@ -695,33 +695,39 @@ export default function App() {
     [session],
   );
 
+  /* §27 AUDIO_READY → TRANSCRIBING. The job lifecycle effects own every
+   * later transition; a failed start lands on the §20 surface.
+   * #86: browser-held bytes (kind:"file" drops, pathless recordings) are
+   * staged to a temp file first so the real engine gets a readable
+   * audioPath; refs already on disk return null from staging and keep
+   * their own path. #148: overrides pin job options (voices retry)
+   * without a stale transcriptionOptions read. */
+  const startTranscriptionJob = useCallback(
+    (overrides?: Partial<TranscriptionOptions>) => {
+      setScreen("transcribing");
+      setStatusMessage(ja.transcription.start);
+      void stageAudioForEngine(importState.audio)
+        .then((staged) =>
+          session.startTranscription(
+            buildTranscriptionParams(
+              importState.audio,
+              { ...transcriptionOptions, ...overrides },
+              staged,
+              settings.backend,
+            ),
+          ),
+        )
+        .catch(() => {
+          /* failure flag drives the error surface */
+        });
+    },
+    [importState.audio, transcriptionOptions, settings.backend, session],
+  );
+
   const ctx = useMemo<CommandContext>(
     () => ({
       openAudio: () => void importer.openViaDialog(),
-      transcribe: () => {
-        // §27 AUDIO_READY → TRANSCRIBING. The job lifecycle effects own
-        // every later transition; a failed start lands on the §20 surface.
-        setScreen("transcribing");
-        setStatusMessage(ja.transcription.start);
-        // #86: browser-held bytes (kind:"file" drops, pathless
-        // recordings) are staged to a temp file first so the real
-        // engine gets a readable audioPath; refs already on disk
-        // return null from staging and keep their own path.
-        void stageAudioForEngine(importState.audio)
-          .then((staged) =>
-            session.startTranscription(
-              buildTranscriptionParams(
-                importState.audio,
-                transcriptionOptions,
-                staged,
-                settings.backend,
-              ),
-            ),
-          )
-          .catch(() => {
-            /* failure flag drives the error surface */
-          });
-      },
+      transcribe: (overrides) => startTranscriptionJob(overrides),
       cancelTranscription: () => {
         // Cooperative job.cancel — the terminal `cancelled` event is the
         // real transition; the button shows キャンセルしています… until then.
@@ -976,7 +982,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions, settings.skipSeconds, settings.backend, saveProjectFlow, pitch, toolOverrides, exportPort],
+    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, transcriptionOptions, settings.skipSeconds, saveProjectFlow, pitch, toolOverrides, exportPort, startTranscriptionJob],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -1346,21 +1352,8 @@ export default function App() {
                         const failure = sessionSnap.failure;
                         if (!failure || failure.kind === "transcriptionFailed") {
                           // 再試行 is explicit — never a silent resubmit.
-                          setScreen("transcribing");
-                          setStatusMessage(ja.transcription.start);
                           session.clearFailure();
-                          void stageAudioForEngine(importState.audio)
-                            .then((staged) =>
-                              session.startTranscription(
-                                buildTranscriptionParams(
-                                  importState.audio,
-                                  transcriptionOptions,
-                                  staged,
-                                  settings.backend,
-                                ),
-                              ),
-                            )
-                            .catch(() => undefined);
+                          startTranscriptionJob();
                         } else {
                           // エンジンを再起動 — the §20 crash recovery action.
                           setEngineRestarting(true);
@@ -1417,6 +1410,16 @@ export default function App() {
                         : null
                   }
                   onRhythmEdit={applyRhythmEdit}
+                  onRetranscribeVoices={() => {
+                    /* #148: pin the job to voices AND mirror the choice
+                     * into the stored options so the import screen's
+                     * texture select reflects what actually ran. */
+                    setTranscriptionOptions((o) => ({
+                      ...o,
+                      texture: "voices",
+                    }));
+                    startTranscriptionJob({ texture: "voices" });
+                  }}
                 />
                 {propertiesVisible ? (
                   <PropertiesPanel

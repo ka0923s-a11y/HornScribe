@@ -77,6 +77,7 @@ export function ScoreWorkspace({
   transport = null,
   sourceControl = null,
   onRhythmEdit,
+  onRetranscribeVoices,
 }: {
   screen: ScreenState;
   importView: ImportView;
@@ -120,6 +121,9 @@ export function ScoreWorkspace({
   /** #115: engine score.edit invoker for rhythm edits — absent for
    *  fixture/dev documents (the commands announce unavailable). */
   onRhythmEdit?: RhythmEditInvoker;
+  /** #148: review-bar action — re-run the job with the voices texture
+   *  when auto detected a mix. Absent for fixture/dev documents. */
+  onRetranscribeVoices?(): void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const dragActive = dragOver || externalDragActive;
@@ -188,6 +192,7 @@ export function ScoreWorkspace({
             transport={transport}
             sourceControl={sourceControl}
             onRhythmEdit={onRhythmEdit}
+            onRetranscribeVoices={onRetranscribeVoices}
           />
         ) : (
           <div className="hs-score-paper" aria-hidden="true">

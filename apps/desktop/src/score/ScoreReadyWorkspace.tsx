@@ -136,6 +136,9 @@ interface Props {
    *  documents, where rhythm edits announce as unavailable instead of
    *  pretending to work. */
   onRhythmEdit?: RhythmEditInvoker;
+  /** #148: re-run the job with the voices texture — offered on the
+   *  merged-overlap review issue when auto detected a mix. */
+  onRetranscribeVoices?(): void;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -175,6 +178,11 @@ function inspectorCopy(): InspectorCopy {
           }
           const merged = numEvidence(issue, "polyphonicOverlaps");
           if (merged != null) {
+            // #148: auto detected a mix — the detail names the
+            // one-click voices retry the review bar now exposes.
+            if (issue.evidence["suggestVoicesTexture"] === true) {
+              return ja.reviewEvidence.mergedOverlapsSuggest(merged);
+            }
             return ja.reviewEvidence.mergedOverlaps(merged);
           }
         }
@@ -215,6 +223,7 @@ export function ScoreReadyWorkspace({
   transport,
   sourceControl = null,
   onRhythmEdit,
+  onRetranscribeVoices,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<ScoreRenderer | null>(null);
@@ -1466,6 +1475,13 @@ export function ScoreReadyWorkspace({
           }
           canUndo={session.canUndo}
           canRedo={session.canRedo}
+          actionLabel={
+            allIssues[reviewIndex]?.evidence["suggestVoicesTexture"] ===
+              true && onRetranscribeVoices
+              ? ja.review.retranscribeVoices
+              : null
+          }
+          onAction={onRetranscribeVoices ?? undefined}
           onPrev={() => gotoIssue(reviewIndexRef.current - 1)}
           onNext={() => gotoIssue(reviewIndexRef.current + 1)}
           onPlaySource={playSource}

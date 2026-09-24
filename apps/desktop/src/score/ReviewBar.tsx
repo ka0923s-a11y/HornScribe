@@ -37,6 +37,10 @@ export interface ReviewBarProps {
   readonly noteDeleted: boolean;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
+  /** #148: optional one-click action for issues that carry a direct
+   *  remedy (e.g. the voices-texture retry on a detected mix). */
+  readonly actionLabel?: string | null;
+  readonly onAction?: () => void;
   onPrev(): void;
   onNext(): void;
   onPlaySource(): void;
@@ -62,6 +66,8 @@ export function ReviewBar({
   noteDeleted,
   canUndo,
   canRedo,
+  actionLabel = null,
+  onAction,
   onPrev,
   onNext,
   onPlaySource,
@@ -116,6 +122,13 @@ export function ReviewBar({
             {r.playSource}
           </HsButton>
         </HsTooltip>
+        {actionLabel && onAction ? (
+          <HsTooltip content={r.retranscribeVoicesTip}>
+            <HsButton size="small" onClick={onAction}>
+              {actionLabel}
+            </HsButton>
+          </HsTooltip>
+        ) : null}
         <HsTooltip content={withKey(r.markOk, "O")}>
           <HsButton
             size="small"
