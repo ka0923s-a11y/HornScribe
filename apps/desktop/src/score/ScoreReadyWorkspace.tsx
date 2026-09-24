@@ -1000,18 +1000,32 @@ export function ScoreReadyWorkspace({
 
   const toggleSelectedEnharmonic = useCallback(() => {
     const canonicalId = selectionRef.current?.canonicalId;
-    if (!canonicalId) return;
+    if (!canonicalId) return false;
     const cur = session.noteEditOf(canonicalId).enharmonic ?? false;
-    if (
-      !runReviewEdit(
-        session.editNote(canonicalId, { enharmonic: !cur }),
-        ja.review.feedback.respelled,
-        { reload: true },
-      )
-    ) {
+    const ok = runReviewEdit(
+      session.editNote(canonicalId, { enharmonic: !cur }),
+      ja.review.feedback.respelled,
+      { reload: true },
+    );
+    if (!ok) {
       announce(ja.review.feedback.noIssues);
     }
+    return ok;
   }, [session, runReviewEdit, announce]);
+
+  /* #204: a review action that corrected the score should mark its
+   *  issue fixed — the same resolution the pitch/delete buttons get.
+   *  decide() pushes its own undo entry, so undoing first reopens the
+   *  issue and the next undo reverts the score edit itself. */
+  const markIssueFixed = useCallback(
+    (issueId: string) => {
+      if (session.decide(issueId, "fixed")) {
+        bumpDoc();
+        reportInspector();
+      }
+    },
+    [session, bumpDoc, reportInspector],
+  );
 
   /* #115 (spec 13): engine rhythm edits — duration ladder, onset grid
    *  shift, tie toggle. The engine re-realizes the affected measures
@@ -1622,7 +1636,13 @@ export function ScoreReadyWorkspace({
               return onRetranscribeVoices ?? undefined;
             }
             if (issue.reason === "pitch_spelling_ambiguous") {
-              return () => toggleSelectedEnharmonic();
+              // #204: resolving the spelling marks the issue fixed —
+              // the toggle alone left it open and confusing.
+              return () => {
+                if (toggleSelectedEnharmonic()) {
+                  markIssueFixed(issue.id);
+                }
+              };
             }
             if (
               issue.reason === "monophonic_backend" &&
@@ -1639,7 +1659,15 @@ export function ScoreReadyWorkspace({
               // stay invariant. Direction evidence says which way.
               const factor =
                 issue.evidence["direction"] === "halve" ? 0.5 : 2;
-              return () => scaleTempo(factor);
+              // #204: applyRhythmEdit's after-hook marks the issue
+              // fixed only when the engine edit actually landed.
+              return () => {
+                applyRhythmEdit(
+                  () => ({ kind: "scaleTempo", noteId: "", factor }),
+                  ja.commandFeedback.tempoChanged,
+                  () => markIssueFixed(issue.id),
+                );
+              };
             }
             return undefined;
           })()}
