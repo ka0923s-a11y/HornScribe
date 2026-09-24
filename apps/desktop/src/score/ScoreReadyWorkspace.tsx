@@ -1249,11 +1249,51 @@ export function ScoreReadyWorkspace({
   /* #145 (spec 14): key edit — replaces the head signature and
    * collapses detected key changes to the new single key; same
    * serialized queue + undo stack as the other rhythm edits. */
- const setKey = useCallback(
+const setKey = useCallback(
     (fifths: number, mode?: "major" | "minor" | null) => {
       applyRhythmEdit(
         () => ({ kind: "setKey", noteId: "", fifths, mode: mode ?? undefined }),
         ja.commandFeedback.keyChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
+  /* #145 (spec 14): local key-map edits — insert/update a boundary
+   *  (startBeat "0/1" rewrites the head key without collapsing the
+   *  map) or drop a detected modulation. Same serialized queue +
+   *  undo stack as setKey. */
+  const keyChangeAt = useCallback(
+    (args: {
+      fifths: number;
+      mode?: "major" | "minor" | null;
+      startBeat?: string;
+      startMeasure?: number;
+    }) => {
+      applyRhythmEdit(
+        () => ({
+          kind: "keyChangeAt",
+          noteId: "",
+          fifths: args.fifths,
+          mode: args.mode ?? undefined,
+          startBeat: args.startBeat,
+          startMeasure: args.startMeasure,
+        }),
+        ja.commandFeedback.keyChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
+  const removeKeyChange = useCallback(
+    (startMeasure: number) => {
+      applyRhythmEdit(
+        () => ({
+          kind: "removeKeyChange",
+          noteId: "",
+          startMeasure,
+        }),
+        ja.commandFeedback.keyChangeRemoved,
       );
     },
     [applyRhythmEdit],
@@ -1477,6 +1517,8 @@ export function ScoreReadyWorkspace({
       scaleTempo: (factor) => scaleTempo(factor),
       setMeter: (bpm_, bu) => setMeter(bpm_, bu),
       setKey: (fifths, mode) => setKey(fifths, mode),
+      keyChangeAt: (args) => keyChangeAt(args),
+      removeKeyChange: (m) => removeKeyChange(m),
       requantize: (settings) => requantize(settings),
       splitSelectedNote: () => splitSelectedNote(),
       mergeSelectedNotes: () => mergeSelectedNotes(),
@@ -1511,6 +1553,8 @@ export function ScoreReadyWorkspace({
     scaleTempo,
     setMeter,
     setKey,
+    keyChangeAt,
+    removeKeyChange,
     requantize,
     splitSelectedNote,
     mergeSelectedNotes,

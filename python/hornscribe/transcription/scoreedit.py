@@ -92,6 +92,9 @@ class ScoreEdit:
     fifths: int | None = None
     mode: str | None = None
     start_beat: Fraction | None = None
+    # #145: keyChangeAt/removeKeyChange may name a measure number
+    # instead of a raw beat — the UI knows measures, not beats.
+    start_measure: int | None = None
     part_id: str | None = None
     pitch_midi: int | None = None
     factor: Fraction | None = None
@@ -204,8 +207,31 @@ class ScoreEdit:
                 raise ScoreEditError(
                     f"edit.startBeat must be >= 0, got {start_beat}"
                 )
-        if kind in ("keyChangeAt", "removeKeyChange") and start_beat is None:
-            raise ScoreEditError(f"{kind} requires startBeat")
+        start_measure_raw = data.get("startMeasure")
+        start_measure: int | None = None
+        if start_measure_raw is not None:
+            if (
+                isinstance(start_measure_raw, bool)
+                or not isinstance(start_measure_raw, int)
+                or start_measure_raw < 0
+            ):
+                raise ScoreEditError(
+                    "edit.startMeasure must be an integer >= 0, "
+                    f"got {start_measure_raw!r}"
+                )
+            start_measure = start_measure_raw
+        if start_beat is not None and start_measure is not None:
+            raise ScoreEditError(
+                "edit takes startBeat or startMeasure, not both"
+            )
+        if (
+            kind in ("keyChangeAt", "removeKeyChange")
+            and start_beat is None
+            and start_measure is None
+        ):
+            raise ScoreEditError(
+                f"{kind} requires startBeat or startMeasure"
+            )
         if kind == "applyTriplet" and start_beat is None:
             raise ScoreEditError("applyTriplet requires startBeat")
         if kind == "restToNote" and start_beat is None:
@@ -278,6 +304,7 @@ class ScoreEdit:
             fifths=fifths,
             mode=mode,
             start_beat=start_beat,
+            start_measure=start_measure,
             part_id=part_id,
             pitch_midi=pitch_midi,
             factor=factor,
@@ -1589,6 +1616,29 @@ def _apply_remove_key_change(
     return replace(payload, key_changes=tuple(kept))
 
 
+def _edit_boundary_beat(
+    payload: ScoreRevisionPayload, edit: ScoreEdit
+) -> Fraction:
+    """Resolve a key-boundary edit's position to a beat (#145).
+
+    ``startBeat`` is used verbatim; ``startMeasure`` resolves through
+    the shared measure layout so the UI can name the barline it sees
+    (an implicit pickup answers to measure 0).
+    """
+    if edit.start_beat is not None:
+        return edit.start_beat
+    if edit.start_measure is None:
+        raise ScoreEditError(
+            f"{edit.kind} requires startBeat or startMeasure"
+        )
+    for span in measure_spans(payload):
+        if span.number == edit.start_measure:
+            return span.start_beat
+    raise ScoreEditError(
+        f"no measure {edit.start_measure} in the score"
+    )
+
+
 def apply_score_edit(
     document: ScoreDocument, edit: ScoreEdit
 ) -> ScoreDocument:
@@ -1645,19 +1695,23 @@ def apply_score_edit(
         new_payload = _apply_set_key(payload, key)
         return replace(document, payload=new_payload)
     if edit.kind == "keyChangeAt":
-        if edit.fifths is None or edit.start_beat is None:
+        if edit.fifths is None or (
+            edit.start_beat is None and edit.start_measure is None
+        ):
             raise ScoreEditError(
-                "keyChangeAt requires fifths and startBeat"
+                "keyChangeAt requires fifths and startBeat/startMeasure"
             )
         key = KeySignature(
             fifths=edit.fifths, mode=edit.mode or payload.key_signature.mode
         )
-        new_payload = _apply_key_change_at(payload, key, edit.start_beat)
+        new_payload = _apply_key_change_at(
+            payload, key, _edit_boundary_beat(payload, edit)
+        )
         return replace(document, payload=new_payload)
     if edit.kind == "removeKeyChange":
-        if edit.start_beat is None:
-            raise ScoreEditError("removeKeyChange requires startBeat")
-        new_payload = _apply_remove_key_change(payload, edit.start_beat)
+        new_payload = _apply_remove_key_change(
+            payload, _edit_boundary_beat(payload, edit)
+        )
         return replace(document, payload=new_payload)
     if edit.kind == "restToNote":
         if (

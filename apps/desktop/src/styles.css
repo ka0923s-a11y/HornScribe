@@ -1362,6 +1362,36 @@ body {
   font-size: var(--hs-font-size-caption);
 }
 
+/* #145: key-change map editor — one row per boundary plus the add row. */
+.hs-properties__keymap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-xs);
+}
+.hs-properties__keymap-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--hs-space-xs);
+}
+.hs-properties__keymap-row .hs-properties__meter,
+.hs-properties__keymap-add .hs-properties__meter {
+  display: flex;
+  flex: 1 1 auto;
+  gap: var(--hs-space-xs);
+}
+.hs-properties__keymap-measure {
+  flex: 0 0 auto;
+  padding-bottom: var(--hs-space-xs);
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-properties__keymap-add {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--hs-space-xs);
+  margin-top: var(--hs-space-xs);
+}
+
 /* ---- Settings (auxiliary screen, §18): replaces the workspace rows ---- */
 .hs-settings-wrap {
   grid-row: commandbar / transport; /* spans commandbar…main rows */

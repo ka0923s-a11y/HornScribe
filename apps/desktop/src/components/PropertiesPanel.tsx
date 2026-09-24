@@ -49,6 +49,8 @@ export function PropertiesPanel({
   onTempoScale,
   onMeterChange,
   onKeyChange,
+  onKeyChangeAt,
+  onRemoveKeyChange,
 }: {
   content: InspectorContent;
   /** UI-030 feature inspector view-model (note/score/range bodies). */
@@ -72,6 +74,17 @@ export function PropertiesPanel({
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
   /** #145 (§14): commit a new key signature via the engine score.edit. */
   onKeyChange?(fifths: number, mode?: KeyMode | null): void;
+  /** #145 (§14): insert/update a key-change boundary — startBeat
+   *  "0/1" rewrites the head key in place; startMeasure names a
+   *  barline and the engine resolves the beat. */
+  onKeyChangeAt?(args: {
+    fifths: number;
+    mode?: KeyMode | null;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  /** #145 (§14): drop the detected modulation at a measure. */
+  onRemoveKeyChange?(startMeasure: number): void;
 }) {
   const body =
     model && model.kind !== "empty" ? model.kind : content.kind;
@@ -103,9 +116,11 @@ export function PropertiesPanel({
               pitch={pitch}
               onTempoChange={onTempoChange}
               onTempoScale={onTempoScale}
-              onMeterChange={onMeterChange}
-              onKeyChange={onKeyChange}
-            />
+            onMeterChange={onMeterChange}
+            onKeyChange={onKeyChange}
+            onKeyChangeAt={onKeyChangeAt}
+            onRemoveKeyChange={onRemoveKeyChange}
+          />
           ) : (
             <p className="hs-properties__placeholder">
               {ja.properties.placeholder}
@@ -150,6 +165,8 @@ function InspectorBody({
   onTempoScale,
   onMeterChange,
   onKeyChange,
+  onKeyChangeAt,
+  onRemoveKeyChange,
 }: {
   model: InspectorModel;
   pitch: PitchView;
@@ -157,6 +174,13 @@ function InspectorBody({
   onTempoScale?(factor: number): void;
  onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
   onKeyChange?(fifths: number, mode?: KeyMode | null): void;
+  onKeyChangeAt?(args: {
+    fifths: number;
+    mode?: KeyMode | null;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  onRemoveKeyChange?(startMeasure: number): void;
 }) {
   if (model.kind === "score") {
     return (
@@ -167,6 +191,8 @@ function InspectorBody({
         onTempoScale={onTempoScale}
         onMeterChange={onMeterChange}
         onKeyChange={onKeyChange}
+        onKeyChangeAt={onKeyChangeAt}
+        onRemoveKeyChange={onRemoveKeyChange}
       />
     );
   }
@@ -191,6 +217,8 @@ function ScoreBody({
   onTempoScale,
   onMeterChange,
   onKeyChange,
+  onKeyChangeAt,
+  onRemoveKeyChange,
 }: {
   model: ScoreInspectorModel;
   pitch: PitchView;
@@ -198,6 +226,13 @@ function ScoreBody({
   onTempoScale?(factor: number): void;
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
   onKeyChange?(fifths: number, mode?: KeyMode | null): void;
+  onKeyChangeAt?(args: {
+    fifths: number;
+    mode?: KeyMode | null;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  onRemoveKeyChange?(startMeasure: number): void;
 }) {
   const f = ja.inspector.summaryFields;
   return (
@@ -238,6 +273,44 @@ function ScoreBody({
               )
             }
           />
+        ) : model.keyChangeCount > 1 &&
+          onKeyChangeAt &&
+          onRemoveKeyChange ? (
+          // #145: modulating scores get the key-map editor — every
+          // detected boundary editable/removable, new ones addable,
+          // and "unify" is the explicit global setKey path.
+          <KeyMapEditor
+            changes={model.keyChanges}
+            measureCount={model.measureCount}
+            onHeadChange={(fifths, mode) =>
+              onKeyChangeAt({
+                fifths:
+                  pitch === "hornF" ? hornConcertFifths(fifths) : fifths,
+                mode,
+                startBeat: "0/1",
+              })
+            }
+            onBoundaryChange={(measure, fifths, mode) =>
+              onKeyChangeAt({
+                fifths:
+                  pitch === "hornF" ? hornConcertFifths(fifths) : fifths,
+                mode,
+                startMeasure: measure,
+              })
+            }
+            onRemove={(measure) => onRemoveKeyChange(measure)}
+            onUnify={
+              onKeyChange
+                ? (fifths, mode) =>
+                    onKeyChange(
+                      pitch === "hornF"
+                        ? hornConcertFifths(fifths)
+                        : fifths,
+                      mode,
+                    )
+                : undefined
+            }
+          />
         ) : (
           model.keyLabel && <Row label={f.key} value={model.keyLabel} />
         )}
@@ -255,12 +328,15 @@ function ScoreBody({
 
 /* #145 (§14) key edit: the score summary's key row becomes a select
  * over the 15 fifths signatures (shown with Japanese key names).
- * Modulating scores show the transition label instead — a head-key
- * edit would collapse the detected changes. */
+ * Modulating scores get the KeyMapEditor instead — each detected
+ * boundary stays editable without collapsing the map. */
 const KEY_FIFTHS_OPTIONS = [
   -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7,
 ] as const;
 
+/** #145: signature + mode select pair shared by the single-key field,
+ *  the key-map rows and the "add" row. Labels carry the measure so
+ *  every control keeps a unique accessible name. */
 function KeyField({
   fifths,
   mode,
@@ -271,11 +347,35 @@ function KeyField({
   onCommit(fifths: number, mode?: KeyMode | null): void;
 }) {
   const f = ja.inspector.summaryFields;
+  return (
+    <KeySelects
+      fifths={fifths}
+      mode={mode}
+      keyLabel={f.key}
+      modeLabel={f.keyMode}
+      onCommit={onCommit}
+    />
+  );
+}
+
+function KeySelects({
+  fifths,
+  mode,
+  keyLabel,
+  modeLabel,
+  onCommit,
+}: {
+  fifths: number;
+  mode: KeyMode | null;
+  keyLabel: string;
+  modeLabel: string;
+  onCommit(fifths: number, mode: KeyMode): void;
+}) {
   const mode_ = mode ?? "major";
   return (
     <div className="hs-properties__meter">
       <HsSelect
-        label={f.key}
+        label={keyLabel}
         value={String(fifths)}
         options={KEY_FIFTHS_OPTIONS.map((v) => ({
           value: String(v),
@@ -287,11 +387,8 @@ function KeyField({
           onCommit(next, mode_);
         }}
       />
-      {/* #252: mode is part of the signature — switching 長調/短調
-          keeps the same fifths (relative major/minor share it) and
-          re-labels the signature list. */}
       <HsSelect
-        label={f.keyMode}
+        label={modeLabel}
         value={mode_}
         options={[
           { value: "major", label: ja.inspector.keyModes.major },
@@ -303,6 +400,113 @@ function KeyField({
           onCommit(fifths, v);
         }}
       />
+    </div>
+  );
+}
+
+/* #145 (§14) key-map editor: modulating scores list every detected
+ *  boundary — row 0 is the head key (edited in place, the map
+ *  survives); later rows edit/delete their barline. A new boundary
+ *  can be added at any measure, and "1つの調に統一" is the explicit
+ *  global setKey path (collapses the map to the head key). */
+function KeyMapEditor({
+  changes,
+  measureCount,
+  onHeadChange,
+  onBoundaryChange,
+  onRemove,
+  onUnify,
+}: {
+  changes: readonly {
+    readonly measure: number;
+    readonly fifths: number;
+    readonly mode: KeyMode | null;
+  }[];
+  measureCount: number;
+  onHeadChange(fifths: number, mode: KeyMode): void;
+  onBoundaryChange(measure: number, fifths: number, mode: KeyMode): void;
+  onRemove(measure: number): void;
+  onUnify?(fifths: number, mode: KeyMode): void;
+}) {
+  const km = ja.inspector.keyMap;
+  const [addMeasure, setAddMeasure] = useState<number | null>(null);
+  const [addFifths, setAddFifths] = useState(0);
+  const [addMode, setAddMode] = useState<KeyMode>("major");
+  const addValid =
+    addMeasure != null && addMeasure >= 1 && addMeasure <= measureCount;
+  return (
+    <div className="hs-properties__keymap">
+      {changes.map((c, i) => {
+        const commit = (fifths: number, mode: KeyMode) =>
+          i === 0
+            ? onHeadChange(fifths, mode)
+            : onBoundaryChange(c.measure, fifths, mode);
+        return (
+          <div className="hs-properties__keymap-row" key={i}>
+            <span className="hs-properties__keymap-measure">
+              {i === 0 ? km.head : km.measureAt(c.measure)}
+            </span>
+            <KeySelects
+              fifths={c.fifths}
+              mode={c.mode}
+              keyLabel={km.keyAt(c.measure)}
+              modeLabel={km.modeAt(c.measure)}
+              onCommit={commit}
+            />
+            {i > 0 ? (
+              <HsIconButton
+                label={km.remove}
+                icon={<Dismiss16Regular />}
+                size="small"
+                onClick={() => onRemove(c.measure)}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+      <div className="hs-properties__keymap-add">
+        <HsNumericField
+          label={km.measure}
+          value={addMeasure}
+          min={1}
+          max={measureCount}
+          step={1}
+          onChange={(v) => setAddMeasure(v)}
+        />
+        <KeySelects
+          fifths={addFifths}
+          mode={addMode}
+          keyLabel={km.key}
+          modeLabel={km.mode}
+          onCommit={(fifths, mode) => {
+            setAddFifths(fifths);
+            setAddMode(mode);
+          }}
+        />
+        <HsButton
+          variant="secondary"
+          size="small"
+          disabled={!addValid}
+          onClick={() => {
+            if (!addValid || addMeasure == null) return;
+            onBoundaryChange(addMeasure, addFifths, addMode);
+          }}
+        >
+          {km.add}
+        </HsButton>
+      </div>
+      {onUnify ? (
+        <HsButton
+          variant="subtle"
+          size="small"
+          ariaLabel={km.unifyHint}
+          onClick={() =>
+            onUnify(changes[0]?.fifths ?? 0, changes[0]?.mode ?? "major")
+          }
+        >
+          {km.unify}
+        </HsButton>
+      ) : null}
     </div>
   );
 }

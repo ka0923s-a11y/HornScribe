@@ -511,6 +511,7 @@ export const ja = {
     tempoChanged: "テンポを変更しました",
     meterChanged: "拍子を変更しました",
     keyChanged: "調を変更しました",
+    keyChangeRemoved: "転調を削除しました",
     requantized: "採譜設定を適用して楽譜を更新しました",
     noteSplit: "音符を分割しました",
     notesMerged: "音符を結合しました",
@@ -1125,6 +1126,22 @@ export const ja = {
     keyModes: {
       major: "長調",
       minor: "短調",
+    },
+    /** #145: key-map editor — one row per detected boundary plus an
+     *  "add" row; the head row edits the piece key without collapsing
+     *  the map (keyChangeAt at beat 0). */
+    keyMap: {
+      measure: "小節",
+      head: "冒頭",
+      measureAt: (n: number) => `第${n}小節`,
+      keyAt: (n: number) => `第${n}小節の調`,
+      modeAt: (n: number) => `第${n}小節の長短`,
+      key: "調",
+      mode: "長短",
+      add: "転調を追加",
+      remove: "この転調を削除",
+      unify: "1つの調に統一",
+      unifyHint: "全ての転調を解除し、冒頭の調だけにします",
     },
     scoreSeconds: (sec: number) => `スコア ${sec.toFixed(1)} 秒`,
     tieFragments: (count: number) => `タイで分割（${count}分割）`,

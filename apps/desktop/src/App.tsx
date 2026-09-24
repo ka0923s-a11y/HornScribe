@@ -1732,6 +1732,12 @@ export default function App() {
                       scoreCtlRef.current?.setMeter?.(b, u)
                     }
                     onKeyChange={(f, mode) => scoreCtlRef.current?.setKey?.(f, mode)}
+                    onKeyChangeAt={(args) =>
+                      scoreCtlRef.current?.keyChangeAt?.(args)
+                    }
+                    onRemoveKeyChange={(m) =>
+                      scoreCtlRef.current?.removeKeyChange?.(m)
+                    }
                   />
                 ) : null}
               </div>

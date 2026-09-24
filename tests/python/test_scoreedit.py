@@ -784,6 +784,59 @@ class TestSetKey:
         with pytest.raises(ScoreEditError, match="mode"):
             _edit("setKey", "", fifths=0, mode="dorian")
 
+    def test_key_change_at_by_measure(self) -> None:
+        # #145: the UI names measures, not beats — measure 3 of a
+        # 4/4 score starts at beat 8.
+        doc = _doc(
+            [_note(1, 60, "0", "1"), _note(2, 62, "8", "1")]
+        )
+        out = apply_score_edit(
+            doc,
+            _edit("keyChangeAt", "", fifths=-5, startMeasure=3),
+        )
+        assert out.payload.key_changes[-1].start_beat == Fraction(8)
+        assert out.payload.key_changes[-1].key_signature.fifths == -5
+
+    def test_remove_key_change_by_measure(self) -> None:
+        doc = _doc(
+            [_note(1, 60, "0", "1"), _note(2, 62, "8", "1")]
+        )
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                key_changes=(
+                    KeyChange(Fraction(0), KeySignature(0, "major")),
+                    KeyChange(Fraction(8), KeySignature(-5, "major")),
+                ),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("removeKeyChange", "", startMeasure=3)
+        )
+        assert out.payload.key_changes == ()
+        assert out.payload.key_signature.fifths == 0
+
+    def test_start_measure_out_of_range_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="no measure"):
+            apply_score_edit(
+                doc, _edit("keyChangeAt", "", fifths=0, startMeasure=99)
+            )
+
+    def test_start_beat_and_measure_conflict_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="not both"):
+            _edit(
+                "keyChangeAt", "", fifths=0,
+                startBeat="8/1", startMeasure=3,
+            )
+
+    def test_start_measure_validated(self) -> None:
+        with pytest.raises(ScoreEditError, match="startMeasure"):
+            _edit("keyChangeAt", "", fifths=0, startMeasure=-1)
+        with pytest.raises(ScoreEditError, match="startMeasure"):
+            _edit("keyChangeAt", "", fifths=0, startMeasure="3")
+
 
 class TestKeyChanges:
     """#133: the key map on ScoreRevisionPayload."""

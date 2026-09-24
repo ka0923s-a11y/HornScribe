@@ -135,6 +135,58 @@ describe("buildScoreInspector", () => {
     expect(sharp.keyFifths).toBe(-4);
     expect(sharp.keyLabel).toBe("変イ長調");
   });
+
+  it("carries the key-change map for the boundary editor (#145)", () => {
+    const model = buildScoreInspector(
+      {
+        title: "Modulating Piece",
+        tempoBpm: 100,
+        meter: "4/4",
+        keyFifths: 0,
+        keyChanges: [
+          { measure: 1, fifths: 0, mode: null },
+          { measure: 17, fifths: -5, mode: "minor" },
+        ],
+        keyMode: null,
+        swingFeel: false,
+        omittedIssueCount: 0,
+        measureCount: 32,
+        noteCount: 100,
+      },
+      0,
+      copy,
+    );
+    expect(model.keyChanges).toEqual([
+      { measure: 1, fifths: 0, mode: null },
+      { measure: 17, fifths: -5, mode: "minor" },
+    ]);
+    expect(model.measureCount).toBe(32);
+    // Written view projects every boundary +1 fifth, folded.
+    const horn = buildScoreInspector(
+      {
+        title: "Modulating Piece",
+        tempoBpm: 100,
+        meter: "4/4",
+        keyFifths: 0,
+        keyChanges: [
+          { measure: 1, fifths: 7, mode: null },
+          { measure: 9, fifths: -5, mode: null },
+        ],
+        keyMode: null,
+        swingFeel: false,
+        omittedIssueCount: 0,
+        measureCount: 16,
+        noteCount: 50,
+      },
+      0,
+      copy,
+      "hornF",
+    );
+    expect(horn.keyChanges).toEqual([
+      { measure: 1, fifths: -4, mode: null },
+      { measure: 9, fifths: -4, mode: null },
+    ]);
+  });
 });
 
 describe("buildNoteInspector", () => {

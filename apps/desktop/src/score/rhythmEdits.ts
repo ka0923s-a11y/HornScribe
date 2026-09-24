@@ -66,6 +66,10 @@ export interface RhythmEditOp {
   readonly mode?: "major" | "minor";
   /** keyChangeAt/removeKeyChange only: boundary beat ("n/d" fraction). */
   readonly startBeat?: string;
+  /** keyChangeAt/removeKeyChange only (#145): boundary measure number
+   *  — the UI names barlines; the engine resolves the beat. Mutually
+   *  exclusive with startBeat. */
+  readonly startMeasure?: number;
   /** restToNote only: target part id (rests carry no canonical note id).
    *  startBeat is the new note's onset inside the rest span. */
   readonly partId?: string;

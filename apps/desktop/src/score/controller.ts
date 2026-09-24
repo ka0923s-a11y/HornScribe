@@ -41,6 +41,19 @@ export interface ScoreWorkspaceController {
   /** #145 (spec 14): set the piece key signature — undoable engine
    *  edit. Modulating scores collapse to the new single key. */
   setKey?(fifths: number, mode?: "major" | "minor" | null): void;
+  /** #145 (spec 14): insert or update a key-change boundary —
+   *  `startBeat: "0/1"` rewrites the head key in place (the key map
+   *  survives, unlike setKey); `startMeasure` names a barline the
+   *  user sees and the engine resolves it to a beat. */
+  keyChangeAt?(args: {
+    fifths: number;
+    mode?: "major" | "minor" | null;
+    startBeat?: string;
+    startMeasure?: number;
+  }): void;
+  /** #145 (spec 14): drop the key-change boundary at a measure —
+   *  the head key cannot be removed (use setKey). */
+  removeKeyChange?(startMeasure: number): void;
   /** #130 (spec 14): re-quantize the whole score under changed
    *  quantization settings — undoable engine edit. */
   requantize?(settings: Record<string, unknown>): void;

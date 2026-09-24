@@ -68,6 +68,16 @@ export interface ScoreInspectorModel {
   /** Number of key-signature boundaries; >1 means the piece modulates
    *  and the summary shows transitions instead of an editable field. */
   readonly keyChangeCount: number;
+  /** #145: the key-change map for the boundary editor — each entry
+   *  carries the viewed presentation's fifths (concert or written),
+   *  matching keyFifths' projection. */
+  readonly keyChanges: readonly {
+    readonly measure: number;
+    readonly fifths: number;
+    readonly mode: KeyMode | null;
+  }[];
+  /** Raw measure count for the "add key change" field's max. */
+  readonly measureCount: number;
   /** #134: the score carries a swing marking — shown as a feel row. */
   readonly swingFeel: boolean;
   readonly measureLabel: string;
@@ -235,6 +245,12 @@ export function buildScoreInspector(
     keyFifths: meta.keyFifths != null ? viewFifths(meta.keyFifths) : null,
     keyMode: meta.keyMode,
     keyChangeCount: meta.keyChanges.length,
+    keyChanges: meta.keyChanges.map((c) => ({
+      measure: c.measure,
+      fifths: viewFifths(c.fifths),
+      mode: c.mode,
+    })),
+    measureCount: meta.measureCount,
     swingFeel: meta.swingFeel,
     measureLabel: copy.measureCount(meta.measureCount),
     noteLabel: copy.noteCount(meta.noteCount),
