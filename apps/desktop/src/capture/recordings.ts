@@ -139,6 +139,38 @@ export async function collectReferencedRecordingNames(deps: {
   return keep;
 }
 
+/** #132: 録音を managed 領域 appDataDir/sources/ へコピーし、
+ *  コピー先の絶対パスを返す。プロジェクト保存時に呼び、
+ *  sourceAudio.originalPath を retention 対象外に向ける。
+ *  Tauri 以外/失敗時は null — 呼び出し側は元パスのまま保存する
+ *  (従来どおり keepNames が retention から守る)。 */
+export async function copyRecordingToManaged(
+  name: string,
+): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
+  try {
+    return await invoke<string>("copy_recording_to_managed", { name });
+  } catch {
+    return null;
+  }
+}
+
+/** ref.path が録音フォルダ dir 配下にあるとき、そのファイル名を返す。
+ *  パス区切り差・大文字小文字差は吸収(collectReferencedRecordingNames
+ *  と同じ正規化)。 */
+export function recordingNameUnder(
+  path: string,
+  dir: string,
+): string | null {
+  const dirNorm =
+    dir.replace(/[\\/]+$/, "").toLowerCase().replaceAll("/", "\\") + "\\";
+  const norm = path.toLowerCase().replaceAll("/", "\\");
+  if (!norm.startsWith(dirNorm)) return null;
+  // Slice the ORIGINAL path so the returned name keeps its case —
+  // normalization only changed separators/lowercase, never length.
+  return path.slice(dirNorm.length);
+}
+
 /** バイト数の人間向け表示(日本語 UI: MB 単位中心)。 */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

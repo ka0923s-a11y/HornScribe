@@ -577,6 +577,67 @@ pub fn delete_recording(app: tauri::AppHandle, name: String) -> Result<(), Strin
     std::fs::remove_file(&path).map_err(|e| format!("delete {name}: {e}"))
 }
 
+/// #132: 録音 WAV を managed 領域 appDataDir/sources/ へコピーし、
+/// コピー先の絶対パスを返す。プロジェクト保存時に呼び、
+/// sourceAudio.originalPath を保持ポリシー対象外のパスに向ける —
+/// 録音=一時作業領域、プロジェクト=永続成果物の製品境界。
+/// name は delete_recording と同じ bare-name 検証。同名ファイルが
+/// 既にある場合、内容が一致すれば再利用し、異なれば -N サフィックスを
+/// 付けて衝突を避ける(同一録音の再保存で複製が増えない)。
+/// 録音中も許可する: コピーは完成済み WAV の読み取りだけで録音
+/// セッションを妨げない。
+#[tauri::command]
+pub fn copy_recording_to_managed(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    use tauri::Manager;
+    if name.is_empty()
+        || name.contains('\\')
+        || name.contains('/')
+        || name.contains("..")
+        || !name.to_lowercase().ends_with(".wav")
+    {
+        return Err("invalid recording name".to_string());
+    }
+    let src = recordings_dir(&app)?.join(&name);
+    let meta = std::fs::metadata(&src).map_err(|e| format!("{name}: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("not a file: {name}"));
+    }
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {e}"))?
+        .join("sources");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("sources dir: {e}"))?;
+
+    // Same-name reuse when bytes match; otherwise find a free -N suffix.
+    // Strip the extension case-insensitively (the check above allowed
+    // any case) so "TAKE.WAV" still stems to "TAKE".
+    let stem = &name[..name.len() - 4];
+    let mut candidate = dir.join(&name);
+    if candidate.exists() {
+        let src_bytes = std::fs::read(&src).map_err(|e| format!("read {name}: {e}"))?;
+        let mut slot: Option<std::path::PathBuf> = None;
+        for n in 0..100 {
+            let c = if n == 0 {
+                dir.join(&name)
+            } else {
+                dir.join(format!("{stem}-{n}.wav"))
+            };
+            if !c.exists() {
+                slot = Some(c);
+                break;
+            }
+            let existing = std::fs::read(&c).map_err(|e| format!("read {:?}: {e}", c))?;
+            if existing == src_bytes {
+                return Ok(c.to_string_lossy().into_owned());
+            }
+        }
+        candidate = slot.ok_or("no free managed source name")?;
+    }
+    std::fs::copy(&src, &candidate).map_err(|e| format!("copy {name}: {e}"))?;
+    Ok(candidate.to_string_lossy().into_owned())
+}
+
 /* ------------------------------- internals -------------------------------- */
 
 /// 既定デバイスの表示名と共有モードフォーマットを掴む。

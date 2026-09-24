@@ -121,6 +121,7 @@ pub fn run() {
             capture::clear_recordings,
             capture::recordings_list,
             capture::delete_recording,
+            capture::copy_recording_to_managed,
             engine::engine_spawn,
             engine::engine_write,
             engine::engine_close_stdin,

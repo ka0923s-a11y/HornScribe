@@ -75,8 +75,10 @@ import { baseName } from "./import/formats";
 import { CaptureController, type CaptureState } from "./capture/controller";
 import {
   collectReferencedRecordingNames,
+  copyRecordingToManaged,
   getRecordingsInfo,
   pruneRecordings,
+  recordingNameUnder,
 } from "./capture/recordings";
 import { createCapturePort } from "./capture/runtimePorts";
 import type { CaptureDeviceList, CaptureSource } from "./capture/types";
@@ -640,8 +642,28 @@ export default function App() {
       return;
     }
     try {
+      /* #132: a recording-backed source gets copied into the managed
+       * sources/ area before the project is written — the saved
+       * originalPath then points outside the retention sweep, so
+       * keeping the project never depends on keepNames luck. Non-
+       * recording sources and copy failures keep the original path. */
+      let audioForProject = importState.audio;
+      const ref = audioForProject?.ref;
+      if (ref?.kind === "recording" && ref.path) {
+        const info = await getRecordingsInfo();
+        const name = info ? recordingNameUnder(ref.path, info.dir) : null;
+        if (name) {
+          const managed = await copyRecordingToManaged(name);
+          if (managed) {
+            audioForProject = {
+              ...audioForProject!,
+              ref: { ...ref, path: managed },
+            };
+          }
+        }
+      }
       const project = await buildProjectDocument({
-        audio: importState.audio,
+        audio: audioForProject,
         doc,
         result: sessionSnap.lastResult,
       });

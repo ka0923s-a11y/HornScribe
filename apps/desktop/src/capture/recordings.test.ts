@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { collectReferencedRecordingNames } from "./recordings";
+import {
+  collectReferencedRecordingNames,
+  recordingNameUnder,
+} from "./recordings";
 
 /* #132: retention must not delete recordings a saved project still
  * references. The collector reads each recent project's sourceAudio
@@ -81,5 +84,29 @@ describe("collectReferencedRecordingNames", () => {
       sourcePathOf,
     });
     expect(keep.size).toBe(0);
+  });
+});
+
+describe("recordingNameUnder", () => {
+  it("returns the bare name for a path inside the dir", () => {
+    expect(recordingNameUnder(DIR + "\\Rec 1.wav", DIR)).toBe("Rec 1.wav");
+  });
+
+  it("keeps the original case and accepts forward slashes", () => {
+    expect(
+      recordingNameUnder(DIR.replaceAll("\\", "/") + "/Rec 2.WAV", DIR),
+    ).toBe("Rec 2.WAV");
+  });
+
+  it("is case-insensitive on the dir prefix", () => {
+    expect(recordingNameUnder(DIR + "\\a.wav", DIR.toUpperCase())).toBe(
+      "a.wav",
+    );
+  });
+
+  it("rejects paths outside the dir", () => {
+    expect(recordingNameUnder("D:\\else\\a.wav", DIR)).toBeNull();
+    // Sibling dir sharing the prefix must not match.
+    expect(recordingNameUnder(DIR + "2\\a.wav", DIR)).toBeNull();
   });
 });
