@@ -102,6 +102,8 @@ def build_score(
     voice_names: tuple[str, ...] = (),
     key_changes: tuple[KeyChange, ...] = (),
     swing_feel: Fraction | None = None,
+    transcription_backend: str | None = None,
+    transcription_backend_version: str | None = None,
 ) -> BuiltScore:
     """Assemble the canonical payload + document for rank-1 output.
 
@@ -193,8 +195,8 @@ def build_score(
         title=title,
         source_audio_path=source_audio_path,
         source_audio_hash=source_audio_hash,
-        transcription_backend="basic_pitch",
-        transcription_backend_version="0.4.0",
+        transcription_backend=transcription_backend,
+        transcription_backend_version=transcription_backend_version,
         transcription_settings=settings,
     )
     return BuiltScore(

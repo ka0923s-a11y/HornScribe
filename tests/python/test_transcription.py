@@ -827,6 +827,20 @@ class TestSwing:
         ]
         assert mono[0]["evidence"]["suggestBasicPitch"] is True
 
+    def test_score_document_records_resolved_backend(
+        self, tmp_path: Path
+    ) -> None:
+        # Provenance: the ScoreDocument must name the engine that ran,
+        # not a hardcoded basic_pitch.
+        log = run(
+            tmp_path,
+            self._events([i * 0.5 for i in range(8)]),
+            {"backend": "pyin", "texture": "mono"},
+        )
+        doc = log[-1]["result"]["scoreDocument"]
+        assert doc["transcriptionBackend"] == "pyin"
+        assert log[-1]["result"]["meta"]["backend"] == "pyin"
+
     def test_basic_pitch_under_voices_no_warn(
         self, tmp_path: Path
     ) -> None:

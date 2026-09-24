@@ -386,6 +386,20 @@ def run_transcription_job(
         if stop(1):
             return
 
+        # Resolved backend identity for provenance — used by both the
+        # ScoreDocument fields and the job meta (pyin -> librosa ver).
+        backend_id = (
+            PYIN_BACKEND_ID if params.backend == "pyin" else BACKEND_ID
+        )
+        backend_version = BACKEND_VERSION
+        if params.backend == "pyin":
+            try:
+                import librosa  # noqa: PLC0415
+
+                backend_version = librosa.__version__
+            except Exception:
+                backend_version = "unknown"
+
         # ---- cleaning --------------------------------------------------
         stage(2, 0.55)
         ranged = clip_to_range(
@@ -608,6 +622,8 @@ def run_transcription_job(
             swing_feel=(
                 swing_est.mean_phase if swing_est.detected else None
             ),
+            transcription_backend=backend_id,
+            transcription_backend_version=backend_version,
         )
         payload = built.payload
         score_revision = payload.revision_id()
@@ -818,15 +834,6 @@ def run_transcription_job(
                 ),
             )
 
-        # Resolved backend identity for provenance (pyin -> librosa ver).
-        backend_version = BACKEND_VERSION
-        if params.backend == "pyin":
-            try:
-                import librosa  # noqa: PLC0415
-
-                backend_version = librosa.__version__
-            except Exception:
-                backend_version = "unknown"
         emit(
             "completed",
             stage=STAGES[6],
@@ -838,11 +845,7 @@ def run_transcription_job(
                 "musicXmlConcert": musicxml_concert,
                 "musicXmlHornF": musicxml_horn,
                 "meta": {
-                    "backend": (
-                        PYIN_BACKEND_ID
-                        if params.backend == "pyin"
-                        else BACKEND_ID
-                    ),
+                    "backend": backend_id,
                     "backendVersion": backend_version,
                     # #100: project.save needs the tr-* id for the
                     # TranscriptionRecord in .hornscribe.json.
