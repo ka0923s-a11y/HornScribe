@@ -229,9 +229,11 @@ export const ja = {
     sourcesDeleteConfirmTitle: "この音源を削除しますか?",
     sourcesDeleteConfirmBody: (name: string) =>
       name + " を削除します。この操作は取り消せません。",
-    sourcesDeleteConfirmBodyReferenced: (name: string) =>
+    sourcesDeleteConfirmBodyReferenced: (name: string, count = 1) =>
       name +
-      " は保存済みプロジェクトから参照されています。削除すると、そのプロジェクトを開いたときに音源が見つかりません。この操作は取り消せません。",
+      " は保存済みプロジェクト " +
+      count +
+      " 件から参照されています。削除すると、そのプロジェクトを開いたときに音源が見つかりません。この操作は取り消せません。",
     sourcesDeleted: "音源を削除しました",
   },
 

@@ -219,6 +219,58 @@ export async function deleteSource(name: string): Promise<boolean> {
   }
 }
 
+/* ------------------- project → source 永続 index (#147) -------------------
+ * appDataDir/source-refs.json — 保存済みプロジェクトが参照する音源
+ * パスの永続 map。MRU(最大8件)から押し出されたプロジェクトの参照も
+ * 追跡できるように、保存/オープン時に Rust 側へ記録する。
+ * キー=正規化済みプロジェクトパス、値=sourceAudio.originalPath。 */
+
+/** source_refs_index の返り値型。 */
+export type SourceRefIndex = Record<string, string>;
+
+/** 参照 index 全体。Tauri 以外/失敗時は null(呼び出し側は MRU 走査
+ *  だけにフォールバックする)。 */
+export async function getSourceRefIndex(): Promise<SourceRefIndex | null> {
+  if (!isTauriRuntime()) return null;
+  try {
+    return await invoke<SourceRefIndex>("source_refs_index");
+  } catch {
+    return null;
+  }
+}
+
+/** プロジェクトの音源参照を index に記録する。sourcePath が null なら
+ *  そのプロジェクトのエントリを消す(音源なし保存 = 参照をやめた)。
+ *  失敗しても保存/オープン本体は成功させるので、戻り値はない。 */
+export async function updateSourceRef(
+  projectPath: string,
+  sourcePath: string | null,
+): Promise<void> {
+  if (!isTauriRuntime() || !projectPath) return;
+  try {
+    await invoke("source_refs_update", { projectPath, sourcePath });
+  } catch {
+    /* index 更新は best-effort — 本体の保存/オープンを失敗にしない */
+  }
+}
+
+/** index の参照先のうち dir 配下にあるファイル名 → 参照プロジェクト数。
+ *  collectReferencedRecordingNames の index 版 — recordingNameUnder と
+ *  同じ正規化で sources/・recordings/ 両方に使える。削除警告で
+ *  「N 件のプロジェクトが参照中」と数を出せるよう Map で返す。 */
+export function sourceRefCountUnder(
+  index: SourceRefIndex | null,
+  dir: string | null,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (!index || !dir) return counts;
+  for (const sourcePath of Object.values(index)) {
+    const name = recordingNameUnder(sourcePath, dir);
+    if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return counts;
+}
+
 /** バイト数の人間向け表示(日本語 UI: MB 単位中心)。 */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -247,6 +247,40 @@ describe("openProject — source verification (store.py contract)", () => {
     expect(h.recents.at(-1)?.[0]?.path).toBe(entry.path);
   });
 
+  it("records the source ref into the persistent index port (#147)", async () => {
+    const calls: { projectPath: string; sourcePath: string | null }[] = [];
+    const h = makeHarness({
+      updateSourceRef: (projectPath, sourcePath) => {
+        calls.push({ projectPath, sourcePath });
+      },
+    });
+    h.store.set(entry.path, projectJson());
+    h.store.set("C:\\audio\\etude.wav", new Blob(["etude"]));
+
+    await h.controller.openProject(entry);
+
+    expect(calls).toEqual([
+      { projectPath: entry.path, sourcePath: "C:\\audio\\etude.wav" },
+    ]);
+  });
+
+  it("records the ref even when the open lands on SOURCE_MISSING (#147)", async () => {
+    const calls: { projectPath: string; sourcePath: string | null }[] = [];
+    const h = makeHarness({
+      updateSourceRef: (projectPath, sourcePath) => {
+        calls.push({ projectPath, sourcePath });
+      },
+    });
+    h.store.set(entry.path, projectJson());
+    // no audio bytes → SOURCE_MISSING, but the project file still
+    // references the source until it is re-saved.
+    await h.controller.openProject(entry);
+    expect(h.controller.getState().phase).toBe("sourceMissing");
+    expect(calls).toEqual([
+      { projectPath: entry.path, sourcePath: "C:\\audio\\etude.wav" },
+    ]);
+  });
+
   it("source file missing → SOURCE_MISSING with relink action", async () => {
     const h = makeHarness();
     h.store.set(entry.path, projectJson());

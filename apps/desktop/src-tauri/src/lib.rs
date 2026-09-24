@@ -130,6 +130,8 @@ pub fn run() {
             capture::sources_list,
             capture::open_sources_dir,
             capture::delete_source,
+            capture::source_refs_update,
+            capture::source_refs_index,
             engine::engine_spawn,
             engine::engine_write,
             engine::engine_close_stdin,

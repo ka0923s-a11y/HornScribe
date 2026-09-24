@@ -757,6 +757,99 @@ pub fn delete_source(app: tauri::AppHandle, name: String) -> Result<(), String> 
     std::fs::remove_file(&path).map_err(|e| format!("delete {name}: {e}"))
 }
 
+/* --------------------- project → source 永続 index (#147) ---------------------
+ *
+ * appDataDir/source-refs.json — 「どの保存済みプロジェクトがどの音源
+ * パスを参照しているか」の永続 map。設定画面の参照バッジ/削除警告と
+ * 起動時 retention の keep 集合が、最近のプロジェクト履歴(MRU)の
+ * 8 件上限を超えても正しく参照を追跡できるようにする。
+ *
+ * キーはプロジェクトの絶対パス、値は sourceAudio.originalPath。
+ * 保存/オープン時に更新し、MRU から押し出されても消えない。移動・
+ * 削除されたプロジェクトの stale エントリは「参照中」側に倒す
+ * (fail-close): 実在しないプロジェクトの参照で音源が残るのは
+ * 容量の無駄だが、実在するプロジェクトの音源を消すよりはるかに
+ * 安全。 */
+
+fn source_refs_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("source-refs.json"))
+}
+
+/// パス比較の正規化 — 区切りを "/" に揃えて小文字化(recordingNameUnder
+/// と同じ Windows 前提の大文字小文字吸収)。
+fn norm_ref_path(p: &str) -> String {
+    p.replace('\\', "/").to_lowercase()
+}
+
+static SOURCE_REFS_LOCK: Mutex<()> = Mutex::new(());
+
+fn read_source_refs(
+    path: &std::path::Path,
+) -> std::collections::BTreeMap<String, String> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return std::collections::BTreeMap::new();
+    };
+    serde_json::from_slice::<std::collections::BTreeMap<String, String>>(&bytes)
+        .unwrap_or_default()
+}
+
+/// プロジェクト → 音源パスの参照を記録する(#147)。
+/// sourcePath が null/空ならそのプロジェクトのエントリを消す
+/// (音源なしで保存された = 参照をやめた)。projectPath が空の
+/// (ブラウザ dev 等の一時オープン) は何もしない。
+#[tauri::command]
+pub fn source_refs_update(
+    app: tauri::AppHandle,
+    project_path: String,
+    source_path: Option<String>,
+) -> Result<(), String> {
+    if project_path.is_empty() {
+        return Ok(());
+    }
+    let path = source_refs_path(&app)?;
+    let _guard = SOURCE_REFS_LOCK
+        .lock()
+        .map_err(|_| "source refs lock")?;
+    let mut map = read_source_refs(&path);
+    let key = norm_ref_path(&project_path);
+    match source_path {
+        Some(sp) if !sp.is_empty() => {
+            map.insert(key, sp);
+        }
+        _ => {
+            map.remove(&key);
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("source refs dir: {e}"))?;
+    }
+    let json = serde_json::to_vec(&map).map_err(|e| format!("source refs: {e}"))?;
+    // tmp→rename で半書き込みを防ぐ(index が壊れると参照保護が消える)。
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &json).map_err(|e| format!("write source refs: {e}"))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("rename source refs: {e}"))?;
+    Ok(())
+}
+
+/// 参照 index 全体を返す(#147)。キー=正規化済みプロジェクトパス、
+/// 値=sourceAudio.originalPath。stale エントリも含む — 呼び出し側は
+/// 「参照中」として扱う(fail-close)。
+#[tauri::command]
+pub fn source_refs_index(
+    app: tauri::AppHandle,
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let path = source_refs_path(&app)?;
+    let _guard = SOURCE_REFS_LOCK
+        .lock()
+        .map_err(|_| "source refs lock")?;
+    Ok(read_source_refs(&path))
+}
+
 /* ------------------------------- internals -------------------------------- */
 
 /// 既定デバイスの表示名と共有モードフォーマットを掴む。

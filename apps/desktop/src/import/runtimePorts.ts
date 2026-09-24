@@ -16,6 +16,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { ja } from "../strings/ja";
+import { updateSourceRef } from "../capture/recordings";
 import { AUDIO_EXTENSIONS, baseName } from "./formats";
 import {
   AudioDecodeError,
@@ -182,5 +183,11 @@ export function createImportPorts(): ImportPorts {
     readProjectBytes: (path) => invokeBytes("read_project_file", path),
     decodeAudio: (blob) => decodeWithWebAudio(blob),
     sha256Hex,
+    // #147: keep the persistent source-ref index in step with project
+    // opens — the Settings badge/delete warning then sees references
+    // beyond the 8-entry MRU.
+    updateSourceRef: (projectPath, sourcePath) => {
+      void updateSourceRef(projectPath, sourcePath);
+    },
   };
 }

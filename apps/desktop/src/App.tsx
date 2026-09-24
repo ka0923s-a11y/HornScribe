@@ -80,8 +80,11 @@ import {
   collectReferencedRecordingNames,
   copyRecordingToManaged,
   getRecordingsInfo,
+  getSourceRefIndex,
   pruneRecordings,
   recordingNameUnder,
+  sourceRefCountUnder,
+  updateSourceRef,
 } from "./capture/recordings";
 import { createCapturePort } from "./capture/runtimePorts";
 import type { CaptureDeviceList, CaptureSource } from "./capture/types";
@@ -645,6 +648,14 @@ export default function App() {
         sourcePathOf: async (blob) =>
           parseProjectFile(await blob.arrayBuffer(), "").sourcePath,
       });
+      // #147: the persistent source-ref index also protects recordings —
+      // a project pushed out of the 8-entry MRU still keeps its source.
+      for (const name of sourceRefCountUnder(
+        await getSourceRefIndex(),
+        info?.dir ?? null,
+      ).keys()) {
+        keep.add(name);
+      }
       const n = await pruneRecordings(days, keep);
       if (n > 0) setStatusMessage(ja.settings.recordingsPruned(n));
     })();
@@ -852,6 +863,13 @@ export default function App() {
       const res = await session.saveProject(path, project);
       const name = res.path.split(/[\\/]/).pop() ?? res.path;
       setRecentProjects(recordRecentProject({ name, path: res.path }));
+      // #147: persist the source ref so the Settings badge/delete
+      // warning tracks this project even after it leaves the MRU.
+      const savedSource = project.sourceAudio as
+        | { originalPath?: string }
+        | null
+        | undefined;
+      void updateSourceRef(res.path, savedSource?.originalPath ?? null);
       // #222: the saved id becomes this session's project identity —
       // later saves keep it instead of minting a new prj-.
       projectIdRef.current =

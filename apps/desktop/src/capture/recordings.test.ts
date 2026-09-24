@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectReferencedRecordingNames,
   recordingNameUnder,
+  sourceRefCountUnder,
 } from "./recordings";
 
 /* #132: retention must not delete recordings a saved project still
@@ -108,5 +109,37 @@ describe("recordingNameUnder", () => {
     expect(recordingNameUnder("D:\\else\\a.wav", DIR)).toBeNull();
     // Sibling dir sharing the prefix must not match.
     expect(recordingNameUnder(DIR + "2\\a.wav", DIR)).toBeNull();
+  });
+});
+
+/* #147: the persistent source-ref index (project → sourceAudio path)
+ * tracks references beyond the 8-entry MRU — the Settings badge and
+ * the retention keep-set both read names through this map. */
+describe("sourceRefCountUnder", () => {
+  it("maps in-dir source paths to referencing project counts", () => {
+    const counts = sourceRefCountUnder(
+      {
+        [DIR + "\\proj a.hornscribe.json"]: DIR + "\\take1.wav",
+        [DIR + "\\proj b.hornscribe.json"]: DIR + "\\take1.wav",
+        [DIR + "\\proj c.hornscribe.json"]: "D:\\Music\\song.mp3",
+      },
+      DIR,
+    );
+    expect(counts.get("take1.wav")).toBe(2);
+    expect(counts.size).toBe(1);
+  });
+
+  it("normalizes separators and dir case like recordingNameUnder", () => {
+    const counts = sourceRefCountUnder(
+      { "p.json": DIR.replaceAll("\\", "/") + "/Take 2.wav" },
+      DIR.toUpperCase(),
+    );
+    expect(counts.get("Take 2.wav")).toBe(1);
+  });
+
+  it("empty index or unknown dir protects nothing", () => {
+    expect(sourceRefCountUnder(null, DIR).size).toBe(0);
+    expect(sourceRefCountUnder({ "p.json": DIR + "\\a.wav" }, null).size)
+      .toBe(0);
   });
 });

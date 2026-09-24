@@ -259,6 +259,10 @@ export class ImportController {
         entry.path,
         entry.path ? undefined : entry.name,
       );
+      // #147: record the project's sourceAudio ref into the persistent
+      // index — survives MRU truncation, covers SOURCE_MISSING opens too
+      // (the project file still references the source until re-saved).
+      this.ports.updateSourceRef?.(project.path, project.sourcePath);
       if (!this.isCurrent(gen)) return;
       if (!project.sourcePath || !project.sourceHash) {
         this.enterSourceMissing(project, false);

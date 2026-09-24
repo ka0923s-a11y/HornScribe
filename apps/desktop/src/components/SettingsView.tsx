@@ -35,10 +35,12 @@ import {
   formatBytes,
   getRecordingsInfo,
   getSourcesInfo,
+  getSourceRefIndex,
   listRecordings,
   listSources,
   openRecordingsDir,
   openSourcesDir,
+  sourceRefCountUnder,
   type RecordingFile,
   type RecordingsInfo,
 } from "../capture/recordings";
@@ -225,9 +227,13 @@ export function SettingsView({
   // 読めない/履歴外のプロジェクトは fail-open(参照なし扱い)。
   const [srcInfo, setSrcInfo] = useState<RecordingsInfo | null>(null);
   const [srcFiles, setSrcFiles] = useState<RecordingFile[] | null>(null);
-  const [srcReferenced, setSrcReferenced] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
+  /* #147: 参照判定は永続 index(source-refs.json) が主 — MRU(8件)を
+   * 超えた保存済みプロジェクトも数えられる。値は参照プロジェクト数。
+   * index 導入前に保存され未オープンのプロジェクトだけは index に
+   * 載らないので、MRU 走査の結果も併合する(数は index 側のみ)。 */
+  const [srcReferencing, setSrcReferencing] = useState<
+    ReadonlyMap<string, number>
+  >(new Map());
   const [srcDeleteTarget, setSrcDeleteTarget] = useState<string | null>(
     null,
   );
@@ -235,17 +241,27 @@ export function SettingsView({
     void getSourcesInfo().then((info) => {
       setSrcInfo(info);
       if (!info) {
-        setSrcReferenced(new Set());
+        setSrcReferencing(new Map());
         return;
       }
       const ports = createImportPorts();
-      void collectReferencedRecordingNames({
-        readProjectBytes: ports.readProjectBytes,
-        entries: recentProjects,
-        dir: info.dir,
-        sourcePathOf: async (blob) =>
-          parseProjectFile(await blob.arrayBuffer(), "").sourcePath,
-      }).then(setSrcReferenced);
+      void (async () => {
+        const counts = sourceRefCountUnder(
+          await getSourceRefIndex(),
+          info.dir,
+        );
+        const mru = await collectReferencedRecordingNames({
+          readProjectBytes: ports.readProjectBytes,
+          entries: recentProjects,
+          dir: info.dir,
+          sourcePathOf: async (blob) =>
+            parseProjectFile(await blob.arrayBuffer(), "").sourcePath,
+        });
+        for (const name of mru) {
+          if (!counts.has(name)) counts.set(name, 1);
+        }
+        setSrcReferencing(counts);
+      })();
     });
     void listSources().then(setSrcFiles);
   }, [recentProjects]);
@@ -421,7 +437,7 @@ export function SettingsView({
                     <li key={f.name} className="hs-settings__recording-item">
                       <span className="hs-settings__recording-name">
                         {f.name}
-                        {srcReferenced.has(f.name) ? (
+                        {srcReferencing.has(f.name) ? (
                           <span className="hs-settings__recording-ref">
                             {s.sourcesReferenced}
                           </span>
@@ -819,8 +835,11 @@ export function SettingsView({
       >
         <p style={{ margin: 0 }}>
           {srcDeleteTarget
-            ? srcReferenced.has(srcDeleteTarget)
-              ? s.sourcesDeleteConfirmBodyReferenced(srcDeleteTarget)
+            ? srcReferencing.has(srcDeleteTarget)
+              ? s.sourcesDeleteConfirmBodyReferenced(
+                  srcDeleteTarget,
+                  srcReferencing.get(srcDeleteTarget) ?? 1,
+                )
               : s.sourcesDeleteConfirmBody(srcDeleteTarget)
             : ""}
         </p>

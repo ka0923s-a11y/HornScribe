@@ -45,4 +45,10 @@ export interface ImportPorts {
    * verification matches `ProjectStore.relink_source_audio`.
    */
   sha256Hex(blob: Blob): Promise<string>;
+
+  /** Optional (#147): record the opened/saved project's sourceAudio ref
+   *  into the persistent source-ref index (appDataDir/source-refs.json)
+   *  so references survive MRU truncation. Fire-and-forget — failures
+   *  must not fail the open. */
+  updateSourceRef?(projectPath: string, sourcePath: string | null): void;
 }
