@@ -31,6 +31,7 @@ export type ReviewReason =
   | "meter_conflict"
   | "swing_feel"
   | "monophonic_backend"
+  | "tempo_uncertain"
   | "onset_uncertain"
   | "pitch_uncertain"
   | "multiple_candidates"

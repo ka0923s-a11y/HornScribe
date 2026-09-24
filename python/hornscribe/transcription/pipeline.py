@@ -83,6 +83,7 @@ from .options import TranscriptionParams
 from .scorebuild import build_score
 from .swing import detect_swing
 from .tempo import estimate_tempo, tempo_map_from_estimate
+from .tempo_octave import detect_tempo_octave
 
 JOB_KIND_TRANSCRIPTION = "transcription"
 
@@ -608,6 +609,16 @@ def run_transcription_job(
             tuple(n.onset_ql for n in normalized),
             Fraction(4, meter.denominator),
         )
+        # #188 tempo octave census — only meaningful when the tempo
+        # came from tracking (a pinned BPM is the user's word).
+        tempo_octave = (
+            detect_tempo_octave(
+                tuple(e.onset_sec for e in cleaned.events),
+                estimate.beat_times_sec,
+            )
+            if estimate.auto
+            else None
+        )
         built = build_score(
             best,
             meter,
@@ -766,6 +777,32 @@ def run_transcription_job(
             )
         # #134 swing issue — the estimate was computed above (it also
         # lands on the payload as swing_feel for the notation).
+        # #188: the tracked tempo looks like a half/double pick —
+        # surface it with the corrected value so the UI can offer a
+        # one-click setTempo.
+        if tempo_octave is not None and tempo_octave.suggestion:
+            suggested = (
+                estimate.median_bpm * 2.0
+                if tempo_octave.suggestion == "double"
+                else estimate.median_bpm / 2.0
+            )
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=0.0, end_sec=duration_sec
+                    ),
+                    reason=ReviewReason.TEMPO_UNCERTAIN,
+                    severity=Severity.CAUTION,
+                    evidence={
+                        "estimatedBpm": round(estimate.median_bpm, 1),
+                        "suggestedBpm": round(suggested, 1),
+                        "direction": tempo_octave.suggestion,
+                    },
+                )
+            )
         if swing_est.detected:
             issues.append(
                 ReviewIssue(

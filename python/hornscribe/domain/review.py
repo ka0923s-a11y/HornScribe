@@ -42,6 +42,9 @@ class ReviewReason(Enum):
     # that may carry polyphony — any second voice is silently absent
     # from the result.
     MONOPHONIC_BACKEND = "monophonic_backend"
+    # #188: the auto-estimated tempo looks like a half/double pick —
+    # evidence carries a suggested correction the UI can one-click.
+    TEMPO_UNCERTAIN = "tempo_uncertain"
 
 
 class Severity(Enum):

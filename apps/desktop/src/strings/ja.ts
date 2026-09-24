@@ -1199,6 +1199,12 @@ export const ja = {
       title: "単音エンジンで採譜しました",
       detail: "pYINは単一旋律専用のエンジンです。和音や伴奏を含む音源では他の声部が結果に反映されません。多声部を採りたい場合は、設定の採譜エンジンをBasic Pitchに変更してください。",
     },
+    // #188: the tracked tempo reads as a half/double pick — the
+    // action applies the suggested BPM as a normal setTempo edit.
+    tempo_uncertain: {
+      title: "テンポを確認してください",
+      detail: "自動推定されたテンポが、実際の半分または2倍の可能性があります。提案されたBPMを試すか、拍子の速さを耳で確認してください。",
+    },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
       detail: "音の開始位置が曖昧です。",
@@ -1284,6 +1290,9 @@ export const ja = {
     retranscribeBasicPitch: "Basic Pitchで採譜し直す",
     retranscribeBasicPitchTip:
       "多声部に対応したエンジンで採譜し直します（現在の編集は破棄されます）",
+    /** #188: apply the suggested BPM on the tempo-uncertain issue. */
+    applyTempoSuggestion: (bpm: number) =>
+      `♩=${Math.round(bpm)}に修正`,
     pitchUp: "半音上げる",
     pitchDown: "半音下げる",
     deleteNote: "削除",

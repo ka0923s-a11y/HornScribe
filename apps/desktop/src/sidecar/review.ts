@@ -45,6 +45,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "meter_conflict",
   "swing_feel",
   "monophonic_backend",
+  "tempo_uncertain",
   "onset_uncertain",
   "pitch_uncertain",
   "multiple_candidates",

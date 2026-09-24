@@ -1586,6 +1586,16 @@ export function ScoreReadyWorkspace({
             ) {
               return ja.review.retranscribeBasicPitch;
             }
+            // #188: the tempo-uncertain issue resolves by applying
+            // the suggested BPM as a normal setTempo edit.
+            if (
+              issue.reason === "tempo_uncertain" &&
+              typeof issue.evidence["suggestedBpm"] === "number"
+            ) {
+              return ja.review.applyTempoSuggestion(
+                issue.evidence["suggestedBpm"] as number,
+              );
+            }
             return null;
           })()}
           onAction={(() => {
@@ -1602,6 +1612,13 @@ export function ScoreReadyWorkspace({
               issue.evidence["suggestBasicPitch"] === true
             ) {
               return onRetranscribeBasicPitch ?? undefined;
+            }
+            if (
+              issue.reason === "tempo_uncertain" &&
+              typeof issue.evidence["suggestedBpm"] === "number"
+            ) {
+              const bpm = issue.evidence["suggestedBpm"] as number;
+              return () => setTempo(bpm);
             }
             return undefined;
           })()}
