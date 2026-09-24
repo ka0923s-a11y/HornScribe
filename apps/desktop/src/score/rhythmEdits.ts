@@ -20,7 +20,9 @@ export type RhythmEditKind =
   | "toggleTie"
   | "setTempo"
   | "setMeter"
-  | "requantize";
+  | "requantize"
+  | "splitNote"
+  | "mergeNotes";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {

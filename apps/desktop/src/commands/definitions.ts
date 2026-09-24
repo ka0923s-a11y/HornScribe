@@ -462,6 +462,24 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.hasScore && !s.reviewOpen,
       run: (ctx) => ctx.openRequantizeDialog?.(),
     },
+    // #131 (spec 13 post-MVP): split/merge — engine edits on the
+    // selected note, same gate as the other rhythm edits.
+    {
+      id: "score.splitNote",
+      title: ja.commands.noteSplit,
+      section: "score",
+      shortcuts: ["S"],
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.splitSelectedNote?.(),
+    },
+    {
+      id: "score.mergeNotes",
+      title: ja.commands.noteMerge,
+      section: "score",
+      shortcuts: ["M"],
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.mergeSelectedNotes?.(),
+    },
 
     // ---- edit (§14: every fix is a command) ----
     {

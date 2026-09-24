@@ -376,6 +376,82 @@ class TestSetMeter:
             )
 
 
+class TestSplitMerge:
+    def test_split_midpoint(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(doc, _edit("splitNote", "sn-000001"))
+        notes = out.payload.parts[0].notes
+        assert len(notes) == 3
+        assert notes[0].id == ScoreNoteId("sn-000001")
+        assert notes[0].duration_beats == Fraction(1, 2)
+        assert notes[1].start_beat == Fraction(1, 2)
+        assert notes[1].duration_beats == Fraction(1, 2)
+        assert str(notes[1].id).startswith("sn-")
+        assert notes[1].id != notes[0].id
+        assert notes[2].id == ScoreNoteId("sn-000002")
+
+    def test_split_too_short_rejected(self) -> None:
+        # A single grid-step note has no interior grid point.
+        doc = _doc([_note(1, 60, "0", "1/4")])
+        with pytest.raises(ScoreEditError, match="too short"):
+            apply_score_edit(doc, _edit("splitNote", "sn-000001"))
+
+    def test_split_not_tied_to_itself(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1", tie_start=True),
+                _note(2, 60, "1", "1", tie_stop=True),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("splitNote", "sn-000001"))
+        notes = out.payload.parts[0].notes
+        assert notes[0].tie_start is False
+        assert notes[1].tie_start is True  # outgoing tie survives
+        assert notes[1].tie_stop is False
+
+    def test_merge_contiguous_same_pitch(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 60, "1", "1"),
+                _note(3, 62, "2", "1"),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+        notes = out.payload.parts[0].notes
+        assert len(notes) == 2
+        assert notes[0].id == ScoreNoteId("sn-000001")
+        assert notes[0].duration_beats == Fraction(2)
+        assert notes[0].source_event_ids == (
+            RawNoteEventId("rne-000001"),
+            RawNoteEventId("rne-000002"),
+        )
+        assert notes[1].id == ScoreNoteId("sn-000003")
+
+    def test_merge_different_pitch_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        with pytest.raises(ScoreEditError, match="same pitch"):
+            apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+
+    def test_merge_non_contiguous_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1/2"), _note(2, 60, "1", "1")])
+        with pytest.raises(ScoreEditError, match="contiguous"):
+            apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+
+    def test_merge_last_note_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="no next note"):
+            apply_score_edit(doc, _edit("mergeNotes", "sn-000001"))
+
+    def test_split_merge_roundtrip(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        split = apply_score_edit(doc, _edit("splitNote", "sn-000001"))
+        merged = apply_score_edit(split, _edit("mergeNotes", "sn-000001"))
+        notes = merged.payload.parts[0].notes
+        assert len(notes) == 2
+        assert notes[0].duration_beats == Fraction(1)
+
+
 class TestRequantize:
     def test_ids_preserved_positionally(self) -> None:
         doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])

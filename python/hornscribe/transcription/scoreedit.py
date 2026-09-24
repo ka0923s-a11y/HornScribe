@@ -91,10 +91,13 @@ class ScoreEdit:
             "setTempo",
             "setMeter",
             "requantize",
+            "splitNote",
+            "mergeNotes",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
-                f"setTempo/setMeter/requantize, got {kind!r}"
+                f"setTempo/setMeter/requantize/splitNote/mergeNotes, "
+                f"got {kind!r}"
             )
         note_id = data.get("noteId")
         if kind in ("setTempo", "setMeter", "requantize"):
@@ -463,38 +466,22 @@ def _expand_window(
     return (lo, hi)
 
 
-def _apply_timing_edit(
+def _retile_part(
     payload: ScoreRevisionPayload,
-    part_index: int,
-    note_index: int,
-    new_start: Fraction | None,
-    new_duration: Fraction | None,
+    part: Part,
+    notes: list[QuantizedNote],
+    lo: Fraction,
+    hi: Fraction,
 ) -> Part:
-    """Rebuild the part after a timing edit (setDuration/shiftOnset)."""
-    part = payload.parts[part_index]
-    beat_ql = beat_ql_of(payload)
-    notes = list(part.notes)
-    target = notes[note_index]
-    start = new_start if new_start is not None else target.start_beat
-    duration = (
-        new_duration if new_duration is not None else target.duration_beats
-    )
-    if duration <= 0:
-        raise ScoreEditError("duration must be positive")
-    if start < 0:
-        raise ScoreEditError("the note cannot start before the score")
-    notes[note_index] = replace(
-        target, start_beat=start, duration_beats=duration
-    )
-    notes.sort(key=lambda n: (n.start_beat, n.id))
-    edited_index = next(i for i, n in enumerate(notes) if n.id == target.id)
-    notes = _clip_overlaps(notes, edited_index=edited_index)
+    """Re-decompose the notes intersecting [lo, hi) and splice back.
 
-    # The rebuild window: every measure touching the union of old and
-    # new spans, grown to cover notes straddling its edges.
+    Shared tail of every structural edit (timing, split, merge): the
+    window grows to whole measures covering straddling notes, the
+    realizer rebuilds atoms + rest gaps inside it, and content outside
+    the window is kept verbatim.
+    """
+    beat_ql = beat_ql_of(payload)
     spans = measure_spans(payload)
-    lo = min(target.start_beat, start)
-    hi = max(target.end_beat, start + duration)
     prev = None
     while (lo, hi) != prev:
         prev = (lo, hi)
@@ -530,6 +517,139 @@ def _apply_timing_edit(
         notes=final_notes,
         rests=tuple(sorted(kept_rests + new_rests, key=lambda r: r.start_beat)),
     )
+
+
+def _apply_timing_edit(
+    payload: ScoreRevisionPayload,
+    part_index: int,
+    note_index: int,
+    new_start: Fraction | None,
+    new_duration: Fraction | None,
+) -> Part:
+    """Rebuild the part after a timing edit (setDuration/shiftOnset)."""
+    part = payload.parts[part_index]
+    notes = list(part.notes)
+    target = notes[note_index]
+    start = new_start if new_start is not None else target.start_beat
+    duration = (
+        new_duration if new_duration is not None else target.duration_beats
+    )
+    if duration <= 0:
+        raise ScoreEditError("duration must be positive")
+    if start < 0:
+        raise ScoreEditError("the note cannot start before the score")
+    notes[note_index] = replace(
+        target, start_beat=start, duration_beats=duration
+    )
+    notes.sort(key=lambda n: (n.start_beat, n.id))
+    edited_index = next(i for i, n in enumerate(notes) if n.id == target.id)
+    notes = _clip_overlaps(notes, edited_index=edited_index)
+
+    # The rebuild window: every measure touching the union of old and
+    # new spans, grown to cover notes straddling its edges.
+    lo = min(target.start_beat, start)
+    hi = max(target.end_beat, start + duration)
+    return _retile_part(payload, part, notes, lo, hi)
+
+
+def _apply_split(
+    payload: ScoreRevisionPayload,
+    part_index: int,
+    note_index: int,
+) -> Part:
+    """Split a note at its midpoint (§13 post-MVP split).
+
+    The midpoint is snapped to the minimum grid so both halves stay
+    writable; an odd-grid note (e.g. a triplet span) splits at the
+    nearest grid point instead. Ties redistribute: the first half keeps
+    an incoming tie, the second keeps an outgoing one, and the halves
+    are never tied to each other (a split is a visible separation).
+    The second half gets a fresh sn-* id continuing the document's
+    numbering.
+    """
+    part = payload.parts[part_index]
+    notes = list(part.notes)
+    target = notes[note_index]
+    profile = _profile_from_settings(payload.quantization_settings)
+    grid = profile.min_note_value_ql
+    beat_ql = beat_ql_of(payload)
+    mid_ql = target.start_beat * beat_ql + target.duration_beats * beat_ql / 2
+    # Snap the split point to the grid (round-half-up on the step count).
+    steps = (mid_ql + grid / 2) // grid
+    split_ql = steps * grid
+    if not (target.start_beat * beat_ql < split_ql < target.end_beat * beat_ql):
+        raise ScoreEditError(
+            "the note is too short to split on the current grid"
+        )
+    split_beat = split_ql / beat_ql
+    fresh = _next_score_note_id(payload)
+    first = replace(
+        target,
+        duration_beats=split_beat - target.start_beat,
+        tie_start=False,
+        atoms=(),
+    )
+    second = replace(
+        target,
+        id=fresh,
+        start_beat=split_beat,
+        duration_beats=target.end_beat - split_beat,
+        tie_stop=False,
+        atoms=(),
+    )
+    notes[note_index : note_index + 1] = [first, second]
+    return _retile_part(
+        payload, part, notes, target.start_beat, target.end_beat
+    )
+
+
+def _next_score_note_id(payload: ScoreRevisionPayload) -> ScoreNoteId:
+    """Fresh sn-* id continuing the document's numbering."""
+    next_id = 0
+    for part in payload.parts:
+        for n in part.notes:
+            try:
+                next_id = max(next_id, int(str(n.id)[3:]) + 1)
+            except ValueError:
+                continue
+    return ScoreNoteId(f"sn-{next_id:06d}")
+
+
+def _apply_merge(
+    payload: ScoreRevisionPayload,
+    part_index: int,
+    note_index: int,
+) -> Part:
+    """Merge a note with the contiguous next same-pitch note (§13 merge).
+
+    Unlike tie-untie (which keeps two written notes), merge collapses
+    the pair into ONE canonical note — the first note's id survives,
+    its source_event_ids union, the second note's id is freed. The
+    merged span re-tiles, so a pair split by a barline becomes a single
+    tied decomposition again.
+    """
+    part = payload.parts[part_index]
+    notes = list(part.notes)
+    if note_index + 1 >= len(notes):
+        raise ScoreEditError("there is no next note to merge with")
+    cur = notes[note_index]
+    nxt = notes[note_index + 1]
+    if cur.pitch_midi != nxt.pitch_midi:
+        raise ScoreEditError("a merge needs the same pitch on both notes")
+    if cur.end_beat != nxt.start_beat:
+        raise ScoreEditError(
+            "a merge needs contiguous notes (the next note must start "
+            "where this one ends)"
+        )
+    merged = replace(
+        cur,
+        duration_beats=nxt.end_beat - cur.start_beat,
+        source_event_ids=cur.source_event_ids + nxt.source_event_ids,
+        tie_start=nxt.tie_start,
+        atoms=(),
+    )
+    notes[note_index : note_index + 2] = [merged]
+    return _retile_part(payload, part, notes, cur.start_beat, nxt.end_beat)
 
 
 def _apply_tie_toggle(
@@ -836,6 +956,10 @@ def apply_score_edit(
 
     if edit.kind == "toggleTie":
         new_part = _apply_tie_toggle(payload, part_index, note_index)
+    elif edit.kind == "splitNote":
+        new_part = _apply_split(payload, part_index, note_index)
+    elif edit.kind == "mergeNotes":
+        new_part = _apply_merge(payload, part_index, note_index)
     else:
         if edit.kind == "setDuration":
             if edit.duration_beats is None:

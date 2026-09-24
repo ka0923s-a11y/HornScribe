@@ -1100,6 +1100,28 @@ export function ScoreReadyWorkspace({
     [applyRhythmEdit],
   );
 
+  /* #131 (spec 13 post-MVP): split at the grid-snapped midpoint; merge
+   * with the contiguous next same-pitch note — the engine validates
+   * both (too short to split, different pitch, non-contiguous) and
+   * reports a rejection honestly. */
+  const splitSelectedNote = useCallback(() => {
+    const canonicalId = selectionRef.current?.canonicalId;
+    if (!canonicalId) return;
+    applyRhythmEdit(
+      () => ({ kind: "splitNote", noteId: canonicalId }),
+      ja.commandFeedback.noteSplit,
+    );
+  }, [applyRhythmEdit]);
+
+  const mergeSelectedNotes = useCallback(() => {
+    const canonicalId = selectionRef.current?.canonicalId;
+    if (!canonicalId) return;
+    applyRhythmEdit(
+      () => ({ kind: "mergeNotes", noteId: canonicalId }),
+      ja.commandFeedback.notesMerged,
+    );
+  }, [applyRhythmEdit]);
+
   const reviewUndo = useCallback(() => {
     const edit = session.undo();
     if (!edit) {
@@ -1246,6 +1268,8 @@ export function ScoreReadyWorkspace({
       setTempo: (bpm) => setTempo(bpm),
       setMeter: (bpm_, bu) => setMeter(bpm_, bu),
       requantize: (settings) => requantize(settings),
+      splitSelectedNote: () => splitSelectedNote(),
+      mergeSelectedNotes: () => mergeSelectedNotes(),
     };
     controllerRef(controller);
     return () => controllerRef(null);
@@ -1275,6 +1299,8 @@ export function ScoreReadyWorkspace({
     setTempo,
     setMeter,
     requantize,
+    splitSelectedNote,
+    mergeSelectedNotes,
     announce,
   ]);
 

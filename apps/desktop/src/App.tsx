@@ -912,6 +912,11 @@ export default function App() {
       // #130 (spec 14): quantization-settings dialog — app-owned
       // surface; the workspace controller applies the requantize edit.
       openRequantizeDialog: () => setRequantizeOpen(true),
+      // #131 (spec 13 post-MVP): split/merge via the workspace.
+      splitSelectedNote: () =>
+        scoreCtlRef.current?.splitSelectedNote?.(),
+      mergeSelectedNotes: () =>
+        scoreCtlRef.current?.mergeSelectedNotes?.(),
       openSettings: () => {
         setSettingsFocus(undefined);
         setView("settings");

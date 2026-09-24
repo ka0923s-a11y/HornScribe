@@ -20,6 +20,8 @@ import {
   ArrowRight24Regular,
   Link24Regular,
   MusicNote224Regular,
+  TableCellsSplit24Regular,
+  TableCellsMerge24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -179,6 +181,19 @@ export function CommandBar({
             label: commands.title("score.toggleTie"),
             icon: <Link24Regular />,
             disabled: !commands.isEnabled("score.toggleTie"),
+          } satisfies HsMenuItem,
+          // #131 (spec 13 post-MVP): split/merge — same selection gate.
+          {
+            key: "note-split",
+            label: commands.title("score.splitNote"),
+            icon: <TableCellsSplit24Regular />,
+            disabled: !commands.isEnabled("score.splitNote"),
+          } satisfies HsMenuItem,
+          {
+            key: "note-merge",
+            label: commands.title("score.mergeNotes"),
+            icon: <TableCellsMerge24Regular />,
+            disabled: !commands.isEnabled("score.mergeNotes"),
           } satisfies HsMenuItem,
           // #130 (spec 14): score-wide re-quantize — always enabled with
           // a score (no selection needed); opens the settings dialog.

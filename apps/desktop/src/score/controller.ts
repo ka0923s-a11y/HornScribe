@@ -38,6 +38,10 @@ export interface ScoreWorkspaceController {
   /** #130 (spec 14): re-quantize the whole score under changed
    *  quantization settings — undoable engine edit. */
   requantize?(settings: Record<string, unknown>): void;
+  /** #131 (spec 13 post-MVP): split the selected note at its grid-snapped
+   *  midpoint / merge it with the contiguous next same-pitch note. */
+  splitSelectedNote?(): void;
+  mergeSelectedNotes?(): void;
 
   // ---- transport (§9) — no-ops until a clock exists ----
   togglePlayPause(): void;

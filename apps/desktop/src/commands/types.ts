@@ -152,6 +152,9 @@ export interface CommandContext {
   /** #130 (spec 14): open the quantization-settings dialog — the
    *  requantize edit itself is applied via the score controller. */
   openRequantizeDialog?(): void;
+  /** #131 (spec 13 post-MVP): split/merge the selected note. */
+  splitSelectedNote?(): void;
+  mergeSelectedNotes?(): void;
   /** #113: Esc on a waveform selection (AUDIO_READY) - clears the range
    *  back to "all" (spec 8: Esc -> 選択解除). Optional: absent = no-op. */
   clearWaveformSelection?(): void;

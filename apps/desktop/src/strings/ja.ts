@@ -457,6 +457,8 @@ export const ja = {
     noteShiftRight: "発音位置を右へ移動",
     noteToggleTie: "次の音符とタイで結ぶ / 解く",
     requantize: "採譜設定を変えて再適用",
+    noteSplit: "音符を分割",
+    noteMerge: "次の音符と結合",
   },
 
   /**
@@ -487,6 +489,8 @@ export const ja = {
     tempoChanged: "テンポを変更しました",
     meterChanged: "拍子を変更しました",
     requantized: "採譜設定を適用して楽譜を更新しました",
+    noteSplit: "音符を分割しました",
+    notesMerged: "音符を結合しました",
     // #113: media A-B loop arming (transport.toggleLoop on AUDIO_READY).
     loopOn: "ループをオンにしました",
     loopOff: "ループをオフにしました",
