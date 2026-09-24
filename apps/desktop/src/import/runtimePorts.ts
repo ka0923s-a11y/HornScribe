@@ -42,6 +42,11 @@ async function pickViaDialog(): Promise<AudioFileRef | null> {
         name: ja.import.dialog.audioFilter,
         extensions: [...AUDIO_EXTENSIONS],
       },
+      {
+        // .hornscribe.json opens as a project (importRefs routes it).
+        name: ja.import.dialog.projectFilter,
+        extensions: ["json"],
+      },
       // An escape hatch so the "unsupported format" recovery path stays
       // reachable through the dialog, not only through drag&drop.
       { name: ja.import.dialog.allFiles, extensions: ["*"] },
@@ -59,7 +64,8 @@ function pickViaFileInput(): Promise<AudioFileRef | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = AUDIO_EXTENSIONS.map((e) => `.${e}`).join(",");
+    input.accept =
+      AUDIO_EXTENSIONS.map((e) => `.${e}`).join(",") + ",.json";
     let settled = false;
     const done = (ref: AudioFileRef | null) => {
       if (settled) return;

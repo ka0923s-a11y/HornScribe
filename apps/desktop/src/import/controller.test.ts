@@ -259,6 +259,19 @@ describe("openProject — source verification (store.py contract)", () => {
     expect(h.screens.at(-1)).toBe("audioError");
   });
 
+  it("a dropped .hornscribe.json opens as a project, not an audio error", async () => {
+    const h = makeHarness();
+    // kind:file ref — the browser-dev/drop path; the recorded source
+    // is not on disk so the flow lands on SOURCE_MISSING honestly.
+    const file = new File([await projectJson().text()], "etude.hornscribe.json");
+    await h.controller.importRefs([{ kind: "file", file, name: file.name }]);
+    const s = h.controller.getState();
+    expect(s.phase).toBe("sourceMissing");
+    expect(s.sourceMissing?.project.name).toBe("etude");
+    // No durable path — the project must not enter the recents list.
+    expect(h.recents).toHaveLength(0);
+  });
+
   it("saved score extras → onProjectScoreReady restores without re-transcribing (#106)", async () => {
     const h = makeHarness();
     h.store.set(entry.path, projectJson({

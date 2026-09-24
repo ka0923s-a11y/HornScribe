@@ -125,6 +125,22 @@ export class ImportController {
    */
   async importRefs(refs: readonly AudioFileRef[]): Promise<void> {
     if (refs.length === 0) return;
+    // A dropped/picked .hornscribe.json is a project open, not an audio
+    // import — the dialog's "all files" escape hatch can hand one over.
+    const projRef = refs.find((r) => r.name.endsWith(".hornscribe.json"));
+    if (projRef) {
+      const bytes =
+        projRef.kind === "file" ? projRef.file : undefined;
+      await this.openProject(
+        {
+          name: projectDisplayName(projRef.name),
+          path: projRef.kind === "path" ? projRef.path : "",
+          openedAt: Date.now(),
+        },
+        bytes,
+      );
+      return;
+    }
     const ref = refs.find((r) => audioFormatOf(r.name) !== null) ?? refs[0];
     const format = audioFormatOf(ref.name);
     if (format === null) {
@@ -222,26 +238,38 @@ export class ImportController {
    * 最近使ったプロジェクト → verify the recorded source path (store.py
    * `verify_source_audio`: exists + content hash) → AUDIO_READY, else
    * SOURCE_MISSING with the relink action.
+   * `bytes` carries a browser-dev File ref (no durable path — the
+   * project is opened but not recorded in the recents list).
    */
-  async openProject(entry: RecentProjectEntry): Promise<void> {
+  async openProject(
+    entry: RecentProjectEntry,
+    bytes?: Blob,
+  ): Promise<void> {
     const gen = this.begin("project", entry.name);
     try {
-      const bytes = await this.ports.readProjectBytes(entry.path);
-      const project = parseProjectFile(await bytes.arrayBuffer(), entry.path);
+      const blob = bytes ?? (await this.ports.readProjectBytes(entry.path));
+      // Browser-dev File refs have no durable path — project.path
+      // stays "" so touchRecent skips them; the display name comes
+      // from the file name instead.
+      const project = parseProjectFile(
+        await blob.arrayBuffer(),
+        entry.path,
+        entry.path ? undefined : entry.name,
+      );
       if (!this.isCurrent(gen)) return;
       if (!project.sourcePath || !project.sourceHash) {
         this.enterSourceMissing(project, false);
         return;
       }
-      let blob: Blob;
+      let audioBlob: Blob;
       try {
-        blob = await this.ports.readAudioBytes(project.sourcePath);
+        audioBlob = await this.ports.readAudioBytes(project.sourcePath);
       } catch {
         if (!this.isCurrent(gen)) return;
         this.enterSourceMissing(project, false);
         return;
       }
-      const hash = await this.ports.sha256Hex(blob);
+      const hash = await this.ports.sha256Hex(audioBlob);
       if (!this.isCurrent(gen)) return;
       if (hash !== project.sourceHash) {
         // File at the recorded path exists but content differs —
@@ -250,7 +278,7 @@ export class ImportController {
         return;
       }
       try {
-        const decoded = await this.ports.decodeAudio(blob, entry.name);
+        const decoded = await this.ports.decodeAudio(audioBlob, entry.name);
         if (!this.isCurrent(gen)) return;
         this.finishProjectOpen(
           project,
@@ -259,7 +287,7 @@ export class ImportController {
             path: project.sourcePath,
             name: baseName(project.sourcePath),
           },
-          blob,
+          audioBlob,
           decoded,
         );
       } catch {
@@ -459,6 +487,9 @@ export class ImportController {
   }
 
   private touchRecent(project: ProjectSummary): void {
+    // A project opened from browser bytes has no durable path — the
+    // recents list only records entries that can actually be reopened.
+    if (!project.path) return;
     const list = recordRecentProject(
       { name: project.name, path: project.path },
       this.storage,
@@ -505,6 +536,7 @@ function screenForPhase(phase: ImportPhase): ScreenState | null {
 export function parseProjectFile(
   bytes: ArrayBuffer,
   path: string,
+  displayName?: string,
 ): ProjectSummary {
   const data = JSON.parse(new TextDecoder().decode(bytes)) as Record<
     string,
@@ -523,7 +555,7 @@ export function parseProjectFile(
   return {
     path,
     projectId: data.projectId,
-    name: projectDisplayName(path),
+    name: displayName ?? projectDisplayName(path),
     sourcePath:
       source && typeof source.originalPath === "string"
         ? source.originalPath

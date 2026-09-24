@@ -787,6 +787,7 @@ export const ja = {
     /** ファイルダイアログのフィルタ名（OSのダイアログ内の表示）。 */
     dialog: {
       audioFilter: "音声ファイル",
+      projectFilter: "HornScribeプロジェクト",
       allFiles: "すべてのファイル",
     },
     /** 最近使ったプロジェクト (emptyStates.launch.recentProjects)。 */
