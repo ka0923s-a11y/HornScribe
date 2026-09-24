@@ -114,12 +114,13 @@ class ScoreEdit:
             "restToNote",
             "scaleTempo",
             "applyAlternative",
+            "applyTriplet",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
                 "setTempo/setMeter/requantize/splitNote/mergeNotes/"
                 "setKey/keyChangeAt/removeKeyChange/restToNote/"
-                "scaleTempo/applyAlternative, "
+                "scaleTempo/applyAlternative/applyTriplet, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -133,6 +134,7 @@ class ScoreEdit:
             "restToNote",
             "scaleTempo",
             "applyAlternative",
+            "applyTriplet",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -203,6 +205,8 @@ class ScoreEdit:
                 )
         if kind in ("keyChangeAt", "removeKeyChange") and start_beat is None:
             raise ScoreEditError(f"{kind} requires startBeat")
+        if kind == "applyTriplet" and start_beat is None:
+            raise ScoreEditError("applyTriplet requires startBeat")
         if kind == "restToNote" and start_beat is None:
             raise ScoreEditError("restToNote requires startBeat")
         part_id_raw = data.get("partId")
@@ -634,6 +638,7 @@ def _retile_part(
     notes: list[QuantizedNote],
     lo: Fraction,
     hi: Fraction,
+    extra_regions: tuple[TripletRegion, ...] = (),
 ) -> Part:
     """Re-decompose the notes intersecting [lo, hi) and splice back.
 
@@ -641,6 +646,10 @@ def _retile_part(
     window grows to whole measures covering straddling notes, the
     realizer rebuilds atoms + rest gaps inside it, and content outside
     the window is kept verbatim.
+
+    ``extra_regions`` (#212) force-enables triplet positions inside the
+    given beats for this retile only — applyTriplet's remedy for a
+    possible_triplet issue.
     """
     beat_ql = beat_ql_of(payload)
     spans = measure_spans(payload)
@@ -655,6 +664,14 @@ def _retile_part(
     profile = _profile_from_settings(payload.quantization_settings)
     meter_map = _meter_map_from_payload(payload)
     regions = _triplet_regions(tuple(notes), meter_map, profile, beat_ql)
+    if extra_regions:
+        seen = {r.start_ql for r in regions}
+        regions = tuple(
+            sorted(
+                (*regions, *(r for r in extra_regions if r.start_ql not in seen)),
+                key=lambda r: r.start_ql,
+            )
+        )
     realizer = SpanRealizer(meter_map, profile, triplet_regions=regions)
     try:
         new_window, new_rests = _retile_window(
@@ -1345,6 +1362,42 @@ def _apply_alternative(
     return replace(payload, parts=tuple(new_parts))
 
 
+def _apply_triplet(
+    payload: ScoreRevisionPayload, start_beat: Fraction
+) -> ScoreRevisionPayload:
+    """Force one beat into triplet notation (#212).
+
+    The possible_triplet issue carries the region start in its
+    evidence; this edit enables that beat as a TripletRegion and
+    re-tiles the containing measures through the shared path — the
+    realizer then writes triplet atoms where the grid fits. Compound
+    meters reject the edit (the region model is simple-meter only).
+    """
+    beat_ql = beat_ql_of(payload)
+    meter_map = _meter_map_from_payload(payload)
+    start_ql = start_beat * beat_ql
+    segment = meter_map.segment_at(start_ql)
+    if segment.is_compound:
+        raise ScoreEditError(
+            "triplet notation is not supported in compound meter"
+        )
+    region = TripletRegion(
+        start_ql=start_ql, beat_unit_ql=segment.beat_unit_ql
+    )
+    new_parts = tuple(
+        _retile_part(
+            payload,
+            part,
+            list(part.notes),
+            start_beat,
+            start_beat + region.beat_unit_ql / beat_ql,
+            extra_regions=(region,),
+        )
+        for part in payload.parts
+    )
+    return replace(payload, parts=new_parts)
+
+
 def _apply_set_key(
     payload: ScoreRevisionPayload, key: KeySignature
 ) -> ScoreRevisionPayload:
@@ -1460,6 +1513,11 @@ def apply_score_edit(
         if not edit.alternative_notes:
             raise ScoreEditError("applyAlternative requires notes")
         new_payload = _apply_alternative(payload, edit.alternative_notes)
+        return replace(document, payload=new_payload)
+    if edit.kind == "applyTriplet":
+        if edit.start_beat is None:
+            raise ScoreEditError("applyTriplet requires startBeat")
+        new_payload = _apply_triplet(payload, edit.start_beat)
         return replace(document, payload=new_payload)
     if edit.kind == "setMeter":
         if edit.beats_per_measure is None or edit.beat_unit is None:

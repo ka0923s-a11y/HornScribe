@@ -28,7 +28,8 @@ export type RhythmEditKind =
   | "removeKeyChange"
   | "restToNote"
   | "scaleTempo"
-  | "applyAlternative";
+  | "applyAlternative"
+  | "applyTriplet";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {

@@ -1645,6 +1645,14 @@ export function ScoreReadyWorkspace({
             ) {
               return ja.review.applyAlternative;
             }
+            // #212: the possible-triplet issue carries the region
+            // start — the action rewrites that beat as triplets.
+            if (
+              issue.reason === "possible_triplet" &&
+              typeof issue.evidence["beatStartBeats"] === "string"
+            ) {
+              return ja.review.applyTriplet;
+            }
             return null;
           })()}
           onAction={(() => {
@@ -1704,6 +1712,19 @@ export function ScoreReadyWorkspace({
               return () => {
                 applyRhythmEdit(
                   () => ({ kind: "applyAlternative", noteId: "", notes: alt }),
+                  ja.commandFeedback.rhythmEdited,
+                  () => markIssueFixed(issue.id),
+                );
+              };
+            }
+            if (
+              issue.reason === "possible_triplet" &&
+              typeof issue.evidence["beatStartBeats"] === "string"
+            ) {
+              const startBeat = issue.evidence["beatStartBeats"] as string;
+              return () => {
+                applyRhythmEdit(
+                  () => ({ kind: "applyTriplet", noteId: "", startBeat }),
                   ja.commandFeedback.rhythmEdited,
                   () => markIssueFixed(issue.id),
                 );

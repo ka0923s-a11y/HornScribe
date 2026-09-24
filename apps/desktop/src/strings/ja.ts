@@ -1298,6 +1298,8 @@ export const ja = {
     openMeterEditor: "プロパティで拍子を変更",
     /** #208: swap in the runner-up notation for an ambiguous run. */
     applyAlternative: "別の解釈に切り替え",
+    /** #212: rewrite the flagged beat as triplets. */
+    applyTriplet: "三連符に直す",
     pitchUp: "半音上げる",
     pitchDown: "半音下げる",
     deleteNote: "削除",

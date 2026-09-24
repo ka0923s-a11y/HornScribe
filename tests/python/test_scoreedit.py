@@ -1152,3 +1152,63 @@ class TestApplyAlternative:
                 ScoreEdit.from_dict(
                     {"kind": "applyAlternative", "noteId": "", "notes": bad}
                 )
+
+
+class TestApplyTriplet:
+    """#212: force one beat into triplet notation."""
+
+    def test_region_rewrites_to_triplets(self) -> None:
+        # Three eighth-triplet positions written straight: forcing the
+        # region re-decomposes them as a triplet group.
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1/3"),
+                _note(2, 62, "1/3", "1/3"),
+                _note(3, 64, "2/3", "1/3"),
+            ]
+        )
+        out = apply_score_edit(
+            doc, _edit("applyTriplet", "", startBeat="0")
+        )
+        part = out.payload.parts[0]
+        triplet_atoms = [
+            a for n in part.notes for a in n.atoms if a.tuplet
+        ]
+        assert triplet_atoms, "expected triplet atoms after applyTriplet"
+        assert out.revision != doc.revision
+
+    def test_outside_region_untouched(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1/3"),
+                _note(2, 62, "1/3", "1/3"),
+                _note(3, 64, "2/3", "1/3"),
+                _note(4, 65, "1", "1"),
+            ]
+        )
+        out = apply_score_edit(
+            doc, _edit("applyTriplet", "", startBeat="0")
+        )
+        part = out.payload.parts[0]
+        assert part.notes[3].start_beat == Fraction(1)
+        assert part.notes[3].duration_beats == Fraction(1)
+
+    def test_compound_meter_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                time_signature=TimeSignature(
+                    beats_per_measure=6, beat_unit=8
+                ),
+            ),
+        )
+        with pytest.raises(ScoreEditError, match="compound"):
+            apply_score_edit(
+                doc, _edit("applyTriplet", "", startBeat="0")
+            )
+
+    def test_requires_start_beat(self) -> None:
+        with pytest.raises(ScoreEditError, match="startBeat"):
+            ScoreEdit.from_dict({"kind": "applyTriplet", "noteId": ""})

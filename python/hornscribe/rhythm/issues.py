@@ -199,6 +199,9 @@ def generate_review_issues(
             )
             evidence = {
                 "beatStartQl": str(ev.region.start_ql),
+                # #212: the same position in canonical beats — the
+                # applyTriplet edit consumes it verbatim.
+                "beatStartBeats": str(ev.region.start_ql / beat_ql),
                 "relevantOnsets": ev.relevant_onsets,
                 "binaryCost": ev.binary_cost,
                 "tripletCost": ev.triplet_cost,
