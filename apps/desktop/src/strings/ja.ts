@@ -466,6 +466,8 @@ export const ja = {
     toggleSourceMute: "元音源のミュート",
     /* #100: project save */
     saveProject: "プロジェクトを保存",
+    /* #221: Save As — distinct from 書き出し (export artifacts). */
+    saveProjectAs: "名前を付けて保存",
     /* #114 (spec 10/13): score note navigation + edits outside review */
     selectNextNote: "次の音符へ",
     selectPreviousNote: "前の音符へ",
@@ -1505,6 +1507,26 @@ export const ja = {
       "採譜の実行中です。完了またはキャンセルしてから開いてください",
     /** #219: SOURCE_MISSING でも採譜は開けるが、元音源依存の操作は不可。 */
     transcribeRequiresAudio: "元音源がありません。音源を指定すると採譜できます",
+  },
+
+  /** #221: プロジェクトのライフサイクル — 未保存ガードと自動保存復元。 */
+  project: {
+    /** 未保存の変更を破棄する破壊的操作の確認(alert ダイアログ)。 */
+    unsavedTitle: "保存していない変更があります",
+    unsavedBody:
+      "楽譜への変更がまだ保存されていません。このまま続けると変更は失われます。",
+    unsavedSaveAndContinue: "保存して続ける",
+    unsavedDiscard: "保存せずに続ける",
+    unsavedCancel: "キャンセル",
+    /** クラッシュ/強制終了で残った自動保存の復元確認。 */
+    autosaveTitle: "自動保存された作業があります",
+    autosaveBody: (when: string) =>
+      "前回の終了時に保存されていない変更がありました（" +
+      when +
+      " に自動保存）。復元しますか?",
+    autosaveRestore: "復元する",
+    autosaveDecline: "破棄する",
+    autosaveRestored: "自動保存から復元しました",
   },
 
   /** FEAT-001 follow-ups: 取り込みメニュー + 置き換え確認(#70-#76)。 */

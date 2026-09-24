@@ -141,6 +141,9 @@ export interface CommandContext {
    *  .hornscribe.json through the engine. Optional like the other
    *  late-binding commands; absent = no-op. */
   saveProject?(): void;
+  /** #221: 名前を付けて保存 — always picks a destination even when the
+   *  project already has a path. Optional; absent = no-op. */
+  saveProjectAs?(): void;
   zoomScoreIn(): void;
   zoomScoreOut(): void;
   zoomScoreFit(): void;

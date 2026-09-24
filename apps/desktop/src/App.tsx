@@ -73,7 +73,10 @@ import { createImportPorts } from "./import/runtimePorts";
 import { issueCopy, type ImportView } from "./import/ImportStates";
 import { listenNativeDrop } from "./import/nativeDrop";
 import { invoke } from "@tauri-apps/api/core";
-import { buildProjectDocument } from "./import/project";
+import {
+  buildProjectDocument,
+  isSaveableRevision,
+} from "./import/project";
 import { baseName } from "./import/formats";
 import { CaptureController, type CaptureState } from "./capture/controller";
 import {
@@ -310,6 +313,32 @@ export default function App() {
     originalPath: string;
     contentHash: string;
   } | null>(null);
+  /* #221: project lifecycle — the file this score saves back to, plus
+   *  the editVersion baseline of the last clean state (open or save).
+   *  dirty = scoreDocument.editVersion !== savedEditVersionRef.current;
+   *  a 500 ms poll mirrors it into state because editVersion is a plain
+   *  counter on the document port, not a reactive store. */
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const savedEditVersionRef = useRef<number | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  /** A queued destructive navigation held behind the 未保存 guard —
+   *  the closure re-runs the refused action once the user chooses
+   *  保存せずに続ける / 保存して続ける. */
+  const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
+  /** Launch-time autosave recovery: null = no prompt; the info arms the
+   *  復元しますか dialog. checked gates the MRU restore so a pending
+   *  recovery never races it. */
+  const [recoveryInfo, setRecoveryInfo] = useState<{
+    path: string;
+    modifiedSec: number;
+    projectPath: string | null;
+  } | null>(null);
+  const [recoveryChecked, setRecoveryChecked] = useState(false);
+  /** undefined = not restoring; string/null while a restore is in
+   *  flight — onProjectScoreReady consumes it as the restored
+   *  project's save target (the autosave path itself is never it). */
+  const pendingRecoveryPathRef = useRef<string | null | undefined>(undefined);
   const [inspectorModel, setInspectorModel] = useState<InspectorModel>({
     kind: "empty",
   });
@@ -348,6 +377,11 @@ export default function App() {
       }
       const doc = engineDoc ?? createFixtureScoreDocument(handoff);
       setScoreDocument(doc);
+      /* #221: a fresh transcription has no clean baseline — the score
+       * is dirty until saved. projectPath survives on purpose: a
+       * re-transcription of the same project still saves back to the
+       * same file (the projectId is kept for the same reason). */
+      savedEditVersionRef.current = null;
       // #240: the completed result is this score's provenance —
       // kept across later job starts so a failed/cancelled
       // re-transcription never loses the transcription record.
@@ -506,6 +540,11 @@ export default function App() {
               projectIdRef.current = null;
               projectSourceRef.current = null;
               scoreAudioIdentityRef.current = null;
+              // #221: a different source owns the slot — the score's
+              // project identity dies with it so the next save picks
+              // a fresh path instead of overwriting project A's file.
+              setProjectPath(null);
+              savedEditVersionRef.current = null;
             }
           },
           onProjectScoreReady: (result, project) => {
@@ -542,6 +581,19 @@ export default function App() {
             scoreAudioIdentityRef.current = project.sourceHash
               ? `hash:${project.sourceHash}`
               : (audioIdentityRef.current ?? "?");
+            /* #221: the opened file becomes the save target — Ctrl+S
+             * writes back without a picker, and the just-loaded doc is
+             * the clean baseline. An autosave restore instead takes
+             * the path the snapshot was taken against (null = never
+             * saved) and stays dirty until the first real save. */
+            if (pendingRecoveryPathRef.current !== undefined) {
+              setProjectPath(pendingRecoveryPathRef.current);
+              savedEditVersionRef.current = null;
+              pendingRecoveryPathRef.current = undefined;
+            } else {
+              setProjectPath(project.path || null);
+              savedEditVersionRef.current = doc.editVersion;
+            }
             setScreen("scoreReady");
           },
           onProjectOpened: (project) => {
@@ -571,9 +623,13 @@ export default function App() {
   // of the MRU — the same entry the 最近のプロジェクト list shows
   // first. Runs once on the initial empty screen; browser dev has no
   // durable project paths so it skips quietly there.
+  // #221: the launch check waits on the autosave probe — a pending
+  // recovery prompt owns the session, so the MRU restore holds until
+  // the user restores or declines.
   const restoredProjectRef = useRef(false);
   useEffect(() => {
     if (restoredProjectRef.current) return;
+    if (!recoveryChecked || recoveryInfo !== null) return;
     restoredProjectRef.current = true;
     if (!isTauriRuntime()) return;
     if (screen !== "empty") return;
@@ -581,7 +637,94 @@ export default function App() {
     if (!last?.path) return;
     void importer.openProject(last);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- launch-only restore
+  }, [recoveryChecked, recoveryInfo]);
+
+  /* #221: crash recovery — on launch, look for the debounced autosave
+   * snapshot. One exists only when the app went away with unsaved
+   * work (a clean save/quit clears it), so its presence arms the
+   * 復元しますか dialog instead of silently loading a stale copy. */
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      setRecoveryChecked(true);
+      return;
+    }
+    let alive = true;
+    void invoke<{
+      path: string;
+      modifiedSec: number;
+      projectPath: string | null;
+    } | null>("project_autosave_status")
+      .then((info) => {
+        if (!alive) return;
+        setRecoveryInfo(info);
+        setRecoveryChecked(true);
+      })
+      .catch(() => {
+        if (alive) setRecoveryChecked(true);
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
+
+  /* #221: dirty tracking — the document port bumps editVersion on every
+   * edit/decision but is not a reactive store, so a slow poll mirrors
+   * the flag. Conservative on purpose: undoing back to the saved state
+   * still reads dirty (baseline is a version, not a hash). */
+  useEffect(() => {
+    const tick = () => {
+      const doc = scoreDocument;
+      const dirty =
+        doc != null &&
+        isSaveableRevision(doc.revisionId) &&
+        doc.editVersion !== savedEditVersionRef.current;
+      dirtyRef.current = dirty;
+      setIsDirty(dirty);
+    };
+    tick();
+    const id = window.setInterval(tick, 500);
+    return () => window.clearInterval(id);
+  }, [scoreDocument]);
+
+  /** #221: run a destructive navigation now, or hold it behind the
+   *  未保存 guard when the score has unsaved changes. */
+  const guardDiscard = useCallback((action: () => void) => {
+    if (dirtyRef.current) setPendingNav(() => action);
+    else action();
+  }, []);
+
+  /* #221: autosave — while dirty, a 3 s debounce writes the schema-v1
+   * document to the appData recovery file. editVersion is the change
+   * key: repeated ticks with no new edit skip the serialize+write. */
+  const autosavedVersionRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isDirty || !scoreDocument || !isTauriRuntime()) return;
+    const id = window.setInterval(() => {
+      const doc = scoreDocument;
+      if (doc.editVersion === autosavedVersionRef.current) return;
+      const version = doc.editVersion;
+      void (async () => {
+        try {
+          const project = await buildProjectDocument({
+            audio: importState.audio,
+            doc,
+            result: scoreProvenance,
+            projectId: projectIdRef.current,
+            priorSourceAudio: projectSourceRef.current,
+          });
+          if (!project) return;
+          await invoke("project_autosave_write", {
+            contents: JSON.stringify(project),
+            projectPath,
+          });
+          autosavedVersionRef.current = version;
+        } catch {
+          /* best-effort: a failed autosave never blocks editing */
+        }
+      })();
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [isDirty, scoreDocument, importState.audio, scoreProvenance, projectPath]);
 
   // FEAT-001: the capture controller pushes recorded audio straight into
   // the import flow — a finished take lands as AUDIO_READY exactly like a
@@ -665,15 +808,17 @@ export default function App() {
   // #81: 録音中にアプリを閉じると録音は失われる。WebView2/Tauri でも
   // beforeunload の preventDefault は閉じる確認として扱われるため、
   // 録音中だけガードを掛ける(録音していない時の常駐確認はしない)。
+  // #221: 未保存の楽譜がある時も同じ確認を出す — 自動保存が最後の
+  // 砦だが、明示的な確認の方が復元より確実。
   const recordingActive = captureState?.phase === "recording";
   useEffect(() => {
-    if (!recordingActive) return;
+    if (!recordingActive && !isDirty) return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [recordingActive]);
+  }, [recordingActive, isDirty]);
 
   // #73: デバイス一覧はメニューを開く度に取り直す(抜き差しに追従)。
   const refreshCaptureDevices = useCallback(() => {
@@ -686,7 +831,7 @@ export default function App() {
   // #76: 録音は現在の音源(と楽譜)を置き換える単一ドキュメントのため、
   // 既に音源がある時は開始前に確認する。録音中に演奏が鳴っていると
   // ループバック/マイクに混入するので、開始時に audition は切る。
-  const requestCapture = useCallback(
+  const beginCapture = useCallback(
     (source: CaptureSource) => {
       if (importState.audio || scoreDocument) {
         setPendingCapture(source);
@@ -696,6 +841,15 @@ export default function App() {
       void capture.start(source);
     },
     [capture, importState.audio, scoreDocument, scoreState?.auditionEnabled],
+  );
+  /* #221: capture replaces the document too — a dirty score queues
+   * the capture behind the 未保存 guard before the replace-source
+   * confirm even shows. */
+  const requestCapture = useCallback(
+    (source: CaptureSource) => {
+      guardDiscard(() => beginCapture(source));
+    },
+    [guardDiscard, beginCapture],
   );
   const confirmCapture = useCallback(() => {
     const source = pendingCapture;
@@ -806,17 +960,22 @@ export default function App() {
   // #100: プロジェクトを保存 — pick a path, build the schema-v1
   // document, and let the engine validate + atomically write it. The
   // flow is async behind a fire-and-forget command entry.
-  const saveProjectFlow = useCallback(async () => {
+  /* #221: saveAs forces the picker; otherwise an already-saved project
+   * writes straight back to its own path (Ctrl+S = save). Returns
+   * true only when a file was actually written — the 未保存 guard's
+   * 保存して続ける waits on it so a cancelled picker aborts the
+   * pending navigation instead of discarding silently. */
+  const saveProjectFlow = useCallback(async (saveAs = false) => {
     const doc = scoreDocument;
     if (!doc) {
       setStatusMessage(ja.notifications.projectSaveFailed);
-      return;
+      return false;
     }
     if (!isTauriRuntime()) {
       // Browser dev has no save picker — the honest limitation, not a
       // silent no-op (same posture as the other Tauri-only commands).
       setStatusMessage(ja.notifications.projectSaveUnsupported);
-      return;
+      return false;
     }
     try {
       /* #132: a recording-backed source gets copied into the managed
@@ -852,14 +1011,21 @@ export default function App() {
       });
       if (!project) {
         setStatusMessage(ja.notifications.projectSaveUnsupported);
-        return;
+        return false;
       }
+      /* The serialized snapshot is exactly this editVersion — pinning
+       * the clean baseline to it keeps edits made during the async
+       * write dirty instead of silently treating them as saved. */
+      const savedVersion = doc.editVersion;
       const fileName = importState.audio?.fileName ?? "score";
       const suggested = fileName.replace(/\.[^.]*$/, "") || "score";
-      const path = await invoke<string | null>("project_save_path", {
-        suggestedName: `${suggested}.hornscribe.json`,
-      });
-      if (!path) return; // cancelled — no announcement needed
+      const path =
+        !saveAs && projectPath != null
+          ? projectPath
+          : await invoke<string | null>("project_save_path", {
+              suggestedName: `${suggested}.hornscribe.json`,
+            });
+      if (!path) return false; // cancelled — no announcement needed
       const res = await session.saveProject(path, project);
       const name = res.path.split(/[\\/]/).pop() ?? res.path;
       setRecentProjects(recordRecentProject({ name, path: res.path }));
@@ -876,11 +1042,76 @@ export default function App() {
         typeof project.projectId === "string"
           ? project.projectId
           : projectIdRef.current;
+      // #221: the written path is the save target and this version is
+      // the clean baseline; the recovery snapshot is now redundant.
+      setProjectPath(res.path);
+      savedEditVersionRef.current = savedVersion;
+      void invoke("project_autosave_clear").catch(() => undefined);
       setStatusMessage(ja.notifications.projectSaved);
+      return true;
     } catch {
       setStatusMessage(ja.notifications.projectSaveFailed);
+      return false;
     }
-  }, [scoreDocument, importState.audio, scoreProvenance, session]);
+  }, [
+    scoreDocument,
+    importState.audio,
+    scoreProvenance,
+    session,
+    projectPath,
+  ]);
+
+  /* #221: 未保存ガードの3択 — 保存して続ける awaits a real write (a
+   * cancelled picker aborts the navigation), 保存せずに続ける drops
+   * the edits and runs the queued action, キャンセル does nothing. */
+  const confirmNavDiscard = useCallback(() => {
+    const action = pendingNav;
+    setPendingNav(null);
+    action?.();
+  }, [pendingNav]);
+  const confirmNavSave = useCallback(() => {
+    const action = pendingNav;
+    setPendingNav(null);
+    void saveProjectFlow().then((saved) => {
+      if (saved) action?.();
+    });
+  }, [pendingNav, saveProjectFlow]);
+
+  /* #221: autosave recovery — open the snapshot through the normal
+   * project path (entry.path stays "" so it never lands in the MRU),
+   * then let onProjectScoreReady re-point the save target at the path
+   * the snapshot was taken against. The snapshot file itself is kept:
+   * the restored work is still unsaved until the user saves. */
+  const restoreRecovery = useCallback(() => {
+    const info = recoveryInfo;
+    if (!info) return;
+    setRecoveryInfo(null);
+    pendingRecoveryPathRef.current = info.projectPath;
+    void (async () => {
+      try {
+        const ports = createImportPorts();
+        const blob = await ports.readProjectBytes(info.path);
+        restoredProjectRef.current = true;
+        await importer.openProject(
+          { name: "自動保存", path: "", openedAt: Date.now() },
+          blob,
+        );
+        /* The ref is consumed inside openProject when a saved score
+         * exists; a project without extras never fires the event, so
+         * clear it here too — a stale value must not leak into the
+         * next project open. */
+        pendingRecoveryPathRef.current = undefined;
+        setStatusMessage(ja.project.autosaveRestored);
+      } catch {
+        pendingRecoveryPathRef.current = undefined;
+        setStatusMessage(ja.notifications.projectSaveFailed);
+      }
+    })();
+  }, [recoveryInfo, importer]);
+  const declineRecovery = useCallback(() => {
+    setRecoveryInfo(null);
+    void invoke("project_autosave_clear").catch(() => undefined);
+  }, []);
 
   // #115 (spec 13): engine rhythm edits — the score workspace delegates
   // to the live engine's score.edit; the same worker that produced the
@@ -906,6 +1137,15 @@ export default function App() {
         setStatusMessage(ja.notifications.transcribeRequiresAudio);
         return;
       }
+      /* #221: re-transcription swaps the score document — unsaved
+       * edits would be lost, so a dirty score asks first. The queued
+       * closure re-runs this same callback; the audio check above
+       * already passed, so the deferred run drops straight into the
+       * job start. */
+      if (dirtyRef.current) {
+        setPendingNav(() => () => startTranscriptionJob(overrides));
+        return;
+      }
       // #234: pin the job to the audio identity that started it — a
       // completed event only lands when the same source is still
       // loaded.
@@ -927,7 +1167,12 @@ export default function App() {
           /* failure flag drives the error surface */
         });
     },
-    [importState.audio, transcriptionOptions, settings.backend, session],
+    [
+      importState.audio,
+      transcriptionOptions,
+      settings.backend,
+      session,
+    ],
   );
 
   const ctx = useMemo<CommandContext>(
@@ -939,7 +1184,9 @@ export default function App() {
           setStatusMessage(ja.notifications.importWhileTranscribing);
           return;
         }
-        void importer.openViaDialog();
+        // #221: opening another source discards the current score —
+        // hold it behind the 未保存 guard when edits are unsaved.
+        guardDiscard(() => void importer.openViaDialog());
       },
       transcribe: (overrides) => startTranscriptionJob(overrides),
       cancelTranscription: () => {
@@ -1133,6 +1380,10 @@ export default function App() {
       saveProject: () => {
         void saveProjectFlow();
       },
+      // #221: 名前を付けて保存 — always re-picks the destination.
+      saveProjectAs: () => {
+        void saveProjectFlow(true);
+      },
       zoomScoreIn: () => scoreCtlRef.current?.zoomIn(),
       zoomScoreOut: () => scoreCtlRef.current?.zoomOut(),
       zoomScoreFit: () => scoreCtlRef.current?.zoomFit(),
@@ -1206,6 +1457,7 @@ export default function App() {
       transcriptionOptions,
       settings.skipSeconds,
       saveProjectFlow,
+      guardDiscard,
       pitch,
       toolOverrides,
       exportPort,
@@ -1390,7 +1642,8 @@ export default function App() {
           path,
           name: baseName(path),
         }));
-        void importer.importRefs(refs);
+        // #221: a drop replaces the score — same 未保存 guard as 開く.
+        guardDiscard(() => void importer.importRefs(refs));
       }
     }).then((u) => {
       if (alive) unlisten = u;
@@ -1400,7 +1653,7 @@ export default function App() {
       alive = false;
       unlisten?.();
     };
-  }, [importer, captureState?.phase]);
+  }, [importer, captureState?.phase, guardDiscard]);
 
   // Assembled once per render for the import-owned score bodies
   // (ImportStates.tsx) — keeps ScoreWorkspace's prop surface small.
@@ -1422,14 +1675,16 @@ export default function App() {
           setStatusMessage(ja.notifications.importWhileTranscribing);
           return;
         }
-        void importer.openViaDialog();
+        // #221: 未保存の変更がある時は破棄確認を挟む。
+        guardDiscard(() => void importer.openViaDialog());
       },
       onOpenProject: (entry) => {
         if (screen === "transcribing") {
           setStatusMessage(ja.notifications.importWhileTranscribing);
           return;
         }
-        void importer.openProject(entry);
+        // #221: プロジェクトを開くと現在の楽譜は置き換わる。
+        guardDiscard(() => void importer.openProject(entry));
       },
       onPickRelink: () => void importer.pickRelinkSource(),
       onDismissError: () => importer.dismiss(),
@@ -1447,6 +1702,7 @@ export default function App() {
       importer,
       captureState,
       requestCapture,
+      guardDiscard,
       screen,
     ],
   );
@@ -1468,7 +1724,21 @@ export default function App() {
       ) : (
         <AppShell>
           {/* Document identity follows the loaded source audio (§2). */}
-          <TitleBar documentTitle={importState.audio?.fileName} />
+          {/* #221: project name wins once a project file owns the score;
+              a trailing * marks unsaved edits (dirty poll above). */}
+          <TitleBar
+            documentTitle={
+              (() => {
+                const base = projectPath
+                  ? baseName(projectPath).replace(/.hornscribe.json$/, "")
+                  : (importState.audio?.fileName ?? "");
+                const titled = base + (isDirty ? " *" : "");
+                // Empty title must stay undefined so TitleBar falls
+                // back to 無題 instead of rendering a blank strip.
+                return titled === "" ? undefined : titled;
+              })()
+            }
+          />
           {view === "settings" ? (
             <div className="hs-settings-wrap">
               <SettingsView
@@ -1596,12 +1866,14 @@ export default function App() {
                         ? setStatusMessage(
                             ja.notifications.importWhileTranscribing,
                           )
-                        : void importer.importRefs(
-                            files.map<AudioFileRef>((file) => ({
-                              kind: "file",
-                              file,
-                              name: file.name,
-                            })),
+                        : guardDiscard(() =>
+                            void importer.importRefs(
+                              files.map<AudioFileRef>((file) => ({
+                                kind: "file",
+                                file,
+                                name: file.name,
+                              })),
+                            ),
                           )
                   }
                   onTranscribe={transcribeClicked}
@@ -1858,6 +2130,62 @@ export default function App() {
                 : ja.capture.replaceBody}
             </p>
           </HsDialog>
+          {/* #221: 未保存の変更を破棄する破壊的ナビゲーションの確認。
+              保存して続けるは書き込み成功時のみ遷移する。 */}
+          <HsDialog
+            open={pendingNav !== null}
+            modalType="alert"
+            title={ja.project.unsavedTitle}
+            onOpenChange={(open) => {
+              if (!open) setPendingNav(null);
+            }}
+            actions={
+              <>
+                <HsButton variant="primary" onClick={confirmNavSave}>
+                  {ja.project.unsavedSaveAndContinue}
+                </HsButton>
+                <HsButton variant="danger" onClick={confirmNavDiscard}>
+                  {ja.project.unsavedDiscard}
+                </HsButton>
+                <HsButton
+                  variant="secondary"
+                  onClick={() => setPendingNav(null)}
+                >
+                  {ja.project.unsavedCancel}
+                </HsButton>
+              </>
+            }
+          >
+            <p style={{ margin: 0 }}>{ja.project.unsavedBody}</p>
+          </HsDialog>
+          {/* #221: クラッシュ後の自動保存復元 — 起動時に一度だけ出す。 */}
+          <HsDialog
+            open={recoveryInfo !== null}
+            title={ja.project.autosaveTitle}
+            onOpenChange={(open) => {
+              if (!open) declineRecovery();
+            }}
+            actions={
+              <>
+                <HsButton variant="primary" onClick={restoreRecovery}>
+                  {ja.project.autosaveRestore}
+                </HsButton>
+                <HsButton variant="secondary" onClick={declineRecovery}>
+                  {ja.project.autosaveDecline}
+                </HsButton>
+              </>
+            }
+          >
+            <p style={{ margin: 0 }}>
+              {recoveryInfo
+                ? ja.project.autosaveBody(
+                    new Date(
+                      recoveryInfo.modifiedSec * 1000,
+                    ).toLocaleString(),
+                  )
+                : ""}
+            </p>
+          </HsDialog>
           {importState.audio && importState.issue
             ? (() => {
                 const copy = issueCopy(importState.issue);
@@ -1874,7 +2202,10 @@ export default function App() {
                           variant="primary"
                           onClick={() => {
                             importer.dismiss();
-                            void importer.openViaDialog();
+                            // #221: 未保存の変更がある時は破棄確認を挟む。
+                            guardDiscard(() =>
+                              void importer.openViaDialog(),
+                            );
                           }}
                         >
                           {ja.import.errors.chooseAnother}

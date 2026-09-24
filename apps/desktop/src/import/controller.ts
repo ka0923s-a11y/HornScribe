@@ -77,6 +77,9 @@ export interface ImportEvents {
     result: unknown,
     project: {
       projectId: string;
+      /** #221: the .hornscribe.json this score came from — the host's
+       *  Ctrl+S saves back to it without re-picking a path. */
+      path: string;
       sourceHash: string | null;
       // #265: the recorded source path — the host keeps it so a
       // SOURCE_MISSING save preserves the relink target.
@@ -329,7 +332,12 @@ export class ImportController {
       // #147: record the project's sourceAudio ref into the persistent
       // index — survives MRU truncation, covers SOURCE_MISSING opens too
       // (the project file still references the source until re-saved).
-      this.ports.updateSourceRef?.(project.path, project.sourcePath);
+      // #221: byte-opened projects (autosave restore, browser File
+      // drops) have no durable path — indexing an empty key would
+      // pollute the source-ref store.
+      if (project.path) {
+        this.ports.updateSourceRef?.(project.path, project.sourcePath);
+      }
       if (!this.isCurrent(gen)) return;
       if (!project.sourcePath || !project.sourceHash) {
         this.enterSourceMissing(project, false);
@@ -520,6 +528,7 @@ export class ImportController {
     if (project.scoreResult != null) {
       this.events.onProjectScoreReady?.(project.scoreResult, {
         projectId: project.projectId,
+        path: project.path,
         sourceHash: project.sourceHash,
         sourcePath: project.sourcePath,
       });
@@ -596,6 +605,7 @@ export class ImportController {
     if (project.scoreResult != null) {
       this.events.onProjectScoreReady?.(project.scoreResult, {
         projectId: project.projectId,
+        path: project.path,
         sourceHash: project.sourceHash,
         sourcePath: project.sourcePath,
       });
@@ -645,6 +655,7 @@ export class ImportController {
     if (project.scoreResult != null) {
       this.events.onProjectScoreReady?.(project.scoreResult, {
         projectId: project.projectId,
+        path: project.path,
         sourceHash: project.sourceHash,
         sourcePath: project.sourcePath,
       });

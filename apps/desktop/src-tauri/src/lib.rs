@@ -152,6 +152,9 @@ pub fn run() {
             export::detect_tools,
             export::reveal_in_explorer,
             export::project_save_path,
+            export::project_autosave_write,
+            export::project_autosave_status,
+            export::project_autosave_clear,
             export::open_in_musescore,
         ])
         .build(tauri::generate_context!())

@@ -572,6 +572,15 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.hasScore && !s.isTranscribing,
       run: (ctx) => ctx.saveProject?.(),
     },
+    // #221: Save As — same gate, always re-picks the destination.
+    {
+      id: "project.saveAs",
+      title: ja.commands.saveProjectAs,
+      section: "file",
+      shortcuts: ["Ctrl+Shift+S"],
+      isEnabled: (s) => s.hasScore && !s.isTranscribing,
+      run: (ctx) => ctx.saveProjectAs?.(),
+    },
 
     // ---- navigation / focus (§22: F6 cycles the major regions) ----
     {

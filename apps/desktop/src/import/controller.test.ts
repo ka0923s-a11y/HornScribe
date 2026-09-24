@@ -48,6 +48,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
   const readyAudios: LoadedAudio[] = [];
   const recents: RecentProjectEntry[][] = [];
   const scoreResults: unknown[] = [];
+  const scoreProjectPaths: (string | undefined)[] = [];
   const openedProjects: ProjectSummary[] = [];
   const eventOrder: string[] = [];
   const store = new Map<string, Blob>();
@@ -61,7 +62,10 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
       eventOrder.push("audioReady");
       readyAudios.push(a);
     },
-    onProjectScoreReady: (r) => scoreResults.push(r),
+    onProjectScoreReady: (r, project) => {
+      scoreResults.push(r);
+      scoreProjectPaths.push(project.path);
+    },
     onProjectOpened: (p) => {
       eventOrder.push("projectOpened");
       openedProjects.push(p);
@@ -104,6 +108,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     readyAudios,
     recents,
     scoreResults,
+    scoreProjectPaths,
     openedProjects,
     eventOrder,
   };
@@ -437,6 +442,9 @@ describe("openProject — source verification (store.py contract)", () => {
     expect(result.scoreRevision).toBe("rev-0123456789abcdef");
     expect(result.reviewIssues).toHaveLength(1);
     expect(h.announcements.at(-1)).toContain("etude");
+    // #221: the project's own path rides along so the host's Ctrl+S
+    // saves back to it without a picker.
+    expect(h.scoreProjectPaths).toEqual([entry.path]);
   });
 
   it("project without extras → no score event, AUDIO_READY only (#106)", async () => {

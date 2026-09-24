@@ -23,6 +23,8 @@ import {
   TableCellsSplit24Regular,
   TableCellsMerge24Regular,
   ArrowSwap24Regular,
+  Save24Regular,
+  SaveEdit24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -135,6 +137,24 @@ export function CommandBar({
       label: propertiesOpen ? ja.properties.close : ja.properties.show,
       icon: <PanelRight24Regular />,
     },
+    // #221: プロジェクトの保存 — 書き出し(export)とは別物として
+    // メニューに常駐させる。Ctrl+S/Ctrl+Shift+S と同じコマンド。
+    ...(hasScore
+      ? [
+          {
+            key: "save",
+            label: commands.title("project.save"),
+            icon: <Save24Regular />,
+            disabled: !commands.isEnabled("project.save"),
+          } satisfies HsMenuItem,
+          {
+            key: "save-as",
+            label: commands.title("project.saveAs"),
+            icon: <SaveEdit24Regular />,
+            disabled: !commands.isEnabled("project.saveAs"),
+          } satisfies HsMenuItem,
+        ]
+      : []),
     // §13 高度編集: hand the live score to MuseScore (score only — the
     // item hides on import screens like the 書き出し button does).
     ...(hasScore
@@ -453,6 +473,8 @@ export function CommandBar({
         onSelect={(key) => {
           if (key === "settings") commands.invoke("app.settings");
           else if (key === "properties") onToggleProperties();
+          else if (key === "save") commands.invoke("project.save");
+          else if (key === "save-as") commands.invoke("project.saveAs");
           else if (key === "musescore")
             commands.invoke("export.openInMuseScore");
           else if (key === "note-longer") commands.invoke("score.noteLonger");

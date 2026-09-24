@@ -271,6 +271,122 @@ pub fn project_save_path(
     Ok(Some(file.to_string_lossy().into_owned()))
 }
 
+/* --------------------- autosave / crash recovery (#221) ---------------------
+ *
+ * appDataDir/autosave.hornscribe.json — a debounced copy of the project
+ * document the UI builds on every dirty edit. On launch the frontend
+ * asks for its metadata; a recovery file newer than the last clean
+ * save means a crash left unsaved work behind and the app offers to
+ * restore it. The file is content-addressed by the project schema
+ * itself (schemaVersion 1), so restore is just an open.
+ *
+ * A sibling .meta.json records the path the autosave was taken
+ * against, so a restore of an already-saved project keeps saving to
+ * the original file instead of the recovery location. */
+
+fn autosave_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("autosave.hornscribe.json"))
+}
+
+fn autosave_meta_path(data_path: &Path) -> PathBuf {
+    data_path.with_file_name("autosave.hornscribe.meta.json")
+}
+
+/// project_autosave_write: persist the recovery snapshot. The content
+/// is the same schema-v1 JSON the normal save path produces — written
+/// via tmp+rename so a crash mid-write never leaves a torn file.
+#[tauri::command]
+pub fn project_autosave_write(
+    app: tauri::AppHandle,
+    contents: String,
+    project_path: Option<String>,
+) -> Result<(), String> {
+    let path = autosave_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("autosave dir: {e}"))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &contents)
+        .map_err(|e| format!("write autosave: {e}"))?;
+    std::fs::rename(&tmp, &path)
+        .map_err(|e| format!("rename autosave: {e}"))?;
+    // Sidecar metadata — best-effort: a missing meta only means the
+    // restore cannot re-point at the original file, never a lost score.
+    let meta = serde_json::json!({ "projectPath": project_path });
+    let meta_tmp = autosave_meta_path(&path).with_extension("tmp");
+    if std::fs::write(&meta_tmp, meta.to_string()).is_ok() {
+        let _ = std::fs::rename(&meta_tmp, autosave_meta_path(&path));
+    }
+    Ok(())
+}
+
+/// project_autosave_status: recovery-file metadata for the launch
+/// check — null when no autosave exists.
+#[tauri::command]
+pub fn project_autosave_status(
+    app: tauri::AppHandle,
+) -> Result<Option<AutosaveInfo>, String> {
+    let path = autosave_path(&app)?;
+    let meta = match std::fs::metadata(&path) {
+        Ok(m) if m.is_file() => m,
+        _ => return Ok(None),
+    };
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // The saved-against path rides in the sidecar; an unreadable or
+    // absent meta degrades to "restore as an unsaved project".
+    let project_path = std::fs::read_to_string(autosave_meta_path(&path))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| {
+            v.get("projectPath")
+                .and_then(|p| p.as_str())
+                .map(str::to_owned)
+        });
+    Ok(Some(AutosaveInfo {
+        path: path.to_string_lossy().into_owned(),
+        modified_sec: modified,
+        size_bytes: meta.len(),
+        project_path,
+    }))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutosaveInfo {
+    /// Absolute path — the frontend re-reads it via read_project_file.
+    pub path: String,
+    /// Last write (UNIX seconds) — shown in the restore prompt.
+    pub modified_sec: u64,
+    pub size_bytes: u64,
+    /// Path the autosave was taken against (null = never saved).
+    pub project_path: Option<String>,
+}
+
+/// project_autosave_clear: drop the recovery file — called after a
+/// successful explicit save or when the user declines the restore.
+#[tauri::command]
+pub fn project_autosave_clear(app: tauri::AppHandle) -> Result<(), String> {
+    let path = autosave_path(&app)?;
+    for p in [path.clone(), autosave_meta_path(&path)] {
+        match std::fs::remove_file(&p) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("clear autosave: {e}")),
+        }
+    }
+    Ok(())
+}
+
 /// Which of the requested artifact names already exist in `dir` —
 /// the collision check the dialog runs before writing so an export
 /// never silently destroys a previous result (#231). Returns the

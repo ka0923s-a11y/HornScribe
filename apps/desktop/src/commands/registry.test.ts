@@ -70,6 +70,8 @@ function mockContext(): CommandContext & { calls: string[] } {
     redo: spy("redo"),
     openExport: spy("openExport"),
     openInMuseScore: spy("openInMuseScore"),
+    saveProject: spy("saveProject"),
+    saveProjectAs: spy("saveProjectAs"),
     noteDurationScale: spy("noteDurationScale"),
     shiftSelectedOnset: spy("shiftSelectedOnset"),
     toggleSelectedTie: spy("toggleSelectedTie"),
@@ -169,6 +171,9 @@ describe("command definitions", () => {
     expect(shortcutOf("review.pitchDown")).toContain("Alt+ArrowDown");
     expect(shortcutOf("review.deleteOrRestore")).toContain("Delete");
     expect(shortcutOf("export.open")).toContain("Ctrl+E");
+    // #221: project save pair — Ctrl+S writes back, Ctrl+Shift+S re-picks.
+    expect(shortcutOf("project.save")).toContain("Ctrl+S");
+    expect(shortcutOf("project.saveAs")).toContain("Ctrl+Shift+S");
     expect(shortcutOf("score.zoomIn")).toEqual(
       expect.arrayContaining(["Ctrl+=", "Ctrl++"]),
     );
@@ -176,6 +181,22 @@ describe("command definitions", () => {
     expect(shortcutOf("score.zoomFit")).toContain("Ctrl+0");
     expect(shortcutOf("nav.nextRegion")).toContain("F6");
     expect(shortcutOf("nav.previousRegion")).toContain("Shift+F6");
+  });
+
+  it("#221: project save pair gates on a score and invokes the ctx", () => {
+    const ctx = mockContext();
+    // No score → both stay unavailable; a running job also locks them.
+    for (const id of ["project.save", "project.saveAs"]) {
+      expect(registry.invoke(id, ctx, SNAPSHOT_EMPTY)).toBe(false);
+      expect(
+        registry.invoke(id, ctx, {
+          ...SNAPSHOT_SCORE,
+          isTranscribing: true,
+        }),
+      ).toBe(false);
+      expect(registry.invoke(id, ctx, SNAPSHOT_SCORE)).toBe(true);
+    }
+    expect(ctx.calls).toEqual(["saveProject", "saveProjectAs"]);
   });
 
   it("#115: rhythm edits gate on a note selection and invoke the ctx", () => {
