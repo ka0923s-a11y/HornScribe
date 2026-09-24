@@ -485,6 +485,15 @@ def run_transcription_job(
             samples = samples[i0:i1]
             selection_offset_sec = sel_lo
 
+        # #321: whole-piece issues describe the span the engine actually
+        # analysed — the selected slice for a selection job, the full
+        # file otherwise. duration_sec stays the SOURCE length (meta),
+        # it must not double as the analysis scope.
+        analysis_range = TimeRange(
+            start_sec=selection_offset_sec,
+            end_sec=selection_offset_sec + len(samples) / float(sample_rate),
+        )
+
         if stop(0):
             return
 
@@ -972,9 +981,7 @@ def run_transcription_job(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(),
-                    time_range=TimeRange(
-                        start_sec=0.0, end_sec=duration_sec
-                    ),
+                    time_range=analysis_range,
                     reason=ReviewReason.METER_CONFLICT,
                     severity=Severity.CAUTION,
                     evidence={
@@ -994,9 +1001,7 @@ def run_transcription_job(
                         id="",
                         score_revision=score_revision,
                         canonical_note_ids=(),
-                        time_range=TimeRange(
-                            start_sec=0.0, end_sec=duration_sec
-                        ),
+                        time_range=analysis_range,
                         reason=ReviewReason.OVERLAPPING_CANDIDATES,
                         severity=Severity.CAUTION,
                         evidence={
@@ -1022,9 +1027,7 @@ def run_transcription_job(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(),
-                    time_range=TimeRange(
-                        start_sec=0.0, end_sec=duration_sec
-                    ),
+                    time_range=analysis_range,
                     reason=ReviewReason.OVERLAPPING_CANDIDATES,
                     severity=Severity.CAUTION,
                     evidence={
@@ -1064,9 +1067,7 @@ def run_transcription_job(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(),
-                    time_range=TimeRange(
-                        start_sec=0.0, end_sec=duration_sec
-                    ),
+                    time_range=analysis_range,
                     reason=ReviewReason.MONOPHONIC_BACKEND,
                     severity=(
                         Severity.WARNING
@@ -1094,9 +1095,7 @@ def run_transcription_job(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(),
-                    time_range=TimeRange(
-                        start_sec=0.0, end_sec=duration_sec
-                    ),
+                    time_range=analysis_range,
                     reason=ReviewReason.VOCAL_ISOLATION_APPLIED,
                     severity=Severity.INFO,
                     evidence={"stage": vocal_method or "center_extraction"},
@@ -1108,9 +1107,7 @@ def run_transcription_job(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(),
-                    time_range=TimeRange(
-                        start_sec=0.0, end_sec=duration_sec
-                    ),
+                    time_range=analysis_range,
                     reason=ReviewReason.VOCAL_ISOLATION_UNAVAILABLE,
                     severity=Severity.CAUTION,
                     evidence={"detail": vocal_reason},
@@ -1130,9 +1127,7 @@ def run_transcription_job(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(),
-                    time_range=TimeRange(
-                        start_sec=0.0, end_sec=duration_sec
-                    ),
+                    time_range=analysis_range,
                     reason=ReviewReason.TEMPO_UNCERTAIN,
                     severity=Severity.CAUTION,
                     evidence={
@@ -1148,9 +1143,7 @@ def run_transcription_job(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(),
-                    time_range=TimeRange(
-                        start_sec=0.0, end_sec=duration_sec
-                    ),
+                    time_range=analysis_range,
                     reason=ReviewReason.SWING_FEEL,
                     severity=Severity.CAUTION,
                     evidence={
@@ -1201,9 +1194,7 @@ def run_transcription_job(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(),
-                    time_range=TimeRange(
-                        start_sec=0.0, end_sec=duration_sec
-                    ),
+                    time_range=analysis_range,
                     reason=ReviewReason.STRUCTURAL_MEASURE_CONFLICT,
                     severity=Severity.WARNING,
                     evidence={

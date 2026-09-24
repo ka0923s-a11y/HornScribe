@@ -1564,6 +1564,62 @@ class TestSelectionStaging:
         # Zero offset returns the input untouched.
         assert _shift_event_times((ev,), 0.0) == (ev,)
 
+    def test_whole_piece_issues_span_the_selection_not_the_source(
+        self, tmp_path: Path
+    ) -> None:
+        """#321: whole-piece issues (overlap/meter/…) describe the
+        analysed span. A [2, 4] selection of a 10 s source must not
+        produce issues pointing at 0..10 — the review A-B loop would
+        drag the user outside the range they actually transcribed."""
+        # Overlapping slice-relative events collapse to one line under
+        # the monophonic textures -> overlapping_candidates fires.
+        events = (
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000001"),
+                transcription_revision=_REV,
+                pitch_midi=60.0,
+                onset_sec=0.5,
+                offset_sec=1.5,
+                confidence=0.9,
+                velocity=90,
+                source="test",
+            ),
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000002"),
+                transcription_revision=_REV,
+                pitch_midi=67.0,
+                onset_sec=1.0,
+                offset_sec=1.8,
+                confidence=0.9,
+                velocity=90,
+                source="test",
+            ),
+        )
+        log = self._run(
+            tmp_path,
+            events,
+            {
+                "range": "selection",
+                "selectionStartSec": 2.0,
+                "selectionEndSec": 4.0,
+            },
+        )
+        assert log[-1]["phase"] == "completed"
+        issues = log[-1]["result"]["reviewIssues"]
+        overlap = [
+            i for i in issues if i["reason"] == "overlapping_candidates"
+        ]
+        assert overlap, "expected a whole-piece overlap issue"
+        for issue in overlap:
+            assert issue["timeRange"]["startSec"] == pytest.approx(2.0)
+            assert issue["timeRange"]["endSec"] == pytest.approx(4.0)
+        # Every whole-piece issue (no note ids) honours the analysis
+        # span — note-level issues keep their own ranges.
+        for issue in issues:
+            if not issue["canonicalNoteIds"]:
+                assert issue["timeRange"]["startSec"] >= 2.0
+                assert issue["timeRange"]["endSec"] <= 4.0
+
 
 class TestRawEvidence:
     """#223/#226: the completed scoreDocument carries the raw
