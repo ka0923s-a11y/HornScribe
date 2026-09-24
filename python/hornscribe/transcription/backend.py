@@ -70,6 +70,37 @@ MINIMUM_NOTE_LENGTH_MS = 70.0
 _BEND_CENTER = 8192.0
 _BEND_UNITS_PER_SEMITONE = 4096.0
 
+# #214: pYIN velocity comes from real loudness, not voiced probability.
+# -50 dBFS RMS is a quiet line, -12 dBFS is a loud one; the window maps
+# that span onto the MIDI velocity range.
+_RMS_FLOOR_DB = -50.0
+_RMS_CEIL_DB = -12.0
+
+
+def _rms_velocity(samples: Any, sr: int, onset_sec: float, offset_sec: float) -> int:
+    """MIDI velocity from the RMS loudness of the note's audio span (#214).
+
+    pYIN's voiced probability is a detection-confidence signal, not
+    loudness — mapping it to velocity inverted dynamics (a breathy loud
+    note scored low, a clear quiet note high). RMS over the note's
+    sample window measures the actual energy. ``samples`` may be any
+    indexable float sequence (numpy array in production, a plain list
+    in tests); empty or out-of-range spans fall back to a neutral
+    mezzo velocity.
+    """
+    lo = max(0, int(onset_sec * sr))
+    hi = min(len(samples), max(lo, int(offset_sec * sr)))
+    if hi <= lo:
+        return 64
+    seg = samples[lo:hi]
+    rms = math.sqrt(sum(float(x) * float(x) for x in seg) / (hi - lo))
+    if rms <= 0.0:
+        return 1
+    db = 20.0 * math.log10(rms)
+    span = _RMS_CEIL_DB - _RMS_FLOOR_DB
+    frac = (db - _RMS_FLOOR_DB) / span
+    return max(1, min(127, int(round(frac * 126)) + 1))
+
 
 def _bend_points(
     bends: Any, onset_sec: float, offset_sec: float
@@ -276,12 +307,20 @@ def _to_raw_event(
     event_id: RawNoteEventId,
     revision: TranscriptionRevisionId,
     source: str = BACKEND_ID,
+    velocity: int | None = None,
 ) -> RawNoteEvent:
-    """Map one backend note tuple to RawNoteEvent, keeping bends (#169)."""
+    """Map one backend note tuple to RawNoteEvent, keeping bends (#169).
+
+    ``velocity`` overrides the amplitude-derived default — pYIN passes
+    an RMS-derived value because its amplitude slot carries voiced
+    probability, which is confidence rather than loudness (#214).
+    """
     onset_s, offset_s, pitch_midi, amplitude = note_event[:4]
     bends = note_event[4] if len(note_event) > 4 else ()
     onset_f = float(onset_s)
     offset_f = float(offset_s)
+    if velocity is None:
+        velocity = max(1, min(127, int(round(float(amplitude) * 110))))
     return RawNoteEvent(
         id=event_id,
         transcription_revision=revision,
@@ -289,7 +328,7 @@ def _to_raw_event(
         onset_sec=onset_f,
         offset_sec=offset_f,
         confidence=float(amplitude),
-        velocity=max(1, min(127, int(round(float(amplitude) * 110)))),
+        velocity=max(1, min(127, int(velocity))),
         source=source,
         pitch_bends=_bend_points(bends, onset_f, offset_f),
     )
@@ -446,12 +485,18 @@ def predict_note_events_pyin(
     allocator = IdAllocator("rne")
     events: list[RawNoteEvent] = []
     for note_event in note_events:
+        # #214: velocity measures the note's real loudness (RMS of the
+        # harmonic line over its span) — the tuple's amplitude slot is
+        # voiced probability, which stays as confidence.
         events.append(
             _to_raw_event(
                 note_event,
                 allocator.allocate_raw_event_id(),
                 revision,
                 source=PYIN_BACKEND_ID,
+                velocity=_rms_velocity(
+                    harmonic, sr, float(note_event[0]), float(note_event[1])
+                ),
             )
         )
     return tuple(events)

@@ -10,6 +10,7 @@ from __future__ import annotations
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
 from hornscribe.transcription.backend import (
     _bend_points,
+    _rms_velocity,
     _to_raw_event,
     frames_to_note_events,
 )
@@ -80,6 +81,57 @@ class TestToRawEvent:
             source="pyin",
         )
         assert ev.source == "pyin"
+
+    def test_velocity_override(self):
+        """#214: pYIN passes an RMS-derived velocity; confidence stays put."""
+        ev = _to_raw_event(
+            (0.5, 1.5, 60.0, 0.8, []),
+            RawNoteEventId("rne-000001"),
+            _rev(),
+            source="pyin",
+            velocity=30,
+        )
+        assert ev.velocity == 30
+        assert ev.confidence == 0.8
+
+    def test_velocity_override_is_clamped(self):
+        ev = _to_raw_event(
+            (0.5, 1.5, 60.0, 0.8, []),
+            RawNoteEventId("rne-000001"),
+            _rev(),
+            velocity=999,
+        )
+        assert ev.velocity == 127
+
+
+class TestRmsVelocity:
+    """#214: pYIN velocity comes from audio loudness, not voiced prob."""
+
+    def test_loud_beats_quiet(self):
+        sr = 22050
+        loud = _rms_velocity([0.5] * sr, sr, 0.0, 1.0)
+        quiet = _rms_velocity([0.005] * sr, sr, 0.0, 1.0)
+        assert loud > quiet
+
+    def test_full_scale_maps_near_ceiling(self):
+        sr = 22050
+        assert _rms_velocity([0.9] * sr, sr, 0.0, 1.0) >= 120
+
+    def test_silence_is_minimum(self):
+        sr = 22050
+        assert _rms_velocity([0.0] * sr, sr, 0.0, 1.0) == 1
+
+    def test_empty_span_falls_back(self):
+        assert _rms_velocity([], 22050, 0.0, 1.0) == 64
+
+    def test_span_windowing(self):
+        """Only the note's own window counts — loud bleed elsewhere
+        must not inflate a quiet note's velocity."""
+        sr = 100
+        samples = [0.9] * 50 + [0.001] * 50
+        quiet_note = _rms_velocity(samples, sr, 0.5, 1.0)
+        loud_note = _rms_velocity(samples, sr, 0.0, 0.5)
+        assert quiet_note < loud_note
 
 
 class TestFramesToNoteEvents:
