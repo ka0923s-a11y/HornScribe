@@ -1296,6 +1296,8 @@ export const ja = {
     /** #209: meter_conflict cannot auto-resolve — open the meter
      *  select in the properties panel instead. */
     openMeterEditor: "プロパティで拍子を変更",
+    /** #208: swap in the runner-up notation for an ambiguous run. */
+    applyAlternative: "別の解釈に切り替え",
     pitchUp: "半音上げる",
     pitchDown: "半音下げる",
     deleteNote: "削除",

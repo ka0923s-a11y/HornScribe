@@ -1065,3 +1065,90 @@ class TestScaleTempo:
             ScoreNoteId("sn-000001"),
             ScoreNoteId("sn-000002"),
         ]
+
+
+class TestApplyAlternative:
+    """#208: swap in the runner-up rhythm for an ambiguous run."""
+
+    def test_swaps_spans_and_retiles(self) -> None:
+        # Coin-flip onset: written at 0, the alternative puts it at 1/4
+        # with a longer span. Ids survive; the window re-tiles.
+        doc = _doc([_note(1, 60, "0", "1/2"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(
+            doc,
+            _edit(
+                "applyAlternative",
+                "",
+                notes=[
+                    {
+                        "id": "sn-000001",
+                        "startBeat": "1/4",
+                        "durationBeats": "3/4",
+                    }
+                ],
+            ),
+        )
+        part = out.payload.parts[0]
+        n1 = part.notes[0]
+        assert n1.id == ScoreNoteId("sn-000001")
+        assert n1.start_beat == Fraction(1, 4)
+        assert n1.duration_beats == Fraction(3, 4)
+        assert sum(a.duration_beats for a in n1.atoms) == n1.duration_beats
+        # The freed 0..1/4 becomes a rest; the measure still tiles.
+        assert any(
+            r.start_beat == Fraction(0) and r.end_beat == Fraction(1, 4)
+            for r in part.rests
+        )
+        assert out.revision != doc.revision
+
+    def test_overlap_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        with pytest.raises(ScoreEditError, match="overlap"):
+            apply_score_edit(
+                doc,
+                _edit(
+                    "applyAlternative",
+                    "",
+                    notes=[
+                        {
+                            "id": "sn-000001",
+                            "startBeat": "0",
+                            "durationBeats": "3/2",
+                        }
+                    ],
+                ),
+            )
+
+    def test_unknown_id_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="not found"):
+            apply_score_edit(
+                doc,
+                _edit(
+                    "applyAlternative",
+                    "",
+                    notes=[
+                        {
+                            "id": "sn-999999",
+                            "startBeat": "0",
+                            "durationBeats": "1",
+                        }
+                    ],
+                ),
+            )
+
+    def test_notes_validation(self) -> None:
+        with pytest.raises(ScoreEditError, match="notes"):
+            ScoreEdit.from_dict({"kind": "applyAlternative", "noteId": ""})
+        for bad in (
+            [],
+            [{}],
+            [{"id": "sn-1"}],
+            [{"id": "", "startBeat": "0", "durationBeats": "1"}],
+            [{"id": "sn-1", "startBeat": "0", "durationBeats": "0"}],
+            [{"id": "sn-1", "startBeat": "x", "durationBeats": "1"}],
+        ):
+            with pytest.raises(ScoreEditError):
+                ScoreEdit.from_dict(
+                    {"kind": "applyAlternative", "noteId": "", "notes": bad}
+                )

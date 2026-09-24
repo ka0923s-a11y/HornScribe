@@ -1637,6 +1637,14 @@ export function ScoreReadyWorkspace({
             if (issue.reason === "meter_conflict" && onOpenProperties) {
               return ja.review.openMeterEditor;
             }
+            // #208: the ambiguous-quantization issue carries the
+            // runner-up spans — the action swaps them in.
+            if (
+              issue.reason === "quantization_ambiguous" &&
+              Array.isArray(issue.evidence["alternativeNotes"])
+            ) {
+              return ja.review.applyAlternative;
+            }
             return null;
           })()}
           onAction={(() => {
@@ -1681,6 +1689,25 @@ export function ScoreReadyWorkspace({
             }
             if (issue.reason === "meter_conflict") {
               return onOpenProperties ?? undefined;
+            }
+            if (
+              issue.reason === "quantization_ambiguous" &&
+              Array.isArray(issue.evidence["alternativeNotes"])
+            ) {
+              // #208: swap in the runner-up spans the engine embedded
+              // in the issue evidence; marks fixed on success.
+              const alt = issue.evidence["alternativeNotes"] as {
+                id: string;
+                startBeat: string;
+                durationBeats: string;
+              }[];
+              return () => {
+                applyRhythmEdit(
+                  () => ({ kind: "applyAlternative", noteId: "", notes: alt }),
+                  ja.commandFeedback.rhythmEdited,
+                  () => markIssueFixed(issue.id),
+                );
+              };
             }
             return undefined;
           })()}

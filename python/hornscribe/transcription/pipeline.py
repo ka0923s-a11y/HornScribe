@@ -663,6 +663,7 @@ def run_transcription_job(
                 profile,
                 score_revision=score_revision,
                 warp=estimate.warp,
+                beat_ql=beat_ql,
             )
         )
         issues.extend(

@@ -121,6 +121,7 @@ def generate_review_issues(
     *,
     score_revision: ScoreRevisionId,
     warp: TimeWarp,
+    beat_ql: Fraction = Fraction(1),
 ) -> tuple[ReviewIssue, ...]:
     """Materialize review issues for one quantization run (design 20, 40).
 
@@ -131,6 +132,11 @@ def generate_review_issues(
     issue time ranges. Issues are ordered by ``(start_sec, reason)`` and
     carry ``ri-000001...`` ids allocated in that order — fully
     deterministic for identical input.
+
+    ``beat_ql`` (the canonical beat's quarterLength) lets each
+    ``quantization_ambiguous`` issue embed the runner-up's spans in
+    beat units — the desktop's applyAlternative edit consumes them
+    verbatim (#208).
     """
     if not alternatives:
         return ()
@@ -158,6 +164,18 @@ def generate_review_issues(
                 "top2Cost": runner_up.total_cost,
                 "marginPerNote": margin,
                 "affectedNoteCount": len(run),
+                # #208: the runner-up's spans for this run, in canonical
+                # beats — applyAlternative swaps them in verbatim.
+                "alternativeNotes": [
+                    {
+                        "id": str(best.notes[i].canonical_note_id),
+                        "startBeat": str(runner_up.notes[i].onset_ql / beat_ql),
+                        "durationBeats": str(
+                            runner_up.notes[i].duration_ql / beat_ql
+                        ),
+                    }
+                    for i in run
+                ],
             }
             pending.append((rng.start_sec, ReviewReason.QUANTIZATION_AMBIGUOUS.value,
                             ids, rng, evidence))

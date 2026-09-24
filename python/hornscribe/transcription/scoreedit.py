@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from fractions import Fraction
+from itertools import pairwise
 from typing import Any
 
 from hornscribe.domain.events import RawNoteEvent
@@ -93,6 +94,7 @@ class ScoreEdit:
     part_id: str | None = None
     pitch_midi: int | None = None
     factor: Fraction | None = None
+    alternative_notes: tuple[dict[str, Any], ...] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -111,12 +113,13 @@ class ScoreEdit:
             "removeKeyChange",
             "restToNote",
             "scaleTempo",
+            "applyAlternative",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
                 "setTempo/setMeter/requantize/splitNote/mergeNotes/"
                 "setKey/keyChangeAt/removeKeyChange/restToNote/"
-                "scaleTempo, "
+                "scaleTempo/applyAlternative, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -129,6 +132,7 @@ class ScoreEdit:
             "removeKeyChange",
             "restToNote",
             "scaleTempo",
+            "applyAlternative",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -253,6 +257,7 @@ class ScoreEdit:
                     f"edit.factor {factor} outside the supported "
                     "1/8..8 range"
                 )
+        alternative_notes = _alternative_notes(data, kind)
         steps = data.get("steps", 0)
         if not isinstance(steps, int) or isinstance(steps, bool):
             raise ScoreEditError(f"edit.steps must be an int, got {steps!r}")
@@ -271,7 +276,52 @@ class ScoreEdit:
             part_id=part_id,
             pitch_midi=pitch_midi,
             factor=factor,
+            alternative_notes=alternative_notes,
         )
+
+
+def _alternative_notes(
+    data: dict[str, Any], kind: str
+) -> tuple[dict[str, Any], ...] | None:
+    """Validate the applyAlternative note spans (#208).
+
+    Each entry is ``{id, startBeat, durationBeats}`` — the runner-up
+    interpretation the ambiguous-quantization issue embeds in its
+    evidence. Ids must be non-empty strings; spans must be rational
+    with duration > 0.
+    """
+    raw = data.get("notes")
+    if raw is None:
+        if kind == "applyAlternative":
+            raise ScoreEditError("applyAlternative requires notes")
+        return None
+    if not isinstance(raw, list):
+        raise ScoreEditError("edit.notes must be an array")
+    out: list[dict[str, Any]] = []
+    for i, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            raise ScoreEditError(f"edit.notes[{i}] must be an object")
+        nid = entry.get("id")
+        if not isinstance(nid, str) or not nid:
+            raise ScoreEditError(
+                f"edit.notes[{i}].id must be a non-empty string"
+            )
+        try:
+            start = Fraction(str(entry.get("startBeat")))
+            dur = Fraction(str(entry.get("durationBeats")))
+        except (TypeError, ValueError, ZeroDivisionError) as exc:
+            raise ScoreEditError(
+                f"edit.notes[{i}] has non-rational beats: {entry!r}"
+            ) from exc
+        if start < 0 or dur <= 0:
+            raise ScoreEditError(
+                f"edit.notes[{i}] needs startBeat >= 0 and "
+                "durationBeats > 0"
+            )
+        out.append({"id": nid, "start": start, "duration": dur})
+    if kind == "applyAlternative" and not out:
+        raise ScoreEditError("applyAlternative needs at least one note")
+    return tuple(out) or None
 
 
 def _opt_int(data: dict[str, Any], key: str) -> int | None:
@@ -1227,6 +1277,74 @@ def _apply_scale_tempo(
     )
 
 
+def _apply_alternative(
+    payload: ScoreRevisionPayload,
+    alt_notes: tuple[dict[str, Any], ...],
+) -> ScoreRevisionPayload:
+    """Swap in the runner-up interpretation for an ambiguous run (#208).
+
+    The quantization_ambiguous issue embeds the rank-2 spans for its
+    note ids; this edit replaces those canonical notes' positions and
+    durations (ids and evidence survive), clears tie flags that no
+    longer describe a contiguous pair, then re-tiles the affected
+    measures — the same machinery every structural edit uses. A swap
+    that would overlap a neighbouring note is rejected rather than
+    silently clipped.
+    """
+    by_id = {e["id"]: e for e in alt_notes}
+    matched: set[str] = set()
+    new_parts: list[Part] = []
+    for part in payload.parts:
+        notes = list(part.notes)
+        lo: Fraction | None = None
+        hi = Fraction(0)
+        touched = False
+        for i, n in enumerate(notes):
+            entry = by_id.get(str(n.id))
+            if entry is None:
+                continue
+            matched.add(str(n.id))
+            touched = True
+            old_lo, old_hi = n.start_beat, n.end_beat
+            notes[i] = replace(
+                n,
+                start_beat=entry["start"],
+                duration_beats=entry["duration"],
+                atoms=(),
+            )
+            lo = old_lo if lo is None else min(lo, old_lo)
+            lo = min(lo, entry["start"])
+            hi = max(hi, old_hi, entry["start"] + entry["duration"])
+        if not touched:
+            new_parts.append(part)
+            continue
+        notes.sort(key=lambda n: (n.start_beat, str(n.id)))
+        # A moved boundary can break a tie pair's contiguity — drop
+        # the stale flags instead of notating a tie across a gap.
+        for j in range(len(notes) - 1):
+            prev, cur = notes[j], notes[j + 1]
+            if (prev.tie_start or cur.tie_stop) and (
+                prev.end_beat != cur.start_beat
+            ):
+                notes[j] = replace(prev, tie_start=False)
+                notes[j + 1] = replace(cur, tie_stop=False)
+        for prev, cur in pairwise(notes):
+            if prev.end_beat > cur.start_beat:
+                raise ScoreEditError(
+                    "the alternative rhythm overlaps a neighbouring "
+                    "note"
+                )
+        new_parts.append(
+            _retile_part(payload, part, notes, lo or Fraction(0), hi)
+        )
+    missing = sorted(set(by_id) - matched)
+    if missing:
+        raise ScoreEditError(
+            f"alternative notes not found in the score: {missing}"
+        )
+    return replace(payload, parts=tuple(new_parts))
+
+
 def _apply_set_key(
     payload: ScoreRevisionPayload, key: KeySignature
 ) -> ScoreRevisionPayload:
@@ -1337,6 +1455,11 @@ def apply_score_edit(
         if edit.factor is None:
             raise ScoreEditError("scaleTempo requires factor")
         new_payload = _apply_scale_tempo(payload, edit.factor)
+        return replace(document, payload=new_payload)
+    if edit.kind == "applyAlternative":
+        if not edit.alternative_notes:
+            raise ScoreEditError("applyAlternative requires notes")
+        new_payload = _apply_alternative(payload, edit.alternative_notes)
         return replace(document, payload=new_payload)
     if edit.kind == "setMeter":
         if edit.beats_per_measure is None or edit.beat_unit is None:

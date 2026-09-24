@@ -27,7 +27,8 @@ export type RhythmEditKind =
   | "keyChangeAt"
   | "removeKeyChange"
   | "restToNote"
-  | "scaleTempo";
+  | "scaleTempo"
+  | "applyAlternative";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -44,6 +45,14 @@ export interface RhythmEditOp {
    *  every beat-axis boundary scale by the same factor, so playback
    *  seconds stay invariant (the real tempo-octave fix). */
   readonly factor?: number;
+  /** applyAlternative only (#208): the runner-up spans embedded in
+   *  the quantization_ambiguous issue's evidence — each entry swaps
+   *  one canonical note's position/duration (id survives). */
+  readonly notes?: readonly {
+    readonly id: string;
+    readonly startBeat: string;
+    readonly durationBeats: string;
+  }[];
   /** setMeter only: new time signature (engine-validated). */
   readonly beatsPerMeasure?: number;
   readonly beatUnit?: number;
