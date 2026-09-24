@@ -444,7 +444,9 @@ export const ja = {
     pitchHornF: "F管ホルン表示に切り替えました",
     mutedSource: "元音源をミュートしました",
     unmutedSource: "元音源のミュートを解除しました",
-    notImplemented: "この操作はスパイク版ではまだ実行できません",
+    // Product-safe copy — the spike-era string must never reach the
+    // shipped UI (commandFeedback.* is announced in the status bar).
+    notImplemented: "この操作はまだ実行できません",
     disabled: "この操作は現在実行できません",
     nothingToUndo: "元に戻す操作はありません",
     nothingToRedo: "やり直す操作はありません",

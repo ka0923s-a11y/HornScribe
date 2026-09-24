@@ -719,7 +719,7 @@ export default function App() {
       toggleLoop: () => {
         const c = scoreCtlRef.current;
         if (c) c.toggleLoop();
-        else setStatusMessage(ja.commandFeedback.notImplemented);
+        else setStatusMessage(ja.commandFeedback.disabled);
       },
       // FEAT-001: capture + score audition commands.
       captureSystemAudio: () => {
@@ -743,7 +743,7 @@ export default function App() {
       toggleScoreAudition: () => {
         const c = scoreCtlRef.current;
         if (c) c.toggleAudition();
-        else setStatusMessage(ja.commandFeedback.notImplemented);
+        else setStatusMessage(ja.commandFeedback.disabled);
       },
       toggleSourceMute: () => {
         transport.setMuted(!(transportSnap?.muted ?? false));
@@ -872,7 +872,7 @@ export default function App() {
   // is owned by TranscriptionView via score.cancelTranscription (§5).
   const transcribeClicked = useCallback(() => {
     if (!commands.invoke("score.transcribe")) {
-      setStatusMessage(ja.commandFeedback.notImplemented);
+      setStatusMessage(ja.commandFeedback.disabled);
     }
   }, [commands]);
 
