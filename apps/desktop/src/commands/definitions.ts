@@ -385,6 +385,16 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.openExport(),
     },
 
+    // ---- project save (#100) ----
+    {
+      id: "project.save",
+      title: ja.commands.saveProject,
+      section: "file",
+      shortcuts: ["Ctrl+S"],
+      isEnabled: (s) => s.hasScore && !s.isTranscribing,
+      run: (ctx) => ctx.saveProject?.(),
+    },
+
     // ---- navigation / focus (§22: F6 cycles the major regions) ----
     {
       id: "nav.nextRegion",

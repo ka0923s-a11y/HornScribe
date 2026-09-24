@@ -30,9 +30,17 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, TextIO
 
 import hornscribe
+from hornscribe.project.errors import ProjectError
+from hornscribe.project.model import (
+    PROJECT_FILE_SUFFIX,
+    HornScribeProject,
+    hash_file_sha256,
+)
+from hornscribe.project.store import ProjectStore
 from hornscribe.transcription import (
     JOB_KIND_TRANSCRIPTION,
     TranscriptionParams,
@@ -86,6 +94,11 @@ class Worker:
             "engine.shutdown": self._handle_shutdown,
             "job.start": self._handle_job_start,
             "job.cancel": self._handle_job_cancel,
+            # #100: persist a .hornscribe.json project document (schema
+            # v1) — the save path the UI's プロジェクトを保存 command
+            # calls. Validation runs through HornScribeProject.from_dict
+            # so a malformed document is rejected, never written.
+            "project.save": self._handle_project_save,
             # Spike-only supervisor test hook: wedges the dispatch loop so
             # the supervisor-side read timeout path can be exercised.
             # Not a stable API; gated on the "debug." prefix.
@@ -300,6 +313,62 @@ class Worker:
             )
         job.cancel.set()
         return {"jobId": job.job_id, "cancellation": "requested"}
+
+    def _handle_project_save(self, payload: Any) -> dict[str, Any]:
+        """`project.save` — write a .hornscribe.json document (#100).
+
+        Payload: ``{"path": str, "project": {...schema v1 dict...}}``.
+        The document is validated through HornScribeProject.from_dict
+        before anything touches disk; a missing sourceAudio.contentHash
+        is computed here so the relink contract stays authoritative.
+        Writes go through ProjectStore (atomic tmp+replace + recovery
+        snapshot).
+        """
+        if not isinstance(payload, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, "project.save payload must be an object"
+            )
+        path_raw = payload.get("path")
+        if not isinstance(path_raw, str) or not path_raw.endswith(PROJECT_FILE_SUFFIX):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS,
+                f"project.save requires a path ending in {PROJECT_FILE_SUFFIX}",
+            )
+        project_data = payload.get("project")
+        if not isinstance(project_data, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, "project.save requires a 'project' object"
+            )
+
+        # Fill sourceAudio.contentHash when the caller only knows the
+        # path — hashing is authoritative work the engine owns.
+        source = project_data.get("sourceAudio")
+        if isinstance(source, dict) and not source.get("contentHash"):
+            original = source.get("originalPath")
+            if isinstance(original, str) and original:
+                source_path = Path(original)
+                if source_path.is_file():
+                    project_data = dict(project_data)
+                    project_data["sourceAudio"] = {
+                        "originalPath": original,
+                        "contentHash": hash_file_sha256(source_path),
+                    }
+
+        try:
+            project = HornScribeProject.from_dict(project_data)
+        except ProjectError as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, f"invalid project document: {exc}"
+            ) from exc
+
+        target = Path(path_raw)
+        try:
+            ProjectStore(target.parent).save(project, target)
+        except OSError as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_JOB_FAILED, f"could not write project file: {exc}"
+            ) from exc
+        return {"path": str(target), "projectId": str(project.project_id)}
 
     def _handle_debug_hang(self, payload: Any) -> dict[str, Any]:
         seconds = 5.0

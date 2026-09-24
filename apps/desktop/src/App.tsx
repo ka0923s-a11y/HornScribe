@@ -52,13 +52,15 @@ import {
 import { KeyboardDispatcher } from "./keyboard/dispatcher";
 import { useCommandKeyboard } from "./keyboard/useCommandKeyboard";
 import { cycleFocusZone, focusZone } from "./focus/zones";
-import { getShellInfo } from "./tauri/bridge";
+import { getShellInfo, isTauriRuntime } from "./tauri/bridge";
 import { ImportController, type ImportState } from "./import/controller";
 import { INITIAL_IMPORT_STATE } from "./import/controller";
-import { loadRecentProjects } from "./import/recentProjects";
+import { loadRecentProjects, recordRecentProject } from "./import/recentProjects";
 import { createImportPorts } from "./import/runtimePorts";
 import { issueCopy, type ImportView } from "./import/ImportStates";
 import { listenNativeDrop } from "./import/nativeDrop";
+import { invoke } from "@tauri-apps/api/core";
+import { buildProjectDocument } from "./import/project";
 import { baseName } from "./import/formats";
 import { CaptureController, type CaptureState } from "./capture/controller";
 import { pruneRecordings } from "./capture/recordings";
@@ -537,6 +539,46 @@ export default function App() {
     [transport],
   );
 
+  // #100: プロジェクトを保存 — pick a path, build the schema-v1
+  // document, and let the engine validate + atomically write it. The
+  // flow is async behind a fire-and-forget command entry.
+  const saveProjectFlow = useCallback(async () => {
+    const doc = scoreDocument;
+    if (!doc) {
+      setStatusMessage(ja.notifications.projectSaveFailed);
+      return;
+    }
+    if (!isTauriRuntime()) {
+      // Browser dev has no save picker — the honest limitation, not a
+      // silent no-op (same posture as the other Tauri-only commands).
+      setStatusMessage(ja.notifications.projectSaveUnsupported);
+      return;
+    }
+    try {
+      const project = await buildProjectDocument({
+        audio: importState.audio,
+        doc,
+        result: sessionSnap.lastResult,
+      });
+      if (!project) {
+        setStatusMessage(ja.notifications.projectSaveUnsupported);
+        return;
+      }
+      const fileName = importState.audio?.fileName ?? "score";
+      const suggested = fileName.replace(/\.[^.]*$/, "") || "score";
+      const path = await invoke<string | null>("project_save_path", {
+        suggestedName: `${suggested}.hornscribe.json`,
+      });
+      if (!path) return; // cancelled — no announcement needed
+      const res = await session.saveProject(path, project);
+      const name = res.path.split(/[\\/]/).pop() ?? res.path;
+      setRecentProjects(recordRecentProject({ name, path: res.path }));
+      setStatusMessage(ja.notifications.projectSaved);
+    } catch {
+      setStatusMessage(ja.notifications.projectSaveFailed);
+    }
+  }, [scoreDocument, importState.audio, sessionSnap.lastResult, session]);
+
   const ctx = useMemo<CommandContext>(
     () => ({
       openAudio: () => void importer.openViaDialog(),
@@ -695,6 +737,13 @@ export default function App() {
         else setStatusMessage(ja.commandFeedback.nothingToRedo);
       },
       openExport: () => setExportOpen(true),
+      // #100: プロジェクトを保存 — pick a path (Tauri) then hand the
+      // schema-v1 document to the engine's project.save. In a plain
+      // browser there is no save picker, so the command announces the
+      // honest limitation instead of faking a write.
+      saveProject: () => {
+        void saveProjectFlow();
+      },
       zoomScoreIn: () => scoreCtlRef.current?.zoomIn(),
       zoomScoreOut: () => scoreCtlRef.current?.zoomOut(),
       zoomScoreFit: () => scoreCtlRef.current?.zoomFit(),
@@ -720,7 +769,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions, settings.skipSeconds],
+    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions, settings.skipSeconds, saveProjectFlow],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see

@@ -272,6 +272,13 @@ export class SidecarClient {
     return this.request<JobCancelResult>("job.cancel", { jobId });
   }
 
+  /** Generic engine method call (#100: `project.save` and future
+   *  non-job methods). Same correlation/timeout discipline as the
+   *  job verbs; requires the client to be `ready`. */
+  async call<T>(method: string, payload: unknown): Promise<T> {
+    return this.request<T>(method, payload);
+  }
+
   // ---- requests -----------------------------------------------------------
 
   private async request<T>(method: string, payload: unknown): Promise<T> {

@@ -119,6 +119,10 @@ export interface CommandContext {
   undo(): void;
   redo(): void;
   openExport(): void;
+  /** #100: プロジェクトを保存 — opens the save-file picker and writes
+   *  .hornscribe.json through the engine. Optional like the other
+   *  late-binding commands; absent = no-op. */
+  saveProject?(): void;
   zoomScoreIn(): void;
   zoomScoreOut(): void;
   zoomScoreFit(): void;

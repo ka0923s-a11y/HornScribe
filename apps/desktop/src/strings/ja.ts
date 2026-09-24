@@ -430,6 +430,8 @@ export const ja = {
     resumeCapture: "録音を再開",
     toggleAudition: "楽譜を演奏",
     toggleSourceMute: "元音源のミュート",
+    /* #100: project save */
+    saveProject: "プロジェクトを保存",
   },
 
   /**
@@ -1217,6 +1219,10 @@ export const ja = {
   /** Status-bar notifications (deck: notifications.*). */
   notifications: {
     exportDone: "書き出しが完了しました",
+    /* #100: project save */
+    projectSaved: "プロジェクトを保存しました",
+    projectSaveFailed: "プロジェクトを保存できませんでした",
+    projectSaveUnsupported: "この楽譜はプロジェクトとして保存できません（採譜結果のみ保存できます）",
   },
 
   /** FEAT-001 follow-ups: 取り込みメニュー + 置き換え確認(#70-#76)。 */

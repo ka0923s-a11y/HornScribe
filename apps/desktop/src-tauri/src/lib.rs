@@ -131,6 +131,7 @@ pub fn run() {
             export::detect_tools,
             export::reveal_in_explorer,
             export::render_pdf,
+            export::project_save_path,
         ])
         .build(tauri::generate_context!())
         .expect("error while building HornScribe shell")

@@ -9,6 +9,7 @@ read timeouts, crash detection, and restart.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
@@ -613,3 +614,89 @@ def test_stdout_carries_only_protocol_frames_and_stderr_gets_logs(spawn: Any) ->
     # Diagnostics live on stderr, separately capturable by the shell.
     assert "sidecar started" in w.stderr_text()
     assert "sidecar stopped" in w.stderr_text()
+
+
+# -----------------------------------------------------------------------
+# project.save (#100)
+# -----------------------------------------------------------------------
+
+
+def _project_doc(source_path: Path | None = None) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "projectId": "prj-0123456789abcdef",
+        "sourceAudio": (
+            {"originalPath": str(source_path), "contentHash": ""}
+            if source_path
+            else None
+        ),
+        "transcription": {
+            "backend": "basic_pitch",
+            "backendVersion": "0.4.0",
+            "settings": {"tempoBpm": 120},
+            "revision": "tr-0123456789abcdef",
+            "rawResultRef": "raw/tr-0123456789abcdef.json",
+        },
+        "score": {
+            "revision": "rev-0123456789abcdef",
+            "scoreRef": "scores/rev-0123456789abcdef.json",
+            "quantizationSettings": {},
+        },
+        "userEdits": [],
+        "reviewDecisions": [],
+        "uiSession": None,
+    }
+
+
+def test_project_save_writes_valid_document(spawn: Any, tmp_path: Path) -> None:
+    w = spawn()
+    w.handshake()
+    audio = tmp_path / "take.wav"
+    audio.write_bytes(b"RIFFfake")
+    target = tmp_path / "take.hornscribe.json"
+
+    payload = _assert_ok(
+        w.request(
+            "project.save",
+            {"path": str(target), "project": _project_doc(audio)},
+        )
+    )
+    assert payload["path"] == str(target)
+    assert payload["projectId"] == "prj-0123456789abcdef"
+
+    saved = json.loads(target.read_text(encoding="utf-8"))
+    assert saved["schemaVersion"] == 1
+    # The worker computed the missing contentHash from the file.
+    assert saved["sourceAudio"]["contentHash"] == hashlib.sha256(
+        b"RIFFfake"
+    ).hexdigest()
+    assert saved["sourceAudio"]["originalPath"] == str(audio)
+
+
+def test_project_save_rejects_bad_path_and_bad_document(
+    spawn: Any, tmp_path: Path
+) -> None:
+    w = spawn()
+    w.handshake()
+
+    resp = w.request(
+        "project.save",
+        {"path": str(tmp_path / "x.json"), "project": _project_doc()},
+    )
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+
+    resp = w.request(
+        "project.save",
+        {
+            "path": str(tmp_path / "x.hornscribe.json"),
+            "project": {"schemaVersion": 99, "projectId": "prj-0123456789abcdef"},
+        },
+    )
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+    assert not (tmp_path / "x.hornscribe.json").exists()
+
+
+def test_project_save_advertised_in_handshake(spawn: Any) -> None:
+    w = spawn()
+    payload = _assert_ok(w.handshake())
+    assert "project.save" in payload["capabilities"]["methods"]

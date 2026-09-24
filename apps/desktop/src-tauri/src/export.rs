@@ -223,6 +223,56 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// `project_save_path`: native save-file picker for `.hornscribe.json`
+/// (#100). The picked file's parent directory is granted write access
+/// (same model as `export_pick_dir`); returns null on cancel.
+#[tauri::command]
+pub fn project_save_path(
+    app: tauri::AppHandle,
+    suggested_name: Option<String>,
+) -> Result<Option<String>, String> {
+    let mut dlg = app
+        .dialog()
+        .file()
+        .add_filter("HornScribe プロジェクト", &["hornscribe.json"]);
+    if let Some(name) = suggested_name {
+        if !name.is_empty() {
+            dlg = dlg.set_file_name(&name);
+        }
+    }
+    let Some(path) = dlg.blocking_save_file() else {
+        return Ok(None);
+    };
+    let file = path
+        .as_path()
+        .map(|p| p.to_path_buf())
+        .ok_or("picked path is not a filesystem path")?;
+    if let Some(parent) = file.parent() {
+        grant_dir(parent.to_path_buf());
+    }
+    // The dialog may return the name without the suffix the filter
+    // describes — append it so the worker's path check never trips
+    // on a user-typed name.
+    let file = if file.to_string_lossy().ends_with(".hornscribe.json") {
+        file
+    } else {
+        let mut name = file
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        // "take.json" → "take"; "take.hornscribe" → "take"
+        for suffix in [".hornscribe.json", ".hornscribe", ".json"] {
+            if let Some(stripped) = name.strip_suffix(suffix) {
+                name = stripped.to_string();
+                break;
+            }
+        }
+        file.with_file_name(format!("{name}.hornscribe.json"))
+    };
+    Ok(Some(file.to_string_lossy().into_owned()))
+}
+
 /// `render_pdf`: run MuseScore headless (`-o out.pdf score.musicxml`).
 /// The MusicXML arrives as text; it is staged in the temp dir, rendered,
 /// then removed. `out_path` must satisfy the same destination rules as

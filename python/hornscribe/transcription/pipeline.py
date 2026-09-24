@@ -506,6 +506,9 @@ def run_transcription_job(
                 "meta": {
                     "backend": "basic_pitch",
                     "backendVersion": "0.4.0",
+                    # #100: project.save needs the tr-* id for the
+                    # TranscriptionRecord in .hornscribe.json.
+                    "transcriptionRevision": str(revision),
                     "audioPath": params.audio_path,
                     "durationSec": round(duration_sec, 3),
                     "tempoBpm": round(estimate.median_bpm, 2),
