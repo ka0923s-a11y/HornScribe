@@ -9,7 +9,9 @@ by the ``ENGINE_DEPENDENCY_MISSING`` test.
 from __future__ import annotations
 
 import threading
+import wave
 from array import array
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -1309,3 +1311,181 @@ class TestPipeline:
         ]
         assert overlap
         assert overlap[0]["evidence"]["voiceCounts"][0] > 0
+
+
+class TestSelectionStaging:
+    """#229: a selection job stages only the chosen span for the backend.
+
+    The backend contract is "events are relative to the file it read",
+    so the pipeline shifts them back to absolute source seconds — the
+    review/seek timeline never moves.
+    """
+
+    def _run(
+        self,
+        tmp_path: Path,
+        events: tuple[RawNoteEvent, ...],
+        params_extra: dict[str, Any],
+        backend: Any | None = None,
+    ) -> list[dict[str, Any]]:
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected, emit = collect()
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                **params_extra,
+            }
+        )
+        run_transcription_job(
+            job_id="job-sel",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=backend or (lambda _p: events),
+            loader=lambda _p: (array("f", [0.0] * (22050 * 10)), 22050),
+        )
+        return collected
+
+    def test_backend_gets_staged_slice_not_full_file(self, tmp_path: Path) -> None:
+        seen: dict[str, Any] = {}
+
+        def backend(path: str) -> tuple[RawNoteEvent, ...]:
+            seen["path"] = path
+            with wave.open(path, "rb") as wav:
+                seen["frames"] = wav.getnframes()
+                seen["rate"] = wav.getframerate()
+                seen["channels"] = wav.getnchannels()
+            return make_events([60, 62, 64])
+
+        log = self._run(
+            tmp_path,
+            (),
+            {
+                "range": "selection",
+                "selectionStartSec": 2.0,
+                "selectionEndSec": 4.0,
+            },
+            backend=backend,
+        )
+        assert log[-1]["phase"] == "completed"
+        # The staged file is a temp WAV, not the source path, and it
+        # holds only the 2 s selection — inference never sees the rest.
+        assert seen["path"] != str(tmp_path / "take.wav")
+        assert seen["path"].endswith(".wav")
+        assert seen["frames"] == 2 * 22050
+        assert seen["rate"] == 22050
+        assert seen["channels"] == 1
+        # The temp file is removed after the blocking backend call.
+        assert not Path(seen["path"]).exists()
+
+    def test_slice_relative_events_shift_to_source_seconds(
+        self, tmp_path: Path
+    ) -> None:
+        # Backend returns events relative to the slice it read; the
+        # pipeline must re-anchor them so review seek targets stay on
+        # the original timeline (confidence 0.3 -> issue carries the
+        # event's absolute timeRange).
+        log = self._run(
+            tmp_path,
+            make_events([60, 62, 64], confidence=0.3),
+            {
+                "range": "selection",
+                "selectionStartSec": 2.0,
+                "selectionEndSec": 4.0,
+            },
+        )
+        assert log[-1]["phase"] == "completed"
+        issues = log[-1]["result"]["reviewIssues"]
+        low_conf = [
+            i for i in issues if i["reason"] == "low_model_confidence"
+        ]
+        # Slice-relative onsets 0.0/0.5/1.0 land on absolute 2.0/2.5/3.0.
+        assert [i["timeRange"]["startSec"] for i in low_conf] == [
+            pytest.approx(t) for t in (2.0, 2.5, 3.0)
+        ]
+        # The selection stays recorded in the settings echo.
+        settings = log[-1]["result"]["meta"]["settings"]
+        assert settings["selectionStartSec"] == 2.0
+        assert settings["selectionEndSec"] == 4.0
+
+    def test_staging_failure_falls_back_to_full_audio(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import hornscribe.transcription.pipeline as pipeline_mod
+
+        monkeypatch.setattr(
+            pipeline_mod, "_stage_selection_wav", lambda _s, _r: None
+        )
+        seen: dict[str, Any] = {}
+        # Full-audio events are already absolute — place them inside
+        # the [2, 4] selection so clip_to_range keeps them.
+        abs_events = tuple(
+            replace(
+                e,
+                onset_sec=e.onset_sec + 2.5,
+                offset_sec=e.offset_sec + 2.5,
+            )
+            for e in make_events([60, 62, 64], confidence=0.3)
+        )
+
+        def backend(path: str) -> tuple[RawNoteEvent, ...]:
+            seen["path"] = path
+            return abs_events
+
+        log = self._run(
+            tmp_path,
+            (),
+            {
+                "range": "selection",
+                "selectionStartSec": 2.0,
+                "selectionEndSec": 4.0,
+            },
+            backend=backend,
+        )
+        assert log[-1]["phase"] == "completed"
+        assert seen["path"] == str(tmp_path / "take.wav")
+        issues = log[-1]["result"]["reviewIssues"]
+        low_conf = [
+            i for i in issues if i["reason"] == "low_model_confidence"
+        ]
+        assert low_conf
+        # No shift applied — times stay on the absolute timeline.
+        assert low_conf[0]["timeRange"]["startSec"] == pytest.approx(2.5)
+
+    def test_selection_outside_audio_fails_cleanly(
+        self, tmp_path: Path
+    ) -> None:
+        log = self._run(
+            tmp_path,
+            make_events([60]),
+            {
+                "range": "selection",
+                "selectionStartSec": 20.0,
+                "selectionEndSec": 30.0,
+            },
+        )
+        assert log[-1]["phase"] == "failed"
+        assert log[-1]["error"]["code"] == "NO_PITCHED_CONTENT"
+
+    def test_shift_event_times_moves_bends(self) -> None:
+        from hornscribe.transcription.pipeline import _shift_event_times
+
+        ev = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60.0,
+            onset_sec=0.5,
+            offset_sec=1.0,
+            pitch_bends=(
+                PitchBendPoint(time_sec=0.6, bend_semitones=0.5),
+            ),
+        )
+        (shifted,) = _shift_event_times((ev,), 2.0)
+        assert shifted.onset_sec == pytest.approx(2.5)
+        assert shifted.offset_sec == pytest.approx(3.0)
+        assert shifted.pitch_bends[0].time_sec == pytest.approx(2.6)
+        # Zero offset returns the input untouched.
+        assert _shift_event_times((ev,), 0.0) == (ev,)

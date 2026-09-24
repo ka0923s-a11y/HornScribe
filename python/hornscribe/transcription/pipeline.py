@@ -22,10 +22,15 @@ Failure mapping (all honest terminal ``failed`` events, never a crash):
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import math
 import os
+import tempfile
 import threading
 import time
+import wave
+from array import array
 from collections.abc import Callable
 from dataclasses import replace
 from fractions import Fraction
@@ -147,6 +152,68 @@ def _track_beats(
         times.append(ft)
         strengths.append(strength)
     return tuple(times), tuple(strengths)
+
+
+def _shift_event_times(
+    events: tuple[RawNoteEvent, ...], offset_sec: float
+) -> tuple[RawNoteEvent, ...]:
+    """Translate slice-relative event times to absolute source seconds.
+
+    #229: a selection job stages only the chosen range for the backend,
+    so every timestamp it emits is relative to the slice start. The
+    downstream stages (clip_to_range, review seek targets, project
+    provenance) all speak absolute source seconds — shift once here.
+    """
+    if offset_sec == 0.0:
+        return events
+    return tuple(
+        replace(
+            ev,
+            onset_sec=ev.onset_sec + offset_sec,
+            offset_sec=ev.offset_sec + offset_sec,
+            pitch_bends=tuple(
+                replace(b, time_sec=b.time_sec + offset_sec)
+                for b in ev.pitch_bends
+            ),
+        )
+        for ev in events
+    )
+
+
+def _stage_selection_wav(
+    samples: Any, sample_rate: int
+) -> str | None:
+    """Write *samples* to a temp PCM16 WAV; return its path or None.
+
+    #229: both backends take a file path, so a sliced selection is
+    staged on disk. The caller deletes the file after inference.
+    """
+    try:
+        pcm = array(
+            "h",
+            (
+                max(-32768, min(32767, int(round(float(v) * 32768.0))))
+                for v in samples
+            ),
+        )
+        if pcm.itemsize != 2:  # platform 'h' must be 16-bit for WAV
+            return None
+        fd, path = tempfile.mkstemp(prefix="hornscribe-sel-", suffix=".wav")
+        try:
+            with os.fdopen(fd, "wb") as handle, wave.open(handle, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(sample_rate)
+                wav.writeframes(pcm.tobytes())
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            return None
+        return path
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def _sha256_file(path: str) -> str | None:
@@ -355,6 +422,38 @@ def run_transcription_job(
         audio_hash = _sha256_file(params.audio_path)
         samples, sample_rate = (loader or load_mono_audio)(params.audio_path)
         duration_sec = len(samples) / float(sample_rate)
+
+        # #229: a selection job slices the decoded audio BEFORE inference
+        # — the backend, the beat track, and tempo estimation all see
+        # only the chosen span instead of the whole file. Events come
+        # back slice-relative; selection_offset_sec maps them to absolute
+        # source seconds so clip_to_range, review seek targets, and
+        # provenance stay on the original timeline.
+        selection_offset_sec = 0.0
+        if params.range_kind == "selection":
+            sel_lo = params.selection_start_sec or 0.0
+            sel_hi = (
+                params.selection_end_sec
+                if params.selection_end_sec is not None
+                else duration_sec
+            )
+            sel_lo = max(0.0, min(sel_lo, duration_sec))
+            sel_hi = max(sel_lo, min(sel_hi, duration_sec))
+            if sel_hi - sel_lo <= 0.0:
+                emit(
+                    "failed",
+                    stage=STAGES[1],
+                    error={
+                        "code": ERR_NO_PITCHED_CONTENT,
+                        "message": "selection is empty or outside the audio",
+                    },
+                )
+                return
+            i0 = int(sel_lo * sample_rate)
+            i1 = min(len(samples), math.ceil(sel_hi * sample_rate))
+            samples = samples[i0:i1]
+            selection_offset_sec = sel_lo
+
         if stop(0):
             return
 
@@ -412,7 +511,22 @@ def run_transcription_job(
                     revision=revision,
                     **({"max_frequency_hz": max_hz} if max_hz else {}),
                 )
-        raw_events = run_backend(params.audio_path)
+        # #229: the backend reads a file path — stage the slice as a
+        # temp WAV so inference only processes the selected span. A
+        # staging failure falls back to the original file (correct, just
+        # slower); the temp is always removed after the blocking call.
+        staged_path: str | None = None
+        if params.range_kind == "selection":
+            staged_path = _stage_selection_wav(samples, sample_rate)
+        backend_path = staged_path or params.audio_path
+        try:
+            raw_events = run_backend(backend_path)
+        finally:
+            if staged_path is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(staged_path)
+        if staged_path is not None:
+            raw_events = _shift_event_times(raw_events, selection_offset_sec)
         if stop(1):
             return
 
@@ -496,13 +610,27 @@ def run_transcription_job(
         meter_estimated = False
         meter_uncertain = False
         pulse_unit_ql: Fraction | None = None
+        # #229: the beat track runs on the slice, so it must also run
+        # whenever estimate_tempo would track internally on the slice —
+        # a pinned meter + auto tempo + selection would otherwise mix
+        # slice-relative beat anchors with absolute event times and
+        # misplace the whole warp. Shifted beats are absolute seconds,
+        # matching the events.
+        need_beats = params.meter == "auto" or (
+            params.tempo_bpm is None and selection_offset_sec > 0.0
+        )
+        if need_beats:
+            tracked_times, strengths = _track_beats(samples, sample_rate)
+            beat_times = tuple(t + selection_offset_sec for t in tracked_times)
+        else:
+            beat_times = None
+            strengths = ()
         if params.meter == "auto":
             # #228: auto meter reads accents off a beat track — run it
             # even when the user pinned the tempo (the pinned BPM only
             # replaces the warp; the accent evidence is still real).
             # The same track feeds the tempo warp when tempo is auto.
-            beat_times, strengths = _track_beats(samples, sample_rate)
-            meter_est = estimate_meter(beat_times, strengths)
+            meter_est = estimate_meter(beat_times or (), strengths)
             meter = MeterSegment(
                 start_ql=Fraction(0),
                 numerator=int(meter_est.meter.split("/")[0]),
@@ -514,7 +642,6 @@ def run_transcription_job(
             if meter_est.tracked_eighths:
                 pulse_unit_ql = Fraction(4, meter.denominator)
         else:
-            beat_times = None
             meter_confidence = 1.0
         estimate = estimate_tempo(
             samples,
