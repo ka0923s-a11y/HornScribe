@@ -14,7 +14,14 @@ from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
 
 @dataclass(frozen=True)
 class PitchBendPoint:
-    """A single pitch-bend sample relative to a note, in seconds and semitones."""
+    """A pitch-bend sample for a note.
+
+    On a raw backend event ``time_sec`` is absolute audio seconds. When a
+    bend curve is carried onto a canonical note (QuantizedNote.pitch_bends)
+    it is normalized to the note's span: ``time_sec`` then holds the
+    fractional position inside the note (0..1), so consumers that only
+    know the note's score span (MIDI ticks, audition ms) can place it.
+    """
 
     time_sec: float
     bend_semitones: float

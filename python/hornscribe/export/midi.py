@@ -27,6 +27,17 @@ GM_PROGRAM_HORN = 60
 
 _DEFAULT_VELOCITY = 64
 
+# MIDI pitch-bend is a 14-bit value 0..16383 centered at 8192; the
+# canonical curve is in semitones over the standard +/-2 range.
+_BEND_CENTER = 8192
+_BEND_UNITS_PER_SEMITONE = 4096
+
+
+def _bend_value(semitones: float) -> int:
+    """Canonical bend semitones -> 14-bit MIDI pitch-bend value."""
+    v = int(round(_BEND_CENTER + semitones * _BEND_UNITS_PER_SEMITONE))
+    return max(0, min(16383, v))
+
 # fifths -> MIDI key-signature meta-event key names (mido vocabulary).
 _MAJOR_KEYS = {
     -7: "Cb", -6: "Gb", -5: "Db", -4: "Ab", -3: "Eb", -2: "Bb", -1: "F",
@@ -143,6 +154,33 @@ def playback_midi_bytes(
             # note_off sorts before note_on at the same tick (order key 1 < 2)
             events.append((on_tick, 2, note_on))
             events.append((off_tick, 1, note_off))
+            # #174: emit the performed bend curve (normalized 0..1 across
+            # the note's span) as pitch_bend messages, then return the
+            # wheel to center so the next note starts clean.
+            if n.pitch_bends:
+                span_ticks = off_tick - on_tick
+                for b in n.pitch_bends:
+                    btick = on_tick + int(round(b.time_sec * span_ticks))
+                    events.append(
+                        (
+                            btick,
+                            2,
+                            mido.Message(
+                                "pitchwheel",
+                                channel=channel,
+                                pitch=_bend_value(b.bend_semitones),
+                            ),
+                        )
+                    )
+                events.append(
+                    (
+                        off_tick,
+                        3,
+                        mido.Message(
+                            "pitchwheel", channel=channel, pitch=_BEND_CENTER
+                        ),
+                    )
+                )
         events.sort(key=lambda e: (e[0], e[1]))
         track.append(mido.MetaMessage("track_name", name=part.name, time=0))
         last = 0

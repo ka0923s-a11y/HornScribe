@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Any
 
-from hornscribe.domain.events import RawNoteEvent
+from hornscribe.domain.events import PitchBendPoint, RawNoteEvent
 from hornscribe.domain.ids import (
     ProjectId,
     RawNoteEventId,
@@ -206,6 +206,39 @@ def build_score(
     )
 
 
+def _collect_pitch_bends(
+    src_events: list[RawNoteEvent],
+) -> tuple[PitchBendPoint, ...]:
+    """Concatenate source events' bend curves onto one note's 0..1 span.
+
+    Each raw event's points are absolute audio seconds; the canonical
+    note's span is the union [min onset, max offset] of its sources, so a
+    point's normalized position is (t - span_start) / span. Events
+    without bends contribute nothing — a merged note keeps the curve of
+    whichever segments actually carried expression.
+    """
+    bending = [e for e in src_events if e.pitch_bends]
+    if not bending:
+        return ()
+    span_start = min(e.onset_sec for e in src_events)
+    span_end = max(e.offset_sec for e in src_events)
+    span = span_end - span_start
+    if span <= 0:
+        return ()
+    out: list[PitchBendPoint] = []
+    for e in bending:
+        for b in e.pitch_bends:
+            pos = (b.time_sec - span_start) / span
+            out.append(
+                PitchBendPoint(
+                    time_sec=min(1.0, max(0.0, pos)),
+                    bend_semitones=b.bend_semitones,
+                )
+            )
+    out.sort(key=lambda b: b.time_sec)
+    return tuple(out)
+
+
 def _part_content(
     alternative: QuantizationAlternative,
     beat_ql: Fraction,
@@ -264,6 +297,11 @@ def _part_content(
             (e.velocity for e in src_events if e.velocity is not None),
             default=None,
         )
+        # #174: carry the performed bend curve onto the canonical note,
+        # normalized to the note's audio span (0..1) so consumers that
+        # only know the score span (MIDI ticks, audition ms) can place
+        # each point. Merged notes concatenate their segments' curves.
+        pitch_bends = _collect_pitch_bends(src_events)
         notes.append(
             QuantizedNote(
                 id=qn.canonical_note_id,
@@ -275,6 +313,7 @@ def _part_content(
                 duration_beats=qn.duration_ql / beat_ql,
                 velocity=velocity,
                 atoms=score_atoms,
+                pitch_bends=pitch_bends,
             )
         )
         if conf is not None:

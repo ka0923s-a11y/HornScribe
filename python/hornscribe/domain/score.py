@@ -17,6 +17,7 @@ from fractions import Fraction
 from itertools import pairwise
 from typing import Any
 
+from hornscribe.domain.events import PitchBendPoint
 from hornscribe.domain.ids import (
     ProjectId,
     RawNoteEventId,
@@ -174,11 +175,17 @@ class QuantizedNote:
     tie_start: bool = False
     tie_stop: bool = False
     atoms: tuple[ScoreAtom, ...] = ()
+    # #174: performed pitch-bend curve carried from the backend evidence,
+    # normalized to this note's span (PitchBendPoint.time_sec = 0..1).
+    # Omitted from serialization when empty so older payloads keep their
+    # content-derived revision ids.
+    pitch_bends: tuple[PitchBendPoint, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
         object.__setattr__(self, "duration_beats", _unfrac(self.duration_beats))
         object.__setattr__(self, "atoms", tuple(self.atoms))
+        object.__setattr__(self, "pitch_bends", tuple(self.pitch_bends))
         if self.start_beat < 0:
             raise ValueError(f"start_beat must be >= 0, got {self.start_beat}")
         if self.duration_beats <= 0:
@@ -221,6 +228,8 @@ class QuantizedNote:
         # revision IDs (content-derived identity, ids.py).
         if self.atoms:
             data["atoms"] = [a.to_dict() for a in self.atoms]
+        if self.pitch_bends:
+            data["pitchBends"] = [b.to_dict() for b in self.pitch_bends]
         return data
 
     @classmethod
@@ -235,6 +244,9 @@ class QuantizedNote:
             tie_start=bool(data.get("tieStart", False)),
             tie_stop=bool(data.get("tieStop", False)),
             atoms=tuple(ScoreAtom.from_dict(a) for a in data.get("atoms", ())),
+            pitch_bends=tuple(
+                PitchBendPoint.from_dict(b) for b in data.get("pitchBends", ())
+            ),
         )
 
 

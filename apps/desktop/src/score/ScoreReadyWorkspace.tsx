@@ -71,6 +71,7 @@ import {
 } from "./playbackTable";
 import { ScoreCursorClock, type ClockSnapshot, type TransportClock } from "./clock";
 import { ScorePlaybackSynth, velocityByCanonicalId } from "./playbackSynth";
+import { bendsByCanonicalId } from "./playbackSynth";
 import { buildSwingWarp } from "./swingWarp";
 import {
   allIssuesForCanonical,
@@ -523,6 +524,7 @@ export function ScoreReadyWorkspace({
           tableRef.current,
           notesByCanonical(concert),
           velocityByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
+          bendsByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
         );
         clock.subscribe((s) => {
           synth.setLoop(s.loop ? { startMs: s.loop.startMs, endMs: s.loop.endMs } : null);
@@ -870,6 +872,7 @@ export function ScoreReadyWorkspace({
         tableRef.current,
         notesByCanonical(concert),
         velocityByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
+        bendsByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
       );
       clockRef.current?.setDuration(tableRef.current.durationMs);
     }

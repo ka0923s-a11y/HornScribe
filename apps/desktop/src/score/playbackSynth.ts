@@ -51,6 +51,8 @@ interface ScheduledNote {
   freq: number;
   /** MIDI velocity 0-127 (null = unknown -> default loudness). #168 */
   velocity: number | null;
+  /** Normalized bend curve (pos 0..1, semitones) for vibrato. #174 */
+  bends: readonly { pos: number; semis: number }[];
 }
 
 /**
@@ -76,6 +78,42 @@ export function velocityByCanonicalId(
       if (typeof id === "string" && typeof v === "number") {
         map.set(id, v);
       }
+    }
+  }
+  return map;
+}
+
+/**
+ * canonicalId -> normalized bend curve, read off the canonical payload's
+ * content.parts[].notes[].pitchBends (#174). Each point's timeSec is the
+ * fractional position inside the note (0..1), bendSemitones the offset.
+ */
+export function bendsByCanonicalId(
+  canonicalDocument: unknown,
+): Map<string, readonly { pos: number; semis: number }[]> {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  const parts = content?.["parts"];
+  const map = new Map<string, readonly { pos: number; semis: number }[]>();
+  if (!Array.isArray(parts)) return map;
+  for (const rawPart of parts) {
+    const notes = (rawPart as Record<string, unknown>)["notes"];
+    if (!Array.isArray(notes)) continue;
+    for (const rawNote of notes) {
+      const n = rawNote as Record<string, unknown>;
+      const id = n["id"];
+      const bends = n["pitchBends"];
+      if (typeof id !== "string" || !Array.isArray(bends)) continue;
+      const curve = bends
+        .map((b) => {
+          const p = (b as Record<string, unknown>)["timeSec"];
+          const s = (b as Record<string, unknown>)["bendSemitones"];
+          return typeof p === "number" && typeof s === "number"
+            ? { pos: p, semis: s }
+            : null;
+        })
+        .filter((x): x is { pos: number; semis: number } => x !== null);
+      if (curve.length > 0) map.set(id, curve);
     }
   }
   return map;
@@ -130,6 +168,7 @@ export class ScorePlaybackSynth {
     table: PlaybackTable,
     notesByCanonical: ReadonlyMap<string, readonly ParsedNote[]>,
     velocities?: ReadonlyMap<string, number>,
+    bends?: ReadonlyMap<string, readonly { pos: number; semis: number }[]>,
   ): void {
     const notes: ScheduledNote[] = [];
     for (const seg of table.segments) {
@@ -144,6 +183,7 @@ export class ScorePlaybackSynth {
             endMs: seg.endMs,
             freq: midiToFreq(midi),
             velocity: velocities?.get(canonicalId) ?? null,
+            bends: bends?.get(canonicalId) ?? [],
           });
           // 和音: chord メンバーは同じ onset を持つので、同じセグメントで
           // 別 ParsedNote として既に処理済み(frag 毎に 1 音追加)。
@@ -257,7 +297,7 @@ export class ScorePlaybackSynth {
       if (note.startMs < scheduleFrom) continue;
       const startSec = t0 + (note.startMs - windowStart) / rate / 1000;
       const durSec = Math.max(0.04, (note.endMs - note.startMs) / rate / 1000);
-      this.spawnVoice(note.freq, startSec, durSec, note.velocity);
+      this.spawnVoice(note.freq, startSec, durSec, note.velocity, note.bends);
     }
     this.scheduledUntilMs = Math.max(this.scheduledUntilMs, windowEnd);
     this.lastTickAt = performance.now();
@@ -304,6 +344,7 @@ export class ScorePlaybackSynth {
     startSec: number,
     durSec: number,
     velocity: number | null = null,
+    bends: readonly { pos: number; semis: number }[] = [],
   ): void {
     const ctx = this.ctx;
     const master = this.master;
@@ -317,6 +358,22 @@ export class ScorePlaybackSynth {
     osc2.frequency.value = freq * 0.5; // サブオクターブで厚みを出す
     const osc2Gain = ctx.createGain();
     osc2Gain.gain.value = 0.25;
+    // #174: ride the performed bend curve (vibrato/portamento). Each
+    // point's pos is a fraction of the note's span; both oscillators
+    // follow the same semitone offset (freq * 2^(semis/12)).
+    if (bends.length > 0) {
+      osc1.frequency.setValueAtTime(freq, startSec);
+      osc2.frequency.setValueAtTime(freq * 0.5, startSec);
+      for (const b of bends) {
+        const t = startSec + Math.min(1, Math.max(0, b.pos)) * durSec;
+        const f1 = freq * Math.pow(2, b.semis / 12);
+        osc1.frequency.linearRampToValueAtTime(f1, t);
+        osc2.frequency.linearRampToValueAtTime(f1 * 0.5, t);
+      }
+      // Return to the written pitch at the note's end.
+      osc1.frequency.linearRampToValueAtTime(freq, startSec + durSec);
+      osc2.frequency.linearRampToValueAtTime(freq * 0.5, startSec + durSec);
+    }
 
     const env = ctx.createGain();
     // ADSR 風: 5ms attack, sustain, 40ms release。
