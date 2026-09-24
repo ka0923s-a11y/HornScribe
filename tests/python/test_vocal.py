@@ -185,3 +185,57 @@ def test_vocal_isolation_option_parses_and_echoes():
     default = TranscriptionParams.from_payload({"audioPath": "a.wav"})
     assert default.vocal_isolation is False
     assert default.settings_dict()["vocalIsolation"] is False
+
+
+class TestDemucsSpanStaging:
+    """#320: a selection job hands demucs only the chosen span — the
+    whole-file separation the #229 performance budget forbids is gone."""
+
+    def _run(self, monkeypatch, start, end):
+        import hornscribe.transcription.vocal as vocal_mod
+
+        monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+        # librosa is an engine extra — absent in dev/CI — but the
+        # dispatch under test never reaches it (staging + run are
+        # stubbed, run fails before the decode). A bare module stub
+        # satisfies require_module/find_spec.
+        import importlib.machinery
+        import sys
+        import types
+
+        stub = types.ModuleType("librosa")
+        stub.__spec__ = importlib.machinery.ModuleSpec("librosa", None)
+        monkeypatch.setitem(sys.modules, "librosa", stub)
+        monkeypatch.setattr(vocal_mod, "require_module", lambda _n: None)
+        staged: list[tuple[str, float, float | None]] = []
+        seen_cmd: list[list[str]] = []
+
+        def fake_stage(path, s, e):
+            staged.append((path, s, e))
+            return "STAGED.wav"
+
+        class _Proc:
+            returncode = 1  # fail fast — the dispatch is under test
+
+        def fake_run(cmd, **kw):
+            seen_cmd.append(cmd)
+            return _Proc()
+
+        monkeypatch.setattr(vocal_mod, "_stage_span_wav", fake_stage)
+        monkeypatch.setattr(vocal_mod.subprocess, "run", fake_run)
+        return staged, seen_cmd, vocal_mod.isolate_demucs_vocals(
+            "src.wav", start, end
+        )
+
+    def test_selection_stages_the_span(self, monkeypatch):
+        staged, seen_cmd, out = self._run(monkeypatch, 60.0, 90.0)
+        # The span was decoded+staged and demucs read the staged slice,
+        # never the source file.
+        assert staged == [("src.wav", 60.0, 90.0)]
+        assert seen_cmd and seen_cmd[0][-1] == "STAGED.wav"
+        assert out is None  # stubbed failure — dispatch is what matters
+
+    def test_full_range_passes_the_source_through(self, monkeypatch):
+        staged, seen_cmd, _ = self._run(monkeypatch, 0.0, None)
+        assert staged == []  # no staging for a whole-file job
+        assert seen_cmd and seen_cmd[0][-1] == "src.wav"

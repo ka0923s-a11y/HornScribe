@@ -131,6 +131,59 @@ def _demucs_available() -> bool:
         return False
 
 
+def _stage_span_wav(
+    audio_path: str, start_sec: float, end_sec: float | None
+) -> str | None:
+    """#320: decode [start, end) in stereo and stage it as a temp WAV
+    for demucs — None when the span cannot be decoded (the caller then
+    falls back to center extraction, which decodes spans itself)."""
+    try:
+        require_module("librosa")
+        import librosa  # noqa: PLC0415 - lazy optional dependency
+        import numpy as np  # noqa: PLC0415
+    except Exception:
+        return None
+    try:
+        stereo, sr = librosa.load(
+            audio_path,
+            sr=44100,
+            mono=False,
+            offset=max(0.0, start_sec),
+            duration=(
+                None if end_sec is None else max(0.0, end_sec - start_sec)
+            ),
+        )
+    except Exception:
+        return None
+    if stereo.size == 0:
+        return None
+    channels = stereo if stereo.ndim == 2 else stereo.reshape(1, -1)
+    interleaved = np.asarray(channels, dtype=np.float32).T.reshape(-1)
+    pcm = array(
+        "h",
+        (
+            max(-32768, min(32767, int(round(float(v) * 32768.0))))
+            for v in interleaved
+        ),
+    )
+    if pcm.itemsize != 2:
+        return None
+    try:
+        fd, tmp = tempfile.mkstemp(
+            prefix="hornscribe-span-", suffix=".wav"
+        )
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        with wave.open(tmp, "wb") as wav:
+            wav.setnchannels(int(channels.shape[0]))
+            wav.setsampwidth(2)
+            wav.setframerate(int(sr))
+            wav.writeframes(pcm.tobytes())
+        return tmp
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def isolate_demucs_vocals(
     audio_path: str,
     start_sec: float = 0.0,
@@ -139,11 +192,13 @@ def isolate_demucs_vocals(
     """#302: neural two-stem separation via the demucs CLI -> mono float32 | None.
 
     Runs ``python -m demucs --two-stems=vocals`` in a subprocess so a
-    torch crash can never take the engine down with it. demucs
-    separates the whole file — the returned samples are sliced to the
-    requested span afterwards. None on any failure (missing binary,
-    non-zero exit, decode error) so the caller falls back to center
-    extraction.
+    torch crash can never take the engine down with it.
+    #320: a selection job must not pay the whole-file separation — the
+    requested span is staged as a temp stereo WAV and demucs only ever
+    sees that slice (the #229 partial-transcription contract). A
+    full-range job still hands demucs the original file directly.
+    None on any failure (missing binary, non-zero exit, decode error)
+    so the caller falls back to center extraction.
     """
     if not _demucs_available():
         return None
@@ -154,6 +209,18 @@ def isolate_demucs_vocals(
     except Exception:
         return None
 
+    # #320: stage the span when the job is range-scoped — demucs gets a
+    # file holding only the selection, so a 30 s pick out of a 10 min
+    # source costs 30 s of separation, not ten minutes.
+    input_path = audio_path
+    span_staged = False
+    if start_sec > 0.0 or end_sec is not None:
+        staged_span = _stage_span_wav(audio_path, start_sec, end_sec)
+        if staged_span is None:
+            return None
+        input_path = staged_span
+        span_staged = True
+
     out_dir = tempfile.mkdtemp(prefix="hornscribe-demucs-")
     try:
         cmd = [
@@ -163,7 +230,7 @@ def isolate_demucs_vocals(
             "--two-stems=vocals",
             "-o",
             out_dir,
-            audio_path,
+            input_path,
         ]
         kwargs: dict[str, Any] = {
             "capture_output": True,
@@ -183,8 +250,14 @@ def isolate_demucs_vocals(
         if vocals_path is None:
             return None
         samples, _sr = librosa.load(vocals_path, sr=22050, mono=True)
-        lo = int(max(0.0, start_sec) * 22050)
-        hi = len(samples) if end_sec is None else int(end_sec * 22050)
+        # A staged span is already selection-relative — only a direct
+        # full-file run needs the requested span sliced out.
+        lo = 0 if span_staged else int(max(0.0, start_sec) * 22050)
+        hi = (
+            len(samples)
+            if span_staged or end_sec is None
+            else int(end_sec * 22050)
+        )
         sliced = np.asarray(samples[lo:hi], dtype=np.float32)
         if sliced.size == 0:
             return None
@@ -193,6 +266,9 @@ def isolate_demucs_vocals(
         return None
     finally:
         shutil.rmtree(out_dir, ignore_errors=True)
+        if span_staged:
+            with contextlib.suppress(OSError):
+                os.unlink(input_path)
 
 
 def _sweep_cache(now: float) -> None:
