@@ -162,7 +162,20 @@ export function buildScoreInspector(
     meterLabel: meta.meter,
     meterBeats: meter?.beats ?? null,
     meterUnit: meter?.unit ?? null,
-    keyLabel: meta.keyFifths != null ? copy.key(meta.keyFifths) : null,
+    // #146: with mid-piece key changes, show the transitions
+    // (head key -> key at measure N) instead of just the head key.
+    keyLabel:
+      meta.keyChanges.length > 1
+        ? meta.keyChanges
+            .map((c, i) =>
+              i === 0
+                ? copy.key(c.fifths)
+                : copy.key(c.fifths) + "（第" + c.measure + "小節）",
+            )
+            .join(" → ")
+        : meta.keyFifths != null
+          ? copy.key(meta.keyFifths)
+          : null,
     measureLabel: copy.measureCount(meta.measureCount),
     noteLabel: copy.noteCount(meta.noteCount),
     openIssueLabel: copy.openIssues(openIssueCount),

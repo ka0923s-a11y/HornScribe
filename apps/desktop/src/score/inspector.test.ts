@@ -50,6 +50,7 @@ describe("buildScoreInspector", () => {
         tempoBpm: 100,
         meter: "4/4",
         keyFifths: -1,
+        keyChanges: [],
         measureCount: 12,
         noteCount: 40,
       },
@@ -63,6 +64,26 @@ describe("buildScoreInspector", () => {
     expect(model.measureLabel).toBe("12 小節");
     expect(model.noteLabel).toBe("40 音");
     expect(model.openIssueLabel).toBe("3 件");
+  });
+
+  it("shows key transitions when the piece modulates (#146)", () => {
+    const model = buildScoreInspector(
+      {
+        title: "Modulating Piece",
+        tempoBpm: 100,
+        meter: "4/4",
+        keyFifths: 0,
+        keyChanges: [
+          { measure: 1, fifths: 0 },
+          { measure: 17, fifths: -5 },
+        ],
+        measureCount: 32,
+        noteCount: 100,
+      },
+      0,
+      copy,
+    );
+    expect(model.keyLabel).toBe("ハ長調 → 変ニ長調（第17小節）");
   });
 });
 

@@ -26,6 +26,9 @@ export interface ScoreDocumentMeta {
   readonly meter: string | null;
   /** Key signature fifths (−7…+7), when notated. */
   readonly keyFifths: number | null;
+  /** #146: key changes with measure numbers (head first); empty or
+   *  single-entry = the piece stays in keyFifths. */
+  readonly keyChanges: readonly { measure: number; fifths: number }[];
   /** Number of measures in the score. */
   readonly measureCount: number;
   /** Number of canonical `sn-*` notes (rests excluded). */

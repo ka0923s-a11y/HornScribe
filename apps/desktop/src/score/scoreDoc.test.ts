@@ -64,6 +64,25 @@ describe("parseScoreDoc", () => {
     expect(doc.measureCount).toBe(2);
   });
 
+  it("collects key changes with measure numbers (#146)", () => {
+    const xml = XML.replace(
+      '<measure number="2">',
+      '<measure number="2"><attributes><key><fifths>-5</fifths></key></attributes>',
+    );
+    const doc = parseScoreDoc(xml);
+    expect(doc.keyChanges).toEqual([
+      { measure: 1, fifths: -1 },
+      { measure: 2, fifths: -5 },
+    ]);
+    // Head key stays the first signature.
+    expect(doc.keyFifths).toBe(-1);
+  });
+
+  it("single key yields a one-entry (or empty) change list", () => {
+    const doc = parseScoreDoc(XML);
+    expect(doc.keyChanges).toEqual([{ measure: 1, fifths: -1 }]);
+  });
+
   it("parses pitch, type, dots and measure numbers", () => {
     const n1 = doc.notes.find((n) => n.exportId === "hs-sn-000001");
     expect(n1?.step).toBe("C");

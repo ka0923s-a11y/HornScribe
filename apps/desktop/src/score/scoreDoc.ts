@@ -31,6 +31,9 @@ export interface ScoreDoc {
   meter: string | null;
   /** Key signature fifths (−7…+7), when present. */
   keyFifths: number | null;
+  /** #146: key changes with their measure numbers, head first. Empty
+   *  or single-entry = the piece stays in keyFifths. */
+  keyChanges: { measure: number; fifths: number }[];
 }
 
 const TYPE_JA: Record<string, string> = {
@@ -91,6 +94,24 @@ export function parseScoreDoc(xml: string): ScoreDoc {
 
   const notes: ParsedNote[] = [];
   let measureCount = 0;
+  const keyChanges: { measure: number; fifths: number }[] = [];
+  const parts = Array.from(doc.querySelectorAll("part"));
+  for (const measure of Array.from(
+    parts[0]?.querySelectorAll(":scope > measure") ?? [],
+  )) {
+    const number = Number(measure.getAttribute("number") ?? measureCount + 1);
+    // Mid-piece key changes (#133): every <key> under attributes —
+    // a measure can carry more than one (offset insertions share the
+    // element), so collect them all.
+    for (const keyEl of Array.from(
+      measure.querySelectorAll(":scope > attributes > key"),
+    )) {
+      const f = keyEl.querySelector("fifths")?.textContent;
+      if (f != null && Number.isFinite(Number(f))) {
+        keyChanges.push({ measure: number, fifths: Number(f) });
+      }
+    }
+  }
   for (const measure of Array.from(doc.querySelectorAll("part > measure"))) {
     const number = Number(measure.getAttribute("number") ?? measureCount + 1);
     measureCount = Math.max(measureCount, Number.isFinite(number) ? number : measureCount + 1);
@@ -121,7 +142,7 @@ export function parseScoreDoc(xml: string): ScoreDoc {
       });
     }
   }
-  return { title, notes, measureCount, tempoBpm, meter, keyFifths };
+  return { title, notes, measureCount, tempoBpm, meter, keyFifths, keyChanges };
 }
 
 /** canonical id → parsed fragments (both tie fragments and chords land here). */
