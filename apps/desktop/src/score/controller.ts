@@ -33,6 +33,9 @@ export interface ScoreWorkspaceController {
   toggleSelectedTie?(): void;
   /** #115 (spec 14): set the piece tempo (BPM) — undoable engine edit. */
   setTempo?(bpm: number): void;
+  /** #198: tempo-octave correction — scales the tempo map AND every
+   *  note value by `factor` (playback seconds stay put). */
+  scaleTempo?(factor: number): void;
   /** #129 (spec 14): set the piece meter — full re-tile engine edit. */
   setMeter?(beatsPerMeasure: number, beatUnit: number): void;
   /** #145 (spec 14): set the piece key signature — undoable engine

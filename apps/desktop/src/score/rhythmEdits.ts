@@ -26,7 +26,8 @@ export type RhythmEditKind =
   | "setKey"
   | "keyChangeAt"
   | "removeKeyChange"
-  | "restToNote";
+  | "restToNote"
+  | "scaleTempo";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -39,6 +40,10 @@ export interface RhythmEditOp {
   readonly steps?: number;
   /** setTempo only: new head tempo (20-400, engine-validated). */
   readonly bpm?: number;
+  /** scaleTempo only (#198): tempo-map multiplier — note values and
+   *  every beat-axis boundary scale by the same factor, so playback
+   *  seconds stay invariant (the real tempo-octave fix). */
+  readonly factor?: number;
   /** setMeter only: new time signature (engine-validated). */
   readonly beatsPerMeasure?: number;
   readonly beatUnit?: number;

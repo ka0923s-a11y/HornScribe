@@ -884,3 +884,184 @@ class TestRestToNote:
         ):
             with pytest.raises(ScoreEditError):
                 ScoreEdit.from_dict(raw)
+
+
+class TestScaleTempo:
+    """#198: tempo-octave correction — BPM and note values scale together.
+
+    The defining invariant is seconds-invariance: onset_sec =
+    start_beat * 60 / bpm must not move when the tempo map and the beat
+    axis scale by the same factor.
+    """
+
+    def _seconds(self, doc: ScoreDocument) -> list[float]:
+        bpm = doc.payload.tempo_map[0].bpm
+        return [
+            float(n.start_beat) * 60.0 / bpm
+            for n in doc.payload.parts[0].notes
+        ]
+
+    def test_halve_rescales_notes_and_bpm(self) -> None:
+        # Tracked double tempo (240 for a real 120): notes are written
+        # twice too long. factor=1/2 halves BPM AND values; seconds stay.
+        doc = _doc([_note(1, 60, "0", "2"), _note(2, 62, "2", "2")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=240.0),),
+            ),
+        )
+        before = self._seconds(doc)
+        out = apply_score_edit(
+            doc, _edit("scaleTempo", "", factor="1/2")
+        )
+        part = out.payload.parts[0]
+        assert out.payload.tempo_map[0].bpm == pytest.approx(120.0)
+        assert [n.duration_beats for n in part.notes] == [
+            Fraction(1),
+            Fraction(1),
+        ]
+        assert [n.start_beat for n in part.notes] == [
+            Fraction(0),
+            Fraction(1),
+        ]
+        assert self._seconds(out) == pytest.approx(before)
+        # Atoms re-tiled: each note's written symbols cover its span.
+        for n in part.notes:
+            assert n.atoms
+            assert sum(a.duration_beats for a in n.atoms) == n.duration_beats
+        assert out.revision != doc.revision
+
+    def test_double_rescales_notes_and_bpm(self) -> None:
+        # Tracked half tempo (60 for a real 120): eighth-note melody
+        # written as quarters. factor=2 doubles BPM AND values.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=60.0),),
+            ),
+        )
+        before = self._seconds(doc)
+        out = apply_score_edit(doc, _edit("scaleTempo", "", factor=2))
+        part = out.payload.parts[0]
+        assert out.payload.tempo_map[0].bpm == pytest.approx(120.0)
+        assert [n.duration_beats for n in part.notes] == [
+            Fraction(2),
+            Fraction(2),
+        ]
+        assert self._seconds(out) == pytest.approx(before)
+
+    def test_pickup_rescales(self) -> None:
+        # One-beat pickup under a doubled grid: the anacrusis halves to
+        # a half beat and stays an anacrusis (phase wraps, not clamps).
+        doc = _doc([_note(1, 60, "0", "1/2"), _note(2, 62, "1/2", "1/2")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                pickup_beats=Fraction(1),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("scaleTempo", "", factor="1/2")
+        )
+        assert out.payload.pickup_beats == Fraction(1, 2)
+
+    def test_whole_pickup_bar_disappears(self) -> None:
+        # A full-measure pickup under factor 2 wraps to zero — the
+        # anacrusis becomes a complete first measure.
+        doc = _doc([_note(1, 60, "0", "4")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                pickup_beats=Fraction(2),
+            ),
+        )
+        out = apply_score_edit(doc, _edit("scaleTempo", "", factor=2))
+        assert out.payload.pickup_beats == Fraction(0)
+
+    def test_meter_and_key_changes_rescale(self) -> None:
+        ts34 = TimeSignature(beats_per_measure=3, beat_unit=4)
+        doc = _doc([_note(1, 60, "0", "4"), _note(2, 62, "4", "3")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                meter_changes=(
+                    MeterChange(
+                        start_beat=Fraction(0),
+                        time_signature=TimeSignature(
+                            beats_per_measure=4, beat_unit=4
+                        ),
+                    ),
+                    MeterChange(
+                        start_beat=Fraction(4),
+                        time_signature=ts34,
+                    ),
+                ),
+                key_changes=(
+                    KeyChange(
+                        start_beat=Fraction(0),
+                        key_signature=KeySignature(fifths=0, mode="major"),
+                    ),
+                    KeyChange(
+                        start_beat=Fraction(4),
+                        key_signature=KeySignature(fifths=2, mode="major"),
+                    ),
+                ),
+            ),
+        )
+        out = apply_score_edit(doc, _edit("scaleTempo", "", factor=2))
+        changes = out.payload.meter_changes
+        assert [c.start_beat for c in changes] == [
+            Fraction(0),
+            Fraction(8),
+        ]
+        assert [c.start_beat for c in out.payload.key_changes] == [
+            Fraction(0),
+            Fraction(8),
+        ]
+        # The 3/4 segment still starts on a downbeat.
+        assert changes[1].measure_phase_beats == Fraction(0)
+
+    def test_tempo_map_segments_rescale(self) -> None:
+        doc = _doc([_note(1, 60, "0", "8")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                tempo_map=(
+                    TempoSegment(start_beat=Fraction(0), bpm=240.0),
+                    TempoSegment(start_beat=Fraction(4), bpm=220.0),
+                ),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("scaleTempo", "", factor="1/2")
+        )
+        segs = out.payload.tempo_map
+        assert [s.start_beat for s in segs] == [Fraction(0), Fraction(2)]
+        assert [s.bpm for s in segs] == [120.0, 110.0]
+
+    def test_factor_validation(self) -> None:
+        with pytest.raises(ScoreEditError, match="factor"):
+            ScoreEdit.from_dict({"kind": "scaleTempo", "noteId": ""})
+        for bad in (0, -1, "1/9", 16, "fast", True):
+            with pytest.raises(ScoreEditError):
+                ScoreEdit.from_dict(
+                    {"kind": "scaleTempo", "noteId": "", "factor": bad}
+                )
+
+    def test_note_ids_survive(self) -> None:
+        doc = _doc([_note(1, 60, "0", "2"), _note(2, 62, "2", "2")])
+        out = apply_score_edit(
+            doc, _edit("scaleTempo", "", factor="1/2")
+        )
+        assert [n.id for n in out.payload.parts[0].notes] == [
+            ScoreNoteId("sn-000001"),
+            ScoreNoteId("sn-000002"),
+        ]

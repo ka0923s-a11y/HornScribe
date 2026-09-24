@@ -384,6 +384,9 @@ class Worker:
         shiftOnset / toggleTie) re-realize the affected measures through
         the same SpanRealizer the quantizer used — measure length and
         rest/atom structure stay consistent instead of drifting.
+        ``scaleTempo`` (#198) rescales the whole beat axis with the
+        tempo map — the tempo-octave fix that keeps playback seconds
+        invariant.
         """
         if not isinstance(payload, dict):
             raise protocol.ProtocolError(

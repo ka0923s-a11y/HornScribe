@@ -1200,10 +1200,10 @@ export const ja = {
       detail: "pYINは単一旋律専用のエンジンです。和音や伴奏を含む音源では他の声部が結果に反映されません。多声部を採りたい場合は、設定の採譜エンジンをBasic Pitchに変更してください。",
     },
     // #188: the tracked tempo reads as a half/double pick — the
-    // action applies the suggested BPM as a normal setTempo edit.
+    // action applies scaleTempo so note values rescale with the BPM.
     tempo_uncertain: {
       title: "テンポを確認してください",
-      detail: "自動推定されたテンポが、実際の半分または2倍の可能性があります。提案されたBPMを試すか、拍子の速さを耳で確認してください。",
+      detail: "自動推定されたテンポが、実際の半分または2倍の可能性があります。修正ボタンを押すと音符の長さも一緒に直ります（再生の速さは変わりません）。",
     },
     onset_uncertain: {
       title: "音の開始位置を確認してください",

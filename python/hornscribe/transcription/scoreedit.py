@@ -8,6 +8,10 @@ remaining §13 edits change *timing*, so they must re-realize notation:
 * ``shiftOnset`` — move a note by whole minimum-grid steps;
 * ``toggleTie`` — tie/untie a note to the contiguous next same-pitch
   note (a flag pair on the canonical notes; atoms are untouched).
+* ``scaleTempo`` — the tempo-octave correction (#198): scales the
+  tempo map AND every beat-axis position/duration by the same factor,
+  so notation values change while wall-clock playback stays put (the
+  inverse of ``setTempo``, which relabels BPM only).
 
 Timing edits rebuild the smallest measure-aligned window containing
 the note's old and new spans: notes inside are re-decomposed through
@@ -33,6 +37,7 @@ from hornscribe.domain.score import (
     KeyChange,
     KeySignature,
     MeasureSpan,
+    MeterChange,
     Part,
     QuantizedNote,
     ScoreAtom,
@@ -87,6 +92,7 @@ class ScoreEdit:
     start_beat: Fraction | None = None
     part_id: str | None = None
     pitch_midi: int | None = None
+    factor: Fraction | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -104,11 +110,13 @@ class ScoreEdit:
             "keyChangeAt",
             "removeKeyChange",
             "restToNote",
+            "scaleTempo",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
                 "setTempo/setMeter/requantize/splitNote/mergeNotes/"
-                "setKey/keyChangeAt/removeKeyChange/restToNote, "
+                "setKey/keyChangeAt/removeKeyChange/restToNote/"
+                "scaleTempo, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -120,6 +128,7 @@ class ScoreEdit:
             "keyChangeAt",
             "removeKeyChange",
             "restToNote",
+            "scaleTempo",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -221,6 +230,29 @@ class ScoreEdit:
             raise ScoreEditError(
                 f"edit.durationBeats is not a rational number: {duration!r}"
             ) from exc
+        factor_raw = data.get("factor")
+        factor: Fraction | None = None
+        if factor_raw is not None:
+            if isinstance(factor_raw, bool):
+                raise ScoreEditError(
+                    f"edit.factor is not a rational number: {factor_raw!r}"
+                )
+            try:
+                # str() first: Fraction(0.1) would capture the binary
+                # float, not the decimal the client sent.
+                factor = Fraction(str(factor_raw))
+            except (TypeError, ValueError, ZeroDivisionError) as exc:
+                raise ScoreEditError(
+                    f"edit.factor is not a rational number: {factor_raw!r}"
+                ) from exc
+        if kind == "scaleTempo":
+            if factor is None:
+                raise ScoreEditError("scaleTempo requires factor")
+            if not (Fraction(1, 8) <= factor <= 8):
+                raise ScoreEditError(
+                    f"edit.factor {factor} outside the supported "
+                    "1/8..8 range"
+                )
         steps = data.get("steps", 0)
         if not isinstance(steps, int) or isinstance(steps, bool):
             raise ScoreEditError(f"edit.steps must be an int, got {steps!r}")
@@ -238,6 +270,7 @@ class ScoreEdit:
             start_beat=start_beat,
             part_id=part_id,
             pitch_midi=pitch_midi,
+            factor=factor,
         )
 
 
@@ -1050,6 +1083,150 @@ def _apply_set_tempo(
     return replace(payload, tempo_map=tuple(segments))
 
 
+def _scale_phase_beats(
+    phase_beats: Fraction, beats_per_measure: int, factor: Fraction
+) -> Fraction:
+    """Rescale a meter segment's measure phase by ``factor`` (#198).
+
+    A segment whose measures tile ``[start - p + kM, ...)`` rescales to
+    ``[start*f - p' + k'M, ...)``. For factor >= 1 every old boundary
+    must stay a boundary, which fixes ``p' = p*f mod M``. For factor
+    < 1 the new lattice is a subset and two phases qualify; we keep the
+    first in-score boundary (the one the tracker anchored), which is
+    ``p' = (p - M)*f mod M`` — the same formula, since ``M*f`` is a
+    whole new-measure multiple only for integer factors. A zero phase
+    stays zero (the segment start is itself a boundary).
+    """
+    if phase_beats == 0:
+        return Fraction(0)
+    m = Fraction(beats_per_measure)
+    return (phase_beats - m) * factor % m
+
+
+def _apply_scale_tempo(
+    payload: ScoreRevisionPayload, factor: Fraction
+) -> ScoreRevisionPayload:
+    """Scale the tempo map AND the beat axis together (#198).
+
+    The tempo-octave fix: when the tracker picked double (or half) the
+    real pulse, the tempo label AND every written note value are out by
+    the same factor. ``setTempo`` only relabels the BPM — it cannot fix
+    note values and would silently change playback speed. Here every
+    beat-axis quantity (note/rest positions and durations, pickup,
+    meter/key/tempo change boundaries) scales by ``factor`` while BPMs
+    scale by ``factor`` too, so seconds stay invariant: the score is
+    re-notated, not re-timed.
+
+    Note atoms are dropped and every part re-tiles through the same
+    SpanRealizer path setMeter uses — a doubled half note becomes a
+    whole note (or a tied pair across the new barlines) instead of
+    keeping a stale written decomposition.
+    """
+    beat_ql = beat_ql_of(payload)
+    ts = payload.time_signature
+    m0 = Fraction(ts.beats_per_measure)
+
+    if payload.meter_changes:
+        phase0 = payload.meter_changes[0].measure_phase_beats
+        new_phase0 = _scale_phase_beats(phase0, ts.beats_per_measure, factor)
+        new_meter_changes = tuple(
+            MeterChange(
+                start_beat=c.start_beat * factor,
+                time_signature=c.time_signature,
+                measure_phase_beats=_scale_phase_beats(
+                    c.measure_phase_beats,
+                    c.time_signature.beats_per_measure,
+                    factor,
+                ),
+            )
+            for c in payload.meter_changes
+        )
+    else:
+        # Legacy single-meter layout: the phase derives from pickup.
+        old_phase0 = (
+            (m0 - payload.pickup_beats) % m0
+            if payload.pickup_beats
+            else Fraction(0)
+        )
+        new_phase0 = _scale_phase_beats(old_phase0, ts.beats_per_measure, factor)
+        new_meter_changes = ()
+    new_pickup = (m0 - new_phase0) % m0
+
+    # The retile realizer must see the SCALED layout, so build the meter
+    # map from the new boundary fields, not the old payload.
+    layout = replace(
+        payload,
+        pickup_beats=new_pickup,
+        meter_changes=new_meter_changes,
+    )
+    meter_map = _meter_map_from_payload(layout)
+    profile = _profile_from_settings(payload.quantization_settings)
+
+    new_parts: list[Part] = []
+    for part in payload.parts:
+        scaled = [
+            replace(
+                n,
+                start_beat=n.start_beat * factor,
+                duration_beats=n.duration_beats * factor,
+                # A scaled span invalidates the committed atoms — the
+                # retile below rebuilds the written decomposition.
+                atoms=(),
+            )
+            for n in part.notes
+        ]
+        hi = Fraction(0)
+        for n in scaled:
+            hi = max(hi, n.end_beat)
+        for r in part.rests:
+            hi = max(hi, (r.start_beat + r.duration_beats) * factor)
+        if hi <= 0:
+            new_parts.append(replace(part, notes=tuple(scaled), rests=()))
+            continue
+        regions = _triplet_regions(
+            tuple(scaled), meter_map, profile, beat_ql
+        )
+        realizer = SpanRealizer(meter_map, profile, triplet_regions=regions)
+        # A bar-aligned tail under the old grid can land mid-measure
+        # under the new one (factor < 1 halves the boundary count) —
+        # extend the retile to the next real barline so every measure
+        # still tiles exactly.
+        hi_ql = hi * beat_ql
+        if not realizer.is_measure_boundary(hi_ql):
+            hi = realizer.next_measure_boundary(hi_ql) / beat_ql
+        try:
+            new_notes, new_rests = _retile_window(
+                scaled, Fraction(0), hi, realizer, beat_ql
+            )
+        except ValueError as exc:
+            raise ScoreEditError(
+                "the score's rhythm cannot be written at this tempo "
+                f"scale: {exc}"
+            ) from exc
+        new_parts.append(
+            replace(part, notes=tuple(new_notes), rests=tuple(new_rests))
+        )
+
+    return replace(
+        payload,
+        tempo_map=tuple(
+            replace(
+                seg,
+                start_beat=seg.start_beat * factor,
+                bpm=seg.bpm * float(factor),
+            )
+            for seg in payload.tempo_map
+        ),
+        pickup_beats=new_pickup,
+        meter_changes=new_meter_changes,
+        key_changes=tuple(
+            replace(c, start_beat=c.start_beat * factor)
+            for c in payload.key_changes
+        ),
+        parts=tuple(new_parts),
+    )
+
+
 def _apply_set_key(
     payload: ScoreRevisionPayload, key: KeySignature
 ) -> ScoreRevisionPayload:
@@ -1155,6 +1332,11 @@ def apply_score_edit(
         if edit.bpm is None:
             raise ScoreEditError("setTempo requires bpm")
         new_payload = _apply_set_tempo(payload, edit.bpm)
+        return replace(document, payload=new_payload)
+    if edit.kind == "scaleTempo":
+        if edit.factor is None:
+            raise ScoreEditError("scaleTempo requires factor")
+        new_payload = _apply_scale_tempo(payload, edit.factor)
         return replace(document, payload=new_payload)
     if edit.kind == "setMeter":
         if edit.beats_per_measure is None or edit.beat_unit is None:

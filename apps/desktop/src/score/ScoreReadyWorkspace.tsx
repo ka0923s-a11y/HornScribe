@@ -1135,6 +1135,20 @@ export function ScoreReadyWorkspace({
     [applyRhythmEdit],
   );
 
+  /* #198: the tempo-octave fix — scales the tempo map AND every note
+   * value by the same factor, so playback seconds stay put while the
+   * written rhythm corrects itself. setTempo alone would relabel BPM
+   * and leave the (wrong) note values standing. */
+  const scaleTempo = useCallback(
+    (factor: number) => {
+      applyRhythmEdit(
+        () => ({ kind: "scaleTempo", noteId: "", factor }),
+        ja.commandFeedback.tempoChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   /* #129 (spec 14): meter edit — the engine re-tiles every part under
    * the new signature (positions rescale when the beat unit changes);
    * same serialized queue + undo stack as the other rhythm edits. */
@@ -1379,6 +1393,7 @@ export function ScoreReadyWorkspace({
       shiftSelectedOnset: (steps) => shiftSelectedOnset(steps),
       toggleSelectedTie: () => toggleSelectedTie(),
       setTempo: (bpm) => setTempo(bpm),
+      scaleTempo: (factor) => scaleTempo(factor),
       setMeter: (bpm_, bu) => setMeter(bpm_, bu),
       setKey: (fifths) => setKey(fifths),
       requantize: (settings) => requantize(settings),
@@ -1412,6 +1427,7 @@ export function ScoreReadyWorkspace({
     shiftSelectedOnset,
     toggleSelectedTie,
     setTempo,
+    scaleTempo,
     setMeter,
     setKey,
     requantize,
@@ -1587,7 +1603,8 @@ export function ScoreReadyWorkspace({
               return ja.review.retranscribeBasicPitch;
             }
             // #188: the tempo-uncertain issue resolves by applying
-            // the suggested BPM as a normal setTempo edit.
+            // the suggested correction as a scaleTempo edit — the
+            // note values must rescale with the BPM (#198).
             if (
               issue.reason === "tempo_uncertain" &&
               typeof issue.evidence["suggestedBpm"] === "number"
@@ -1617,8 +1634,12 @@ export function ScoreReadyWorkspace({
               issue.reason === "tempo_uncertain" &&
               typeof issue.evidence["suggestedBpm"] === "number"
             ) {
-              const bpm = issue.evidence["suggestedBpm"] as number;
-              return () => setTempo(bpm);
+              // #198: scaleTempo, not setTempo — the engine doubles/
+              // halves note values with the tempo so playback seconds
+              // stay invariant. Direction evidence says which way.
+              const factor =
+                issue.evidence["direction"] === "halve" ? 0.5 : 2;
+              return () => scaleTempo(factor);
             }
             return undefined;
           })()}

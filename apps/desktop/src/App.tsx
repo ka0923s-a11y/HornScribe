@@ -1456,6 +1456,9 @@ export default function App() {
                     onTempoChange={(bpm) =>
                       scoreCtlRef.current?.setTempo?.(bpm)
                     }
+                    onTempoScale={(factor) =>
+                      scoreCtlRef.current?.scaleTempo?.(factor)
+                    }
                     onMeterChange={(b, u) =>
                       scoreCtlRef.current?.setMeter?.(b, u)
                     }

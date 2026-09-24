@@ -44,6 +44,7 @@ export function PropertiesPanel({
   onReset,
   onClose,
   onTempoChange,
+  onTempoScale,
   onMeterChange,
   onKeyChange,
 }: {
@@ -62,6 +63,9 @@ export function PropertiesPanel({
   onClose(): void;
   /** §14: commit a new head tempo (BPM) via the engine score.edit. */
   onTempoChange?(bpm: number): void;
+  /** #198: tempo-octave fix — scales BPM and note values together
+   *  (the ÷2/×2 buttons; free-form BPM stays a setTempo relabel). */
+  onTempoScale?(factor: number): void;
   /** #129 (§14): commit a new meter via the engine score.edit. */
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
   /** #145 (§14): commit a new key signature via the engine score.edit. */
@@ -96,6 +100,7 @@ export function PropertiesPanel({
               model={model}
               pitch={pitch}
               onTempoChange={onTempoChange}
+              onTempoScale={onTempoScale}
               onMeterChange={onMeterChange}
               onKeyChange={onKeyChange}
             />
@@ -140,12 +145,14 @@ function InspectorBody({
   model,
   pitch,
   onTempoChange,
+  onTempoScale,
   onMeterChange,
   onKeyChange,
 }: {
   model: InspectorModel;
   pitch: PitchView;
   onTempoChange?(bpm: number): void;
+  onTempoScale?(factor: number): void;
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
   onKeyChange?(fifths: number): void;
 }) {
@@ -154,6 +161,7 @@ function InspectorBody({
       <ScoreBody
         model={model}
         onTempoChange={onTempoChange}
+        onTempoScale={onTempoScale}
         onMeterChange={onMeterChange}
         onKeyChange={onKeyChange}
       />
@@ -176,11 +184,13 @@ function InspectorBody({
 function ScoreBody({
   model,
   onTempoChange,
+  onTempoScale,
   onMeterChange,
   onKeyChange,
 }: {
   model: ScoreInspectorModel;
   onTempoChange?(bpm: number): void;
+  onTempoScale?(factor: number): void;
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
   onKeyChange?(fifths: number): void;
 }) {
@@ -190,7 +200,11 @@ function ScoreBody({
       <dl className="hs-properties__rows">
         <Row label={f.title} value={model.title} />
         {model.tempoBpm != null && onTempoChange ? (
-          <TempoField bpm={model.tempoBpm} onCommit={onTempoChange} />
+          <TempoField
+            bpm={model.tempoBpm}
+            onCommit={onTempoChange}
+            onScale={onTempoScale}
+          />
         ) : (
           model.tempoLabel && <Row label={f.tempo} value={model.tempoLabel} />
         )}
@@ -267,9 +281,14 @@ const TEMPO_MAX_BPM = 400;
 function TempoField({
   bpm,
   onCommit,
+  onScale,
 }: {
   bpm: number;
   onCommit(bpm: number): void;
+  /** #198: tempo-octave fix — rescales BPM and note values together.
+   *   Absent, the ÷2/×2 buttons hide (the BPM field alone cannot fix
+   *   written note values). */
+  onScale?(factor: number): void;
 }) {
   const f = ja.inspector.summaryFields;
   const [draft, setDraft] = useState<number | null>(bpm);
@@ -319,25 +338,29 @@ function TempoField({
         }}
       />
       {/* #188: auto tempo estimation's classic failure is a half/
-          double-octave pick — one-tap ×2/÷2 beats re-transcribing. */}
-      <div className="hs-properties__tempo-octave">
-        <HsButton
-          size="small"
-          variant="subtle"
-          disabled={bpm / 2 < TEMPO_MIN_BPM}
-          onClick={() => commitValue(Math.round(bpm / 2))}
-        >
-          {ja.inspector.tempoHalve}
-        </HsButton>
-        <HsButton
-          size="small"
-          variant="subtle"
-          disabled={bpm * 2 > TEMPO_MAX_BPM}
-          onClick={() => commitValue(Math.round(bpm * 2))}
-        >
-          {ja.inspector.tempoDouble}
-        </HsButton>
-      </div>
+          double-octave pick — one-tap ×2/÷2 beats re-transcribing.
+          #198: these rescale note values with the BPM (scaleTempo),
+          not a bare relabel — playback seconds stay invariant. */}
+      {onScale ? (
+        <div className="hs-properties__tempo-octave">
+          <HsButton
+            size="small"
+            variant="subtle"
+            disabled={bpm / 2 < TEMPO_MIN_BPM}
+            onClick={() => onScale(0.5)}
+          >
+            {ja.inspector.tempoHalve}
+          </HsButton>
+          <HsButton
+            size="small"
+            variant="subtle"
+            disabled={bpm * 2 > TEMPO_MAX_BPM}
+            onClick={() => onScale(2)}
+          >
+            {ja.inspector.tempoDouble}
+          </HsButton>
+        </div>
+      ) : null}
     </div>
   );
 }
