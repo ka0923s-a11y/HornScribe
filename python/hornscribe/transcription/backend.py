@@ -503,12 +503,20 @@ def predict_note_events_pyin(
 
 
 def new_transcription_revision(
-    audio_path: str, settings: dict[str, Any]
+    audio_hash: str,
+    settings: dict[str, Any],
+    backend_id: str = BACKEND_ID,
+    backend_version: str = BACKEND_VERSION,
 ) -> TranscriptionRevisionId:
-    """Content-derived ``tr-*`` id for one backend run (ids.py contract)."""
+    """Content-derived ``tr-*`` id for one backend run (ids.py contract).
+
+    #237: identity follows the RESOLVED backend (auto+mono -> pyin) and
+    the source content hash, not the pickup path — a moved file keeps
+    the same transcription identity.
+    """
     return derive_transcription_revision_id(
-        {"backend": BACKEND_ID, "version": BACKEND_VERSION,
-         "audioPath": audio_path, "settings": settings}
+        {"backend": backend_id, "version": backend_version,
+         "audioHash": audio_hash, "settings": settings}
     )
 
 

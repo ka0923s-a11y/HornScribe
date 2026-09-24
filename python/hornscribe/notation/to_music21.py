@@ -60,7 +60,11 @@ from music21 import (
 )
 from music21.stream import enums as stream_enums
 
-from hornscribe.domain.ids import ScoreNoteId, musicxml_note_id
+from hornscribe.domain.ids import (
+    MUSICXML_LAYOUT_REST_ID,
+    ScoreNoteId,
+    musicxml_note_id,
+)
 from hornscribe.domain.score import (
     KeyChange,
     MeasureSpan,
@@ -439,6 +443,10 @@ def _render_layer(
         rest = note.Rest(quarterLength=(end - start) * beat_ql)
         if hide_gap_rests:
             rest.style.hideObjectOnPrint = True
+        # #241: layout-only filler — marked in BOTH the marker id and
+        # (for secondary voices) print-object=no so the export id
+        # pass keeps it out of the hs-rest-* canonical ordinal space.
+        rest.id = MUSICXML_LAYOUT_REST_ID
         return rest
 
     placed: list[tuple[_Entry, note.GeneralNote]] = []

@@ -357,23 +357,43 @@ def run_transcription_job(
 
         # ---- transcribing (blocking ONNX call) ------------------------
         stage(1, 0.15)
-        revision = new_transcription_revision(
-            params.audio_path, params.settings_dict()
-        )
         # #189: "auto" picks the engine that fits the declared
         # texture — a declared-mono source gets the monophonic
         # tracker; mixes keep the polyphonic model.
         resolved_pyin = params.backend == "pyin" or (
             params.backend == "auto" and params.texture == "mono"
         )
+        # Resolved backend identity for provenance — used by the
+        # ScoreDocument fields, the job meta, AND the transcription
+        # revision id (#237: the tr-* id must name the backend that
+        # actually ran so a backend upgrade mints a new identity).
+        backend_id = PYIN_BACKEND_ID if resolved_pyin else BACKEND_ID
+        backend_version = BACKEND_VERSION
+        if resolved_pyin:
+            try:
+                import librosa  # noqa: PLC0415
+
+                backend_version = librosa.__version__
+            except Exception:
+                backend_version = "unknown"
+        revision = new_transcription_revision(
+            audio_hash or params.audio_path,
+            params.settings_dict(),
+            backend_id=backend_id,
+            backend_version=backend_version,
+        )
         if backend is not None:
             run_backend = backend
         else:
-            # Melody-texture jobs widen the detection band: JPOP vocals and
-            # mix melodies sit above the 880 Hz horn cap.
+            # Melody/auto/polyphonic textures widen the detection band:
+            # JPOP vocals and mix melodies sit above the 880 Hz horn cap
+            # (#236: auto must detect before it can judge — an 880 Hz
+            # ceiling would drop the melody before the auto classifier
+            # ever sees it).  Only the explicitly-monophonic texture
+            # keeps the narrow horn band.
             max_hz = (
                 MELODY_MAX_FREQUENCY_HZ
-                if params.texture == "melody"
+                if params.texture != "mono"
                 else None
             )
             if resolved_pyin:
@@ -392,18 +412,6 @@ def run_transcription_job(
         raw_events = run_backend(params.audio_path)
         if stop(1):
             return
-
-        # Resolved backend identity for provenance — used by both the
-        # ScoreDocument fields and the job meta (pyin -> librosa ver).
-        backend_id = PYIN_BACKEND_ID if resolved_pyin else BACKEND_ID
-        backend_version = BACKEND_VERSION
-        if resolved_pyin:
-            try:
-                import librosa  # noqa: PLC0415
-
-                backend_version = librosa.__version__
-            except Exception:
-                backend_version = "unknown"
 
         # ---- cleaning --------------------------------------------------
         stage(2, 0.55)

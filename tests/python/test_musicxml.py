@@ -13,7 +13,7 @@ from music21 import converter
 from conftest import make_score
 from hornscribe.domain.ids import (
     canonical_note_id_from_musicxml,
-    is_musicxml_rest_id,
+    is_musicxml_layout_rest_id,
 )
 from hornscribe.domain.score import KeyChange, KeySignature, PitchSpace
 from hornscribe.export.musicxml import (
@@ -78,9 +78,12 @@ def test_every_note_element_has_an_id() -> None:
 
 def test_rests_have_presentation_ids() -> None:
     xml = export_concert_musicxml(make_score([(60, 0, 1), (64, 3, 1)]))
-    rest_ids = [i for i in _all_note_ids(xml) if i.startswith("hs-rest-")]
+    # #241: gap-filler rests are layout-only — they carry
+    # hs-layout-rest-* ids and stay out of the canonical hs-rest-*
+    # ordinal space the frontend maps back to rest atoms.
+    rest_ids = [i for i in _all_note_ids(xml) if i.startswith("hs-layout-rest-")]
     assert rest_ids
-    assert all(is_musicxml_rest_id(i) for i in rest_ids)
+    assert all(is_musicxml_layout_rest_id(i) for i in rest_ids)
 
 
 def test_deterministic_part_and_instrument_ids() -> None:

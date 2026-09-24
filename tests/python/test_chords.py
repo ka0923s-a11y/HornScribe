@@ -370,6 +370,51 @@ class TestChordExport:
         assert xml.count("<chord />") == 1
         assert verify_rhythm_roundtrip(doc, xml) == []
 
+    def test_hidden_gap_rest_stays_out_of_rest_ordinals(self) -> None:
+        """#241: a secondary-voice gap filler must not consume an
+        hs-rest-* ordinal — the frontend resolves hs-rest-N to the
+        N-th canonical rest atom, so a filler before a canonical rest
+        would shift its target."""
+        atom = ScoreAtom(duration_beats=Fraction(2), symbol="half")
+        rest_atom = ScoreAtom(duration_beats=Fraction(1), symbol="quarter")
+        doc = _doc(
+            [
+                # The LONGER note must carry the lower pitch — layers
+                # are allocated lowest-pitch-first, so the sustained
+                # voice stays on layer 0 where canonical rests tile.
+                _qn(1, 60, "0", "2", atoms=(atom,)),   # held low note
+                _qn(2, 72, "0", "1",
+                    atoms=(ScoreAtom(duration_beats=Fraction(1),
+                                     symbol="quarter"),)),
+                _qn(3, 67, "5", "1", atoms=(rest_atom,)),
+            ],
+            rests=(
+                # Canonical rests tile every measure in strict mode:
+                # m1 [2,4), m2 [4,5) + [6,8) — three rest atoms total.
+                ScoreRest(
+                    start_beat=Fraction(2),
+                    atoms=(ScoreAtom(duration_beats=Fraction(2),
+                                     symbol="half"),),
+                ),
+                ScoreRest(start_beat=Fraction(4), atoms=(rest_atom,)),
+                ScoreRest(
+                    start_beat=Fraction(6),
+                    atoms=(ScoreAtom(duration_beats=Fraction(2),
+                                     symbol="half"),),
+                ),
+            ),
+        )
+        xml = export_concert_musicxml(doc)
+        # The layer-1 gap at beats [1,2) renders print-object=no and
+        # carries a layout id — the three canonical rests keep
+        # ordinals 1-3 even though the filler precedes them in
+        # document order.
+        assert 'id="hs-layout-rest-000001"' in xml
+        assert 'id="hs-rest-000001"' in xml
+        assert 'id="hs-rest-000003"' in xml
+        assert 'id="hs-rest-000004"' not in xml
+        assert verify_rhythm_roundtrip(doc, xml) == []
+
 
 # --- edits on chord parts -----------------------------------------------------
 

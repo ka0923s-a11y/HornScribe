@@ -11,7 +11,10 @@ emitted tree so exported documents are deterministic and identity-bearing:
   :func:`musicxml_note_id` — when engraving splits a canonical note into
   tied fragments, fragment ``k`` gets ``hs-sn-<id>-k`` so all ``xs:ID``
   values stay document-unique;
-* rest ``<note>`` elements carry presentation IDs ``hs-rest-*``;
+* canonical rest ``<note>`` elements carry presentation IDs
+  ``hs-rest-*``; layout-only filler rests (secondary-voice gaps,
+  non-strict measure padding) carry ``hs-layout-rest-*`` so they stay
+  out of the canonical rest ordinal space (#241);
 * ``score-part``/``part``/``score-instrument``/``midi-instrument`` IDs are
   normalized to deterministic ``P1..``/``I1..`` (music21 generates random
   ones);
@@ -35,7 +38,9 @@ from music21.musicxml.m21ToXml import GeneralObjectExporter
 from hornscribe.domain.ids import (
     ScoreNoteId,
     canonical_note_id_from_musicxml,
+    is_musicxml_layout_rest_id,
     is_musicxml_note_id,
+    musicxml_layout_rest_id,
     musicxml_note_id,
     musicxml_rest_id,
 )
@@ -224,11 +229,24 @@ def _assign_note_ids(root: ET.Element) -> None:
     """
     counts: dict[ScoreNoteId, int] = {}
     rest_ordinal = 0
+    layout_ordinal = 0
     for part_el in root.findall("part"):
         for note_el in part_el.iter("note"):
             # #155: <chord/> members are welcome — each carries its own
             # canonical note id (music21 preserves member note ids).
             if note_el.find("rest") is not None:
+                # #241: layout-only filler rests (secondary-voice gaps,
+                # non-strict measure padding) are marked by the renderer
+                # and must NOT consume a canonical hs-rest-* ordinal —
+                # the frontend resolves hs-rest-N to the N-th canonical
+                # rest atom, so a filler would shift every later rest.
+                if (
+                    note_el.get("print-object") == "no"
+                    or is_musicxml_layout_rest_id(note_el.get("id") or "")
+                ):
+                    layout_ordinal += 1
+                    note_el.set("id", musicxml_layout_rest_id(layout_ordinal))
+                    continue
                 rest_ordinal += 1
                 note_el.set("id", musicxml_rest_id(rest_ordinal))
                 continue
@@ -450,11 +468,16 @@ def read_exported_rhythm(xml_text: str) -> dict[str, tuple[ReloadedMeasure, ...]
                     # print-object=no — they are layout, not canonical
                     # content, so verification skips them.
                     hidden = child.get("print-object") == "no"
+                    # #241: layout fillers additionally carry an
+                    # hs-layout-rest-* id — skip either marker.
+                    layout = is_musicxml_layout_rest_id(
+                        child.get("id") or ""
+                    )
                     onset_ql = cursor_ql - last_dur_ql if is_chord else cursor_ql
                     if not is_chord:
                         cursor_ql += dur_ql
                         last_dur_ql = dur_ql
-                    if is_rest and hidden:
+                    if is_rest and (hidden or layout):
                         continue
                     ties = {t.get("type") for t in child.findall("tie")}
                     tm = child.find("time-modification")

@@ -145,6 +145,26 @@ def musicxml_rest_id(ordinal: int) -> str:
     return f"hs-rest-{ordinal:06d}"
 
 
+# #241: layout-only rests (secondary-voice gap fillers, non-strict
+# measure padding) live OUTSIDE the hs-rest-* ordinal namespace — the
+# frontend resolves hs-rest-N to the N-th canonical rest atom, so a
+# filler rest consuming an ordinal would shift every later rest.
+_MUSICXML_LAYOUT_REST_RE = re.compile(r"^hs-layout-rest(?:-\d{6})?$")
+MUSICXML_LAYOUT_REST_ID = "hs-layout-rest"
+
+
+def is_musicxml_layout_rest_id(value: str) -> bool:
+    """True for a layout-filler rest marker id (``hs-layout-rest[-N]``)."""
+    return _MUSICXML_LAYOUT_REST_RE.match(value) is not None
+
+
+def musicxml_layout_rest_id(ordinal: int) -> str:
+    """Document-unique id for a layout-only rest ``<note>`` element."""
+    if ordinal < 1:
+        raise ValueError(f"ordinal must be >= 1, got {ordinal}")
+    return f"hs-layout-rest-{ordinal:06d}"
+
+
 class IdAllocator:
     """Allocates sequential deterministic IDs inside one revision scope."""
 

@@ -9,6 +9,11 @@
  * rest atoms in part order therefore recovers (partId, atom startBeat,
  * atom durationBeats) for any ordinal — the data a restToNote edit
  * needs.
+ *
+ * #241: layout-only filler rests (secondary-voice gaps, non-strict
+ * measure padding) are exported as hs-layout-rest-* instead — they
+ * never consume an hs-rest-* ordinal, so the ordinal <-> canonical
+ * atom mapping below stays exact even in multi-voice scores.
  */
 import {
   parseFraction,
