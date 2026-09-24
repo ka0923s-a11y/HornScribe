@@ -224,6 +224,38 @@ body {
   background: var(--hs-status-error);
   pointer-events: none;
 }
+
+/* #88: range selection on the waveform. The committed band is a quiet
+   accent wash; the live drag preview is slightly stronger so the
+   gesture reads as in-progress. The label rides inside the band. */
+.hs-waveform--selectable {
+  cursor: crosshair;
+}
+.hs-waveform__selection {
+  position: absolute;
+  top: 0;
+  bottom: 6px;
+  background: color-mix(in srgb, var(--hs-accent) 18%, transparent);
+  border-left: 1px solid var(--hs-accent);
+  border-right: 1px solid var(--hs-accent);
+  pointer-events: none;
+  z-index: 2;
+}
+.hs-waveform__selection--live {
+  background: color-mix(in srgb, var(--hs-accent) 28%, transparent);
+}
+.hs-waveform__selection-label {
+  position: absolute;
+  left: var(--hs-space-xs);
+  top: var(--hs-space-xs);
+  padding: 0 var(--hs-space-xs);
+  background: var(--hs-surface-panel);
+  border-radius: 3px;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .hs-waveform__name {
   position: absolute;
   right: var(--hs-space-sm);

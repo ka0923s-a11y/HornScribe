@@ -1,9 +1,16 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ja } from "../strings/ja";
 import { resizeKeyDelta, startPointerResize } from "../workspace/layout";
 import type { LoadedAudio } from "../import/types";
 import type { CaptureState } from "../capture/controller";
 import { formatTimecode } from "../import/format";
+import {
+  clientXToSeconds,
+  DRAG_THRESHOLD_PX,
+  normalizeSelection,
+  selectionBand,
+  type SelectionRange,
+} from "../import/selection";
 
 /** Peak-column path for the strip: one <path> keeps redraw cost flat —
  *  vertical bars centred on the midline (the UI-004 wavesurfer adapter
@@ -26,9 +33,13 @@ function peaksPath(peaks: readonly number[]): string {
  *
  * UI-020: renders decoded peaks + playhead once audio loads (§4), the
  * 波形を読み込んでいます line while OPENING_AUDIO, and click-to-seek
- * (§8) against the transport clock. Drag-select/zoom land with the real
- * waveform feature; the region stays honest about what exists.
- */
+ * (§8) against the transport clock.
+ *
+ * #88: when `onSelect` is provided (AUDIO_READY), a horizontal drag past
+ * DRAG_THRESHOLD_PX commits a selection range instead of seeking — the
+ * committed band plus live drag preview paint over the peaks. A plain
+ * click still seeks so the user can audition the range edges.
+*/
 export function WaveformView({
   height,
   min,
@@ -40,6 +51,8 @@ export function WaveformView({
   positionSec,
   onSeek,
   captureState,
+  selection,
+  onSelect,
 }: {
   height: number;
   min: number;
@@ -60,6 +73,10 @@ export function WaveformView({
   /** FEAT-001 (#60): recording state — while a capture runs the strip
    *  shows the live recording status instead of a file's peaks. */
   captureState?: CaptureState | null;
+  /** #88: committed selection (seconds) — renders the band when set. */
+  selection?: SelectionRange | null;
+  /** #88: drag-to-select — when absent the strip stays seek-only. */
+  onSelect?(range: SelectionRange): void;
 }) {
   const path = useMemo(
     () => (audio ? peaksPath(audio.peaks) : ""),
@@ -70,23 +87,85 @@ export function WaveformView({
     positionSec != null && duration > 0
       ? Math.min(1, Math.max(0, positionSec / duration))
       : null;
+
+  // #88: drag gesture — a press+release under DRAG_THRESHOLD_PX stays a
+  // click (seek); past it the gesture becomes a range selection.
+  const [dragRange, setDragRange] = useState<SelectionRange | null>(null);
+  const gesture = useRef<{
+    pointerId: number;
+    startX: number;
+    startSec: number;
+    rect: DOMRect;
+    dragging: boolean;
+  } | null>(null);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!audio || duration <= 0 || e.button !== 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const g = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startSec: clientXToSeconds(e.clientX, rect.left, rect.width, duration),
+      rect,
+      dragging: false,
+    };
+    gesture.current = g;
+    const move = (ev: PointerEvent) => {
+      if (gesture.current !== g || ev.pointerId !== g.pointerId) return;
+      if (!g.dragging) {
+        if (Math.abs(ev.clientX - g.startX) < DRAG_THRESHOLD_PX) return;
+        if (!onSelect) return; // seek-only strip: drags do nothing
+        g.dragging = true;
+      }
+      const sec = clientXToSeconds(
+        ev.clientX,
+        g.rect.left,
+        g.rect.width,
+        duration,
+      );
+      setDragRange(normalizeSelection(g.startSec, sec, duration));
+    };
+    const finish = (commit: boolean) => (ev: PointerEvent) => {
+      if (gesture.current !== g || ev.pointerId !== g.pointerId) return;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      gesture.current = null;
+      if (g.dragging) {
+        setDragRange(null);
+        if (commit && onSelect) {
+          const sec = clientXToSeconds(
+            ev.clientX,
+            g.rect.left,
+            g.rect.width,
+            duration,
+          );
+          onSelect(normalizeSelection(g.startSec, sec, duration));
+        }
+      } else if (commit && onSeek) {
+        onSeek(g.startSec);
+      }
+    };
+    const onUp = finish(true);
+    const onCancel = finish(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+  };
+
+  const liveBand = selectionBand(dragRange, duration);
+  const committedBand = selectionBand(selection ?? null, duration);
+  const band = liveBand ?? committedBand;
+  const bandRange = dragRange ?? selection ?? null;
   return (
     <div
-      className="hs-waveform"
+      className={onSelect ? "hs-waveform hs-waveform--selectable" : "hs-waveform"}
       role="region"
       aria-label={ja.waveform.regionLabel}
       data-hs-focus-zone="waveform"
       tabIndex={0}
       style={{ height }}
-      onClick={
-        onSeek && duration > 0
-          ? (e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const r = (e.clientX - rect.left) / Math.max(1, rect.width);
-              onSeek(Math.min(1, Math.max(0, r)) * duration);
-            }
-          : undefined
-      }
+      onPointerDown={onPointerDown}
     >
       {loading ? (
         <span className="hs-waveform__placeholder">
@@ -129,6 +208,26 @@ export function WaveformView({
           >
             <path d={path} />
           </svg>
+          {band ? (
+            <div
+              className={liveBand
+                ? "hs-waveform__selection hs-waveform__selection--live"
+                : "hs-waveform__selection"}
+              style={{
+                left: band.left * 100 + "%",
+                width: band.width * 100 + "%",
+              }}
+              aria-hidden="true"
+            >
+              {bandRange ? (
+                <span className="hs-waveform__selection-label">
+                  {formatTimecode(bandRange.startSec)}
+                  {" – "}
+                  {formatTimecode(bandRange.endSec)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           {ratio !== null ? (
             <div
               className="hs-waveform__playhead"
@@ -155,6 +254,9 @@ export function WaveformView({
         aria-valuenow={height}
         tabIndex={0}
         onPointerDown={(e) => {
+          // Keep the resize gesture out of the strip's select/seek
+          // pointerdown (it bubbles up to .hs-waveform otherwise).
+          e.stopPropagation();
           const startH = height;
           const startY = e.clientY;
           startPointerResize(e, onResize, (_x, y) => startH + (y - startY));

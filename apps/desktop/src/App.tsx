@@ -983,6 +983,28 @@ export default function App() {
                     void transport.seek(s).catch(() => undefined);
                   }}
                   captureState={captureState}
+                  selection={
+                    screen === "audioReady" &&
+                    transcriptionOptions.range === "selection"
+                      ? {
+                          startSec: transcriptionOptions.selectionStartSec ?? 0,
+                          endSec:
+                            transcriptionOptions.selectionEndSec ??
+                            (importState.audio?.durationSeconds ?? 0),
+                        }
+                      : null
+                  }
+                  onSelect={
+                    screen === "audioReady"
+                      ? (range) =>
+                          setTranscriptionOptions({
+                            ...transcriptionOptions,
+                            range: "selection",
+                            selectionStartSec: range.startSec,
+                            selectionEndSec: range.endSec,
+                          })
+                      : undefined
+                  }
                 />
               ) : null}
               <div className="hs-main">
