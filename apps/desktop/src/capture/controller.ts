@@ -28,6 +28,9 @@ export interface CaptureState {
   readonly issue: CaptureIssue | null;
   /** 録音中の入力レベル(0.0–1.0)。#71 の簡易メーター。 */
   readonly level: number | null;
+  /** 一時停止中か(#80)。phase は "recording" のまま — 録音セッション
+   *  は生きており、再開/停止/中止が選べる。 */
+  readonly paused: boolean;
 }
 
 export const INITIAL_CAPTURE_STATE: CaptureState = {
@@ -37,6 +40,7 @@ export const INITIAL_CAPTURE_STATE: CaptureState = {
   deviceName: null,
   issue: null,
   level: null,
+  paused: false,
 };
 
 export interface CaptureEvents {
@@ -76,6 +80,24 @@ function classifyError(err: unknown, source: CaptureSource): CaptureIssue {
     msg.includes("0x80070490") // ERROR_NOT_FOUND
   ) {
     return { kind: "noDevice", source };
+  }
+  // #79: OS がデバイスアクセスを拒否(E_ACCESSDENIED 等)。
+  if (
+    msg.includes("E_ACCESSDENIED") ||
+    msg.includes("0x80070005") ||
+    msg.includes("NotAllowedError") ||
+    msg.includes("NotAllowed")
+  ) {
+    return { kind: "permissionDenied", source };
+  }
+  // #79: 録音中のデバイス喪失(切断/独占奪取)。
+  if (
+    msg.includes("AUDCLNT_E_DEVICE_INVALIDATED") ||
+    msg.includes("0x88890004") ||
+    msg.includes("device invalidated") ||
+    msg.includes("AbortError")
+  ) {
+    return { kind: "interrupted", source };
   }
   return { kind: "failed", detail: msg };
 }
@@ -153,6 +175,7 @@ export class CaptureController {
       deviceName: null,
       issue: null,
       level: null,
+      paused: false,
     });
     try {
       const fileName = source === "loopback"
@@ -169,6 +192,7 @@ export class CaptureController {
         deviceName: info.deviceName,
         issue: null,
         level: null,
+        paused: false,
       });
       this.pendingFileName = fileName;
       this.startedAtMs = Date.now();
@@ -187,6 +211,55 @@ export class CaptureController {
         deviceName: null,
         issue,
         level: null,
+        paused: false,
+      });
+      this.events.announce(issueText(issue));
+    }
+  }
+
+  /** 録音の一時停止(#80)。ポートが対応していなければ何もしない。 */
+  async pause(): Promise<void> {
+    if (this.state.phase !== "recording" || this.state.paused) return;
+    if (!this.port.pause) return;
+    try {
+      await this.port.pause();
+      this.setState({ ...this.state, paused: true, level: null });
+      this.events.announce(
+        "録音を一時停止しました。再開するまで音は記録されません。",
+      );
+    } catch (e) {
+      const issue = classifyError(e, this.state.source ?? "microphone");
+      this.setState({
+        phase: "error",
+        source: this.state.source,
+        elapsedSeconds: 0,
+        deviceName: null,
+        issue,
+        level: null,
+        paused: false,
+      });
+      this.events.announce(issueText(issue));
+    }
+  }
+
+  /** 一時停止した録音の再開(#80)。 */
+  async resume(): Promise<void> {
+    if (this.state.phase !== "recording" || !this.state.paused) return;
+    if (!this.port.resume) return;
+    try {
+      await this.port.resume();
+      this.setState({ ...this.state, paused: false });
+      this.events.announce("録音を再開しました");
+    } catch (e) {
+      const issue = classifyError(e, this.state.source ?? "microphone");
+      this.setState({
+        phase: "error",
+        source: this.state.source,
+        elapsedSeconds: 0,
+        deviceName: null,
+        issue,
+        level: null,
+        paused: false,
       });
       this.events.announce(issueText(issue));
     }
@@ -241,6 +314,7 @@ export class CaptureController {
         deviceName: null,
         issue,
         level: null,
+        paused: false,
       });
       this.events.announce(issueText(issue));
     }
@@ -281,11 +355,37 @@ export class CaptureController {
         try {
           const s = await this.port.status();
           if (this.state.phase !== "recording") return;
+          // #79: ワーカー側の致命的エラー(デバイス切断等)を stop を
+          // 待たずに拾う。エラー状態へ移してポート側を掃除する。
+          if (s.error) {
+            const issue = classifyError(
+              new Error(s.error),
+              this.state.source ?? "microphone",
+            );
+            this.stopTimer();
+            try {
+              await this.port.cancel();
+            } catch {
+              /* 掃除失敗は無視 — 状態は error に進む */
+            }
+            this.setState({
+              phase: "error",
+              source: this.state.source,
+              elapsedSeconds: 0,
+              deviceName: null,
+              issue,
+              level: null,
+              paused: false,
+            });
+            this.events.announce(issueText(issue));
+            return;
+          }
           this.setState({
             ...this.state,
             elapsedSeconds:
               s.elapsedSeconds ?? (Date.now() - this.startedAtMs) / 1000,
             level: s.level ?? null,
+            paused: s.paused ?? this.state.paused,
           });
         } catch {
           this.setState({
@@ -332,6 +432,14 @@ export function issueText(issue: CaptureIssue): string {
       return issue.source === "loopback"
         ? "PCの音の取り込みはデスクトップアプリでのみ利用できます。"
         : "この環境では録音を利用できません。";
+    case "permissionDenied":
+      return issue.source === "loopback"
+        ? "オーディオデバイスへのアクセスが許可されていません。デバイスの状態を確認してからもう一度お試しください。"
+        : "マイクへのアクセスが許可されていません。Windowsの設定 → プライバシーとセキュリティ → マイク で、このアプリへのアクセスを許可してください。";
+    case "interrupted":
+      return issue.source === "loopback"
+        ? "録音デバイスとの接続が切れました。再生デバイスの状態を確認して、録音をやり直してください。"
+        : "マイクとの接続が切れました。マイクを接続し直して、録音をやり直してください。";
     case "failed":
       return `録音に失敗しました: ${issue.detail}`;
   }

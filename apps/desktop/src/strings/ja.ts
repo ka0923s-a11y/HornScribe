@@ -142,6 +142,7 @@ export const ja = {
     themeLight: "ライト",
     themeDark: "ダーク",
     playbackSection: "再生",
+    recordingsSection: "録音",
     transcriptionSection: "採譜",
     exportSection: "書き出し",
     toolsSection: "ツール",
@@ -179,6 +180,19 @@ export const ja = {
     logs: "ログの場所",
     openLogs: "ログフォルダを開く",
     openDiagnostics: "診断情報を開く",
+    /* #78: 録音ファイル管理 */
+    recordingsFolder: "録音の保存先",
+    recordingsCount: (n: number) => `${n} 件の録音`,
+    recordingsEmpty: "録音はありません",
+    recordingsOpen: "フォルダを開く",
+    recordingsClear: "すべて削除",
+    recordingsClearConfirmTitle: "録音をすべて削除しますか?",
+    recordingsClearConfirmBody:
+      "保存先フォルダ内の録音ファイルをすべて削除します。この操作は取り消せません。",
+    recordingsClearConfirm: "削除する",
+    recordingsCleared: "録音を削除しました",
+    recordingsUnavailable:
+      "録音の管理はデスクトップアプリで利用できます。",
   },
 
   time: {
@@ -402,6 +416,9 @@ export const ja = {
     captureMicrophone: "マイクで録音",
     stopCapture: "録音を終了して取り込む",
     cancelCapture: "録音をやめる",
+    /* #80: 録音の一時停止/再開 */
+    pauseCapture: "録音を一時停止",
+    resumeCapture: "録音を再開",
     toggleAudition: "楽譜を演奏",
     toggleSourceMute: "元音源のミュート",
   },
@@ -1205,6 +1222,12 @@ export const ja = {
       "新しく取り込むと、現在の音源は置き換えられます。続けますか?",
     replaceConfirm: "取り込む",
     replaceCancel: "キャンセル",
+    /** #80: 一時停止中の表示/アナウンス。 */
+    pausedLabel: "一時停止中",
+    pausedAnnounce: "録音を一時停止しました。再開するまで音は記録されません。",
+    resumedAnnounce: "録音を再開しました",
+    /** #79: 録音中にデバイスが切断・拒否された時の説明。 */
+    interruptedAnnounce: "録音デバイスとの接続が切れました。録音をやり直してください。",
   },
 } as const;
 

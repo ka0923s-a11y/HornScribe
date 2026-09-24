@@ -49,6 +49,11 @@ export const ERR = {
   JOB_TIMEOUT: "JOB_TIMEOUT",
   JOB_FAILED: "JOB_FAILED",
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  // ---- wire codes added by the real engine (ENG-002) ----
+  /** The worker is up but a required engine package is missing. */
+  ENGINE_DEPENDENCY_MISSING: "ENGINE_DEPENDENCY_MISSING",
+  /** The pipeline found no pitched notes — a content outcome, not a crash. */
+  NO_PITCHED_CONTENT: "NO_PITCHED_CONTENT",
   // ---- shell-side supervision codes (not wire codes) ----
   /** The worker process exited without a graceful shutdown. */
   WORKER_CRASHED: "WORKER_CRASHED",

@@ -126,7 +126,9 @@ own read-timeout/kill path. Subject to removal without notice.
 
 `PROTOCOL_VERSION_MISMATCH`, `MALFORMED_MESSAGE`, `UNKNOWN_METHOD`,
 `INVALID_PARAMS`, `JOB_NOT_FOUND`, `JOB_ALREADY_RUNNING`,
-`UNKNOWN_JOB_KIND`, `JOB_TIMEOUT`, `JOB_FAILED`, `INTERNAL_ERROR`.
+`UNKNOWN_JOB_KIND`, `JOB_TIMEOUT`, `JOB_FAILED`, `INTERNAL_ERROR`,
+`ENGINE_DEPENDENCY_MISSING` **[ENG-002]**, `NO_PITCHED_CONTENT`
+**[ENG-002]**.
 
 ## Shell-side extensions [UI-040]
 
@@ -149,12 +151,54 @@ from `progress` or elapsed time — an omitted stage is an honest
 ### `transcription` job kind
 
 The real transcription job kind (`job.start {jobKind: "transcription"}`)
-is not yet implemented in the spike worker — `SUPPORTED_JOB_KINDS` is
-still `("demoLongTask",)`. The shell picks `transcription` when
-`capabilities.jobKinds` advertises it and falls back to `demoLongTask`
-otherwise (the documented UI-002→UI-040 bridge). `MockSidecarPort`
-implements `transcription` with the demoLongTask step engine plus
-`stage` fields and the result payload below.
+is implemented by ENG-002 (`python/hornscribe/transcription/`);
+`SUPPORTED_JOB_KINDS` is `("transcription", "demoLongTask")` — the demo
+kind stays for protocol/regression tests. The shell picks
+`transcription` when `capabilities.jobKinds` advertises it and falls
+back to `demoLongTask` otherwise (the documented UI-002→UI-040 bridge,
+still exercised by `MockSidecarPort`, which emulates `transcription`
+with the demoLongTask step engine plus `stage` fields and the result
+payload below).
+
+#### `job.start` params (`transcription`) [ENG-002]
+
+`params` is an object; all fields are optional except `audioPath`:
+
+| key                  | type    | notes                                        |
+|----------------------|---------|----------------------------------------------|
+| `audioPath`          | string  | required — absolute path the engine reads    |
+| `tempoBpm`           | number  | manual tempo (primary-beat BPM); omit = auto |
+| `meter`              | string  | `"auto"` or one of `4/4,3/4,2/4,6/8`          |
+| `minDuration`        | string  | `"8"`/`"16"`/`"32"` — finest notated value    |
+| `triplets`           | string  | `"auto"`/`"allow"`/`"none"`                   |
+| `simplicity`         | string  | `"standard"`/`"simple"`/`"detailed"`          |
+| `range`              | string  | `"all"`/`"selection"`                         |
+| `selectionStartSec`  | number  | required with `range:"selection"`            |
+| `selectionEndSec`    | number  | required with `range:"selection"` (> start)  |
+| `deadlineMs`         | number  | wall-clock cap (same as demoLongTask)        |
+
+#### `completed` → `result` (`transcription`) [ENG-002]
+
+`result` carries the score handoff:
+
+- `scoreRevision` — `rev-*` content-derived score revision id;
+- `scoreDocument` — the canonical `ScoreDocument.to_dict()`;
+- `reviewIssues` — `ReviewIssue.to_dict()` payloads (see below);
+- `musicXmlConcert` / `musicXmlHornF` — MusicXML 4.0 bodies for the
+  concert-pitch and written-F管 presentations (identical `hs-sn-*` ids);
+- `meta` — backend/version, duration, tempo (auto flag), meter,
+  key estimate (fifths/mode/confidence), note count, pickup beats,
+  alignment shift, review reasons, cleaning stats, echoed settings.
+
+#### Error codes added by ENG-002
+
+- `ENGINE_DEPENDENCY_MISSING` — the worker is up but a required engine
+  package (basic_pitch, librosa) is not importable. `details.package`
+  names the missing module. Retrying cannot help until the environment
+  is fixed.
+- `NO_PITCHED_CONTENT` — the pipeline ran cleanly but found no pitched
+  notes (silent/noise-only audio, or an empty selection). A
+  content-level outcome, not a crash.
 
 ### `job.event` `completed` → `result.reviewIssues`
 

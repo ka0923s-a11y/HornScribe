@@ -11,6 +11,7 @@ import {
   Mic24Regular,
   Speaker2Regular,
   Stop24Regular,
+  Pause24Regular,
   Dismiss24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
@@ -278,9 +279,29 @@ export function CommandBar({
                 {captureState?.elapsedSeconds != null
                   ? ` ${formatElapsed(captureState.elapsedSeconds)}`
                   : ""}
+                {captureState?.paused ? ` — ${ja.capture.pausedLabel}` : ""}
               </span>
             </ToolbarButton>
           </Tooltip>
+          {/* #80: 一時停止/再開 — paused 中はアイコンと対象コマンドが
+              切り替わる。停止・中止は paused 中もそのまま使える。 */}
+          {captureState?.paused ? (
+            <Tooltip content={commands.title("media.resumeCapture")} relationship="label">
+              <ToolbarButton
+                icon={<Play24Regular />}
+                aria-label={commands.title("media.resumeCapture")}
+                onClick={() => commands.invoke("media.resumeCapture")}
+              />
+            </Tooltip>
+          ) : (
+            <Tooltip content={commands.title("media.pauseCapture")} relationship="label">
+              <ToolbarButton
+                icon={<Pause24Regular />}
+                aria-label={commands.title("media.pauseCapture")}
+                onClick={() => commands.invoke("media.pauseCapture")}
+              />
+            </Tooltip>
+          )}
           <Tooltip content={commands.title("media.cancelCapture")} relationship="label">
             <ToolbarButton
               icon={<Dismiss24Regular />}

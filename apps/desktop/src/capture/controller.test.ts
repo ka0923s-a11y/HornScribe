@@ -169,4 +169,79 @@ describe("CaptureController", () => {
       "C:\\rec\\take.wav",
     );
   });
+
+  it("pauses and resumes via the port (#80)", async () => {
+    const pause = vi.fn(async () => {});
+    const resume = vi.fn(async () => {});
+    const port = makePort({ pause, resume });
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+    await c.start("microphone");
+    await c.pause();
+    expect(pause).toHaveBeenCalled();
+    expect(c.getState().paused).toBe(true);
+    // phase stays "recording" — the session is alive.
+    expect(c.getState().phase).toBe("recording");
+    await c.resume();
+    expect(resume).toHaveBeenCalled();
+    expect(c.getState().paused).toBe(false);
+  });
+
+  it("pause is a no-op for ports without pause support", async () => {
+    const port = makePort(); // no pause/resume methods
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+    await c.start("microphone");
+    await c.pause();
+    expect(c.getState().paused).toBe(false);
+  });
+
+  it("maps E_ACCESSDENIED to permissionDenied (#79)", async () => {
+    const port = makePort({
+      start: vi.fn(async () => {
+        throw new Error("IAudioClient::Initialize: HRESULT 0x80070005");
+      }),
+    });
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+    await c.start("microphone");
+    expect(c.getState().issue?.kind).toBe("permissionDenied");
+  });
+
+  it("maps device invalidation to interrupted (#79)", async () => {
+    const port = makePort({
+      start: vi.fn(async () => {
+        throw new Error("GetBuffer: HRESULT 0x88890004");
+      }),
+    });
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+    await c.start("loopback");
+    expect(c.getState().issue?.kind).toBe("interrupted");
+  });
+
+  it("surfaces a worker error from status polling (#79)", async () => {
+    vi.useFakeTimers();
+    try {
+      const port = makePort({
+        status: vi.fn(async (): Promise<CaptureStatus> => ({
+          active: true,
+          source: "microphone",
+          elapsedSeconds: 1,
+          deviceName: "dev",
+          error: "GetBuffer: HRESULT 0x88890004",
+        })),
+      });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      await c.start("microphone");
+      // The 200 ms status poll picks the worker error up.
+      await vi.advanceTimersByTimeAsync(300);
+      expect(c.getState().phase).toBe("error");
+      expect(c.getState().issue?.kind).toBe("interrupted");
+      expect(port.cancel).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

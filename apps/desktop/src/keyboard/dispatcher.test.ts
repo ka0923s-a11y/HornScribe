@@ -30,6 +30,7 @@ const EMPTY: CommandSnapshot = {
   reviewOpen: false,
   reviewCount: 0,
       isRecording: false,
+      isRecordingPaused: false,
       auditionEnabled: false,
   view: "workspace",
 };

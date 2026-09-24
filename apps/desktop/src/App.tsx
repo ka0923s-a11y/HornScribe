@@ -30,6 +30,10 @@ import { useAppSettings, type SettingsCategory } from "./settings/store";
 import type { PitchView } from "./components/PitchSegmented";
 import { createFixtureScoreDocument } from "./score/fixtureDocument";
 import { scoreHandoffFromResult } from "./score/jobResult";
+import {
+  createEngineScoreDocument,
+  engineDocumentFromResult,
+} from "./score/xmlDocument";
 import type { ScoreDocumentPort } from "./score/document";
 import type { InspectorModel } from "./score/inspector";
 import type {
@@ -68,6 +72,7 @@ import {
   type AudioFileRef,
   type TranscriptionOptions,
 } from "./import/types";
+import { buildTranscriptionParams } from "./import/transcriptionParams";
 import { formatTimecode } from "./import/format";
 import { HsButton } from "./components/primitives/Button";
 import { HsDialog } from "./components/primitives/Dialog";
@@ -236,11 +241,19 @@ export default function App() {
     if (!jobPhase) return;
     if (jobPhase === "completed") {
       setHasScore(true);
-      setScoreDocument(
-        createFixtureScoreDocument(
-          scoreHandoffFromResult(sessionSnap.lastResult),
-        ),
-      );
+      // ENG-002: a real engine result carries MusicXML — build the
+      // document from it. The mock/dev result carries none, so the
+      // deterministic fixture stays the honest fallback there.
+      const engineInput = engineDocumentFromResult(sessionSnap.lastResult);
+      const handoff = scoreHandoffFromResult(sessionSnap.lastResult);
+      const engineDoc =
+        engineInput !== null
+          ? createEngineScoreDocument({
+              ...engineInput,
+              issues: handoff?.issues ?? [],
+            })
+          : null;
+      setScoreDocument(engineDoc ?? createFixtureScoreDocument(handoff));
       setScreen("scoreReady");
       setStatusMessage(ja.transcription.completed);
       session.clearJob();
@@ -343,6 +356,19 @@ export default function App() {
   );
   useEffect(() => () => capture.dispose(), [capture]);
 
+  // #81: 録音中にアプリを閉じると録音は失われる。WebView2/Tauri でも
+  // beforeunload の preventDefault は閉じる確認として扱われるため、
+  // 録音中だけガードを掛ける(録音していない時の常駐確認はしない)。
+  const recordingActive = captureState?.phase === "recording";
+  useEffect(() => {
+    if (!recordingActive) return;
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [recordingActive]);
+
   // #73: デバイス一覧はメニューを開く度に取り直す(抜き差しに追従)。
   const refreshCaptureDevices = useCallback(() => {
     void capture
@@ -425,6 +451,8 @@ export default function App() {
       view,
       // FEAT-001: recording + audition gates for the command registry.
       isRecording: captureState?.phase === "recording",
+      isRecordingPaused:
+        captureState?.phase === "recording" && captureState.paused,
       auditionEnabled: scoreState?.auditionEnabled ?? false,
     }),
     [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view, captureState],
@@ -460,9 +488,13 @@ export default function App() {
         // every later transition; a failed start lands on the §20 surface.
         setScreen("transcribing");
         setStatusMessage(ja.transcription.start);
-        session.startTranscription().catch(() => {
-          /* failure flag drives the error surface */
-        });
+        session
+          .startTranscription(
+            buildTranscriptionParams(importState.audio, transcriptionOptions),
+          )
+          .catch(() => {
+            /* failure flag drives the error surface */
+          });
       },
       cancelTranscription: () => {
         // Cooperative job.cancel — the terminal `cancelled` event is the
@@ -554,6 +586,12 @@ export default function App() {
       cancelCapture: () => {
         void capture.cancel();
       },
+      pauseCapture: () => {
+        void capture.pause();
+      },
+      resumeCapture: () => {
+        void capture.resume();
+      },
       toggleScoreAudition: () => {
         const c = scoreCtlRef.current;
         if (c) c.toggleAudition();
@@ -623,7 +661,7 @@ export default function App() {
       },
       announce: setStatusMessage,
     }),
-    [importer, transport, seekBy, session, capture, requestCapture, transportSnap],
+    [importer, transport, seekBy, session, capture, requestCapture, transportSnap, importState.audio, transcriptionOptions],
   );
 
   // The dispatcher reads the snapshot lazily per key event, so it must see
@@ -788,6 +826,9 @@ export default function App() {
         setNativeDrag(false);
       } else {
         setNativeDrag(false);
+        // 録音中のドロップは onDropFiles と同じゲート — 取り込み済みの
+        // 録音を黙って上書きしない。
+        if (captureState?.phase === "recording") return;
         const refs: AudioFileRef[] = payload.paths.map((path) => ({
           kind: "path",
           path,
@@ -803,7 +844,7 @@ export default function App() {
       alive = false;
       unlisten?.();
     };
-  }, [importer]);
+  }, [importer, captureState?.phase]);
 
   // Assembled once per render for the import-owned score bodies
   // (ImportStates.tsx) — keeps ScoreWorkspace's prop surface small.
@@ -938,7 +979,14 @@ export default function App() {
                           setScreen("transcribing");
                           setStatusMessage(ja.transcription.start);
                           session.clearFailure();
-                          session.startTranscription().catch(() => undefined);
+                          session
+                            .startTranscription(
+                              buildTranscriptionParams(
+                                importState.audio,
+                                transcriptionOptions,
+                              ),
+                            )
+                            .catch(() => undefined);
                         } else {
                           // エンジンを再起動 — the §20 crash recovery action.
                           setEngineRestarting(true);

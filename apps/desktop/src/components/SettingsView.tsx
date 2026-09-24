@@ -27,10 +27,19 @@ import {
   type AppSettings,
   type SettingsCategory,
 } from "../settings/store";
+import {
+  clearRecordings,
+  formatBytes,
+  getRecordingsInfo,
+  openRecordingsDir,
+  type RecordingsInfo,
+} from "../capture/recordings";
+import { HsDialog } from "./primitives/Dialog";
 
 const CATEGORY_LABEL: Record<SettingsCategory, string> = {
   appearance: ja.settings.appearanceSection,
   playback: ja.settings.playbackSection,
+  recordings: ja.settings.recordingsSection,
   transcription: ja.settings.transcriptionSection,
   score: ja.settings.scoreSection,
   export: ja.settings.exportSection,
@@ -99,7 +108,7 @@ function PathField({
 /**
  * 設定 — auxiliary screen, not a work mode (GUI_UX_SPEC §18; issue UI-060).
  *
- * Left nav lists the seven categories (外観/再生/採譜/楽譜/書き出し/ツール/
+ * Left nav lists the categories (外観/再生/録音/採譜/楽譜/書き出し/ツール/
  * 詳細設定); only the selected panel renders, so advanced settings never
  * leak into the workspace. There is intentionally NO language setting —
  * the UI is Japanese-only by contract.
@@ -183,6 +192,16 @@ export function SettingsView({
     }
   }, [diagnosticsPort, onAnnounce]);
 
+  // #78: 録音ファイル管理 — カテゴリを開いた時に情報を取り直す。
+  const [recInfo, setRecInfo] = useState<RecordingsInfo | null>(null);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const refreshRecordings = useCallback(() => {
+    void getRecordingsInfo().then(setRecInfo);
+  }, []);
+  useEffect(() => {
+    if (category === "recordings") refreshRecordings();
+  }, [category, refreshRecordings]);
+
   const section = (() => {
     switch (category) {
       case "appearance":
@@ -233,6 +252,50 @@ export function SettingsView({
               }
               label={s.followPlayback}
             />
+          </>
+        );
+
+      case "recordings":
+        return (
+          <>
+            <div className="hs-settings__field">
+              <Label>{s.recordingsFolder}</Label>
+              <div className="hs-settings__path-row">
+                <p className="hs-settings__value">
+                  {recInfo?.dir ?? ja.diagnostics.notConnected}
+                </p>
+                <HsButton
+                  size="small"
+                  disabled={!recInfo}
+                  onClick={() => {
+                    void openRecordingsDir().then((ok) => {
+                      if (!ok) onAnnounce(s.recordingsUnavailable);
+                    });
+                  }}
+                >
+                  {s.recordingsOpen}
+                </HsButton>
+              </div>
+            </div>
+            <div className="hs-settings__field">
+              <Label>{s.recordingsSection}</Label>
+              <div className="hs-settings__path-row">
+                <p className="hs-settings__value">
+                  {recInfo
+                    ? recInfo.fileCount > 0
+                      ? `${s.recordingsCount(recInfo.fileCount)} — ${formatBytes(recInfo.totalBytes)}`
+                      : s.recordingsEmpty
+                    : s.recordingsUnavailable}
+                </p>
+                <HsButton
+                  size="small"
+                  disabled={!recInfo || recInfo.fileCount === 0}
+                  onClick={() => setClearConfirmOpen(true)}
+                >
+                  {s.recordingsClear}
+                </HsButton>
+              </div>
+            </div>
           </>
         );
 
@@ -488,6 +551,44 @@ export function SettingsView({
           </HsPanel>
         </div>
       </div>
+
+      {/* #78: 録音の全削除は破壊的操作 — alert 確認を挟む。 */}
+      <HsDialog
+        open={clearConfirmOpen}
+        modalType="alert"
+        title={s.recordingsClearConfirmTitle}
+        onOpenChange={(open) => {
+          if (!open) setClearConfirmOpen(false);
+        }}
+        actions={
+          <>
+            <HsButton
+              variant="danger"
+              onClick={() => {
+                setClearConfirmOpen(false);
+                void clearRecordings().then((freed) => {
+                  if (freed !== null) {
+                    onAnnounce(
+                      `${s.recordingsCleared} (${formatBytes(freed)})`,
+                    );
+                  }
+                  refreshRecordings();
+                });
+              }}
+            >
+              {s.recordingsClearConfirm}
+            </HsButton>
+            <HsButton
+              variant="secondary"
+              onClick={() => setClearConfirmOpen(false)}
+            >
+              {ja.capture.replaceCancel}
+            </HsButton>
+          </>
+        }
+      >
+        <p style={{ margin: 0 }}>{s.recordingsClearConfirmBody}</p>
+      </HsDialog>
     </div>
   );
 }

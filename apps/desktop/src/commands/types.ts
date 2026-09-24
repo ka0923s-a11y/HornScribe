@@ -52,6 +52,8 @@ export interface CommandSnapshot {
   readonly reviewCount: number;
   /** FEAT-001: a recording session is in progress (loopback/mic). */
   readonly isRecording: boolean;
+  /** FEAT-001 (#80): the recording session is paused. */
+  readonly isRecordingPaused: boolean;
   /** FEAT-001: score audition (auto-playback of the score) is on. */
   readonly auditionEnabled: boolean;
   /** Active top-level view. */
@@ -90,6 +92,10 @@ export interface CommandContext {
   stopCapture?(): void;
   /** 録音を中止して破棄する。 */
   cancelCapture?(): void;
+  /** 録音を一時停止する(#80)。 */
+  pauseCapture?(): void;
+  /** 一時停止した録音を再開する(#80)。 */
+  resumeCapture?(): void;
   /** 楽譜の自動演奏トグル(スコアクロックに同期して発音)。 */
   toggleScoreAudition?(): void;
   /** 元音源のミュート切替(#72)。楽譜の演奏だけを聴く用途。 */

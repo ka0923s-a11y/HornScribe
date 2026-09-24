@@ -110,6 +110,10 @@ struct SharedBuf {
     samples: VecDeque<f32>,
     /// `true` でワーカーが終了処理に入る(取得ループを抜ける)。
     stopping: bool,
+    /// `true` で取得を一時停止(#80)。停止中はクライアントを止めて
+    /// パケットを捨てる — 再開後に「止めていた間の音」が紛れ込まない
+    /// よう、一時停止は録音ギャップとして正直に扱う。
+    paused: bool,
     /// ワーカーからの致命的エラーメッセージ(診断に流す)。
     error: Option<String>,
     /// 取り込み済みフレーム数(経過時間表示用)。
@@ -157,6 +161,12 @@ pub struct CaptureStatus {
     pub device_name: Option<String>,
     /// 直近の入力ピーク(0.0–1.0)。ポーリング毎に減衰する簡易メーター。
     pub level: Option<f32>,
+    /// 一時停止中か(#80)。経過時間は paused 中は伸びない。
+    pub paused: bool,
+    /// ワーカースレッドの致命的エラー(#79: デバイス切断等を停止を待た
+    /// ずに UI へ伝える)。読み取っても消費しない — stop 時のエラー
+    /// 返却経路はそのまま残す。
+    pub error: Option<String>,
 }
 
 #[tauri::command]
@@ -179,6 +189,8 @@ pub fn capture_status() -> CaptureStatus {
                 elapsed_seconds: Some(elapsed),
                 device_name: Some(s.info.device_name.clone()),
                 level: Some(level),
+                paused: shared.paused,
+                error: shared.error.clone(),
             }
         }
         None => CaptureStatus {
@@ -187,8 +199,30 @@ pub fn capture_status() -> CaptureStatus {
             elapsed_seconds: None,
             device_name: None,
             level: None,
+            paused: false,
+            error: None,
         },
     }
+}
+
+/// 録音の一時停止(#80)。録音中でなければ `CAPTURE_NOT_ACTIVE`。
+#[tauri::command]
+pub fn capture_pause() -> Result<(), String> {
+    let guard = SESSION.lock().map_err(|_| "capture session lock")?;
+    let session = guard.as_ref().ok_or("CAPTURE_NOT_ACTIVE")?;
+    let mut s = session.shared.lock().unwrap_or_else(|e| e.into_inner());
+    s.paused = true;
+    Ok(())
+}
+
+/// 一時停止した録音の再開(#80)。
+#[tauri::command]
+pub fn capture_resume() -> Result<(), String> {
+    let guard = SESSION.lock().map_err(|_| "capture session lock")?;
+    let session = guard.as_ref().ok_or("CAPTURE_NOT_ACTIVE")?;
+    let mut s = session.shared.lock().unwrap_or_else(|e| e.into_inner());
+    s.paused = false;
+    Ok(())
 }
 
 /// 録音開始。`source` は `"loopback"` または `"microphone"`。
@@ -215,6 +249,7 @@ pub fn capture_start(
     let shared = Arc::new(Mutex::new(SharedBuf {
         samples: VecDeque::new(),
         stopping: false,
+        paused: false,
         error: None,
         frames: 0,
         silent_frames: 0,
@@ -380,6 +415,98 @@ pub fn capture_cancel() -> Result<(), String> {
     session.cancel.store(true, Ordering::SeqCst);
     let _ = session.handle.join();
     Ok(())
+}
+
+/* ------------------------- recordings lifecycle (#78) ----------------------- */
+
+/// `recordings_info` の返り値 — 設定画面の録音管理セクション用。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingsInfo {
+    /// appDataDir/recordings/ の絶対パス(表示用)。
+    pub dir: String,
+    /// 保存済み WAV の件数。
+    pub file_count: u32,
+    /// 合計バイト数。
+    pub total_bytes: u64,
+}
+
+fn recordings_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("recordings"))
+}
+
+/// 録音フォルダの場所・件数・使用量(#78)。
+#[tauri::command]
+pub fn recordings_info(app: tauri::AppHandle) -> Result<RecordingsInfo, String> {
+    let dir = recordings_dir(&app)?;
+    let mut file_count = 0u32;
+    let mut total_bytes = 0u64;
+    if dir.is_dir() {
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("wav")
+                && path.is_file()
+            {
+                file_count += 1;
+                total_bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    Ok(RecordingsInfo {
+        dir: dir.to_string_lossy().into_owned(),
+        file_count,
+        total_bytes,
+    })
+}
+
+/// 録音フォルダをエクスプローラーで開く(#78)。フォルダが無ければ作成
+/// してから開く(空で開けない方が不親切)。
+#[tauri::command]
+pub fn open_recordings_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = recordings_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("recordings dir: {e}"))?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("explorer {}: {e}", dir.display()))?;
+    Ok(())
+}
+
+/// 録音フォルダの WAV を全削除し、解放したバイト数を返す(#78)。
+/// 録音中は拒否する — 進行中セッションの保存先を消すと stop 時に
+/// 失敗するため。
+#[tauri::command]
+pub fn clear_recordings(app: tauri::AppHandle) -> Result<u64, String> {
+    {
+        let guard = SESSION.lock().map_err(|_| "capture session lock")?;
+        if guard.is_some() {
+            return Err("CAPTURE_BUSY".to_string());
+        }
+    }
+    let dir = recordings_dir(&app)?;
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    let mut freed = 0u64;
+    let entries =
+        std::fs::read_dir(&dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("wav") && path.is_file() {
+            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            if std::fs::remove_file(&path).is_ok() {
+                freed += size;
+            }
+        }
+    }
+    Ok(freed)
 }
 
 /* ------------------------------- internals -------------------------------- */
@@ -563,6 +690,10 @@ fn run_capture(
             .saturating_mul(channels)
             .saturating_mul((MAX_SECONDS + MAX_SECONDS_SLACK) as usize);
 
+        // #80 一時停止: クライアント自体を止めてパケットを捨てる。
+        // バッファを貯めて後で読む方式にすると「止めていた間の音」が
+        // 録音に紛れ込むので、ここでは正直なギャップを選ぶ。
+        let mut paused_active = false;
         loop {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -572,6 +703,25 @@ fn run_capture(
                 if s.stopping {
                     break;
                 }
+                if s.paused != paused_active {
+                    if s.paused {
+                        let _ = audio.Stop();
+                    } else {
+                        audio
+                            .Start()
+                            .map_err(|e| {
+                                format!(
+                                    "IAudioClient::Start (resume): {}",
+                                    hresult_message(&e)
+                                )
+                            })?;
+                    }
+                    paused_active = s.paused;
+                }
+            }
+            if paused_active {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                continue;
             }
             // 取得可能なフレームがあれば全て取り込む。なければ次のポーリングへ。
             let mut next_size = capture

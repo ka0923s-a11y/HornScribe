@@ -35,6 +35,13 @@ ERR_UNKNOWN_JOB_KIND: Final = "UNKNOWN_JOB_KIND"
 ERR_JOB_TIMEOUT: Final = "JOB_TIMEOUT"
 ERR_JOB_FAILED: Final = "JOB_FAILED"
 ERR_INTERNAL: Final = "INTERNAL_ERROR"
+# ENG-002: the worker is up but a required engine package (basic_pitch,
+# librosa, ...) is not importable — retrying cannot help until the
+# environment is fixed, so the UI tailors its recovery copy.
+ERR_ENGINE_DEPENDENCY_MISSING: Final = "ENGINE_DEPENDENCY_MISSING"
+# ENG-002: the pipeline ran cleanly but found no pitched notes — a
+# content-level outcome, not a crash (retry on the same audio is futile).
+ERR_NO_PITCHED_CONTENT: Final = "NO_PITCHED_CONTENT"
 
 # A JSON dict that maps onto the wire envelope.
 Envelope = dict[str, Any]

@@ -14,6 +14,7 @@
 use serde::Serialize;
 
 mod capture;
+mod engine;
 
 /// Audio containers the import UX advertises (GUI_UX_SPEC §3 formats line).
 /// The frontend rejects other extensions before reaching this command; the
@@ -112,7 +113,21 @@ pub fn run() {
             capture::capture_cancel,
             capture::capture_status,
             capture::capture_devices,
+            capture::capture_pause,
+            capture::capture_resume,
+            capture::recordings_info,
+            capture::open_recordings_dir,
+            capture::clear_recordings,
+            engine::engine_spawn,
+            engine::engine_write,
+            engine::engine_close_stdin,
+            engine::engine_kill,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running HornScribe shell");
+        .build(tauri::generate_context!())
+        .expect("error while building HornScribe shell")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                engine::kill_engine_on_exit();
+            }
+        });
 }

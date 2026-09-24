@@ -44,6 +44,11 @@ export interface CaptureStatus {
   deviceName: string | null;
   /** 直近の入力ピーク(0.0–1.0)。レベルメーター用(#71)。 */
   level?: number | null;
+  /** 一時停止中か(#80)。 */
+  paused?: boolean;
+  /** ワーカー側の致命的エラー(#79)。デバイス切断等を stop を待たずに
+   *  UI へ伝えるための早期信号。 */
+  error?: string | null;
 }
 
 /** 録音デバイス1台(#73)。 */
@@ -69,5 +74,10 @@ export type CaptureIssue =
   | { kind: "notActive" }
   /** 環境が未対応(Tauri ではないブラウザで loopback を要求した等)。 */
   | { kind: "unsupported"; source: CaptureSource }
+  /** マイク/デバイスへのアクセスが OS に拒否された(#79)。
+   *  ユーザーが取れる次の行動は設定で許可すること。 */
+  | { kind: "permissionDenied"; source: CaptureSource }
+  /** 録音中にデバイスが切断・喪失した(#79)。 */
+  | { kind: "interrupted"; source: CaptureSource }
   /** キャプチャスレッド側の致命的失敗。 */
   | { kind: "failed"; detail: string };

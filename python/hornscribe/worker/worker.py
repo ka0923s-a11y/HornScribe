@@ -33,12 +33,23 @@ from dataclasses import dataclass, field
 from typing import Any, TextIO
 
 import hornscribe
+from hornscribe.transcription import (
+    JOB_KIND_TRANSCRIPTION,
+    TranscriptionParams,
+    run_transcription_job,
+)
 from hornscribe.worker import protocol
 from hornscribe.worker.jobs import (
     JOB_KIND_DEMO_LONG_TASK,
-    SUPPORTED_JOB_KINDS,
     DemoLongTaskParams,
     run_demo_long_task,
+)
+
+# Job kinds this worker accepts. ``transcription`` (ENG-002) is the real
+# pipeline; ``demoLongTask`` stays for protocol/regression tests.
+SUPPORTED_JOB_KINDS: tuple[str, ...] = (
+    JOB_KIND_TRANSCRIPTION,
+    JOB_KIND_DEMO_LONG_TASK,
 )
 
 log = logging.getLogger("hornscribe.worker")
@@ -79,6 +90,8 @@ class Worker:
             # the supervisor-side read timeout path can be exercised.
             # Not a stable API; gated on the "debug." prefix.
             "debug.hang": self._handle_debug_hang,
+            # Stack dump of every thread (diagnostics for a stalled job).
+            "debug.stacks": self._handle_debug_stacks,
         }
 
     # ---- frame IO -----------------------------------------------------
@@ -253,15 +266,25 @@ class Worker:
                 "a job is already running",
                 details={"activeJobId": active.job_id, "maxConcurrentJobs": 1},
             )
-        try:
-            params = DemoLongTaskParams.from_payload(payload.get("params"))
-        except ValueError as exc:
-            raise protocol.ProtocolError(
-                protocol.ERR_INVALID_PARAMS, str(exc)
-            ) from exc
         self._job_counter += 1
         job_id = f"job-{self._job_counter:04d}"
-        self._job = self._start_demo_job(job_id, params)
+        if kind == JOB_KIND_TRANSCRIPTION:
+            try:
+                tparams = TranscriptionParams.from_payload(payload.get("params"))
+            except ValueError as exc:
+                raise protocol.ProtocolError(
+                    protocol.ERR_INVALID_PARAMS, str(exc)
+                ) from exc
+            _warm_engine_imports()
+            self._job = self._start_transcription_job(job_id, tparams)
+        else:
+            try:
+                params = DemoLongTaskParams.from_payload(payload.get("params"))
+            except ValueError as exc:
+                raise protocol.ProtocolError(
+                    protocol.ERR_INVALID_PARAMS, str(exc)
+                ) from exc
+            self._job = self._start_demo_job(job_id, params)
         return {"jobId": job_id, "jobKind": kind, "state": "accepted"}
 
     def _handle_job_cancel(self, payload: Any) -> dict[str, Any]:
@@ -288,6 +311,21 @@ class Worker:
         log.warning("debug.hang: wedging dispatch loop for %.1fs", seconds)
         time.sleep(seconds)
         return {"sleptSeconds": seconds}
+
+    def _handle_debug_stacks(self, payload: Any) -> dict[str, Any]:
+        """Return a text dump of all thread stacks (job debugging).
+
+        Read-only; used to diagnose a job that appears stuck (e.g. an
+        import deadlock in a daemon thread). Not a stable API.
+        """
+        import traceback
+
+        frames = sys._current_frames()
+        out: list[str] = []
+        for tid, frame in frames.items():
+            out.append(f"--- thread {tid} ---")
+            out.extend(traceback.format_stack(frame))
+        return {"threads": len(frames), "dump": "".join(out)}
 
     # ---- jobs ----------------------------------------------------------
 
@@ -329,6 +367,61 @@ class Worker:
         job.thread = threading.Thread(target=run, name=f"{job_id}", daemon=True)
         job.thread.start()
         return job
+
+    def _start_transcription_job(
+        self, job_id: str, params: TranscriptionParams
+    ) -> _Job:
+        job = _Job(
+            job_id=job_id, kind=JOB_KIND_TRANSCRIPTION, cancel=threading.Event()
+        )
+
+        def emit(phase: str, **fields: Any) -> None:
+            body: dict[str, Any] = {
+                "jobId": job_id,
+                "jobKind": JOB_KIND_TRANSCRIPTION,
+                "phase": phase,
+            }
+            body.update(fields)
+            self._emit_event("job.event", body)
+
+        def run() -> None:
+            try:
+                run_transcription_job(
+                    job_id=job_id, params=params, emit=emit, cancel=job.cancel
+                )
+            except Exception:
+                log.exception("job %s crashed", job_id)
+                emit(
+                    "failed",
+                    error={
+                        "code": protocol.ERR_INTERNAL,
+                        "message": "job crashed unexpectedly",
+                    },
+                )
+            finally:
+                job.done.set()
+
+        job.thread = threading.Thread(target=run, name=f"{job_id}", daemon=True)
+        job.thread.start()
+        return job
+
+
+def _warm_engine_imports() -> None:
+    # Import the native engine stack on the main thread (ENG-002).
+    # Loading numpy/onnxruntime DLLs for the first time from a non-main
+    # thread can wedge inside create_module on Windows (loader-lock
+    # interaction). Importing here — before the job thread starts —
+    # makes the job thread hit sys.modules instead. Missing packages
+    # are ignored: the job itself reports ENGINE_DEPENDENCY_MISSING
+    # with the proper error code.
+    # librosa is a lazy_loader package: importing the top level does NOT
+    # pull the submodules the pipeline touches, so name them explicitly.
+    for name in ("librosa.core.audio", "librosa.beat", "basic_pitch.inference"):
+        try:
+            importlib.import_module(name)
+        except Exception:
+            log.debug("engine warm-up import of %s failed", name, exc_info=True)
+            break
 
 
 def _reconfigure_stream(stream: TextIO, **kwargs: Any) -> None:

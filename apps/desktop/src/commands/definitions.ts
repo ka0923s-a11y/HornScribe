@@ -217,6 +217,23 @@ export function createCommandDefinitions(): readonly Command[] {
       isVisible: (s) => s.isRecording,
       run: (ctx) => ctx.cancelCapture?.(),
     },
+    {
+      // #80: 停止/再開は別コマンド(表示は録音中のみ)。
+      id: "media.pauseCapture",
+      title: ja.commands.pauseCapture,
+      section: "file",
+      isEnabled: (s) => s.isRecording && !s.isRecordingPaused,
+      isVisible: (s) => s.isRecording,
+      run: (ctx) => ctx.pauseCapture?.(),
+    },
+    {
+      id: "media.resumeCapture",
+      title: ja.commands.resumeCapture,
+      section: "file",
+      isEnabled: (s) => s.isRecording && s.isRecordingPaused,
+      isVisible: (s) => s.isRecording,
+      run: (ctx) => ctx.resumeCapture?.(),
+    },
 
     // ---- view (§7: explicit pair, not a toggle) ----
     {

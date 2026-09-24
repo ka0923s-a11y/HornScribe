@@ -69,10 +69,11 @@ describe("storage guards", () => {
 });
 
 describe("categories", () => {
-  it("lists the seven §18 categories in spec order", () => {
+  it("lists the §18 categories in spec order", () => {
     expect(SETTINGS_CATEGORIES).toEqual([
       "appearance",
       "playback",
+      "recordings",
       "transcription",
       "score",
       "export",

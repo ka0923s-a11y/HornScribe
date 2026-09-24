@@ -12,45 +12,38 @@ implemented engine-side by `python/hornscribe/worker/` (UI-002 spike).
 | `port.ts` | `SidecarPort` — process-lifecycle seam (spawn/stdin/stdout/stderr/exit). No protocol logic. |
 | `client.ts` | `SidecarClient` — handshake, request/response correlation, `job.event` demux, per-request timeouts, in-flight-job watchdog, crash detection. |
 | `mockPort.ts` | `MockSidecarPort` — in-process emulation of `python -m hornscribe.worker` (same validation, same job semantics, plus crash/hang hooks). |
+| `tauriPort.ts` | `TauriSidecarPort` — production port: the Rust `engine` module spawns `python -m hornscribe.worker` and relays lines over a `Channel` (ENG-002). |
 | `jobView.ts` | Pure reducer: `job.event` → stage list + progress view (§5). |
 | `session.ts` | `TranscriptionSession` — app-facing engine/job state machine the shell subscribes to. |
 | `review.ts` | TS mirror of `domain/review.py` reason codes + `result.reviewIssues` extraction. |
 
-## Transport gate — read before wiring the packaged app
+## Transport (ENG-002 — wired)
 
 `SidecarClient` is transport-agnostic; the port is the only piece that
-knows how a worker is spawned. Today there is **no real spawn path**:
+knows how a worker is spawned. `createDefaultSidecarPort()` returns:
 
-- `src-tauri/capabilities/default.json` grants only `core:*` defaults —
-  deliberately no `shell:`/`process:` plugin permissions.
-- `src-tauri/Cargo.toml` registers no plugins at all.
+- `TauriSidecarPort` inside the Tauri webview — `engine_spawn` (an
+  app-defined `#[tauri::command]`, not capability-gated) launches
+  `python -m hornscribe.worker` in `src-tauri/src/engine.rs` and relays
+  stdout/stderr/exit over a `Channel`. The interpreter resolves via
+  `HORNSCRIBE_PYTHON` → repo-local venvs → PATH; the module path via
+  `HORNSCRIBE_PYTHONPATH` → the repo's `python/` directory.
+- `MockSidecarPort` outside the Tauri webview (plain `vite dev` / vitest).
+- `UnsupportedSidecarPort` remains the explicit-failure placeholder for
+  runtimes with no spawn bridge.
 
-`createDefaultSidecarPort()` therefore returns:
+No plugin capability was widened: `capabilities/default.json` still
+grants only `core:*` defaults, and the spawned program is fixed
+Rust-side (`hornscribe.worker`), so the bridge cannot be turned into a
+general process launcher.
 
-- `MockSidecarPort` outside the Tauri webview (plain `vite dev` / vitest);
-- `UnsupportedSidecarPort` inside Tauri — `start()` rejects with
-  `ENGINE_UNAVAILABLE`, which the session surfaces as the honest
-  engine-not-responding failure (エンジンを再起動 + 診断情報), never a
-  silent mock in the product shell.
+### Remaining production gap
 
-### Production port contract (when the spawn bridge lands)
-
-A `TauriSidecarPort` implements `SidecarPort` by:
-
-1. spawning `python -m hornscribe.worker` (dev) or the bundled engine
-   executable (packaged) — either through `tauri-plugin-shell`'s
-   `Command.spawn()` + stdout/stderr/terminate events (requires adding the
-   plugin + `shell:allow-spawn` capability — a deliberate, reviewed
-   capability change), or a custom `#[tauri::command]` + `Channel`
-   supervisor in Rust (app-defined commands are not capability-gated);
-2. forwarding each stdout line → `onLine`, stderr → `onStderr`, exit →
-   `onExit(code)`;
-3. `writeLine` → stdin write with `\n`; `closeStdin` → stdin EOF
-   (implicit graceful `engine.shutdown` per worker.py);
-4. `kill` → terminate — the documented fallback for non-interruptible
-   jobs (ENGINE_RUNTIME_MATRIX "Cancellation").
-
-No client/session code changes should be needed when that port lands.
+The spawn bridge assumes a Python interpreter with the `engine` extras
+is reachable (dev venv or PATH). Bundling a frozen engine runtime into
+the packaged installer is a tracked follow-up — until then the app is
+honest: `ENGINE_UNAVAILABLE` surfaces the engine-not-responding
+recovery path (エンジンを再起動 + 診断情報), never a silent mock.
 
 ## Protocol notes (UI-040 additions — documented in PROTOCOL.md)
 

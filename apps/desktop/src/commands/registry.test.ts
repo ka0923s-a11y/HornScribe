@@ -27,6 +27,7 @@ const SNAPSHOT_EMPTY: CommandSnapshot = {
   reviewOpen: false,
   reviewCount: 0,
       isRecording: false,
+      isRecordingPaused: false,
       auditionEnabled: false,
   view: "workspace",
 };
@@ -40,6 +41,7 @@ const SNAPSHOT_SCORE: CommandSnapshot = {
   hasSelection: true,
   reviewCount: 3,
       isRecording: false,
+      isRecordingPaused: false,
       auditionEnabled: false,
 };
 

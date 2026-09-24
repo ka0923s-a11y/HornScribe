@@ -10,21 +10,16 @@
  * Review issues are fixed (never randomized) so every run renders the same
  * 要確認 markers on the same canonical notes.
  *
- * This file is the seam where engine output slots in (UI-040+): replace
- * `createFixtureScoreDocument()` call sites with a real adapter — nothing
- * downstream changes.
+ * Engine output slots in through the same seam (ENG-002): real job
+ * results build an {@link XmlScoreDocument} over the returned MusicXML
+ * (see `xmlDocument.ts`); this fixture remains the deterministic
+ * fallback for dev sessions and the mock port.
  */
 import concertXml from "./fixtures/score_concert.musicxml?raw";
 import hornXml from "./fixtures/score_horn_in_f.musicxml?raw";
-import type { PitchViewSetting } from "../commands/types";
-import type { ScoreDocumentMeta, ScoreDocumentPort } from "./document";
-import { parseScoreDoc } from "./scoreDoc";
-import type { ReviewIssueStatus, ScoreReviewIssue } from "./review";
-import {
-  applyNoteEdits,
-  isEmptyNoteEdit,
-  type ScoreNoteEdit,
-} from "./scoreEdits";
+import type { ScoreDocumentPort } from "./document";
+import type { ScoreReviewIssue } from "./review";
+import { XmlScoreDocument } from "./xmlDocument";
 
 /** Deterministic revision id for the bundled fixture document. */
 const FIXTURE_REVISION = "rev-fixture0000001";
@@ -73,65 +68,6 @@ export interface FixtureDocumentOverrides {
   readonly issues?: readonly ScoreReviewIssue[];
 }
 
-class FixtureScoreDocument implements ScoreDocumentPort {
-  readonly revisionId: string;
-  readonly meta: ScoreDocumentMeta;
-  private readonly issues: readonly ScoreReviewIssue[];
-  /** UI-050 document model: review decisions and note corrections live on
-   *  the document, keyed to `revisionId` — a new score revision (re-
-   *  transcription / re-quantization) constructs a fresh document, so
-   *  stale decisions are never silently carried across revisions. */
-  private readonly decisions = new Map<string, ReviewIssueStatus>();
-  private readonly edits = new Map<string, ScoreNoteEdit>();
-  private editCounter = 0;
-
-  constructor(overrides?: FixtureDocumentOverrides) {
-    const doc = parseScoreDoc(concertXml);
-    const canonical = new Set(doc.notes.map((n) => n.canonicalId).filter(Boolean));
-    this.revisionId = overrides?.revisionId ?? FIXTURE_REVISION;
-    this.issues = overrides?.issues ?? FIXTURE_ISSUES;
-    this.meta = {
-      title: doc.title,
-      tempoBpm: doc.tempoBpm,
-      meter: doc.meter,
-      keyFifths: doc.keyFifths,
-      measureCount: doc.measureCount,
-      noteCount: canonical.size,
-    };
-  }
-
-  get editVersion(): number {
-    return this.editCounter;
-  }
-
-  musicXml(view: PitchViewSetting): string {
-    const base = view === "hornF" ? hornXml : concertXml;
-    return applyNoteEdits(base, this.edits);
-  }
-
-  reviewIssues(): readonly ScoreReviewIssue[] {
-    return this.issues.map((issue) => {
-      const decided = this.decisions.get(issue.id);
-      return decided !== undefined ? { ...issue, status: decided } : issue;
-    });
-  }
-
-  recordReviewDecision(issueId: string, status: ReviewIssueStatus): void {
-    this.decisions.set(issueId, status);
-    this.editCounter += 1;
-  }
-
-  noteEdits(): ReadonlyMap<string, ScoreNoteEdit> {
-    return this.edits;
-  }
-
-  setNoteEdit(canonicalId: string, edit: ScoreNoteEdit | null): void {
-    if (edit == null || isEmptyNoteEdit(edit)) this.edits.delete(canonicalId);
-    else this.edits.set(canonicalId, edit);
-    this.editCounter += 1;
-  }
-}
-
 /**
  * The deterministic score document used until the engine pipeline delivers
  * real `ScoreDocumentPort` data (UI-040+). Everything derived from it —
@@ -144,5 +80,10 @@ class FixtureScoreDocument implements ScoreDocumentPort {
 export function createFixtureScoreDocument(
   overrides?: FixtureDocumentOverrides,
 ): ScoreDocumentPort {
-  return new FixtureScoreDocument(overrides);
+  return new XmlScoreDocument({
+    concertXml,
+    hornXml,
+    revisionId: overrides?.revisionId ?? FIXTURE_REVISION,
+    issues: overrides?.issues ?? FIXTURE_ISSUES,
+  });
 }

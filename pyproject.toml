@@ -53,6 +53,14 @@ python_version = "3.12"
 module = ["mido", "mido.*"]
 ignore_missing_imports = true
 
+# Engine packages live in the optional `engine` extra — CI's dev install
+# does not carry them and they ship no stubs, so the transcription
+# package imports them lazily and mypy must not require their types.
+[[tool.mypy.overrides]]
+module = ["basic_pitch", "basic_pitch.*", "librosa", "librosa.*", "pretty_midi", "pretty_midi.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 # numpy 2.5+ stubs use Python 3.12 `type` statements; they are music21's
 # transitive dependency, not ours — skip following them.
 [[tool.mypy.overrides]]

@@ -14,10 +14,11 @@ import { useCallback, useMemo, useState } from "react";
 
 const STORAGE_KEY = "hornscribe.settings";
 
-/** The seven §18 categories in display order (楽譜 sits between 採譜 and 書き出し). */
+/** The §18 categories in display order (録音 sits between 再生 and 採譜). */
 export const SETTINGS_CATEGORIES = [
   "appearance",
   "playback",
+  "recordings",
   "transcription",
   "score",
   "export",

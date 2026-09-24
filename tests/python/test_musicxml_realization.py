@@ -8,6 +8,7 @@ MusicXML and comparing against the canonical score.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -339,11 +340,18 @@ def test_verify_detects_dropped_tuplet() -> None:
 
 
 def test_rhythm_package_stays_free_of_music21() -> None:
-    """``hornscribe.rhythm`` must not pull in the notation backend."""
-    for mod in list(sys.modules):
-        if mod == "music21" or mod.startswith("music21."):
-            del sys.modules[mod]
-    import importlib
+    """``hornscribe.rhythm`` must not pull in the notation backend.
 
-    importlib.import_module("hornscribe.rhythm")
-    assert "music21" not in sys.modules
+    Runs in a subprocess (same pattern as
+    ``test_contracts.py::test_rhythm_imports_no_audio_or_gui_dependencies``):
+    an in-process check is vacuous — ``hornscribe.rhythm`` is already
+    imported by this module — and purging ``music21`` from
+    ``sys.modules`` leaves later tests with two divergent sets of
+    music21 class objects, which breaks ``makeNotation`` in any
+    subsequent export.
+    """
+    code = (
+        "import sys, hornscribe.rhythm; "
+        "sys.exit(1 if 'music21' in sys.modules else 0)"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

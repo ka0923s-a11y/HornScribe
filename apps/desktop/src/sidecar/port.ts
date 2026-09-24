@@ -8,23 +8,21 @@
  * harness (`WorkerHandle`), which is why the same client runs against the
  * in-process MockSidecarPort and, later, a Tauri-spawned worker unchanged.
  *
- * ## Packaged-app gate (UI-040)
+ * ## Packaged-app transport (ENG-002)
  *
- * A real worker is spawned by the Tauri shell. This branch deliberately
- * does NOT widen `src-tauri/capabilities/default.json`: it grants no
- * shell/process plugin today and no `tauri-plugin-*` dependency exists in
- * `src-tauri/Cargo.toml`. The intended production port is a small Rust
- * supervisor that spawns `python -m hornscribe.worker` (or the frozen
- * engine executable), pipes stdin/stdout, and forwards lines to the
- * frontend — reachable either through `tauri-plugin-shell`'s `Command`
- * events or an app-defined `invoke` + `Channel` (app commands are not
- * capability-gated). Until that lands, `createDefaultSidecarPort()` returns
- * {@link UnsupportedSidecarPort} inside the Tauri webview so the failure is
- * explicit and recoverable, never a silent mock.
+ * Inside the Tauri webview the worker is spawned by the shell's own
+ * `engine` module (src-tauri/src/engine.rs): `engine_spawn` launches
+ * `python -m hornscribe.worker` and relays stdout/stderr/exit over a
+ * `Channel` — see {@link TauriSidecarPort}. No plugin capability was
+ * widened: app-defined commands are not ACL-gated and the spawned
+ * program is fixed Rust-side, so the bridge cannot be turned into a
+ * general process launcher. `UnsupportedSidecarPort` remains the
+ * explicit-failure placeholder for runtimes with no spawn bridge.
  */
 
 import { ERR, SidecarError } from "./protocol";
 import { MockSidecarPort } from "./mockPort";
+import { TauriSidecarPort } from "./tauriPort";
 import { isTauriRuntime } from "../tauri/bridge";
 
 export interface SidecarPort {
@@ -59,11 +57,10 @@ export interface SidecarPort {
 }
 
 /**
- * Placeholder port for environments where no spawn bridge exists yet —
- * currently every real Tauri runtime (see the gate note above). `start()`
- * fails explicitly with ENGINE_UNAVAILABLE; the session maps that to the
- * worker-not-responding recovery surface, so the packaged shell degrades
- * honestly instead of pretending a mock engine is real.
+ * Placeholder port for environments where no spawn bridge exists.
+ * `start()` fails explicitly with ENGINE_UNAVAILABLE; the session maps
+ * that to the worker-not-responding recovery surface, so the shell
+ * degrades honestly instead of pretending a mock engine is real.
  */
 export class UnsupportedSidecarPort implements SidecarPort {
   async start(): Promise<void> {
@@ -95,14 +92,14 @@ export class UnsupportedSidecarPort implements SidecarPort {
 
 /**
  * The port used when no explicit one is injected:
- * - inside the Tauri webview: {@link UnsupportedSidecarPort} (gated — see
- *   the note at the top of this file);
+ * - inside the Tauri webview: {@link TauriSidecarPort} (ENG-002 — the
+ *   Rust engine supervisor spawns `python -m hornscribe.worker`);
  * - in a plain browser (`vite dev`): {@link MockSidecarPort}, an
  *   in-process emulation of `python -m hornscribe.worker` that speaks the
  *   real NDJSON contract so the whole transcription UX is exercisable
  *   without a Python runtime.
  */
 export function createDefaultSidecarPort(): SidecarPort {
-  if (isTauriRuntime()) return new UnsupportedSidecarPort();
+  if (isTauriRuntime()) return new TauriSidecarPort();
   return new MockSidecarPort();
 }

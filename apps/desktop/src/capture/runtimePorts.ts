@@ -40,6 +40,8 @@ interface RustCaptureStatus {
   elapsedSeconds: number | null;
   deviceName: string | null;
   level: number | null;
+  paused: boolean;
+  error: string | null;
 }
 interface RustDevice {
   id: string;
@@ -87,6 +89,12 @@ class TauriCapturePort implements CapturePort {
   async cancel(): Promise<void> {
     await invoke("capture_cancel");
   }
+  async pause(): Promise<void> {
+    await invoke("capture_pause");
+  }
+  async resume(): Promise<void> {
+    await invoke("capture_resume");
+  }
   async status(): Promise<CaptureStatus> {
     const s = await invoke<RustCaptureStatus>("capture_status");
     return {
@@ -95,6 +103,8 @@ class TauriCapturePort implements CapturePort {
       elapsedSeconds: s.elapsedSeconds,
       deviceName: s.deviceName,
       level: s.level ?? null,
+      paused: s.paused,
+      error: s.error,
     };
   }
   async listDevices(): Promise<CaptureDeviceList> {
@@ -118,11 +128,16 @@ class BrowserCapturePort implements CapturePort {
   private recorder: MediaRecorder | null = null;
   private chunks: Blob[] = [];
   private startedAt = 0;
+  /** #80: 一時停止の累積(経過時間から差し引く)。 */
+  private pausedAt = 0;
+  private pausedTotal = 0;
   private source: CaptureSource | null = null;
   // #71: ブラウザ dev のライブレベル用 AnalyserNode。
   private analyser: AnalyserNode | null = null;
   private analyserBuf: Float32Array<ArrayBuffer> | null = null;
   private audioCtx: AudioContext | null = null;
+  /** #79: MediaRecorder の致命的エラー — status() で UI に伝える。 */
+  private lastError: string | null = null;
 
   async start(
     source: CaptureSource,
@@ -144,12 +159,20 @@ class BrowserCapturePort implements CapturePort {
     });
     const rec = new MediaRecorder(stream);
     this.chunks = [];
+    this.lastError = null;
     rec.ondataavailable = (e) => {
       if (e.data.size > 0) this.chunks.push(e.data);
+    };
+    rec.onerror = (e) => {
+      const err = (e as { error?: unknown }).error;
+      this.lastError =
+        err instanceof Error ? err.message : "MediaRecorder error";
     };
     this.recorder = rec;
     this.source = "microphone";
     this.startedAt = performance.now();
+    this.pausedAt = 0;
+    this.pausedTotal = 0;
     rec.start(250);
     // レベルメーター用の解析ノード(発音はしないので destination には繋がない)。
     try {
@@ -184,6 +207,7 @@ class BrowserCapturePort implements CapturePort {
     const chunks = this.chunks;
     const stopped = new Promise<void>((resolve) => {
       rec.onstop = () => resolve();
+      rec.onerror = () => resolve(); // エラーでも停止は完了させる
     });
     rec.stop();
     await stopped;
@@ -191,7 +215,11 @@ class BrowserCapturePort implements CapturePort {
     this.recorder = null;
     this.teardownAnalyser();
     const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-    const durationSeconds = (performance.now() - this.startedAt) / 1000;
+    const pausedSpan =
+      this.pausedTotal +
+      (this.pausedAt ? performance.now() - this.pausedAt : 0);
+    const durationSeconds =
+      (performance.now() - this.startedAt - pausedSpan) / 1000;
     const bytes = new Uint8Array(await blob.arrayBuffer());
     return {
       bytes,
@@ -210,9 +238,25 @@ class BrowserCapturePort implements CapturePort {
     this.recorder = null;
     if (!rec) return;
     rec.ondataavailable = null;
+    rec.onerror = null;
     rec.stop();
     rec.stream.getTracks().forEach((t) => t.stop());
     this.teardownAnalyser();
+  }
+
+  async pause(): Promise<void> {
+    if (this.recorder && this.recorder.state === "recording") {
+      this.recorder.pause();
+      this.pausedAt = performance.now();
+    }
+  }
+
+  async resume(): Promise<void> {
+    if (this.recorder && this.recorder.state === "paused") {
+      this.recorder.resume();
+      this.pausedTotal += performance.now() - this.pausedAt;
+      this.pausedAt = 0;
+    }
   }
 
   async status(): Promise<CaptureStatus> {
@@ -220,9 +264,16 @@ class BrowserCapturePort implements CapturePort {
       ? {
           active: true,
           source: this.source,
-          elapsedSeconds: (performance.now() - this.startedAt) / 1000,
+          elapsedSeconds:
+            (performance.now() -
+              this.startedAt -
+              this.pausedTotal -
+              (this.pausedAt ? performance.now() - this.pausedAt : 0)) /
+            1000,
           deviceName: "Microphone",
           level: this.currentLevel(),
+          paused: this.recorder.state === "paused",
+          error: this.lastError,
         }
       : { active: false, source: null, elapsedSeconds: null, deviceName: null };
   }

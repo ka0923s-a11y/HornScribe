@@ -25,6 +25,10 @@ export interface CapturePort {
   stop(): Promise<CaptureResult>;
   /** 録音中止(データ破棄)。 */
   cancel(): Promise<void>;
+  /** 録音の一時停止(#80)。対応していないポートは no-op でよい。 */
+  pause?(): Promise<void>;
+  /** 一時停止した録音の再開(#80)。 */
+  resume?(): Promise<void>;
   /** 現在の録音状態。 */
   status(): Promise<CaptureStatus>;
   /** 取り込み可能なデバイス一覧(#73)。 */
