@@ -55,6 +55,53 @@ interface ScheduledNote {
   bends: readonly { pos: number; semis: number }[];
 }
 
+/** #245: one musical attack = one ScheduledNote. The segment table
+ *  splits at EVERY voice's on/off boundary, so iterating segments
+ *  re-attacked held notes at other voices' onsets (and duplicated
+ *  tied fragments). Instead, merge each canonical id's contiguous
+ *  sounding segments into one span — a tied chain is exactly one
+ *  contiguous run, and another voice's onset inside a held note
+ *  does not split it. Exported for unit tests; `load()` wraps it. */
+export function buildScheduledNotes(
+  table: PlaybackTable,
+  notesByCanonical: ReadonlyMap<string, readonly ParsedNote[]>,
+  velocities?: ReadonlyMap<string, number>,
+  bends?: ReadonlyMap<string, readonly { pos: number; semis: number }[]>,
+): ScheduledNote[] {
+  const runs = new Map<string, { startMs: number; endMs: number }[]>();
+  for (const seg of table.segments) {
+    for (const canonicalId of seg.canonicalIds) {
+      const list = runs.get(canonicalId) ?? [];
+      const last = list[list.length - 1];
+      if (last && seg.startMs <= last.endMs + 1) {
+        last.endMs = Math.max(last.endMs, seg.endMs);
+      } else {
+        list.push({ startMs: seg.startMs, endMs: seg.endMs });
+      }
+      runs.set(canonicalId, list);
+    }
+  }
+  const notes: ScheduledNote[] = [];
+  for (const [canonicalId, spans] of runs) {
+    const frag = notesByCanonical.get(canonicalId)?.[0];
+    if (!frag) continue;
+    const midi = noteToMidi(frag);
+    if (midi === null) continue;
+    for (const span of spans) {
+      notes.push({
+        startMs: span.startMs,
+        endMs: span.endMs,
+        freq: midiToFreq(midi),
+        velocity: velocities?.get(canonicalId) ?? null,
+        bends: bends?.get(canonicalId) ?? [],
+      });
+    }
+  }
+  // onset 順 + 同時は周波数順で安定化。
+  notes.sort((a, b) => a.startMs - b.startMs || a.freq - b.freq);
+  return notes;
+}
+
 /**
  * canonicalId -> MIDI velocity, read off the canonical payload's
  * content.parts[].notes[].velocity (#168). The MusicXML ParsedNote view
@@ -170,29 +217,7 @@ export class ScorePlaybackSynth {
     velocities?: ReadonlyMap<string, number>,
     bends?: ReadonlyMap<string, readonly { pos: number; semis: number }[]>,
   ): void {
-    const notes: ScheduledNote[] = [];
-    for (const seg of table.segments) {
-      for (const canonicalId of seg.canonicalIds) {
-        const frags = notesByCanonical.get(canonicalId);
-        if (!frags) continue;
-        for (const frag of frags) {
-          const midi = noteToMidi(frag);
-          if (midi === null) continue;
-          notes.push({
-            startMs: seg.startMs,
-            endMs: seg.endMs,
-            freq: midiToFreq(midi),
-            velocity: velocities?.get(canonicalId) ?? null,
-            bends: bends?.get(canonicalId) ?? [],
-          });
-          // 和音: chord メンバーは同じ onset を持つので、同じセグメントで
-          // 別 ParsedNote として既に処理済み(frag 毎に 1 音追加)。
-        }
-      }
-    }
-    // onset 順 + 同時は周波数順で安定化。
-    notes.sort((a, b) => a.startMs - b.startMs || a.freq - b.freq);
-    this.notes = notes;
+    this.notes = buildScheduledNotes(table, notesByCanonical, velocities, bends);
   }
 
   /** スコアクロックの位置(ms)を同期する。シーク/レート変更に追従。 */

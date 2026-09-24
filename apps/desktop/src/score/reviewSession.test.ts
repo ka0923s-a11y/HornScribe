@@ -251,6 +251,39 @@ describe("ReviewSession docSwap (#115 rhythm edits)", () => {
     expect(session.noteEditOf("sn-000012").pitchDelta).toBe(2);
   });
 
+  it("#225: a new revision drops stale issues; undo restores them", () => {
+    const ISSUE = {
+      id: "ri-000001",
+      scoreRevision: "rev-base",
+      canonicalNoteIds: ["sn-000012"],
+      timeRange: { startSec: 0, endSec: 0.5 },
+      reason: "low_model_confidence" as const,
+      severity: "caution" as const,
+      evidence: {},
+      status: "open" as const,
+    };
+    const doc = new XmlScoreDocument({
+      concertXml,
+      hornXml,
+      revisionId: "rev-base",
+      issues: [ISSUE],
+      canonicalDocument: CANONICAL,
+    });
+    doc.recordReviewDecision("ri-000001", "accepted");
+    expect(doc.reviewIssues()[0].status).toBe("accepted");
+
+    const prev = doc.contentSnapshot!();
+    const next = { ...prev, revisionId: "rev-edited" };
+    doc.replaceContent!(next);
+    // The old revision's issue must not bleed onto the new revision.
+    expect(doc.reviewIssues()).toHaveLength(0);
+
+    // Undo swaps back to rev-base — its issue set and decision return.
+    doc.replaceContent!(prev);
+    expect(doc.reviewIssues()).toHaveLength(1);
+    expect(doc.reviewIssues()[0].status).toBe("accepted");
+  });
+
   it("returns null when the document cannot swap content", () => {
     // A minimal port without the optional #115 methods — e.g. a future
     // non-engine adapter. Rhythm edits stay honestly unavailable there.

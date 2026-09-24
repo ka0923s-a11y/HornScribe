@@ -236,6 +236,66 @@ function noteToRest(noteEl: Element, doc: XMLDocument): void {
   }
 }
 
+/** #246: after deletions, rebuild each <chord/> group so the MusicXML
+ *  stays structurally valid. A chord group is a pitched root <note>
+ *  followed by <note> elements carrying <chord/>; deletions can leave
+ *  a chord-rest (<chord/><rest/>), a rest-root with pitched members
+ *  dangling off it, or several same-position rests where one member
+ *  survived. Walk each measure's direct children (voices are separated
+ *  by <backup>/<forward>, which also break a group) and normalize:
+ *  - first surviving pitched member becomes the root (its <chord/> is
+ *    removed);
+ *  - rest members inside a group are dropped (a chord rest is
+ *    meaningless — the surviving members already occupy the slot);
+ *  - a group with no pitched member collapses to a single rest. */
+function normalizeChords(doc: XMLDocument): void {
+  const isPitched = (el: Element): boolean =>
+    el.querySelector(":scope > pitch") !== null;
+  const isChordMember = (el: Element): boolean =>
+    el.querySelector(":scope > chord") !== null;
+  const dropChordTag = (el: Element): void => {
+    for (const c of Array.from(el.querySelectorAll(":scope > chord"))) {
+      c.remove();
+    }
+  };
+
+  const flush = (group: Element[]): void => {
+    if (group.length === 0) return;
+    const pitched = group.filter(isPitched);
+    if (pitched.length === 0) {
+      // All members deleted: keep ONE rest for the slot, drop the rest.
+      const [keep, ...extra] = group;
+      dropChordTag(keep);
+      for (const el of extra) el.remove();
+      return;
+    }
+    // Promote the first pitched member to root, then drop rest members
+    // (their duration is already covered by the surviving chord).
+    dropChordTag(pitched[0]);
+    for (const el of group) {
+      if (!isPitched(el)) el.remove();
+    }
+  };
+
+  for (const measure of Array.from(doc.querySelectorAll("measure"))) {
+    let group: Element[] = [];
+    for (const child of Array.from(measure.children)) {
+      if (child.tagName === "note") {
+        if (isChordMember(child)) {
+          group.push(child);
+        } else {
+          flush(group);
+          group = [child];
+        }
+      } else if (child.tagName === "backup" || child.tagName === "forward") {
+        flush(group);
+        group = [];
+      }
+    }
+    flush(group);
+  }
+}
+
 /**
  * Apply canonical-note edits to a MusicXML document and return the new
  * XML string. Unedited input short-circuits to the original string so the
@@ -272,5 +332,7 @@ export function applyNoteEdits(
       }
     }
   }
-  return changed ? new XMLSerializer().serializeToString(doc) : xml;
+  if (!changed) return xml;
+  normalizeChords(doc);
+  return new XMLSerializer().serializeToString(doc);
 }

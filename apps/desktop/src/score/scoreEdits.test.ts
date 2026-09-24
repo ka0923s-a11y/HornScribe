@@ -122,6 +122,63 @@ describe("applyNoteEdits", () => {
     expect(note.querySelector("pitch alter")!.textContent).toBe("-1");
     expect(note.querySelector("pitch octave")!.textContent).toBe("4");
   });
+
+  /* #246: deleting chord members must keep the <chord/> structure valid. */
+
+  const chordXml = `<?xml version="1.0"?><score-partwise><part><measure number="1">
+    <note id="hs-sn-000001"><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note>
+    <note id="hs-sn-000002"><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note>
+    <note id="hs-sn-000003"><chord/><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration></note>
+    <note id="hs-sn-000004"><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note>
+  </measure></part></score-partwise>`;
+
+  const chordNotes = (xml: string) =>
+    Array.from(parse(xml).querySelectorAll("measure > note"));
+
+  it("deleting a non-root member drops it without a chord-rest", () => {
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000002", { pitchDelta: 0, deleted: true }],
+    ]);
+    const notes = chordNotes(applyNoteEdits(chordXml, edits));
+    expect(notes).toHaveLength(3);
+    expect(notes[0].querySelector("pitch step")!.textContent).toBe("C");
+    expect(notes[0].querySelector("chord")).toBeNull();
+    expect(notes[1].querySelector("chord")).not.toBeNull();
+    expect(notes[1].querySelector("pitch step")!.textContent).toBe("G");
+    // No chord-rest anywhere.
+    expect(
+      notes.some(
+        (n) =>
+          n.querySelector(":scope > chord") && n.querySelector(":scope > rest"),
+      ),
+    ).toBe(false);
+  });
+
+  it("deleting the root promotes the next pitched member", () => {
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000001", { pitchDelta: 0, deleted: true }],
+    ]);
+    const notes = chordNotes(applyNoteEdits(chordXml, edits));
+    expect(notes).toHaveLength(3);
+    // E4 is now the root: pitched, no <chord/> tag.
+    expect(notes[0].querySelector("pitch step")!.textContent).toBe("E");
+    expect(notes[0].querySelector("chord")).toBeNull();
+    expect(notes[1].querySelector("chord")).not.toBeNull();
+    expect(notes[1].querySelector("pitch step")!.textContent).toBe("G");
+  });
+
+  it("deleting every member collapses to a single rest", () => {
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000001", { pitchDelta: 0, deleted: true }],
+      ["sn-000002", { pitchDelta: 0, deleted: true }],
+      ["sn-000003", { pitchDelta: 0, deleted: true }],
+    ]);
+    const notes = chordNotes(applyNoteEdits(chordXml, edits));
+    expect(notes).toHaveLength(2);
+    expect(notes[0].querySelector("rest")).not.toBeNull();
+    expect(notes[0].querySelector("chord")).toBeNull();
+    expect(notes[1].querySelector("pitch step")!.textContent).toBe("D");
+  });
 });
 
 describe("enharmonicRespell", () => {

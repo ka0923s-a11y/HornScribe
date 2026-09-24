@@ -40,8 +40,19 @@ export class XmlScoreDocument implements ScoreDocumentPort {
   private concertXml: string;
   private hornXml: string;
   private canonicalDoc: unknown | null;
-  private readonly issues: readonly ScoreReviewIssue[];
-  private readonly decisions = new Map<string, ReviewIssueStatus>();
+  private issues: readonly ScoreReviewIssue[];
+  private decisions = new Map<string, ReviewIssueStatus>();
+  /** #225: decisions/issues are revision-bound — a score.edit swap
+   *  mints a new revision, so the old revision's set is stashed here
+   *  and a swap back (undo) restores exactly that revision's state. */
+  private readonly issuesByRevision = new Map<
+    string,
+    readonly ScoreReviewIssue[]
+  >();
+  private readonly decisionsByRevision = new Map<
+    string,
+    Map<string, ReviewIssueStatus>
+  >();
   private readonly edits = new Map<string, ScoreNoteEdit>();
   private editCounter = 0;
 
@@ -135,6 +146,16 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     revisionId: string;
     canonicalDocument: unknown;
   }): void {
+    if (next.revisionId !== this._revisionId) {
+      // #225: stash the outgoing revision's issue set + decisions, then
+      // restore the incoming revision's own set (empty for a revision
+      // never seen — a score.edit result carries no issue list).
+      this.issuesByRevision.set(this._revisionId, this.issues);
+      this.decisionsByRevision.set(this._revisionId, this.decisions);
+      this.issues = this.issuesByRevision.get(next.revisionId) ?? [];
+      this.decisions =
+        this.decisionsByRevision.get(next.revisionId) ?? new Map();
+    }
     this.concertXml = next.concertXml;
     this.hornXml = next.hornXml;
     this._revisionId = next.revisionId;
