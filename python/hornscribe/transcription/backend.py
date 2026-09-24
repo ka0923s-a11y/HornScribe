@@ -34,9 +34,10 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from hornscribe.domain.events import RawNoteEvent
+from hornscribe.domain.events import PitchBendPoint, RawNoteEvent
 from hornscribe.domain.ids import (
     IdAllocator,
+    RawNoteEventId,
     TranscriptionRevisionId,
     derive_transcription_revision_id,
 )
@@ -56,6 +57,63 @@ MELODY_MAX_FREQUENCY_HZ = 1400.0
 ONSET_THRESHOLD = 0.4
 FRAME_THRESHOLD = 0.3
 MINIMUM_NOTE_LENGTH_MS = 70.0
+
+# Basic Pitch reports per-frame pitch bends in MIDI pitch-bend units
+# (0..16383, center 8192) over a +/-2 semitone range -> 4096 units per
+# semitone. We keep them as evidence (vibrato / portamento) instead of
+# dropping them (#169).
+_BEND_CENTER = 8192.0
+_BEND_UNITS_PER_SEMITONE = 4096.0
+
+
+def _bend_points(
+    bends: Any, onset_sec: float, offset_sec: float
+) -> tuple[PitchBendPoint, ...]:
+    """Convert a backend bend list to PitchBendPoint evidence (#169).
+
+    bends is a per-frame list of MIDI pitch-bend values spanning the
+    note's [onset, offset]; frame i maps to the evenly spaced time inside
+    that span. Non-numeric or empty input yields no points.
+    """
+    if not bends:
+        return ()
+    try:
+        values = [float(b) for b in bends]
+    except (TypeError, ValueError):
+        return ()
+    if not values:
+        return ()
+    span = offset_sec - onset_sec
+    denom = max(1, len(values) - 1)
+    out: list[PitchBendPoint] = []
+    for i, v in enumerate(values):
+        t = onset_sec + span * (i / denom)
+        semis = (v - _BEND_CENTER) / _BEND_UNITS_PER_SEMITONE
+        out.append(PitchBendPoint(time_sec=t, bend_semitones=semis))
+    return tuple(out)
+
+
+def _to_raw_event(
+    note_event: Any,
+    event_id: RawNoteEventId,
+    revision: TranscriptionRevisionId,
+) -> RawNoteEvent:
+    """Map one backend note tuple to RawNoteEvent, keeping bends (#169)."""
+    onset_s, offset_s, pitch_midi, amplitude = note_event[:4]
+    bends = note_event[4] if len(note_event) > 4 else ()
+    onset_f = float(onset_s)
+    offset_f = float(offset_s)
+    return RawNoteEvent(
+        id=event_id,
+        transcription_revision=revision,
+        pitch_midi=float(pitch_midi),
+        onset_sec=onset_f,
+        offset_sec=offset_f,
+        confidence=float(amplitude),
+        velocity=max(1, min(127, int(round(float(amplitude) * 110)))),
+        source=BACKEND_ID,
+        pitch_bends=_bend_points(bends, onset_f, offset_f),
+    )
 
 
 class EngineDependencyError(RuntimeError):
@@ -140,17 +198,12 @@ def predict_note_events(
 
     allocator = IdAllocator("rne")
     events: list[RawNoteEvent] = []
-    for onset_s, offset_s, pitch_midi, amplitude, _bends in note_events:
+    for note_event in note_events:
         events.append(
-            RawNoteEvent(
-                id=allocator.allocate_raw_event_id(),
-                transcription_revision=revision,
-                pitch_midi=float(pitch_midi),
-                onset_sec=float(onset_s),
-                offset_sec=float(offset_s),
-                confidence=float(amplitude),
-                velocity=max(1, min(127, int(round(float(amplitude) * 110)))),
-                source=BACKEND_ID,
+            _to_raw_event(
+                note_event,
+                allocator.allocate_raw_event_id(),
+                revision,
             )
         )
     return tuple(events)
