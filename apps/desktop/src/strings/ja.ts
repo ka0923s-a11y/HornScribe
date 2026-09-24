@@ -842,6 +842,10 @@ export const ja = {
       rangeStart: "開始",
       rangeEnd: "終了",
       secondsUnit: "秒",
+      texture: "音源の種類",
+      textureAuto: "自動",
+      textureMono: "単旋律（楽器・歌声のみ）",
+      textureMelody: "メロディ優先（ミックス音源）",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {

@@ -6,8 +6,12 @@ polyphonic hypotheses — octave ghosts, vibrato splits, attack
 duplicates — so this stage repairs them *before* quantization:
 
 * events are sorted by onset; when a note's offset runs past the next
-  onset it is clipped to that onset (the monophonic rule; the quantizer
-  also reports ``overlap_clipped_count`` on what remains);
+   onset it is clipped to that onset (the monophonic rule; the quantizer
+   also reports ``overlap_clipped_count`` on what remains);
+* ``prefer="top"`` switches the overlap rule to melody extraction: a
+  lower overlapping hypothesis is dropped outright while a higher one
+  still cuts in at its own onset (melody mode for polyphonic mixes —
+  JPOP vocals over accompaniment);
 * same-pitch notes separated by a tiny gap are merged (sustained notes
   re-detected after breath/bow noise);
 * an isolated note exactly an octave off *both* neighbours' pitch class
@@ -116,6 +120,7 @@ def clean_monophonic(
     *,
     min_event_sec: float = MIN_EVENT_SEC,
     merge_gap_sec: float = MERGE_GAP_SEC,
+    prefer: str = "onset",
 ) -> CleanedEvents:
     """Enforce the monophonic contract on raw backend output.
 
@@ -123,7 +128,15 @@ def clean_monophonic(
     preserved (merged notes keep the earlier event's id and union the
     source ids implicitly through ``source_event_ids`` downstream — the
     quantizer maps each surviving event to one canonical note).
+
+    ``prefer`` picks the survivor when two pitched events overlap:
+    ``"onset"`` (default) clips the earlier note at the later onset;
+    ``"top"`` keeps the higher pitch instead - the melody line for
+    polyphonic mixes like JPOP (a lower overlapping hypothesis is
+    dropped, a higher one cuts in at its own onset).
     """
+    if prefer not in ("onset", "top"):
+        raise ValueError(f"prefer must be 'onset' or 'top', got {prefer!r}")
     ordered = sorted(events, key=lambda e: (e.onset_sec, e.offset_sec))
     kept: list[RawNoteEvent] = []
     dropped = 0
@@ -154,13 +167,18 @@ def clean_monophonic(
                     # ghost instead of clipping the real note's tail.
                     ghosts += 1
                     continue
-                final_events[-1] = _replace_offset(prev, ev.onset_sec)
-                clipped += 1
                 if (
                     int(round(prev.pitch_midi)) % 12
                     != int(round(ev.pitch_midi)) % 12
                 ):
                     polyphonic += 1
+                if prefer == "top" and ev.pitch_midi < prev.pitch_midi:
+                    # Melody mode: the lower overlapping hypothesis is
+                    # accompaniment, not the line — drop it rather than
+                    # clipping the melody's tail.
+                    continue
+                final_events[-1] = _replace_offset(prev, ev.onset_sec)
+                clipped += 1
         final_events.append(ev)
     kept = final_events
     # A clip can leave a zero-length note; drop it honestly.

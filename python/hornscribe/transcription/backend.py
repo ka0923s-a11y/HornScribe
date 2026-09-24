@@ -19,6 +19,9 @@ Backend tuning for a monophonic horn line (accuracy pass, ENG-002):
   sounding horn range (F1..A5) widened by ~a semitone each way so
   out-of-range detections still surface as review issues instead of
   being silently dropped by the model.
+* Melody-texture jobs widen the cap to ``MELODY_MAX_FREQUENCY_HZ`` —
+  JPOP vocals and mix melodies sit well above the horn range, and the
+  downstream range review still flags out-of-horn notes honestly.
 * ``melodia_trick=True`` (default) keeps the salience-based cleanup.
 """
 
@@ -47,6 +50,9 @@ log = logging.getLogger(__name__)
 # borderline detections reach the range-review stage instead of being cut.
 MIN_FREQUENCY_HZ = 55.0
 MAX_FREQUENCY_HZ = 880.0
+# Melody/mix sources: JPOP vocals reach ~E6 and harmonized melody lines
+# sit above the horn range — the horn-fit projection happens downstream.
+MELODY_MAX_FREQUENCY_HZ = 1400.0
 ONSET_THRESHOLD = 0.4
 FRAME_THRESHOLD = 0.3
 MINIMUM_NOTE_LENGTH_MS = 70.0
@@ -96,12 +102,16 @@ def predict_note_events(
     audio_path: str,
     *,
     revision: TranscriptionRevisionId,
+    max_frequency_hz: float = MAX_FREQUENCY_HZ,
 ) -> tuple[RawNoteEvent, ...]:
     """Run Basic Pitch on *audio_path* -> raw note events (engine stage).
 
     ``predict`` is a single blocking ONNX call — cooperative cancellation
     cannot interrupt it (ENGINE_RUNTIME_MATRIX.md); the worker's
     terminate/restart fallback covers aborting mid-inference.
+
+    ``max_frequency_hz`` widens the detection band for melody-texture
+    jobs whose line lives above the horn range.
     """
     require_module("basic_pitch")
     from basic_pitch.inference import predict  # noqa: PLC0415
@@ -117,7 +127,7 @@ def predict_note_events(
                 frame_threshold=FRAME_THRESHOLD,
                 minimum_note_length=MINIMUM_NOTE_LENGTH_MS,
                 minimum_frequency=MIN_FREQUENCY_HZ,
-                maximum_frequency=MAX_FREQUENCY_HZ,
+                maximum_frequency=max_frequency_hz,
                 melodia_trick=True,
             )
     except EngineDependencyError:

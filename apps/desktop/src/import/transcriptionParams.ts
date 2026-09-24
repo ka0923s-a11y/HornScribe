@@ -44,6 +44,7 @@ export interface TranscriptionJobParams {
   selectionStartSec?: number;
   selectionEndSec?: number;
   backend?: string;
+  texture?: string;
 }
 
 export function buildTranscriptionParams(
@@ -72,6 +73,9 @@ export function buildTranscriptionParams(
   if (options.simplicity !== "standard") {
     params.simplicity = options.simplicity;
   }
+  // "auto" is the engine default; pin mono/melody explicitly so the
+  // choice is recorded in the job settings echo.
+  if (options.texture !== "auto") params.texture = options.texture;
   if (options.range === "selection") {
     params.range = "selection";
     // The engine requires end > start for selection mode; clamp the

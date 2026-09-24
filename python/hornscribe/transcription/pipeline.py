@@ -59,6 +59,7 @@ from hornscribe.worker.protocol import (
 )
 
 from .backend import (
+    MELODY_MAX_FREQUENCY_HZ,
     EngineDependencyError,
     load_mono_audio,
     new_transcription_revision,
@@ -92,6 +93,13 @@ VERY_SHORT_SEC = 0.09
 """Surviving detections shorter than this flag ``very_short_detection``."""
 MAX_EXTRA_ISSUES = 60
 """Cap on hand-built issues so a noisy take cannot flood the review UI."""
+
+# ``auto`` texture: when the onset-clean pass still saw this many
+# different-pitch overlaps (absolute floor + share of surviving events),
+# the source is a mix, not a monophonic line — re-clean keeping the top
+# voice so the melody survives instead of being clipped by accompaniment.
+AUTO_TEXTURE_MIN_OVERLAPS = 4
+AUTO_TEXTURE_OVERLAP_RATIO = 0.05
 
 EventEmitter = Callable[..., None]
 NoteBackend = Callable[[str], tuple[RawNoteEvent, ...]]
@@ -287,9 +295,21 @@ def run_transcription_job(
         revision = new_transcription_revision(
             params.audio_path, params.settings_dict()
         )
-        run_backend = backend or (
-            lambda path: predict_note_events(path, revision=revision)
-        )
+        if backend is not None:
+            run_backend = backend
+        else:
+            # Melody-texture jobs widen the detection band: JPOP vocals and
+            # mix melodies sit above the 880 Hz horn cap.
+            max_hz = (
+                MELODY_MAX_FREQUENCY_HZ
+                if params.texture == "melody"
+                else None
+            )
+            run_backend = lambda path: predict_note_events(  # noqa: E731
+                path,
+                revision=revision,
+                **({"max_frequency_hz": max_hz} if max_hz else {}),
+            )
         raw_events = run_backend(params.audio_path)
         if stop(1):
             return
@@ -299,7 +319,16 @@ def run_transcription_job(
         ranged = clip_to_range(
             raw_events, params.selection_start_sec, params.selection_end_sec
         )
-        cleaned = clean_monophonic(ranged)
+        prefer = "top" if params.texture == "melody" else "onset"
+        cleaned = clean_monophonic(ranged, prefer=prefer)
+        if params.texture == "auto" and cleaned.events:
+            overlap_ratio = cleaned.polyphonic_overlaps / len(cleaned.events)
+            if (
+                cleaned.polyphonic_overlaps >= AUTO_TEXTURE_MIN_OVERLAPS
+                and overlap_ratio >= AUTO_TEXTURE_OVERLAP_RATIO
+            ):
+                # Mix detected — keep the melody line instead of clipping it.
+                cleaned = clean_monophonic(ranged, prefer="top")
         if not cleaned.events:
             emit(
                 "failed",

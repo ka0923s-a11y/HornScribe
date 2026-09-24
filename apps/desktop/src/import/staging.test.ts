@@ -119,4 +119,28 @@ describe("buildTranscriptionParams staged path", () => {
     const p = buildTranscriptionParams(a, DEFAULT_TRANSCRIPTION_OPTIONS, null);
     expect(p.audioPath).toBe("C:/orig.wav");
   });
+
+  it("texture pins mono/melody and omits auto", () => {
+    const a = audio({
+      ref: { kind: "path", path: "C:/orig.wav", name: "orig.wav" },
+    });
+    expect(
+      buildTranscriptionParams(a, DEFAULT_TRANSCRIPTION_OPTIONS, null)
+        .texture,
+    ).toBeUndefined();
+    expect(
+      buildTranscriptionParams(
+        a,
+        { ...DEFAULT_TRANSCRIPTION_OPTIONS, texture: "melody" },
+        null,
+      ).texture,
+    ).toBe("melody");
+    expect(
+      buildTranscriptionParams(
+        a,
+        { ...DEFAULT_TRANSCRIPTION_OPTIONS, texture: "mono" },
+        null,
+      ).texture,
+    ).toBe("mono");
+  });
 });

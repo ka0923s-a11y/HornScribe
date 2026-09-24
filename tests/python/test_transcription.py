@@ -135,6 +135,18 @@ class TestParams:
         with pytest.raises(ValueError, match="backend"):
             TranscriptionParams.from_payload({"audioPath": "a", "backend": "whisper"})
 
+    def test_texture_choice_validated_and_echoed(self) -> None:
+        # Melody texture keeps the top voice on overlaps (JPOP/mix
+        # sources); the choice is echoed in meta.settings.
+        p = TranscriptionParams.from_payload(
+            {"audioPath": "a", "texture": "melody"}
+        )
+        assert p.texture == "melody"
+        assert p.settings_dict()["texture"] == "melody"
+        assert TranscriptionParams.from_payload({"audioPath": "a"}).texture == "auto"
+        with pytest.raises(ValueError, match="texture"):
+            TranscriptionParams.from_payload({"audioPath": "a", "texture": "chord"})
+
 
 class TestClean:
     def test_clips_overlap_to_next_onset(self) -> None:
@@ -271,6 +283,86 @@ class TestClean:
         assert out.clipped_overlaps == 1
         assert out.polyphonic_overlaps == 1
         assert out.ghost_dropped == 0
+
+    def test_melody_prefer_drops_lower_overlap(self) -> None:
+        # Melody mode: a lower accompaniment hypothesis overlapping a
+        # sustained higher note loses entirely — the melody tail is
+        # never clipped. Interval of 21 semitones is not a ghost shape.
+        melody = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.0,
+            offset_sec=0.9,
+            confidence=0.9,
+        )
+        accomp = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=55,
+            onset_sec=0.3,
+            offset_sec=0.6,
+            confidence=0.9,
+        )
+        out = clean_monophonic((melody, accomp), prefer="top")
+        assert len(out.events) == 1
+        assert out.events[0].offset_sec == pytest.approx(0.9)
+        assert out.clipped_overlaps == 0
+        assert out.polyphonic_overlaps == 1
+
+    def test_melody_prefer_higher_overlap_cuts_in(self) -> None:
+        # A higher hypothesis overlapping a lower note still cuts in
+        # at its own onset — the top voice always wins.
+        low = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=55,
+            onset_sec=0.0,
+            offset_sec=0.9,
+            confidence=0.9,
+        )
+        high = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.3,
+            offset_sec=0.6,
+            confidence=0.9,
+        )
+        out = clean_monophonic((low, high), prefer="top")
+        assert len(out.events) == 2
+        assert out.events[0].offset_sec == pytest.approx(0.3)
+        assert int(out.events[1].pitch_midi) == 76
+        assert out.clipped_overlaps == 1
+
+    def test_melody_prefer_still_drops_ghost(self) -> None:
+        # Ghost suppression runs before the prefer rule: a short,
+        # weaker octave-up overlap is an overtone artifact, not the
+        # melody — it must not cut the sustained note's tail.
+        sustained = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.0,
+            offset_sec=0.9,
+            confidence=0.9,
+        )
+        ghost = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=72,
+            onset_sec=0.3,
+            offset_sec=0.38,
+            confidence=0.5,
+        )
+        out = clean_monophonic((sustained, ghost), prefer="top")
+        assert len(out.events) == 1
+        assert out.events[0].offset_sec == pytest.approx(0.9)
+        assert out.ghost_dropped == 1
+
+    def test_prefer_rejects_unknown_value(self) -> None:
+        with pytest.raises(ValueError, match="prefer"):
+            clean_monophonic(make_events([60]), prefer="loud")
 
 
 class TestMeter:
@@ -555,3 +647,39 @@ class TestPipeline:
         doc = log[-1]["result"]["scoreDocument"]
         first_note = doc["content"]["parts"][0]["notes"][0]
         assert first_note["startBeat"] == "0/1"
+
+    def test_auto_texture_falls_back_to_melody_on_mix(
+        self, tmp_path: Path
+    ) -> None:
+        # A melody line with a lower accompaniment hypothesis under
+        # every note: onset-clean clips the melody tails, auto texture
+        # detects the overlap density and re-cleans keeping the top
+        # voice — the melody survives intact.
+        events: list[RawNoteEvent] = []
+        for i in range(8):
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 1:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=76.0,
+                    onset_sec=i * 0.5,
+                    offset_sec=i * 0.5 + 0.45,
+                    confidence=0.9,
+                )
+            )
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 2:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=55.0,
+                    onset_sec=i * 0.5 + 0.2,
+                    offset_sec=i * 0.5 + 0.4,
+                    confidence=0.9,
+                )
+            )
+        log = run(tmp_path, tuple(events))
+        assert log[-1]["phase"] == "completed"
+        assert log[-1]["result"]["meta"]["noteCount"] == 8
+        log_mono = run(tmp_path, tuple(events), {"texture": "mono"})
+        assert log_mono[-1]["phase"] == "completed"
+        assert log_mono[-1]["result"]["meta"]["noteCount"] == 16

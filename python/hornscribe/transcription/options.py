@@ -57,6 +57,8 @@ _SUPPORTED_METERS = {
 
 _BACKENDS = {"auto", "basicPitch"}
 
+_TEXTURES = {"auto", "mono", "melody"}
+
 
 @dataclass(frozen=True)
 class TranscriptionParams:
@@ -75,6 +77,12 @@ class TranscriptionParams:
     selection_end_sec: float | None = None
     deadline_ms: float | None = None
     backend: str = "auto"
+    texture: str = "auto"
+    """Source texture hint: ``mono`` keeps first-come clipping for
+    single-instrument sources; ``melody`` keeps the highest voice on
+    overlaps and widens the detection band (JPOP/mix melody extraction);
+    ``auto`` cleans monophonically first and falls back to top-voice
+    when the overlap evidence says the source is a mix."""
 
     @classmethod
     def from_payload(cls, raw: Any) -> TranscriptionParams:
@@ -106,6 +114,7 @@ class TranscriptionParams:
             )
         deadline_ms = cls._opt_float(raw, "deadlineMs", None, lo=1.0, hi=3_600_000.0)
         backend = cls._opt_choice(raw, "backend", "auto", _BACKENDS)
+        texture = cls._opt_choice(raw, "texture", "auto", _TEXTURES)
         return cls(
             audio_path=audio_path,
             tempo_bpm=tempo_bpm,
@@ -118,6 +127,7 @@ class TranscriptionParams:
             selection_end_sec=sel_end,
             deadline_ms=deadline_ms,
             backend=backend,
+            texture=texture,
         )
 
     def meter_segment(self) -> MeterSegment:
@@ -162,6 +172,7 @@ class TranscriptionParams:
             "selectionStartSec": self.selection_start_sec,
             "selectionEndSec": self.selection_end_sec,
             "backend": self.backend,
+            "texture": self.texture,
         }
 
     @staticmethod
