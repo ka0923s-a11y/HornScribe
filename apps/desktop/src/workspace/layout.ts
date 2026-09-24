@@ -85,6 +85,9 @@ interface PersistedLayout {
   propertiesOpen?: boolean;
   propertiesWidth?: number;
   waveformHeight?: number;
+  /** §26 session restore: last score zoom (%) and view mode. */
+  scoreZoomPct?: number;
+  scoreViewMode?: "continuous" | "page";
 }
 
 function loadLayout(): PersistedLayout {
@@ -104,6 +107,38 @@ function saveLayout(layout: PersistedLayout): void {
   } catch {
     /* persistence is best-effort */
   }
+}
+
+/* §26: per-session score view state, restored on the next launch.
+ * Read/write goes through the same layout record so panel sizes and
+ * view state never clobber each other. */
+export interface ScoreSessionView {
+  readonly zoomPct: number | null;
+  readonly viewMode: "continuous" | "page" | null;
+}
+
+export function readScoreSessionView(): ScoreSessionView {
+  const stored = loadLayout();
+  const zoomPct =
+    typeof stored.scoreZoomPct === "number" &&
+    Number.isFinite(stored.scoreZoomPct)
+      ? stored.scoreZoomPct
+      : null;
+  const viewMode =
+    stored.scoreViewMode === "continuous" || stored.scoreViewMode === "page"
+      ? stored.scoreViewMode
+      : null;
+  return { zoomPct, viewMode };
+}
+
+export function writeScoreSessionView(patch: {
+  zoomPct?: number;
+  viewMode?: "continuous" | "page";
+}): void {
+  const next = { ...loadLayout() };
+  if (patch.zoomPct !== undefined) next.scoreZoomPct = patch.zoomPct;
+  if (patch.viewMode !== undefined) next.scoreViewMode = patch.viewMode;
+  saveLayout(next);
 }
 
 /* ------------------------------- hooks -------------------------------- */

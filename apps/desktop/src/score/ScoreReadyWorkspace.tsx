@@ -60,6 +60,10 @@ import {
   type ScoreViewMode,
 } from "./verovio";
 import {
+  readScoreSessionView,
+  writeScoreSessionView,
+} from "../workspace/layout";
+import {
   buildPlaybackTable,
   canonicalsInRange,
   segmentAt,
@@ -208,9 +212,16 @@ export function ScoreReadyWorkspace({
   const tableRef = useRef<PlaybackTable | null>(null);
 
   const [pages, setPages] = useState<RenderedPage[]>([]);
-  const [viewMode, setViewMode] = useState<ScoreViewMode>(initialViewMode);
+  /* §26: restore the previous session's score view (zoom + mode); the
+   * settings "initial view" only applies when no session state exists. */
+  const sessionViewRef = useRef(readScoreSessionView());
+  const [viewMode, setViewMode] = useState<ScoreViewMode>(
+    sessionViewRef.current.viewMode ?? initialViewMode,
+  );
   const [currentPage, setCurrentPage] = useState(1);
-  const [zoom, setZoom] = useState(100);
+  const [zoom, setZoom] = useState(
+    sessionViewRef.current.zoomPct ?? 100,
+  );
   const [selection, setSelection] = useState<Selection | null>(null);
   const [loading, setLoading] = useState(true);
   const [renderError, setRenderError] = useState(false);
@@ -248,8 +259,10 @@ export function ScoreReadyWorkspace({
   const loopCanonicalsRef = useRef<ReadonlySet<string>>(EMPTY_SET);
   const followRef = useRef(true);
   const suspendedRef = useRef(false);
-  const zoomRef = useRef(100);
-  const viewModeRef = useRef<ScoreViewMode>(initialViewMode);
+  const zoomRef = useRef(sessionViewRef.current.zoomPct ?? 100);
+  const viewModeRef = useRef<ScoreViewMode>(
+    sessionViewRef.current.viewMode ?? initialViewMode,
+  );
   const currentPageRef = useRef(1);
   const pitchRef = useRef(pitch);
   /** The presentation actually loaded into Verovio — compared against the
@@ -691,6 +704,7 @@ export function ScoreReadyWorkspace({
       if (next === zoomRef.current) return;
       zoomRef.current = next;
       setZoom(next);
+      writeScoreSessionView({ zoomPct: next });
       renderScore(pitchRef.current, { keepScroll: true });
     },
     [renderScore],
@@ -711,6 +725,7 @@ export function ScoreReadyWorkspace({
       if (mode === viewModeRef.current) return;
       viewModeRef.current = mode;
       setViewMode(mode);
+      writeScoreSessionView({ viewMode: mode });
       renderScore(pitchRef.current, { keepScroll: true });
     },
     [renderScore],
