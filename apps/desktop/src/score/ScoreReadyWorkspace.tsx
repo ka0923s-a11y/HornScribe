@@ -83,6 +83,15 @@ import {
   numEvidence,
   type ScoreReviewIssue,
 } from "./review";
+import {
+  armReviewLoop,
+  emptyReviewLoopState,
+  releaseReviewLoop,
+  retargetReviewLoop,
+  type LoopPort,
+  type LoopRangeSec,
+  type ReviewLoopState,
+} from "./reviewLoop";
 import { ReviewSession, type ReviewEdit } from "./reviewSession";
 import { ReviewBar } from "./ReviewBar";
 import {
@@ -141,6 +150,7 @@ interface Props {
     seekTo(sec: number): void;
     play(): void;
     setLoop(range: { start: number; end: number } | null): void;
+    loopRange(): { start: number; end: number } | null;
   } | null;
   /** 設定→楽譜 初期表示 — seeds viewMode on mount (document key
    *  remounts per revision, so this is a per-score default). */
@@ -315,6 +325,52 @@ export function ScoreReadyWorkspace({
   const reviewIndexRef = useRef(0);
   const reviewOpenRef = useRef(false);
   const pendingScrollRef = useRef<{ ratio: number } | null>(null);
+  /* Review-audition A-B loop (see reviewLoop.ts): owned by the review
+   * session, retargeted on issue navigation, released on exit so it can
+   * never leak into normal playback. */
+  const reviewLoopRef = useRef<ReviewLoopState>(emptyReviewLoopState());
+  const sourceControlRef = useRef(sourceControl);
+  sourceControlRef.current = sourceControl;
+
+  /** Loop-capable clocks for the review audition loop: the score cursor
+   *  clock (ms -> sec adapter) plus the real media transport when a
+   *  source is loaded. Stable identity - reads the live refs at call
+   *  time. */
+  const reviewLoopPorts = useCallback((): LoopPort[] => {
+    const ports: LoopPort[] = [];
+    const clock = clockRef.current;
+    if (clock) {
+      ports.push({
+        loopRange: () => {
+          const r = clock.loopRange();
+          return r
+            ? { start: r.startMs / 1000, end: r.endMs / 1000 }
+            : null;
+        },
+        setLoop: (r: LoopRangeSec | null) =>
+          clock.setLoop(
+            r ? { startMs: r.start * 1000, endMs: r.end * 1000 } : null,
+          ),
+      });
+    }
+    const src = sourceControlRef.current;
+    if (src) ports.push(src);
+    return ports;
+  }, []);
+  /* Unmount: release the review loop against the CURRENT ports (the
+   * media transport outlives this component - a leaked review loop
+   * would keep looping the last issue's range behind a new document). */
+  const reviewLoopPortsRef = useRef(reviewLoopPorts);
+  reviewLoopPortsRef.current = reviewLoopPorts;
+  useEffect(
+    () => () => {
+      reviewLoopRef.current = releaseReviewLoop(
+        reviewLoopRef.current,
+        reviewLoopPortsRef.current(),
+      );
+    },
+    [],
+  );
 
   /* ---- UI-050 review session ----
    * The document owns decisions + note edits (revision-bound); the session
@@ -865,11 +921,20 @@ export function ScoreReadyWorkspace({
       }
       // Position the source cursor at the issue's range start so
       // 元音源を再生 is immediate (acceptance: replay without extra steps).
-      const startSec = issue.timeRange?.startSec;
-      if (startSec != null) sourceControl?.seekTo(startSec);
+      // Keep the review-audition loop on the issue actually selected:
+      // an armed loop retargets to this issue's range (a range-less
+      // issue clears it) BEFORE the seek, so a playing transport can
+      // never wrap back into the previous issue's range.
+      const range = issueAuditionRange(issue, table);
+      reviewLoopRef.current = retargetReviewLoop(
+        reviewLoopRef.current,
+        reviewLoopPorts(),
+        range,
+      );
+      if (range != null) sourceControl?.seekTo(range.start);
       announce(ja.review.position(i + 1, issues.length));
     },
-    [allIssues, selectExportId, sourceControl, announce],
+    [allIssues, selectExportId, sourceControl, announce, reviewLoopPorts],
   );
 
   const openReview = useCallback(() => {
@@ -888,8 +953,14 @@ export function ScoreReadyWorkspace({
   const exitReview = useCallback(() => {
     reviewOpenRef.current = false;
     setReviewOpen(false);
+    // The review-audition loop dies with the review - restore whatever
+    // loop the user had before 蜈・浹貅舌ｒ蜀咲函 armed it.
+    reviewLoopRef.current = releaseReviewLoop(
+      reviewLoopRef.current,
+      reviewLoopPorts(),
+    );
     announce(ja.review.feedback.exited);
-  }, [announce]);
+  }, [announce, reviewLoopPorts]);
 
   /** Re-parse presentations + re-render after a note edit (pitch/delete):
    *  inspector labels and the playback table both derive from the XML. */
@@ -1428,29 +1499,26 @@ const setKey = useCallback(
   const playSource = useCallback(() => {
     const issue = issueAtCursor();
     if (!issue) return;
-    let startSec = issue.timeRange?.startSec;
-    let endSec = issue.timeRange?.endSec;
-    if (startSec == null || endSec == null) {
-      // No explicit range: loop the canonical note's notated span.
-      const table = tableRef.current;
-      const first = issue.canonicalNoteIds[0];
-      const onset = first ? table?.onsetMsByCanonical.get(first) : undefined;
-      if (!table || onset == null) return;
-      startSec = onset / 1000;
-      endSec = nearestOffset(table, onset) / 1000;
-    }
+    const range = issueAuditionRange(issue, tableRef.current);
+    if (range == null) return;
+    // Arm the review-owned loop on every loop-capable clock (score clock
+    // + media transport). The user's previous loop is saved inside the
+    // review-loop state and restored by exitReview.
+    reviewLoopRef.current = armReviewLoop(
+      reviewLoopRef.current,
+      reviewLoopPorts(),
+      range,
+    );
     const clock = clockRef.current;
-    clock?.setLoop({ startMs: startSec * 1000, endMs: endSec * 1000 });
     if (sourceControl) {
-      sourceControl.setLoop({ start: startSec, end: endSec });
-      sourceControl.seekTo(startSec);
+      sourceControl.seekTo(range.start);
       sourceControl.play();
     } else {
-      clock?.seek(startSec * 1000);
+      clock?.seek(range.start * 1000);
       clock?.play();
     }
     announce(ja.review.feedback.playingSource);
-  }, [issueAtCursor, sourceControl, announce]);
+  }, [issueAtCursor, sourceControl, announce, reviewLoopPorts]);
 
   /* --------------------------- controller -------------------------------- */
 
@@ -1970,4 +2038,25 @@ function nearestOffset(table: PlaybackTable, onsetMs: number): number {
     if (t > onsetMs && t < best) best = t;
   }
   return Number.isFinite(best) ? best : table.durationMs;
+}
+
+/** The source range an issue auditions over: its explicit timeRange, or
+ *  the first canonical note's notated span (onset -> next onset) when the
+ *  issue carries no range. null when neither is derivable (whole-piece
+ *  issues on a source-less fixture). */
+function issueAuditionRange(
+  issue: ScoreReviewIssue,
+  table: PlaybackTable | null,
+): LoopRangeSec | null {
+  const t = issue.timeRange;
+  if (t != null && t.endSec > t.startSec) {
+    return { start: t.startSec, end: t.endSec };
+  }
+  const first = issue.canonicalNoteIds[0];
+  const onset = first ? table?.onsetMsByCanonical.get(first) : undefined;
+  if (!table || onset == null) return null;
+  return {
+    start: onset / 1000,
+    end: nearestOffset(table, onset) / 1000,
+  };
 }

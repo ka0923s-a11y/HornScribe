@@ -120,6 +120,7 @@ export function ScoreWorkspace({
     seekTo(sec: number): void;
     play(): void;
     setLoop(range: { start: number; end: number } | null): void;
+    loopRange(): { start: number; end: number } | null;
   } | null;
   /** #115: engine score.edit invoker for rhythm edits — absent for
    *  fixture/dev documents (the commands announce unavailable). */

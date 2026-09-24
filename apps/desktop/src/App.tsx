@@ -1657,6 +1657,7 @@ export default function App() {
                           play: () =>
                             void transport.play().catch(() => undefined),
                           setLoop: (r) => transport.setLoop(r),
+                          loopRange: () => transport.getSnapshot().loop,
                         }
                       : null
                   }
