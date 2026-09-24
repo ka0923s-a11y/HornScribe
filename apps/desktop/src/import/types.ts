@@ -93,6 +93,12 @@ export interface ProjectSummary {
   name: string;
   sourcePath: string | null;
   sourceHash: string | null;
+  /** Saved job-result extras (#106): when the file carries
+   *  musicXmlConcert/musicXmlHornF + score.revision + reviewIssues,
+   *  this mirrors the completed-job `result` payload so the score can
+   *  be restored without re-transcribing. Null for projects without
+   *  saved score data (externally authored files). */
+  scoreResult: unknown | null;
 }
 
 /** SOURCE_MISSING context: which project lost its audio, and whether the

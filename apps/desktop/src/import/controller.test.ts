@@ -46,6 +46,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
   const announcements: string[] = [];
   const readyAudios: LoadedAudio[] = [];
   const recents: RecentProjectEntry[][] = [];
+  const scoreResults: unknown[] = [];
   const store = new Map<string, Blob>();
 
   const events: ImportEvents = {
@@ -54,6 +55,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     announce: (m) => announcements.push(m),
     onRecentChange: (e) => recents.push([...e]),
     onAudioReady: (a) => readyAudios.push(a),
+    onProjectScoreReady: (r) => scoreResults.push(r),
   };
 
   const ports: ImportPorts = {
@@ -91,6 +93,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     announcements,
     readyAudios,
     recents,
+    scoreResults,
   };
 }
 
@@ -255,6 +258,47 @@ describe("openProject — source verification (store.py contract)", () => {
     });
     expect(h.screens.at(-1)).toBe("audioError");
   });
+
+  it("saved score extras → onProjectScoreReady restores without re-transcribing (#106)", async () => {
+    const h = makeHarness();
+    h.store.set(entry.path, projectJson({
+      score: { revision: "rev-0123456789abcdef" },
+      musicXmlConcert: "<score-partwise/>",
+      musicXmlHornF: "<score-partwise/>",
+      reviewIssues: [{ id: "ri-000001", reason: "low_model_confidence" }],
+    }));
+    h.store.set("C:\\audio\\etude.wav", new Blob(["etude"]));
+
+    await h.controller.openProject(entry);
+
+    expect(h.scoreResults).toHaveLength(1);
+    const result = h.scoreResults[0] as Record<string, unknown>;
+    expect(result.musicXmlConcert).toBe("<score-partwise/>");
+    expect(result.scoreRevision).toBe("rev-0123456789abcdef");
+    expect(result.reviewIssues).toHaveLength(1);
+    expect(h.announcements.at(-1)).toContain("etude");
+  });
+
+  it("project without extras → no score event, AUDIO_READY only (#106)", async () => {
+    const h = makeHarness();
+    h.store.set(entry.path, projectJson());
+    h.store.set("C:\\audio\\etude.wav", new Blob(["etude"]));
+    await h.controller.openProject(entry);
+    expect(h.scoreResults).toHaveLength(0);
+    expect(h.screens.at(-1)).toBe("audioReady");
+  });
+
+  it("SOURCE_MISSING still restores the score in the background (#106)", async () => {
+    const h = makeHarness();
+    h.store.set(entry.path, projectJson({
+      score: { revision: "rev-0123456789abcdef" },
+      musicXmlConcert: "x",
+      musicXmlHornF: "y",
+    }));
+    await h.controller.openProject(entry);
+    expect(h.controller.getState().phase).toBe("sourceMissing");
+    expect(h.scoreResults).toHaveLength(1);
+  });
 });
 
 describe("relinkWith — hash-validated relink (store.py relink_source_audio)", () => {
@@ -366,5 +410,32 @@ describe("parseProjectFile", () => {
     const p = parse({ schemaVersion: 1, projectId: "x", sourceAudio: null });
     expect(p.sourcePath).toBeNull();
     expect(p.sourceHash).toBeNull();
+  });
+
+  it("reassembles scoreResult from saved extras (#106)", () => {
+    const p = parse({
+      schemaVersion: 1,
+      projectId: "x",
+      sourceAudio: null,
+      score: { revision: "rev-0123456789abcdef" },
+      musicXmlConcert: "<a/>",
+      musicXmlHornF: "<b/>",
+      reviewIssues: [{ id: "ri-1" }],
+      scoreDocument: { parts: [] },
+      meta: { tempoBpm: 120 },
+    });
+    const result = p.scoreResult as Record<string, unknown>;
+    expect(result).toMatchObject({
+      musicXmlConcert: "<a/>",
+      musicXmlHornF: "<b/>",
+      scoreRevision: "rev-0123456789abcdef",
+    });
+    expect(result.reviewIssues).toHaveLength(1);
+    expect(result.scoreDocument).toEqual({ parts: [] });
+  });
+
+  it("no MusicXML extras → scoreResult is null (#106)", () => {
+    const p = parse({ schemaVersion: 1, projectId: "x", sourceAudio: null });
+    expect(p.scoreResult).toBeNull();
   });
 });

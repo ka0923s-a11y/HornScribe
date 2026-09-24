@@ -853,6 +853,7 @@ export const ja = {
     /** 状態表示へのアナウンス (notifications / aria-live feedback)。 */
     feedback: {
       loaded: (name: string) => `${name} を読み込みました`,
+      projectOpened: (name: string) => `${name} を開きました`,
       sourceRelinked: "元音源を関連付け直しました",
       transcribeCancelled: "採譜をキャンセルしました",
       playing: "再生中",

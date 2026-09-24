@@ -80,6 +80,10 @@ export interface ImportEvents {
   onRecentChange(entries: readonly RecentProjectEntry[]): void;
   /** Decoded audio is ready — host wires it into the transport adapter. */
   onAudioReady(audio: LoadedAudio): void;
+  /** Optional (#106): the opened project carried a saved score — the
+   *  host restores it and jumps to SCORE_READY instead of waiting for
+   *  a re-transcription. Fires after the usual state/screen updates. */
+  onProjectScoreReady?(result: unknown): void;
 }
 
 type RecentStorage = Pick<Storage, "getItem" | "setItem"> | null;
@@ -326,7 +330,15 @@ export class ImportController {
       });
       this.touchRecent(sm.project);
       this.events.onAudioReady(audio);
-      this.events.announce(ja.import.feedback.sourceRelinked);
+      // #106: the project's saved score (already restored in the
+      // background) can now land — the relinked audio matches the
+      // recorded content hash.
+      if (sm.project.scoreResult != null) {
+        this.events.onProjectScoreReady?.(sm.project.scoreResult);
+        this.events.announce(ja.import.feedback.projectOpened(sm.project.name));
+      } else {
+        this.events.announce(ja.import.feedback.sourceRelinked);
+      }
     } catch {
       if (!this.isCurrent(gen)) return;
       // Candidate unreadable or undecodable after a hash match — stay on
@@ -402,6 +414,11 @@ export class ImportController {
       issue: null,
       sourceMissing: { project, mismatch },
     });
+    // #106: the score survives a missing/moved source — restore it
+    // now; the audio can be relinked afterwards.
+    if (project.scoreResult != null) {
+      this.events.onProjectScoreReady?.(project.scoreResult);
+    }
   }
 
   private finishProjectOpen(
@@ -431,7 +448,14 @@ export class ImportController {
     });
     this.touchRecent(project);
     this.events.onAudioReady(audio);
-    this.events.announce(ja.import.feedback.loaded(ref.name));
+    // #106: a project saved with score extras skips re-transcription —
+    // the host restores the document and lands on SCORE_READY.
+    if (project.scoreResult != null) {
+      this.events.onProjectScoreReady?.(project.scoreResult);
+      this.events.announce(ja.import.feedback.projectOpened(project.name));
+    } else {
+      this.events.announce(ja.import.feedback.loaded(ref.name));
+    }
   }
 
   private touchRecent(project: ProjectSummary): void {
@@ -508,5 +532,33 @@ export function parseProjectFile(
       source && typeof source.contentHash === "string"
         ? source.contentHash
         : null,
+    scoreResult: scoreResultFromProject(data),
+  };
+}
+
+/**
+ * Reassemble the completed-job `result` shape from the project's saved
+ * extras (#106). `engineDocumentFromResult` and `scoreHandoffFromResult`
+ * consume this directly — the score is restored without re-transcribing.
+ * Returns null when the file carries no MusicXML (externally authored
+ * projects keep the AUDIO_READY-only open path).
+ */
+function scoreResultFromProject(
+  data: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const concert = data.musicXmlConcert;
+  const horn = data.musicXmlHornF;
+  if (typeof concert !== "string" || typeof horn !== "string") {
+    return null;
+  }
+  const score = data.score as Record<string, unknown> | null;
+  return {
+    musicXmlConcert: concert,
+    musicXmlHornF: horn,
+    scoreRevision:
+      score && typeof score.revision === "string" ? score.revision : "rev-project",
+    reviewIssues: Array.isArray(data.reviewIssues) ? data.reviewIssues : [],
+    scoreDocument: data.scoreDocument ?? null,
+    meta: data.meta ?? {},
   };
 }

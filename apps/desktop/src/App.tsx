@@ -366,6 +366,27 @@ export default function App() {
             // to "error" — the status line already carries the outcome.
             void transport.load(audio.mediaSource).catch(() => undefined);
           },
+          onProjectScoreReady: (result) => {
+            // #106: the saved extras mirror the completed-job result —
+            // rebuild the document and land on SCORE_READY without
+            // re-transcribing. Malformed extras fall back to the
+            // fixture document only in dev; with a real result null
+            // means no usable MusicXML, so keep the audio-only state.
+            const input = engineDocumentFromResult(result);
+            if (!input) return;
+            const handoff = scoreHandoffFromResult(result);
+            const doc = createEngineScoreDocument({
+              ...input,
+              issues: handoff?.issues ?? [],
+            });
+            if (!doc) return;
+            setHasScore(true);
+            setScoreDocument(doc);
+            // Keep the SOURCE_MISSING card on screen when the audio
+            // still needs relinking — the score is ready underneath
+            // and lands when the relink succeeds.
+            setScreen((s) => (s === "sourceMissing" ? s : "scoreReady"));
+          },
         },
         // Recent-project MRU persists in localStorage (web + webview).
         typeof window !== "undefined" ? window.localStorage : null,
