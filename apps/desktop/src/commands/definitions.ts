@@ -453,6 +453,15 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
       run: (ctx) => ctx.toggleSelectedTie?.(),
     },
+    // #130 (spec 14): re-quantize under changed settings — menu-only
+    // discoverability; the dialog owns the actual edit.
+    {
+      id: "score.requantize",
+      title: ja.commands.requantize,
+      section: "score",
+      isEnabled: (s) => s.hasScore && !s.reviewOpen,
+      run: (ctx) => ctx.openRequantizeDialog?.(),
+    },
 
     // ---- edit (§14: every fix is a command) ----
     {

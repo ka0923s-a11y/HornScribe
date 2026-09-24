@@ -456,6 +456,7 @@ export const ja = {
     noteShiftLeft: "発音位置を左へ移動",
     noteShiftRight: "発音位置を右へ移動",
     noteToggleTie: "次の音符とタイで結ぶ / 解く",
+    requantize: "採譜設定を変えて再適用",
   },
 
   /**
@@ -485,6 +486,7 @@ export const ja = {
     rhythmEditUnavailable: "この楽譜ではリズム編集を利用できません",
     tempoChanged: "テンポを変更しました",
     meterChanged: "拍子を変更しました",
+    requantized: "採譜設定を適用して楽譜を更新しました",
     // #113: media A-B loop arming (transport.toggleLoop on AUDIO_READY).
     loopOn: "ループをオンにしました",
     loopOff: "ループをオフにしました",
@@ -1181,6 +1183,16 @@ export const ja = {
         : "重なった音を第2声部として " + kept + " 個残しました",
     mergedOverlaps: (count: number) =>
       count + " 箇所の音の重なりを検出し、1つの旋律にまとめました（別の声部が失われた可能性があります）",
+  },
+
+  /* #130 (§14): re-quantize dialog — change the quantization settings
+   * on the finished score and re-apply them through score.edit. */
+  requantizeDialog: {
+    title: "採譜設定を変えて再適用",
+    body: "現在の設定を変更して、楽譜全体をもう一度量子化します。元に戻す（Ctrl+Z）で直前の状態に戻せます。",
+    apply: "適用",
+    cancel: "キャンセル",
+    unchanged: "設定が変わっていません",
   },
 
   /* ============================ UI-050 ============================

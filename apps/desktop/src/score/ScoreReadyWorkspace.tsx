@@ -1087,6 +1087,19 @@ export function ScoreReadyWorkspace({
     [applyRhythmEdit],
   );
 
+  /* #130 (spec 14): re-quantize the whole score under changed
+   * quantization settings — the engine replays the canonical notes
+   * through the DP with the merged profile. */
+  const requantize = useCallback(
+    (settings: Record<string, unknown>) => {
+      applyRhythmEdit(
+        () => ({ kind: "requantize", noteId: "", settings }),
+        ja.commandFeedback.requantized,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   const reviewUndo = useCallback(() => {
     const edit = session.undo();
     if (!edit) {
@@ -1232,6 +1245,7 @@ export function ScoreReadyWorkspace({
       toggleSelectedTie: () => toggleSelectedTie(),
       setTempo: (bpm) => setTempo(bpm),
       setMeter: (bpm_, bu) => setMeter(bpm_, bu),
+      requantize: (settings) => requantize(settings),
     };
     controllerRef(controller);
     return () => controllerRef(null);
@@ -1260,6 +1274,7 @@ export function ScoreReadyWorkspace({
     toggleSelectedTie,
     setTempo,
     setMeter,
+    requantize,
     announce,
   ]);
 

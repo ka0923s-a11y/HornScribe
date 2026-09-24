@@ -19,7 +19,8 @@ export type RhythmEditKind =
   | "shiftOnset"
   | "toggleTie"
   | "setTempo"
-  | "setMeter";
+  | "setMeter"
+  | "requantize";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -35,6 +36,9 @@ export interface RhythmEditOp {
   /** setMeter only: new time signature (engine-validated). */
   readonly beatsPerMeasure?: number;
   readonly beatUnit?: number;
+  /** requantize only: quantization-settings overrides merged into the
+   *  payload's stored settings (minDurationQl / triplets / simplicity). */
+  readonly settings?: Record<string, unknown>;
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

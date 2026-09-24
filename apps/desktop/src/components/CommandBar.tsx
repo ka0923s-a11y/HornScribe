@@ -19,6 +19,7 @@ import {
   ArrowLeft24Regular,
   ArrowRight24Regular,
   Link24Regular,
+  MusicNote224Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -178,6 +179,14 @@ export function CommandBar({
             label: commands.title("score.toggleTie"),
             icon: <Link24Regular />,
             disabled: !commands.isEnabled("score.toggleTie"),
+          } satisfies HsMenuItem,
+          // #130 (spec 14): score-wide re-quantize — always enabled with
+          // a score (no selection needed); opens the settings dialog.
+          {
+            key: "requantize",
+            label: commands.title("score.requantize"),
+            icon: <MusicNote224Regular />,
+            disabled: !commands.isEnabled("score.requantize"),
           } satisfies HsMenuItem,
         ]
       : []),

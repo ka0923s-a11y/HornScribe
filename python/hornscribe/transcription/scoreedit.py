@@ -22,7 +22,13 @@ from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Any
 
-from hornscribe.domain.ids import RawNoteEventId, ScoreNoteId
+from hornscribe.domain.events import RawNoteEvent
+from hornscribe.domain.ids import (
+    RawNoteEventId,
+    ScoreNoteId,
+    TranscriptionRevisionId,
+    derive_transcription_revision_id,
+)
 from hornscribe.domain.score import (
     MeasureSpan,
     Part,
@@ -39,7 +45,9 @@ from hornscribe.domain.score import (
 from hornscribe.rhythm.contracts import NormalizedNote, RhythmAtom
 from hornscribe.rhythm.meter import MeterMap, MeterSegment
 from hornscribe.rhythm.profile import QuantizationProfile
+from hornscribe.rhythm.quantizer import quantize_events
 from hornscribe.rhythm.realize import SpanRealizer
+from hornscribe.rhythm.timewarp import TimeWarp
 from hornscribe.rhythm.triplet import (
     TripletRegion,
     enabled_triplet_regions,
@@ -47,6 +55,7 @@ from hornscribe.rhythm.triplet import (
 )
 
 from .options import _PROFILES, _TRIPLET_POLICIES
+from .scorebuild import _part_content
 
 
 class ScoreEditError(ValueError):
@@ -70,6 +79,7 @@ class ScoreEdit:
     bpm: float | None = None
     beats_per_measure: int | None = None
     beat_unit: int | None = None
+    settings: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -80,13 +90,14 @@ class ScoreEdit:
             "toggleTie",
             "setTempo",
             "setMeter",
+            "requantize",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
-                f"setTempo/setMeter, got {kind!r}"
+                f"setTempo/setMeter/requantize, got {kind!r}"
             )
         note_id = data.get("noteId")
-        if kind in ("setTempo", "setMeter"):
+        if kind in ("setTempo", "setMeter", "requantize"):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
             raise ScoreEditError("edit.noteId must be a non-empty string")
@@ -121,6 +132,7 @@ class ScoreEdit:
                 raise ScoreEditError(
                     f"beatUnit {beat_unit} must be a power of two (1-64)"
                 )
+        settings = _requantize_settings(data, kind)
         duration = data.get("durationBeats")
         try:
             duration_beats = (
@@ -143,6 +155,7 @@ class ScoreEdit:
             bpm=bpm,
             beats_per_measure=beats_per_measure,
             beat_unit=beat_unit,
+            settings=settings,
         )
 
 
@@ -153,6 +166,63 @@ def _opt_int(data: dict[str, Any], key: str) -> int | None:
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise ScoreEditError(f"edit.{key} must be an int, got {raw!r}")
     return raw
+
+
+_REQUANTIZE_KEYS = {"minDurationQl", "triplets", "simplicity"}
+
+
+def _requantize_settings(
+    data: dict[str, Any], kind: str
+) -> dict[str, Any] | None:
+    """Validate the requantize settings overrides (#130).
+
+    Only the quantization profile knobs are accepted — tempo and meter
+    have their own edits, and unknown keys are rejected rather than
+    silently ignored so a typo never looks like it applied.
+    """
+    raw = data.get("settings")
+    if raw is None:
+        if kind == "requantize":
+            raise ScoreEditError("requantize requires a settings object")
+        return None
+    if not isinstance(raw, dict):
+        raise ScoreEditError("edit.settings must be an object")
+    unknown = set(raw) - _REQUANTIZE_KEYS
+    if unknown:
+        raise ScoreEditError(
+            f"unknown requantize settings: {sorted(unknown)}"
+        )
+    out: dict[str, Any] = {}
+    if "minDurationQl" in raw:
+        try:
+            value = Fraction(raw["minDurationQl"])
+        except (TypeError, ValueError, ZeroDivisionError) as exc:
+            raise ScoreEditError(
+                "settings.minDurationQl is not a rational number: "
+                f"{raw['minDurationQl']!r}"
+            ) from exc
+        if value <= 0:
+            raise ScoreEditError("settings.minDurationQl must be > 0")
+        out["minDurationQl"] = str(value)
+    if "triplets" in raw:
+        value = raw["triplets"]
+        if value not in _TRIPLET_POLICIES:
+            raise ScoreEditError(
+                f"settings.triplets must be one of "
+                f"{sorted(_TRIPLET_POLICIES)}, got {value!r}"
+            )
+        out["triplets"] = value
+    if "simplicity" in raw:
+        value = raw["simplicity"]
+        if value not in _PROFILES:
+            raise ScoreEditError(
+                f"settings.simplicity must be one of "
+                f"{sorted(_PROFILES)}, got {value!r}"
+            )
+        out["simplicity"] = value
+    if kind == "requantize" and not out:
+        raise ScoreEditError("requantize needs at least one setting")
+    return out or None
 
 
 def _profile_from_settings(settings: dict[str, Any]) -> QuantizationProfile:
@@ -592,6 +662,111 @@ def _apply_set_meter(
     )
 
 
+def _apply_requantize(
+    payload: ScoreRevisionPayload, overrides: dict[str, Any]
+) -> ScoreRevisionPayload:
+    """Re-quantize every part under changed quantization settings (#130).
+
+    The canonical notes are replayed through quantize_events as synthetic
+    raw events: onset/offset seconds are the note's absolute QL span and
+    the warp is the identity (fixed 60 bpm), so the DP re-searches the
+    grid under the merged profile — a coarser min-duration merges
+    ornament notes, a finer one splits them, and triplet policy changes
+    re-decide the tuplet regions.
+
+    Canonical ids are preserved positionally: old and new note lists are
+    each in score order, and index i of the new list inherits old note
+    i's id (and its source_event_ids, so review evidence still resolves).
+    Extra new notes get fresh ids continuing the document's numbering;
+    extra old ids disappear with their notes — review issues pointing at
+    a vanished id are dropped by the caller's issue filtering.
+    """
+    settings = {**payload.quantization_settings, **overrides}
+    profile = _profile_from_settings(settings)
+    meter_map = _meter_map_from_payload(payload)
+    beat_ql = beat_ql_of(payload)
+    warp = TimeWarp.fixed_bpm(60.0)  # identity: seconds == quarterLength
+    tr_rev = TranscriptionRevisionId(
+        str(
+            derive_transcription_revision_id(
+                {"requantize": settings, "of": str(payload.revision_id())}
+            )
+        )
+    )
+
+    # Highest existing sn-* index across every part — fresh ids continue
+    # from here so they never collide with a surviving note.
+    next_id = 0
+    for part in payload.parts:
+        for n in part.notes:
+            try:
+                next_id = max(next_id, int(str(n.id)[3:]) + 1)
+            except ValueError:
+                continue
+
+    new_parts: list[Part] = []
+    for part in payload.parts:
+        if not part.notes:
+            new_parts.append(part)
+            continue
+        events: list[RawNoteEvent] = []
+        event_by_id: dict[RawNoteEventId, RawNoteEvent] = {}
+        for i, n in enumerate(part.notes):
+            event = RawNoteEvent(
+                id=RawNoteEventId(f"rne-9{i:05d}"),
+                transcription_revision=tr_rev,
+                pitch_midi=float(n.pitch_midi),
+                onset_sec=float(n.start_beat * beat_ql),
+                offset_sec=float(n.end_beat * beat_ql),
+                velocity=n.velocity,
+                source="requantize",
+            )
+            events.append(event)
+            event_by_id[event.id] = event
+        alternatives = quantize_events(
+            events,
+            warp,
+            meter_map,
+            profile,
+            alignment_shift_sec=0.0,
+        )
+        if not alternatives:
+            raise ScoreEditError(
+                "re-quantization produced no notes for this score"
+            )
+        notes, rests, _conf, _onsets = _part_content(
+            alternatives[0], beat_ql, event_by_id
+        )
+        old_sorted = sorted(
+            part.notes, key=lambda n: (n.start_beat, str(n.id))
+        )
+        remapped: list[QuantizedNote] = []
+        for i, note in enumerate(notes):
+            if i < len(old_sorted):
+                old = old_sorted[i]
+                remapped.append(
+                    replace(
+                        note,
+                        id=old.id,
+                        source_event_ids=old.source_event_ids,
+                    )
+                )
+            else:
+                remapped.append(
+                    replace(note, id=ScoreNoteId(f"sn-{next_id:06d}"))
+                )
+                next_id += 1
+        new_parts.append(
+            replace(part, notes=tuple(remapped), rests=tuple(rests))
+        )
+
+    return replace(
+        payload,
+        parts=tuple(new_parts),
+        quantization_settings=settings,
+    )
+
+
 def _apply_set_tempo(
     payload: ScoreRevisionPayload, bpm: float
 ) -> ScoreRevisionPayload:
@@ -637,6 +812,11 @@ def apply_score_edit(
             beat_unit=edit.beat_unit,
         )
         new_payload = _apply_set_meter(payload, ts)
+        return replace(document, payload=new_payload)
+    if edit.kind == "requantize":
+        if not edit.settings:
+            raise ScoreEditError("requantize needs at least one setting")
+        new_payload = _apply_requantize(payload, edit.settings)
         return replace(document, payload=new_payload)
     # Locate the note across parts (single-part today, but the loop is
     # free).

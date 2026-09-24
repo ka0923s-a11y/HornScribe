@@ -17,6 +17,10 @@ import { CommandBar } from "./components/CommandBar";
 import { WaveformView } from "./components/WaveformView";
 import { ScoreWorkspace } from "./components/ScoreWorkspace";
 import { PropertiesPanel } from "./components/PropertiesPanel";
+import {
+  RequantizeDialog,
+  requantizeSeed,
+} from "./components/RequantizeDialog";
 import { TransportBar } from "./components/TransportBar";
 import { StatusBar } from "./components/StatusBar";
 import { SettingsView } from "./components/SettingsView";
@@ -181,6 +185,7 @@ export default function App() {
   // (書き出し dialog / 診断情報 sheet) that live outside the workspace.
   const { settings, update: updateSettings } = useAppSettings();
   const [exportOpen, setExportOpen] = useState(false);
+  const [requantizeOpen, setRequantizeOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<
     SettingsCategory | undefined
@@ -904,6 +909,9 @@ export default function App() {
         scoreCtlRef.current?.shiftSelectedOnset?.(steps),
       toggleSelectedTie: () =>
         scoreCtlRef.current?.toggleSelectedTie?.(),
+      // #130 (spec 14): quantization-settings dialog — app-owned
+      // surface; the workspace controller applies the requantize edit.
+      openRequantizeDialog: () => setRequantizeOpen(true),
       openSettings: () => {
         setSettingsFocus(undefined);
         setView("settings");
@@ -1527,6 +1535,22 @@ export default function App() {
             port={diagnosticsPort}
             toolOverrides={toolOverrides}
             onAnnounce={setStatusMessage}
+          />
+          {/* #130 (spec 14): quantization settings on the finished
+              score — seeded from the canonical payload's stored
+              quantizationSettings; apply goes through the undoable
+              score.edit path on the workspace controller. */}
+          <RequantizeDialog
+            open={requantizeOpen}
+            seed={
+              requantizeOpen
+                ? requantizeSeed(scoreDocument?.canonicalDocument?.())
+                : null
+            }
+            onOpenChange={setRequantizeOpen}
+            onApply={(overrides) =>
+              scoreCtlRef.current?.requantize?.(overrides)
+            }
           />
         </AppShell>
       )}

@@ -376,6 +376,101 @@ class TestSetMeter:
             )
 
 
+class TestRequantize:
+    def test_ids_preserved_positionally(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/2"}),
+        )
+        ids = [str(n.id) for n in out.payload.parts[0].notes]
+        assert ids == ["sn-000001", "sn-000002"]
+        assert out.payload.quantization_settings["minDurationQl"] == "1/2"
+        assert out.revision != doc.revision
+
+    def test_settings_merge_keeps_untouched_keys(self) -> None:
+        doc = _doc(
+            [_note(1, 60, "0", "1")],
+            settings={"simplicity": "standard", "triplets": "auto"},
+        )
+        out = apply_score_edit(
+            doc, _edit("requantize", "", settings={"triplets": "none"})
+        )
+        qs = out.payload.quantization_settings
+        assert qs["triplets"] == "none"
+        assert qs["simplicity"] == "standard"
+
+    def test_triplets_none_rewrites_atoms(self) -> None:
+        # Sixteenth-grid onsets re-quantized with triplets disabled can
+        # no longer use triplet atoms — the written decomposition must
+        # be binary.
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1/4"),
+                _note(2, 62, "1/4", "1/4"),
+                _note(3, 64, "1/2", "1/2"),
+            ],
+            settings={"triplets": "auto"},
+        )
+        out = apply_score_edit(
+            doc,
+            _edit(
+                "requantize",
+                "",
+                settings={"triplets": "none", "minDurationQl": "1/4"},
+            ),
+        )
+        for n in out.payload.parts[0].notes:
+            for atom in n.atoms:
+                assert atom.tuplet is None
+
+    def test_source_ids_carried_over(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        out = apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/2"}),
+        )
+        assert out.payload.parts[0].notes[0].source_event_ids == (
+            RawNoteEventId("rne-000001"),
+        )
+
+    def test_empty_settings_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="settings"):
+            ScoreEdit.from_dict({"kind": "requantize", "noteId": ""})
+        with pytest.raises(ScoreEditError, match="at least one"):
+            ScoreEdit.from_dict(
+                {"kind": "requantize", "noteId": "", "settings": {}}
+            )
+
+    def test_unknown_setting_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="unknown"):
+            ScoreEdit.from_dict(
+                {
+                    "kind": "requantize",
+                    "noteId": "",
+                    "settings": {"bpm": 120},
+                }
+            )
+
+    def test_invalid_values_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="triplets"):
+            ScoreEdit.from_dict(
+                {
+                    "kind": "requantize",
+                    "noteId": "",
+                    "settings": {"triplets": "lots"},
+                }
+            )
+        with pytest.raises(ScoreEditError, match="minDurationQl"):
+            ScoreEdit.from_dict(
+                {
+                    "kind": "requantize",
+                    "noteId": "",
+                    "settings": {"minDurationQl": "tiny"},
+                }
+            )
+
+
 class TestEditParsing:
     def test_unknown_kind_rejected(self) -> None:
         with pytest.raises(ScoreEditError, match="kind"):

@@ -149,6 +149,9 @@ export interface CommandContext {
   noteDurationScale?(power: number): void;
   shiftSelectedOnset?(steps: number): void;
   toggleSelectedTie?(): void;
+  /** #130 (spec 14): open the quantization-settings dialog — the
+   *  requantize edit itself is applied via the score controller. */
+  openRequantizeDialog?(): void;
   /** #113: Esc on a waveform selection (AUDIO_READY) - clears the range
    *  back to "all" (spec 8: Esc -> 選択解除). Optional: absent = no-op. */
   clearWaveformSelection?(): void;
