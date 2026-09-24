@@ -370,9 +370,14 @@ export function createCommandDefinitions(): readonly Command[] {
       // Esc exits the review workspace before it clears a selection (§12
       // review exit, controller.clearSelection owns the order) — so it
       // must stay enabled with the review bar up even when nothing is
-      // selected (e.g. all issues resolved).
-      isEnabled: (s) => s.hasSelection || s.reviewOpen,
-      run: (ctx) => ctx.clearSelection(),
+      // selected (e.g. all issues resolved). #113: a waveform range
+      // selection (AUDIO_READY) is cleared first (spec 8 Esc → 選択解除).
+      isEnabled: (s) =>
+        s.hasSelection || s.reviewOpen || s.hasWaveformSelection,
+      run: (ctx, s) => {
+        if (s.hasWaveformSelection) ctx.clearWaveformSelection?.();
+        else ctx.clearSelection();
+      },
     },
 
     // ---- export ----

@@ -186,6 +186,40 @@ describe("seek / rate / loop", () => {
     await transport.load(SRC);
     expect(transport.getSnapshot().loop).toBeNull();
   });
+
+  it("playRange seeks to the range start, plays once, then pauses (#113)",
+     async () => {
+    const { port, transport } = makeTransport();
+    await transport.load(SRC);
+    await transport.playRange(10, 20);
+    expect(port.seekCalls.at(-1)).toBe(10);
+    expect(transport.getSnapshot().status).toBe("playing");
+    port.time = 20.5;
+    port.emit("onTimeUpdate");
+    expect(port.playing).toBe(false);
+    expect(transport.getSnapshot().status).toBe("paused");
+  });
+
+  it("playRange clears an armed loop and is cleared by seek/stop/setLoop",
+     async () => {
+    const { port, transport } = makeTransport();
+    await transport.load(SRC);
+    transport.setLoop({ start: 1, end: 2 });
+    await transport.playRange(10, 20);
+    expect(transport.getSnapshot().loop).toBeNull();
+    // seek cancels the pending one-shot range
+    await transport.seek(0);
+    await transport.play();
+    port.time = 25;
+    port.emit("onTimeUpdate");
+    expect(port.playing).toBe(true); // no pause at the old range end
+    // setLoop also clears it
+    await transport.playRange(30, 40);
+    transport.setLoop({ start: 1, end: 2 });
+    port.time = 41;
+    port.emit("onTimeUpdate");
+    expect(port.seekCalls.at(-1)).toBe(1); // loop wrap, not one-shot
+  });
 });
 
 describe("snapshots / listeners", () => {

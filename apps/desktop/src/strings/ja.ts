@@ -55,6 +55,14 @@ export const ja = {
     regionLabel: "波形",
     placeholder: "音源を読み込むと、ここに波形が表示されます",
     resizeHandle: "波形の高さを変更",
+    /* #113 (spec 8): 選択範囲のコンテキスト操作とズーム表示 */
+    selectionActions: "選択範囲の操作",
+    loopSelection: "選択範囲をループ",
+    playSelection: "選択範囲を再生",
+    zoomSelection: "選択範囲へズーム",
+    clearSelection: "選択を解除",
+    resetZoom: "全体表示に戻す",
+    zoomedLabel: "ズーム中",
   },
 
   score: {
@@ -450,6 +458,9 @@ export const ja = {
     disabled: "この操作は現在実行できません",
     nothingToUndo: "元に戻す操作はありません",
     nothingToRedo: "やり直す操作はありません",
+    // #113: media A-B loop arming (transport.toggleLoop on AUDIO_READY).
+    loopOn: "ループをオンにしました",
+    loopOff: "ループをオフにしました",
     focusMoved: (zoneName: string) => `${zoneName}に移動しました`,
     zoneNames: {
       commandbar: "コマンドバー",

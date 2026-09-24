@@ -924,6 +924,9 @@ export function ScoreReadyWorkspace({
           }
         }
       },
+      // #113: expose the armed loop so the app can mirror it onto the
+      // media transport (audio loops together with the score marks).
+      loopRange: () => clockRef.current?.loopRange() ?? null,
       resumeFollow: () => resumeFollow(),
       setFollowEnabled: (on) => {
         if (on) resumeFollow();

@@ -22,6 +22,9 @@ export interface ScoreWorkspaceController {
   seekToEnd(): void;
   jumpBy(deltaMs: number): void;
   toggleLoop(): void;
+  /** #113: armed A-B loop range (ms), or null - lets the app mirror the
+   *  score loop onto the media transport so audio loops too. */
+  loopRange?(): { startMs: number; endMs: number } | null;
 
   // ---- follow (§11) ----
   resumeFollow(): void;

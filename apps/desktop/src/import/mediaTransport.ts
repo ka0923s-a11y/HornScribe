@@ -174,6 +174,9 @@ export class MediaElementTransport {
   private status: TransportStatus = "empty";
   private rate = 1;
   private loop: TimeRange | null = null;
+  /** #113: one-shot range playback - pause when the clock reaches this.
+   *  Cleared by stop/seek/setLoop/load; survives pause+resume. */
+  private playUntil: number | null = null;
   private muted = false;
   private revision = 0;
   private readonly listeners = new Set<TransportListener>();
@@ -182,12 +185,17 @@ export class MediaElementTransport {
     this.port = port ?? new AudioElementMediaPort();
     this.port.subscribe({
       onTimeUpdate: () => {
-        if (this.status === "playing" && this.loop) {
+        if (this.status === "playing") {
           const t = this.port.getTime();
-          if (t >= this.loop.end) {
-            // A-B wrap via media seek — see doc header for the known
+          if (this.loop && t >= this.loop.end) {
+            // A-B wrap via media seek - see doc header for the known
             // ~60 ms MediaElement gap measured in the UI-004 spike.
             this.port.seekTo(this.loop.start);
+          } else if (this.playUntil != null && t >= this.playUntil) {
+            // #113: one-shot range playback - pause at the range end.
+            this.playUntil = null;
+            this.port.pause();
+            this.status = "paused";
           }
         }
         this.emit();
@@ -211,6 +219,7 @@ export class MediaElementTransport {
   async load(source: MediaSource): Promise<void> {
     this.status = "loading";
     this.loop = null;
+    this.playUntil = null;
     this.emit();
     try {
       await this.port.load(source);
@@ -244,6 +253,7 @@ export class MediaElementTransport {
     if (this.status === "empty" || this.status === "loading") return;
     this.port.pause();
     this.port.seekTo(this.loop?.start ?? 0);
+    this.playUntil = null;
     this.status = "ready";
     this.emit();
   }
@@ -253,7 +263,27 @@ export class MediaElementTransport {
     const duration = this.port.getDuration();
     const target = Math.min(Math.max(seconds, 0), duration);
     this.port.seekTo(target);
+    this.playUntil = null;
     if (this.status === "ended") this.status = "paused";
+    this.emit();
+  }
+
+  /** #113 spec 8 "選択範囲を再生": play [start, end) once, then pause at
+   *  the range end. Clears any armed A-B loop so the one-shot range is
+   *  authoritative; a later toggleLoop re-arms looping normally. */
+  async playRange(start: number, end: number): Promise<void> {
+    if (this.status === "empty" || this.status === "loading") return;
+    const duration = this.port.getDuration();
+    const s = Math.min(Math.max(start, 0), duration);
+    const e = Math.min(Math.max(end, 0), duration);
+    if (e - s < MIN_LOOP_SECONDS) return;
+    this.loop = null;
+    this.playUntil = e;
+    this.port.seekTo(s);
+    if (this.status !== "playing") {
+      await this.port.play();
+      this.status = "playing";
+    }
     this.emit();
   }
 
@@ -283,6 +313,7 @@ export class MediaElementTransport {
   /** Arm (TimeRange) or clear (null) the A-B loop. Degenerate/inverted
       ranges and ranges past the media end are rejected (clamped). */
   setLoop(range: TimeRange | null): void {
+    this.playUntil = null;
     if (range === null) {
       this.loop = null;
       this.emit();

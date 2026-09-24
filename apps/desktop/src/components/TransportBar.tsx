@@ -44,6 +44,7 @@ export function TransportBar({
   followSuspended,
   onToggleFollow,
   auditionEnabled,
+  loopArmed,
 }: {
   commands: CommandSurface;
   live?: {
@@ -66,6 +67,8 @@ export function TransportBar({
   onToggleFollow?(): void;
   /** FEAT-001 (#60): 楽譜の自動演奏がオンか(score clock がある時のみ)。 */
   auditionEnabled?: boolean;
+  /** #113: A-B loop armed (media loop or score loop) - pressed state. */
+  loopArmed?: boolean;
 }) {
   // All transport commands share the hasAudio gate (see definitions).
   const enabled = commands.isEnabled("transport.playPause");
@@ -205,6 +208,7 @@ export function TransportBar({
           icon={<ArrowRepeatAll24Regular />}
           aria-label={commands.title("transport.toggleLoop")}
           aria-keyshortcuts="Control+L"
+          aria-pressed={loopArmed === true}
           disabled={!commands.isEnabled("transport.toggleLoop")}
           onClick={() => commands.invoke("transport.toggleLoop")}
         />

@@ -541,6 +541,10 @@ export default function App() {
       canUndo: scoreState?.canUndo ?? false,
       canRedo: scoreState?.canRedo ?? false,
       hasSelection: scoreState?.hasSelection ?? false,
+      // #113: the waveform range selection (AUDIO_READY) is Esc-clearable
+      // like a score selection (spec 8).
+      hasWaveformSelection:
+        screen === "audioReady" && transcriptionOptions.range === "selection",
       reviewOpen: scoreState?.reviewOpen ?? screen === "reviewing",
       reviewCount,
       view,
@@ -550,7 +554,7 @@ export default function App() {
         captureState?.phase === "recording" && captureState.paused,
       auditionEnabled: scoreState?.auditionEnabled ?? false,
     }),
-    [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view, captureState],
+    [screen, scoreDocument, transportSnap, scoreState, pitch, reviewCount, view, captureState, transcriptionOptions],
   );
 
   // Whether the media transport carries a loaded source — then it is the
@@ -713,13 +717,44 @@ export default function App() {
           scoreCtlRef.current?.seekToEnd();
         }
       },
-      // Loop arming is score-side (UI-030 owns the range contract the
-      // UI-020 stub deferred to): the score clock wraps inside the range
-      // and the score draws passage marks.
+      // Loop arming is score-side when a score exists (UI-030 owns the
+      // range contract: the score clock wraps inside the range and the
+      // score draws passage marks). #113: the media transport mirrors the
+      // same range so the *audio* loops too - and before any score exists
+      // (AUDIO_READY) the loop button arms the media A-B loop directly,
+      // over the waveform selection when one is committed.
       toggleLoop: () => {
         const c = scoreCtlRef.current;
-        if (c) c.toggleLoop();
-        else setStatusMessage(ja.commandFeedback.disabled);
+        if (c) {
+          c.toggleLoop();
+          const range = c.loopRange?.();
+          transport.setLoop(
+            range
+              ? { start: range.startMs / 1000, end: range.endMs / 1000 }
+              : null,
+          );
+          return;
+        }
+        if (transportSnap && transportSnap.status !== "empty") {
+          if (transportSnap.loop) {
+            transport.setLoop(null);
+            setStatusMessage(ja.commandFeedback.loopOff);
+          } else {
+            const sel =
+              transcriptionOptions.range === "selection" &&
+              transcriptionOptions.selectionStartSec != null &&
+              transcriptionOptions.selectionEndSec != null
+                ? {
+                    start: transcriptionOptions.selectionStartSec,
+                    end: transcriptionOptions.selectionEndSec,
+                  }
+                : { start: 0, end: transportSnap.duration };
+            transport.setLoop(sel);
+            setStatusMessage(ja.commandFeedback.loopOn);
+          }
+        } else {
+          setStatusMessage(ja.commandFeedback.disabled);
+        }
       },
       // FEAT-001: capture + score audition commands.
       captureSystemAudio: () => {
@@ -795,6 +830,13 @@ export default function App() {
       zoomScoreOut: () => scoreCtlRef.current?.zoomOut(),
       zoomScoreFit: () => scoreCtlRef.current?.zoomFit(),
       clearSelection: () => scoreCtlRef.current?.clearSelection(),
+      // #113: Esc on a waveform selection drops the committed range and
+      // returns the transcription-range option to "all" (spec 8).
+      clearWaveformSelection: () => {
+        if (transcriptionOptions.range === "selection") {
+          setTranscriptionOptions({ ...transcriptionOptions, range: "all" });
+        }
+      },
       openSettings: () => {
         setSettingsFocus(undefined);
         setView("settings");
@@ -1120,6 +1162,39 @@ export default function App() {
                           })
                       : undefined
                   }
+                  // #113: armed media loop band + selection context
+                  // actions (spec 8: ループ/再生/ズーム/解除).
+                  loop={
+                    transportSnap?.loop
+                      ? {
+                          startSec: transportSnap.loop.start,
+                          endSec: transportSnap.loop.end,
+                        }
+                      : null
+                  }
+                  onLoopSelection={(range) => {
+                    if (transportSnap?.loop) transport.setLoop(null);
+                    else {
+                      transport.setLoop({
+                        start: range.startSec,
+                        end: range.endSec,
+                      });
+                      setStatusMessage(ja.commandFeedback.loopOn);
+                    }
+                  }}
+                  onPlaySelection={(range) => {
+                    void transport
+                      .playRange(range.startSec, range.endSec)
+                      .catch(() => undefined);
+                  }}
+                  onClearSelection={() => {
+                    if (transcriptionOptions.range === "selection") {
+                      setTranscriptionOptions({
+                        ...transcriptionOptions,
+                        range: "all",
+                      });
+                    }
+                  }}
                 />
               ) : null}
               <div className="hs-main">
@@ -1275,6 +1350,10 @@ export default function App() {
                     else c.setFollowEnabled(!(scoreState?.followEnabled ?? true));
                   }}
                   auditionEnabled={scoreState?.auditionEnabled}
+                  loopArmed={
+                    transportSnap?.loop != null ||
+                    (scoreState?.loopEnabled ?? false)
+                  }
                 />
               ) : null}
             </>

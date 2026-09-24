@@ -47,6 +47,9 @@ export interface CommandSnapshot {
   readonly canRedo: boolean;
   /** A note/region is selected (gates Esc = clear selection). */
   readonly hasSelection: boolean;
+  /** #113: a waveform range selection exists (AUDIO_READY). Esc clears
+   *  this before any score selection (spec 8: Esc -> 選択解除). */
+  readonly hasWaveformSelection: boolean;
   /** 要確認 workspace state. */
   readonly reviewOpen: boolean;
   readonly reviewCount: number;
@@ -127,6 +130,9 @@ export interface CommandContext {
   zoomScoreOut(): void;
   zoomScoreFit(): void;
   clearSelection(): void;
+  /** #113: Esc on a waveform selection (AUDIO_READY) - clears the range
+   *  back to "all" (spec 8: Esc -> 選択解除). Optional: absent = no-op. */
+  clearWaveformSelection?(): void;
   openSettings(): void;
   /** Opens the 診断情報 sheet (§19 — separated from the normal UI). */
   openDiagnostics(): void;
