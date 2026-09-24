@@ -6,7 +6,6 @@
   </work>
   <movement-title>barline_tie_44</movement-title>
   <identification>
-    <creator type="composer">Music21</creator>
     <encoding>
       <software>music21 v.10.5.0</software>
       <supports element="beam" type="yes" />

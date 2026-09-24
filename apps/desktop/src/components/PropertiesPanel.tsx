@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { mergeClasses } from "@fluentui/react-components";
+import { Field, Input, mergeClasses } from "@fluentui/react-components";
 import { Dismiss16Regular } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import { HsIconButton } from "./primitives/IconButton";
@@ -51,6 +51,7 @@ export function PropertiesPanel({
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
+  onMetadataChange,
 }: {
   content: InspectorContent;
   /** UI-030 feature inspector view-model (note/score/range bodies). */
@@ -85,6 +86,13 @@ export function PropertiesPanel({
   }): void;
   /** #145 (§14): drop the detected modulation at a measure. */
   onRemoveKeyChange?(startMeasure: number): void;
+  /** #271: commit notation metadata — {title, composer, arranger} as
+   *  a whole set; the panel sends all three on any field commit. */
+  onMetadataChange?(metadata: {
+    title?: string;
+    composer?: string;
+    arranger?: string;
+  }): void;
 }) {
   const body =
     model && model.kind !== "empty" ? model.kind : content.kind;
@@ -120,6 +128,7 @@ export function PropertiesPanel({
             onKeyChange={onKeyChange}
             onKeyChangeAt={onKeyChangeAt}
             onRemoveKeyChange={onRemoveKeyChange}
+            onMetadataChange={onMetadataChange}
           />
           ) : (
             <p className="hs-properties__placeholder">
@@ -167,6 +176,7 @@ function InspectorBody({
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
+  onMetadataChange,
 }: {
   model: InspectorModel;
   pitch: PitchView;
@@ -181,6 +191,11 @@ function InspectorBody({
     startMeasure?: number;
   }): void;
   onRemoveKeyChange?(startMeasure: number): void;
+  onMetadataChange?(metadata: {
+    title?: string;
+    composer?: string;
+    arranger?: string;
+  }): void;
 }) {
   if (model.kind === "score") {
     return (
@@ -193,6 +208,7 @@ function InspectorBody({
         onKeyChange={onKeyChange}
         onKeyChangeAt={onKeyChangeAt}
         onRemoveKeyChange={onRemoveKeyChange}
+        onMetadataChange={onMetadataChange}
       />
     );
   }
@@ -219,6 +235,7 @@ function ScoreBody({
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
+  onMetadataChange,
 }: {
   model: ScoreInspectorModel;
   pitch: PitchView;
@@ -233,12 +250,67 @@ function ScoreBody({
     startMeasure?: number;
   }): void;
   onRemoveKeyChange?(startMeasure: number): void;
+  onMetadataChange?(metadata: {
+    title?: string;
+    composer?: string;
+    arranger?: string;
+  }): void;
 }) {
   const f = ja.inspector.summaryFields;
   return (
     <>
       <dl className="hs-properties__rows">
-        <Row label={f.title} value={model.title} />
+        {onMetadataChange ? (
+          // #271: notation metadata — title/composer/arranger edit
+          // the MusicXML headers (and the PDF) via setMetadata. The
+          // panel always sends the whole set so one engine call can
+          // never drop a sibling field the user just typed.
+          <>
+            <MetaTextField
+              label={f.title}
+              value={model.title}
+              onCommit={(v) =>
+                onMetadataChange({
+                  title: v,
+                  composer: model.composer ?? "",
+                  arranger: model.arranger ?? "",
+                })
+              }
+            />
+            <MetaTextField
+              label={f.composer}
+              value={model.composer ?? ""}
+              onCommit={(v) =>
+                onMetadataChange({
+                  title: model.title,
+                  composer: v,
+                  arranger: model.arranger ?? "",
+                })
+              }
+            />
+            <MetaTextField
+              label={f.arranger}
+              value={model.arranger ?? ""}
+              onCommit={(v) =>
+                onMetadataChange({
+                  title: model.title,
+                  composer: model.composer ?? "",
+                  arranger: v,
+                })
+              }
+            />
+          </>
+        ) : (
+          <>
+            <Row label={f.title} value={model.title} />
+            {model.composer ? (
+              <Row label={f.composer} value={model.composer} />
+            ) : null}
+            {model.arranger ? (
+              <Row label={f.arranger} value={model.arranger} />
+            ) : null}
+          </>
+        )}
         {model.tempoBpm != null && onTempoChange ? (
           <TempoField
             bpm={model.tempoBpm}
@@ -515,6 +587,38 @@ function KeyMapEditor({
  * field. Commits on blur / Enter / stepper click (not per keystroke, so
  * typing "96" does not fire two engine edits); out-of-range input shows
  * a field error and never reaches the engine. */
+/* #271: free-text metadata field — commits on blur/Enter (never per
+ *  keystroke, so typing never floods the engine queue); the draft
+ *  resyncs when the engine's fresh meta lands. */
+function MetaTextField({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  onCommit(value: string): void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <Field label={label} className="hs-field">
+      <Input
+        value={draft}
+        onChange={(_, d) => setDraft(d.value)}
+        onBlur={commit}
+        onKeyDown={(ev) => {
+          if (ev.key === "Enter") commit();
+        }}
+      />
+    </Field>
+  );
+}
+
 const TEMPO_MIN_BPM = 20;
 const TEMPO_MAX_BPM = 400;
 

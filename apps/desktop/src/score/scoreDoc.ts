@@ -34,6 +34,10 @@ export interface ParsedNote {
 
 export interface ScoreDoc {
   title: string;
+  /** #271: <creator type="composer"> — null when the document has none. */
+  composer: string | null;
+  /** #271: <creator type="arranger"> — null when the document has none. */
+  arranger: string | null;
   notes: ParsedNote[];
   measureCount: number;
   /** `<sound tempo>` beats per minute, when present. */
@@ -99,6 +103,20 @@ export function parseScoreDoc(xml: string): ScoreDoc {
     doc.querySelector("movement-title")?.textContent?.trim() ||
     doc.querySelector("work-title")?.textContent?.trim() ||
     "";
+  // #271: notation metadata — first <creator> of each role wins;
+  // absent/blank stays null so empty creators never surface.
+  const creatorOf = (type: string): string | null => {
+    for (const el of Array.from(
+      doc.querySelectorAll("identification > creator"),
+    )) {
+      if (el.getAttribute("type") === type) {
+        return el.textContent?.trim() || null;
+      }
+    }
+    return null;
+  };
+  const composer = creatorOf("composer");
+  const arranger = creatorOf("arranger");
   const tempoText = doc.querySelector("sound[tempo]")?.getAttribute("tempo");
   const tempoBpm =
     tempoText != null && Number.isFinite(Number(tempoText)) ? Number(tempoText) : null;
@@ -168,7 +186,7 @@ export function parseScoreDoc(xml: string): ScoreDoc {
       });
     }
   }
-  return { title, notes, measureCount, tempoBpm, meter, keyFifths, keyMode, keyChanges, swingFeel };
+  return { title, composer, arranger, notes, measureCount, tempoBpm, meter, keyFifths, keyMode, keyChanges, swingFeel };
 }
 
 /** canonical id → parsed fragments (both tie fragments and chords land here). */

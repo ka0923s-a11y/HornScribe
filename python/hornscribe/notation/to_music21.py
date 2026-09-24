@@ -88,6 +88,15 @@ class NotationError(ValueError):
     """Canonical content that cannot be rendered into MVP notation."""
 
 
+# #271: music21's exporter falls back to ``defaults.author``
+# ("Music21") as a fake <creator type="composer"> whenever the
+# Metadata carries no contributor — a blank composer must export
+# blank, so the fallback is disabled process-wide here.
+from music21 import defaults as _m21_defaults  # noqa: E402
+
+_m21_defaults.author = None  # type: ignore[assignment]
+
+
 #: Canonical atom symbol -> music21 duration type.  music21 spells
 #: sixteenth-and-shorter types ordinally (``"16th"``, ``"32nd"``).
 _SYMBOL_TO_M21_TYPE: dict[str, str] = {
@@ -727,8 +736,16 @@ def build_music21_score(
     spans = measure_spans(payload)
 
     m21_score = stream.Score()
-    if score.title:
-        m21_score.insert(0, metadata.Metadata(title=score.title))
+    if score.title or score.composer or score.arranger:
+        md = metadata.Metadata(title=score.title or None)
+        # #271: notation metadata — composer/arranger ride the same
+        # MusicXML identification block in both presentations; empty
+        # fields emit no creator element at all.
+        if score.composer:
+            md.composer = score.composer
+        if score.arranger:
+            md.add("arranger", score.arranger)
+        m21_score.insert(0, md)
 
     for part in payload.parts:
         ordered = sorted(part.notes, key=lambda n: (n.start_beat, n.pitch_midi, n.id))

@@ -99,6 +99,9 @@ class ScoreEdit:
     pitch_midi: int | None = None
     factor: Fraction | None = None
     alternative_notes: tuple[dict[str, Any], ...] | None = None
+    # #271: setMetadata — {title?, composer?, arranger?}; present
+    # keys are applied verbatim ("" clears), absent keys keep.
+    metadata: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -119,12 +122,13 @@ class ScoreEdit:
             "scaleTempo",
             "applyAlternative",
             "applyTriplet",
+            "setMetadata",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
                 "setTempo/setMeter/requantize/splitNote/mergeNotes/"
                 "setKey/keyChangeAt/removeKeyChange/restToNote/"
-                "scaleTempo/applyAlternative/applyTriplet, "
+                "scaleTempo/applyAlternative/applyTriplet/setMetadata, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -139,6 +143,7 @@ class ScoreEdit:
             "scaleTempo",
             "applyAlternative",
             "applyTriplet",
+            "setMetadata",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -292,6 +297,27 @@ class ScoreEdit:
         steps = data.get("steps", 0)
         if not isinstance(steps, int) or isinstance(steps, bool):
             raise ScoreEditError(f"edit.steps must be an int, got {steps!r}")
+        metadata: dict[str, Any] | None = None
+        metadata_raw = data.get("metadata")
+        if metadata_raw is not None:
+            if not isinstance(metadata_raw, dict):
+                raise ScoreEditError(
+                    f"edit.metadata must be an object, got {metadata_raw!r}"
+                )
+            unknown = set(metadata_raw) - {"title", "composer", "arranger"}
+            if unknown:
+                raise ScoreEditError(
+                    f"edit.metadata has unknown keys: {sorted(unknown)}"
+                )
+            for key, value in metadata_raw.items():
+                if value is not None and not isinstance(value, str):
+                    raise ScoreEditError(
+                        f"edit.metadata.{key} must be a string, "
+                        f"got {value!r}"
+                    )
+            metadata = dict(metadata_raw)
+        if kind == "setMetadata" and not metadata:
+            raise ScoreEditError("setMetadata requires metadata")
         return cls(
             kind=kind,
             note_id=ScoreNoteId(note_id),
@@ -309,6 +335,7 @@ class ScoreEdit:
             pitch_midi=pitch_midi,
             factor=factor,
             alternative_notes=alternative_notes,
+            metadata=metadata,
         )
 
 
@@ -1713,6 +1740,19 @@ def apply_score_edit(
             payload, _edit_boundary_beat(payload, edit)
         )
         return replace(document, payload=new_payload)
+    if edit.kind == "setMetadata":
+        if not edit.metadata:
+            raise ScoreEditError("setMetadata requires metadata")
+        # #271: document-level notation metadata — the payload (and
+        # therefore the content-derived revision) is untouched.
+        updates: dict[str, Any] = {}
+        if "title" in edit.metadata:
+            updates["title"] = edit.metadata["title"] or ""
+        if "composer" in edit.metadata:
+            updates["composer"] = edit.metadata["composer"] or None
+        if "arranger" in edit.metadata:
+            updates["arranger"] = edit.metadata["arranger"] or None
+        return replace(document, **updates)
     if edit.kind == "restToNote":
         if (
             edit.part_id is None

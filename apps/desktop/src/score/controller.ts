@@ -54,6 +54,13 @@ export interface ScoreWorkspaceController {
   /** #145 (spec 14): drop the key-change boundary at a measure —
    *  the head key cannot be removed (use setKey). */
   removeKeyChange?(startMeasure: number): void;
+  /** #271: notation metadata — title/composer/arranger edited in
+   *  the score summary; the engine rewrites the MusicXML headers. */
+  setMetadata?(metadata: {
+    title?: string;
+    composer?: string;
+    arranger?: string;
+  }): void;
   /** #130 (spec 14): re-quantize the whole score under changed
    *  quantization settings — undoable engine edit. */
   requantize?(settings: Record<string, unknown>): void;

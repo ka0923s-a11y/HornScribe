@@ -1738,6 +1738,9 @@ export default function App() {
                     onRemoveKeyChange={(m) =>
                       scoreCtlRef.current?.removeKeyChange?.(m)
                     }
+                    onMetadataChange={(md) =>
+                      scoreCtlRef.current?.setMetadata?.(md)
+                    }
                   />
                 ) : null}
               </div>

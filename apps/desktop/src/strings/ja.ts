@@ -512,6 +512,7 @@ export const ja = {
     meterChanged: "拍子を変更しました",
     keyChanged: "調を変更しました",
     keyChangeRemoved: "転調を削除しました",
+    metadataChanged: "譜面情報を更新しました",
     requantized: "採譜設定を適用して楽譜を更新しました",
     noteSplit: "音符を分割しました",
     notesMerged: "音符を結合しました",
@@ -1113,6 +1114,8 @@ export const ja = {
     },
     summaryFields: {
       title: "タイトル",
+      composer: "作曲者",
+      arranger: "編曲者",
       tempo: "テンポ",
       meter: "拍子",
       key: "調",

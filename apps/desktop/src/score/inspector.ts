@@ -52,6 +52,9 @@ export interface NoteInspectorModel {
 export interface ScoreInspectorModel {
   readonly kind: "score";
   readonly title: string;
+  /** #271: notation metadata for the editable fields (null = blank). */
+  readonly composer: string | null;
+  readonly arranger: string | null;
   readonly tempoLabel: string | null;
   /** Raw tempo for the editable BPM field (#115 setTempo). */
   readonly tempoBpm: number | null;
@@ -223,6 +226,8 @@ export function buildScoreInspector(
   return {
     kind: "score",
     title: meta.title,
+    composer: meta.composer,
+    arranger: meta.arranger,
     tempoLabel: meta.tempoBpm != null ? copy.tempo(meta.tempoBpm) : null,
     tempoBpm: meta.tempoBpm,
     meterLabel: meta.meter,

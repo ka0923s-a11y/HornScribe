@@ -838,6 +838,74 @@ class TestSetKey:
             _edit("keyChangeAt", "", fifths=0, startMeasure="3")
 
 
+class TestSetMetadata:
+    """#271: notation metadata edits — title/composer/arranger."""
+
+    def test_sets_all_fields(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        out = apply_score_edit(
+            doc,
+            _edit(
+                "setMetadata", "",
+                metadata={
+                    "title": "New Title",
+                    "composer": "Composer X",
+                    "arranger": "Arranger Y",
+                },
+            ),
+        )
+        assert out.title == "New Title"
+        assert out.composer == "Composer X"
+        assert out.arranger == "Arranger Y"
+
+    def test_partial_update_keeps_others(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(doc, composer="C", arranger="A")
+        out = apply_score_edit(
+            doc,
+            _edit("setMetadata", "", metadata={"title": "T2"}),
+        )
+        assert out.title == "T2"
+        assert out.composer == "C"
+        assert out.arranger == "A"
+
+    def test_empty_string_clears(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(doc, composer="C")
+        out = apply_score_edit(
+            doc,
+            _edit("setMetadata", "", metadata={"composer": ""}),
+        )
+        assert out.composer is None
+
+    def test_revision_unchanged(self) -> None:
+        # #271: metadata lives outside the payload — the content-
+        # derived score revision must not churn on a title edit.
+        doc = _doc([_note(1, 60, "0", "1")])
+        out = apply_score_edit(
+            doc, _edit("setMetadata", "", metadata={"title": "T"}),
+        )
+        assert out.revision == doc.revision
+
+    def test_round_trip_through_dict(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(doc, composer="C", arranger="A", title="T")
+        again = type(doc).from_dict(doc.to_dict())
+        assert again.composer == "C"
+        assert again.arranger == "A"
+        assert again.title == "T"
+
+    def test_metadata_validated(self) -> None:
+        with pytest.raises(ScoreEditError, match="metadata"):
+            _edit("setMetadata", "")
+        with pytest.raises(ScoreEditError, match="metadata"):
+            _edit("setMetadata", "", metadata={})
+        with pytest.raises(ScoreEditError, match="unknown"):
+            _edit("setMetadata", "", metadata={"publisher": "x"})
+        with pytest.raises(ScoreEditError, match="composer"):
+            _edit("setMetadata", "", metadata={"composer": 3})
+
+
 class TestKeyChanges:
     """#133: the key map on ScoreRevisionPayload."""
 

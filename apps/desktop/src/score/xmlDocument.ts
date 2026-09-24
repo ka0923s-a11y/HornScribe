@@ -77,6 +77,8 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     );
     return {
       title: doc.title,
+      composer: doc.composer,
+      arranger: doc.arranger,
       tempoBpm: doc.tempoBpm,
       meter: doc.meter,
      keyFifths: doc.keyFifths,

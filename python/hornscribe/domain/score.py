@@ -771,6 +771,11 @@ class ScoreDocument:
     project_id: ProjectId
     payload: ScoreRevisionPayload
     title: str = ""
+    # #271: notation metadata written into MusicXML/PDF headers —
+    # kept outside the payload, so editing them does not churn the
+    # content-derived score revision.
+    composer: str | None = None
+    arranger: str | None = None
     source_audio_path: str | None = None
     source_audio_hash: str | None = None
     transcription_backend: str | None = None
@@ -789,6 +794,8 @@ class ScoreDocument:
             "projectId": str(self.project_id),
             "revision": str(self.revision),
             "title": self.title,
+            "composer": self.composer,
+            "arranger": self.arranger,
             "sourceAudioPath": self.source_audio_path,
             "sourceAudioHash": self.source_audio_hash,
             "transcriptionBackend": self.transcription_backend,
@@ -805,6 +812,16 @@ class ScoreDocument:
             project_id=ProjectId(data["projectId"]),
             payload=ScoreRevisionPayload.from_dict(data["content"]),
             title=str(data.get("title", "")),
+            composer=(
+                data["composer"]
+                if isinstance(data.get("composer"), str)
+                else None
+            ),
+            arranger=(
+                data["arranger"]
+                if isinstance(data.get("arranger"), str)
+                else None
+            ),
             source_audio_path=data.get("sourceAudioPath"),
             source_audio_hash=data.get("sourceAudioHash"),
             transcription_backend=data.get("transcriptionBackend"),

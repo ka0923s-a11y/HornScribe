@@ -47,6 +47,8 @@ describe("buildScoreInspector", () => {
     const model = buildScoreInspector(
       {
         title: "Test Piece",
+        composer: null,
+        arranger: null,
         tempoBpm: 100,
         meter: "4/4",
         keyFifths: -1,
@@ -73,6 +75,8 @@ describe("buildScoreInspector", () => {
     const model = buildScoreInspector(
       {
         title: "Modulating Piece",
+        composer: null,
+        arranger: null,
         tempoBpm: 100,
         meter: "4/4",
         keyFifths: 0,
@@ -96,6 +100,8 @@ describe("buildScoreInspector", () => {
     const model = buildScoreInspector(
       {
         title: "Minor Piece",
+        composer: null,
+        arranger: null,
         tempoBpm: 100,
         meter: "4/4",
         keyFifths: 0,
@@ -115,6 +121,8 @@ describe("buildScoreInspector", () => {
   it("projects signatures +1 fifth in the written horn view (#270)", () => {
     const meta = {
       title: "Horn Piece",
+        composer: null,
+        arranger: null,
       tempoBpm: 100,
       meter: "4/4",
       keyFifths: -1,
@@ -140,6 +148,8 @@ describe("buildScoreInspector", () => {
     const model = buildScoreInspector(
       {
         title: "Modulating Piece",
+        composer: null,
+        arranger: null,
         tempoBpm: 100,
         meter: "4/4",
         keyFifths: 0,
@@ -165,6 +175,8 @@ describe("buildScoreInspector", () => {
     const horn = buildScoreInspector(
       {
         title: "Modulating Piece",
+        composer: null,
+        arranger: null,
         tempoBpm: 100,
         meter: "4/4",
         keyFifths: 0,

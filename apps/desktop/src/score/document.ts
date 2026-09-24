@@ -21,6 +21,10 @@ import type { KeyMode } from "./scoreDoc";
 export interface ScoreDocumentMeta {
   /** Document title (MusicXML movement/work title). */
   readonly title: string;
+  /** #271: notation metadata — <creator type="composer">, null when none. */
+  readonly composer: string | null;
+  /** #271: notation metadata — <creator type="arranger">, null when none. */
+  readonly arranger: string | null;
   /** Tempo from `<sound tempo>` / score tempo map, beats per minute. */
   readonly tempoBpm: number | null;
   /** Time signature "4/4" style, when notated. */

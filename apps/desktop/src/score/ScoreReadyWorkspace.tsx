@@ -1299,6 +1299,19 @@ const setKey = useCallback(
     [applyRhythmEdit],
   );
 
+  /* #271: notation metadata — title/composer/arranger rewrite the
+   *  MusicXML headers (and therefore the PDF export) without
+   *  touching the content-derived revision. */
+  const setMetadata = useCallback(
+    (metadata: { title?: string; composer?: string; arranger?: string }) => {
+      applyRhythmEdit(
+        () => ({ kind: "setMetadata", noteId: "", metadata }),
+        ja.commandFeedback.metadataChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   /* #130 (spec 14): re-quantize the whole score under changed
    * quantization settings — the engine replays the canonical notes
    * through the DP with the merged profile. */
@@ -1519,6 +1532,7 @@ const setKey = useCallback(
       setKey: (fifths, mode) => setKey(fifths, mode),
       keyChangeAt: (args) => keyChangeAt(args),
       removeKeyChange: (m) => removeKeyChange(m),
+      setMetadata: (md) => setMetadata(md),
       requantize: (settings) => requantize(settings),
       splitSelectedNote: () => splitSelectedNote(),
       mergeSelectedNotes: () => mergeSelectedNotes(),
@@ -1555,6 +1569,7 @@ const setKey = useCallback(
     setKey,
     keyChangeAt,
     removeKeyChange,
+    setMetadata,
     requantize,
     splitSelectedNote,
     mergeSelectedNotes,

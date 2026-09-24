@@ -15,6 +15,8 @@ function fakeDoc(
     editVersion: 0,
     meta: {
       title: "t",
+        composer: null,
+        arranger: null,
       tempoBpm: 120,
       meter: "4/4",
       keyFifths: 0,

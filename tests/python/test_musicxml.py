@@ -168,6 +168,35 @@ def test_key_change_mode_exports_mode_element() -> None:
     assert modes == ["major", "minor"]
 
 
+def test_notation_metadata_exports_in_both_presentations() -> None:
+    """#271: title/composer/arranger ride the identification block in
+    concert AND horn exports identically."""
+    score = replace(
+        make_score(title="Song"),
+        composer="Composer X",
+        arranger="Arranger Y",
+    )
+    for xml in (
+        export_concert_musicxml(score),
+        export_horn_in_f_musicxml(score),
+    ):
+        root = _root(xml)
+        assert root.findtext("movement-title") == "Song"
+        creators = {
+            el.get("type"): el.text
+            for el in root.iter("creator")
+        }
+        assert creators["composer"] == "Composer X"
+        assert creators["arranger"] == "Arranger Y"
+
+
+def test_empty_notation_metadata_emits_no_creators() -> None:
+    """#271: blank composer/arranger must not produce empty creator
+    elements in the export."""
+    xml = export_concert_musicxml(make_score(title="Song"))
+    assert not list(_root(xml).iter("creator"))
+
+
 def test_key_changes_emit_per_measure_signatures() -> None:
     """#133: a modulation writes a second <key> at its measure; the horn
     export transposes each signature by +1 fifth."""

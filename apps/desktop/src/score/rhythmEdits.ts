@@ -29,7 +29,8 @@ export type RhythmEditKind =
   | "restToNote"
   | "scaleTempo"
   | "applyAlternative"
-  | "applyTriplet";
+  | "applyTriplet"
+  | "setMetadata";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -75,6 +76,13 @@ export interface RhythmEditOp {
   readonly partId?: string;
   /** restToNote only: MIDI pitch of the new note (0-127). */
   readonly pitchMidi?: number;
+  /** setMetadata only (#271): notation metadata — present keys are
+   *  applied verbatim ("" clears), absent keys keep. */
+  readonly metadata?: {
+    readonly title?: string;
+    readonly composer?: string;
+    readonly arranger?: string;
+  };
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

@@ -292,6 +292,8 @@ describe("ReviewSession docSwap (#115 rhythm edits)", () => {
       editVersion: 0,
       meta: {
         title: "",
+        composer: null,
+        arranger: null,
         tempoBpm: null,
         meter: null,
         keyFifths: null,
