@@ -1,7 +1,44 @@
 /** #264: project transcription.settings -> 採譜オプション restore mapping. */
 import { describe, expect, it } from "vitest";
-import { transcriptionOptionsFromSettings } from "./transcriptionParams";
+import {
+  buildTranscriptionParams,
+  transcriptionOptionsFromSettings,
+} from "./transcriptionParams";
 import { DEFAULT_TRANSCRIPTION_OPTIONS } from "./types";
+import type { LoadedAudio } from "./types";
+
+function audioOf(fileName: string): LoadedAudio {
+  return {
+    ref: { kind: "file", file: new File([], fileName), name: fileName },
+    fileName,
+    format: "wav",
+    sizeBytes: 0,
+    durationSeconds: 8,
+    sampleRate: 22050,
+    peaks: [],
+    mediaSource: { kind: "blob", blob: new Blob() },
+  };
+}
+
+describe("buildTranscriptionParams", () => {
+  it("#305: sends the user file name as displayName, not the staged path", () => {
+    const p = buildTranscriptionParams(
+      audioOf("take.wav"),
+      DEFAULT_TRANSCRIPTION_OPTIONS,
+      "C:/Temp/hornscribe-dev/staged-1-take.wav",
+    );
+    expect(p.audioPath).toBe("C:/Temp/hornscribe-dev/staged-1-take.wav");
+    expect(p.displayName).toBe("take.wav");
+  });
+
+  it("#305: displayName is the file name even for a path ref", () => {
+    const audio = audioOf("song.wav");
+    audio.ref = { kind: "path", path: "C:/music/song.wav", name: "song.wav" };
+    const p = buildTranscriptionParams(audio, DEFAULT_TRANSCRIPTION_OPTIONS);
+    expect(p.audioPath).toBe("C:/music/song.wav");
+    expect(p.displayName).toBe("song.wav");
+  });
+});
 
 describe("transcriptionOptionsFromSettings", () => {
   it("restores the full engine settings echo", () => {

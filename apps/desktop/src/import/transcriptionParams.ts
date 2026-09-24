@@ -36,6 +36,9 @@ function audioPathOf(ref: AudioFileRef | RecordedAudioRef): string | null {
 
 export interface TranscriptionJobParams {
   audioPath?: string;
+  /** #305: the user's file name for the score title — audioPath may
+   *  be a staged temp path, so the display name travels separately. */
+  displayName?: string;
   tempoBpm?: number;
   meter?: string;
   minDuration?: string;
@@ -59,6 +62,9 @@ export function buildTranscriptionParams(
   const params: TranscriptionJobParams = {};
   const path = stagedAudioPath ?? (audio ? audioPathOf(audio.ref) : null);
   if (path) params.audioPath = path;
+  // #305: the score title comes from the user's file name — a staged
+  // temp path must never surface as staged-<ts>-<name> on the page.
+  if (audio?.fileName) params.displayName = audio.fileName;
 
   // #108/#189: the engine pin reaches the job. A per-job override
   // (options.backend) wins over the global 設定→詳細設定 choice.

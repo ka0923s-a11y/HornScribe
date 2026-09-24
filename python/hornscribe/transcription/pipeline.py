@@ -835,7 +835,14 @@ def run_transcription_job(
             key,
             pickup_len_ql=estimate.pickup_len_ql,
             event_by_id=event_by_id,
-            title=Path(params.audio_path).stem,
+            # #305: the score title is the user's file name, not the
+            # path the backend actually read — a staged browser-dev
+            # temp would otherwise leak ``staged-<ts>-`` onto the page.
+            title=(
+                Path(params.display_name).stem
+                if params.display_name
+                else Path(params.audio_path).stem
+            ),
             source_audio_path=params.audio_path,
             source_audio_hash=audio_hash,
             settings=params.settings_dict(),

@@ -138,6 +138,31 @@ class TestParams:
         with pytest.raises(ValueError, match="backend"):
             TranscriptionParams.from_payload({"audioPath": "a", "backend": "whisper"})
 
+    def test_display_name_parsed(self) -> None:
+        # #305: the user's file name rides separately from audioPath
+        # so a staged temp path never becomes the score title.
+        p = TranscriptionParams.from_payload(
+            {"audioPath": "staged-1-take.wav", "displayName": "take.wav"}
+        )
+        assert p.display_name == "take.wav"
+        # Absent / non-string / blank all collapse to None.
+        assert (
+            TranscriptionParams.from_payload({"audioPath": "a"}).display_name
+            is None
+        )
+        assert (
+            TranscriptionParams.from_payload(
+                {"audioPath": "a", "displayName": 42}
+            ).display_name
+            is None
+        )
+        assert (
+            TranscriptionParams.from_payload(
+                {"audioPath": "a", "displayName": "   "},
+            ).display_name
+            is None
+        )
+
     def test_texture_choice_validated_and_echoed(self) -> None:
         # Melody texture keeps the top voice on overlaps (JPOP/mix
         # sources); the choice is echoed in meta.settings.

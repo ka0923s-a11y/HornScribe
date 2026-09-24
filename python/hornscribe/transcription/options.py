@@ -93,6 +93,11 @@ class TranscriptionParams:
     # #187: opt-in vocal isolation — the backend runs on a
     # center-extracted vocal estimate instead of the raw mix.
     vocal_isolation: bool = False
+    # #305: the user's file name for the score title. ``audio_path``
+    # may point at a staged temp file (browser-dev kind:"file" drops),
+    # so the display name travels separately and the title never
+    # leaks the ``staged-<ts>-`` scratch name.
+    display_name: str | None = None
 
     @classmethod
     def from_payload(cls, raw: Any) -> TranscriptionParams:
@@ -126,6 +131,7 @@ class TranscriptionParams:
         backend = cls._opt_choice(raw, "backend", "auto", _BACKENDS)
         texture = cls._opt_choice(raw, "texture", "auto", _TEXTURES)
         vocal_isolation = raw.get("vocalIsolation", False) is True
+        display_name = cls._opt_str(raw, "displayName")
         return cls(
             audio_path=audio_path,
             tempo_bpm=tempo_bpm,
@@ -140,6 +146,7 @@ class TranscriptionParams:
             backend=backend,
             texture=texture,
             vocal_isolation=vocal_isolation,
+            display_name=display_name,
         )
 
     def meter_segment(self) -> MeterSegment:
@@ -211,3 +218,17 @@ class TranscriptionParams:
         if not lo <= float(value) <= hi or not math.isfinite(float(value)):
             raise ValueError(f"params.{name} out of range [{lo}, {hi}]")
         return float(value)
+
+    @staticmethod
+    def _opt_str(raw: dict[str, Any], name: str) -> str | None:
+        """Optional free-text field -> stripped str | None.
+
+        Non-strings and empty/whitespace values collapse to None — a
+        display name is a nicety, never a hard requirement. Capped so a
+        pathological payload cannot stuff a megabyte into the title.
+        """
+        value = raw.get(name)
+        if not isinstance(value, str):
+            return None
+        stripped = value.strip()[:255]
+        return stripped or None
