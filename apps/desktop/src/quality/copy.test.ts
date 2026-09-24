@@ -58,6 +58,10 @@ const ALLOWED_WORDS = new Set(
     "install",
     "engine",
     "hornscribe",
+    /* #302: the optional heavier separation engine named in the vocal-
+     *  isolation hint — pip install hornscribe[engine-vocal]. */
+    "demucs",
+    "vocal",
   ].map((w) => w.toLowerCase()),
 );
 const ALLOWED_WORDS_CI = new Set(

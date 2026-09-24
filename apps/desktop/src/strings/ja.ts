@@ -933,7 +933,7 @@ export const ja = {
       /* #187: opt-in vocal isolation (center extraction). */
       vocalIsolation: "ボーカル分離を使う（ミックス音源向け）",
       vocalIsolationHint:
-        "中央定位のボーカルを推定してから採譜します。JPOPなど伴奏付き音源の主旋律抽出に有効ですが、完全な分離ではありません。",
+        "中央定位のボーカルを推定してから採譜します。JPOPなど伴奏付き音源の主旋律抽出に有効ですが、完全な分離ではありません。開発環境で pip install hornscribe[engine-vocal] を入れると、より精度の高い demucs による分離に自動で切り替わります。",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {
