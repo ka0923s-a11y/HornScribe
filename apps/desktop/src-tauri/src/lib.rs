@@ -15,6 +15,7 @@ use serde::Serialize;
 
 mod capture;
 mod engine;
+mod export;
 
 /// Audio containers the import UX advertises (GUI_UX_SPEC §3 formats line).
 /// The frontend rejects other extensions before reaching this command; the
@@ -124,6 +125,12 @@ pub fn run() {
             engine::engine_write,
             engine::engine_close_stdin,
             engine::engine_kill,
+            export::export_pick_dir,
+            export::export_default_dir,
+            export::export_write_files,
+            export::detect_tools,
+            export::reveal_in_explorer,
+            export::render_pdf,
         ])
         .build(tauri::generate_context!())
         .expect("error while building HornScribe shell")

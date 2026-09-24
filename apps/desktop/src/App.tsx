@@ -25,6 +25,7 @@ import { TranscriptionErrorView } from "./components/TranscriptionErrorView";
 import { ExportDialog } from "./export/ExportDialog";
 import { DiagnosticsSheet } from "./diagnostics/DiagnosticsSheet";
 import { createDefaultExportPort } from "./export/port";
+import type { ExportSource } from "./export/tauriPort";
 import { createDefaultDiagnosticsPort } from "./diagnostics/port";
 import { useAppSettings, type SettingsCategory } from "./settings/store";
 import type { PitchView } from "./components/PitchSegmented";
@@ -173,7 +174,14 @@ export default function App() {
   >(undefined);
   // Ports are runtime-gated (mock in a browser, explicit-failure in the
   // Tauri shell until the engine spawn bridge lands — see export/port.ts).
-  const exportPort = useMemo(() => createDefaultExportPort(), []);
+  // #99: the Tauri port reads the live score document + audio name at
+  // export time through this ref (state lives below; the port is
+  // created once, so a ref keeps the getter fresh).
+  const exportSourceRef = useRef<ExportSource | null>(null);
+  const exportPort = useMemo(
+    () => createDefaultExportPort(() => exportSourceRef.current),
+    [],
+  );
   const diagnosticsPort = useMemo(() => createDefaultDiagnosticsPort(), []);
   // User-specified tool paths (設定 → ツール) flow into every probe.
   const toolOverrides = useMemo(
@@ -305,6 +313,17 @@ export default function App() {
       triplets: settings.triplets ? "auto" : "none",
     });
   }, [importState.audio, settings]);
+
+  // #99: keep the export port's source getter current — the doc plus a
+  // basename derived from the loaded audio's file name (extension
+  // stripped), matching the ENG-001 `<basename>_<artifact>` policy.
+  useEffect(() => {
+    const fileName = importState.audio?.fileName ?? "";
+    const stem = fileName.replace(/\.[^.]*$/, "");
+    exportSourceRef.current = scoreDocument
+      ? { doc: scoreDocument, basename: stem || scoreDocument.meta.title }
+      : null;
+  }, [scoreDocument, importState.audio]);
 
   // FEAT-001 (#60): capture session state (loopback / microphone).
   const [captureState, setCaptureState] =
