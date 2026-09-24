@@ -1692,7 +1692,7 @@ export default function App() {
                     onMeterChange={(b, u) =>
                       scoreCtlRef.current?.setMeter?.(b, u)
                     }
-                    onKeyChange={(f) => scoreCtlRef.current?.setKey?.(f)}
+                    onKeyChange={(f, mode) => scoreCtlRef.current?.setKey?.(f, mode)}
                   />
                 ) : null}
               </div>

@@ -19,6 +19,7 @@ function fakeDoc(
       meter: "4/4",
       keyFifths: 0,
       keyChanges: [],
+      keyMode: null,
       swingFeel: false,
       omittedIssueCount: 0,
       measureCount: 1,

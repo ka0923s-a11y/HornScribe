@@ -11,10 +11,12 @@ import { startPointerResize } from "../workspace/layout";
 import {
   headlinePitch,
   keyLabelJa,
+  hornConcertFifths,
   type InspectorModel,
   type NoteInspectorModel,
   type ScoreInspectorModel,
 } from "../score/inspector";
+import type { KeyMode } from "../score/scoreDoc";
 import type { PitchView } from "./PitchSegmented";
 
 /**
@@ -69,7 +71,7 @@ export function PropertiesPanel({
   /** #129 (§14): commit a new meter via the engine score.edit. */
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
   /** #145 (§14): commit a new key signature via the engine score.edit. */
-  onKeyChange?(fifths: number): void;
+  onKeyChange?(fifths: number, mode?: KeyMode | null): void;
 }) {
   const body =
     model && model.kind !== "empty" ? model.kind : content.kind;
@@ -153,13 +155,14 @@ function InspectorBody({
   pitch: PitchView;
   onTempoChange?(bpm: number): void;
   onTempoScale?(factor: number): void;
-  onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
-  onKeyChange?(fifths: number): void;
+ onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
+  onKeyChange?(fifths: number, mode?: KeyMode | null): void;
 }) {
   if (model.kind === "score") {
     return (
       <ScoreBody
         model={model}
+        pitch={pitch}
         onTempoChange={onTempoChange}
         onTempoScale={onTempoScale}
         onMeterChange={onMeterChange}
@@ -183,16 +186,18 @@ function InspectorBody({
 /** §22 "Nothing selected" - score/measure summary. */
 function ScoreBody({
   model,
+  pitch,
   onTempoChange,
   onTempoScale,
   onMeterChange,
   onKeyChange,
 }: {
   model: ScoreInspectorModel;
+  pitch: PitchView;
   onTempoChange?(bpm: number): void;
   onTempoScale?(factor: number): void;
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
-  onKeyChange?(fifths: number): void;
+  onKeyChange?(fifths: number, mode?: KeyMode | null): void;
 }) {
   const f = ja.inspector.summaryFields;
   return (
@@ -220,7 +225,19 @@ function ScoreBody({
         {model.keyFifths != null &&
         model.keyChangeCount <= 1 &&
         onKeyChange ? (
-          <KeyField fifths={model.keyFifths} onCommit={onKeyChange} />
+          <KeyField
+            fifths={model.keyFifths}
+            mode={model.keyMode}
+            onCommit={(fifths, mode) =>
+              // #270: model.keyFifths is in the viewed presentation —
+              // a written-view pick maps back to the concert signature
+              // the engine setKey edit expects.
+              onKeyChange(
+                pitch === "hornF" ? hornConcertFifths(fifths) : fifths,
+                mode,
+              )
+            }
+          />
         ) : (
           model.keyLabel && <Row label={f.key} value={model.keyLabel} />
         )}
@@ -246,12 +263,15 @@ const KEY_FIFTHS_OPTIONS = [
 
 function KeyField({
   fifths,
+  mode,
   onCommit,
 }: {
   fifths: number;
-  onCommit(fifths: number): void;
+  mode: KeyMode | null;
+  onCommit(fifths: number, mode?: KeyMode | null): void;
 }) {
   const f = ja.inspector.summaryFields;
+  const mode_ = mode ?? "major";
   return (
     <div className="hs-properties__meter">
       <HsSelect
@@ -259,12 +279,28 @@ function KeyField({
         value={String(fifths)}
         options={KEY_FIFTHS_OPTIONS.map((v) => ({
           value: String(v),
-          label: keyLabelJa(v),
+          label: keyLabelJa(v, mode_),
         }))}
         onChange={(v) => {
           const next = Number(v);
           if (!Number.isFinite(next) || next === fifths) return;
-          onCommit(next);
+          onCommit(next, mode_);
+        }}
+      />
+      {/* #252: mode is part of the signature — switching 長調/短調
+          keeps the same fifths (relative major/minor share it) and
+          re-labels the signature list. */}
+      <HsSelect
+        label={f.keyMode}
+        value={mode_}
+        options={[
+          { value: "major", label: ja.inspector.keyModes.major },
+          { value: "minor", label: ja.inspector.keyModes.minor },
+        ]}
+        onChange={(v) => {
+          if (v !== "major" && v !== "minor") return;
+          if (v === mode_) return;
+          onCommit(fifths, v);
         }}
       />
     </div>

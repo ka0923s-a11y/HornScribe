@@ -28,7 +28,7 @@ const copy: InspectorCopy = {
   measureCount: (n) => `${n} 小節`,
   noteCount: (n) => `${n} 音`,
   openIssues: (n) => `${n} 件`,
-  key: (fifths) => keyLabelJa(fifths),
+  key: (fifths, mode) => keyLabelJa(fifths, mode),
 };
 
 const note = (over: Partial<ParsedNote>): ParsedNote => ({
@@ -51,6 +51,7 @@ describe("buildScoreInspector", () => {
         meter: "4/4",
         keyFifths: -1,
         keyChanges: [],
+        keyMode: null,
         swingFeel: false,
         omittedIssueCount: 0,
         measureCount: 12,
@@ -76,9 +77,10 @@ describe("buildScoreInspector", () => {
         meter: "4/4",
         keyFifths: 0,
         keyChanges: [
-          { measure: 1, fifths: 0 },
-          { measure: 17, fifths: -5 },
+          { measure: 1, fifths: 0, mode: null },
+          { measure: 17, fifths: -5, mode: null },
         ],
+        keyMode: null,
         swingFeel: false,
         omittedIssueCount: 0,
         measureCount: 32,
@@ -88,6 +90,50 @@ describe("buildScoreInspector", () => {
       copy,
     );
     expect(model.keyLabel).toBe("ハ長調 → 変ニ長調（第17小節）");
+  });
+
+  it("labels minor keys with the minor name (#252)", () => {
+    const model = buildScoreInspector(
+      {
+        title: "Minor Piece",
+        tempoBpm: 100,
+        meter: "4/4",
+        keyFifths: 0,
+        keyChanges: [{ measure: 1, fifths: 0, mode: "minor" }],
+        keyMode: "minor",
+        swingFeel: false,
+        omittedIssueCount: 0,
+        measureCount: 8,
+        noteCount: 20,
+      },
+      0,
+      copy,
+    );
+    expect(model.keyLabel).toBe("イ短調");
+  });
+
+  it("projects signatures +1 fifth in the written horn view (#270)", () => {
+    const meta = {
+      title: "Horn Piece",
+      tempoBpm: 100,
+      meter: "4/4",
+      keyFifths: -1,
+      keyChanges: [],
+      keyMode: null as const,
+      swingFeel: false,
+      omittedIssueCount: 0,
+      measureCount: 8,
+      noteCount: 20,
+    };
+    const concert = buildScoreInspector(meta, 0, copy, "concert");
+    const horn = buildScoreInspector(meta, 0, copy, "hornF");
+    expect(concert.keyLabel).toBe("ヘ長調");
+    expect(horn.keyLabel).toBe("ハ長調");
+    expect(horn.keyFifths).toBe(0);
+    // Fold: concert +7 (嬰ハ長調) writes as -4 (変イ長調).
+    const sharp = buildScoreInspector({ ...meta, keyFifths: 7 }, 0, copy, "hornF");
+    expect(sharp.keyFifths).toBe(-4);
+    expect(sharp.keyLabel).toBe("変イ長調");
   });
 });
 
@@ -214,5 +260,12 @@ describe("keyLabelJa", () => {
     expect(keyLabelJa(-1)).toBe("ヘ長調");
     expect(keyLabelJa(1)).toBe("ト長調");
     expect(keyLabelJa(42)).toBe("42");
+  });
+  it("names minor signatures when mode is minor (#252)", () => {
+    expect(keyLabelJa(0, "minor")).toBe("イ短調");
+    expect(keyLabelJa(-1, "minor")).toBe("ニ短調");
+    expect(keyLabelJa(1, "minor")).toBe("ホ短調");
+    expect(keyLabelJa(-3, "minor")).toBe("ハ短調");
+    expect(keyLabelJa(0, null)).toBe("ハ長調");
   });
 });

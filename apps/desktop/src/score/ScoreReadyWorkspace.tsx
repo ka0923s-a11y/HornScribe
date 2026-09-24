@@ -230,7 +230,7 @@ function inspectorCopy(): InspectorCopy {
     measureCount: (n) => j.measureCountLabel(n),
     noteCount: (n) => j.noteCountLabel(n),
     openIssues: (n) => j.openIssuesLabel(n),
-    key: (fifths) => j.keyLabel(keyLabelJa(fifths)),
+    key: (fifths, mode) => j.keyLabel(keyLabelJa(fifths, mode)),
   };
 }
 
@@ -660,10 +660,12 @@ export function ScoreReadyWorkspace({
     const docs = docsRef.current;
     const sel = selectionRef.current;
     if (!docs) return;
-    if (!sel) {
-      onInspectorChange(buildScoreInspector(scoreDoc.meta, pendingCount, copy));
-      return;
-    }
+  if (!sel) {
+      // #270: the score summary labels the view the user is looking
+      // at — written key signatures in the Horn in F presentation.
+      onInspectorChange(buildScoreInspector(scoreDoc.meta, pendingCount, copy, pitch));
+     return;
+   }
     const canonical = sel.canonicalId;
     const concertFrags = canonical
       ? (docs.concertByCanonical.get(canonical) ?? [])
@@ -691,8 +693,8 @@ export function ScoreReadyWorkspace({
         copy,
       }),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scoreDoc, pendingCount, docVersion, copy, onInspectorChange]);
+   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoreDoc, pendingCount, docVersion, copy, pitch, onInspectorChange]);
 
   /** Select by export id; canonical notes also seek the transport to the
    *  note onset (§10: 原音位置と対応). */
@@ -770,10 +772,13 @@ export function ScoreReadyWorkspace({
   /* transport clock, selection, loop and zoom are all view-independent —    */
   /* marks reapply in the layout effect above; playback never pauses.        */
 
-  useEffect(() => {
-    if (!rendererRef.current || pitch === renderedPitchRef.current) return;
-    renderScore(pitch, { keepScroll: true });
-  }, [pitch, renderScore]);
+ useEffect(() => {
+   if (!rendererRef.current || pitch === renderedPitchRef.current) return;
+   renderScore(pitch, { keepScroll: true });
+    // #270: the score summary's key label is view-dependent too —
+    // refresh it so a concert/horn switch never leaves stale text.
+    reportInspector();
+  }, [pitch, renderScore, reportInspector]);
 
   const changeZoom = useCallback(
     (pct: number) => {
@@ -1244,10 +1249,10 @@ export function ScoreReadyWorkspace({
   /* #145 (spec 14): key edit — replaces the head signature and
    * collapses detected key changes to the new single key; same
    * serialized queue + undo stack as the other rhythm edits. */
-  const setKey = useCallback(
-    (fifths: number) => {
+ const setKey = useCallback(
+    (fifths: number, mode?: "major" | "minor" | null) => {
       applyRhythmEdit(
-        () => ({ kind: "setKey", noteId: "", fifths }),
+        () => ({ kind: "setKey", noteId: "", fifths, mode: mode ?? undefined }),
         ja.commandFeedback.keyChanged,
       );
     },
@@ -1471,7 +1476,7 @@ export function ScoreReadyWorkspace({
       setTempo: (bpm) => setTempo(bpm),
       scaleTempo: (factor) => scaleTempo(factor),
       setMeter: (bpm_, bu) => setMeter(bpm_, bu),
-      setKey: (fifths) => setKey(fifths),
+      setKey: (fifths, mode) => setKey(fifths, mode),
       requantize: (settings) => requantize(settings),
       splitSelectedNote: () => splitSelectedNote(),
       mergeSelectedNotes: () => mergeSelectedNotes(),

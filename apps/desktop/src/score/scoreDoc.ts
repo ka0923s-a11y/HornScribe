@@ -6,6 +6,17 @@
  */
 import { canonicalNoteIdFromMusicxml, isMusicxmlRestId } from "./ids";
 
+/** MusicXML <mode> values the engine emits (domain/score.py KeySignature). */
+export type KeyMode = "major" | "minor";
+
+/** Parse a MusicXML <mode> text into the domain mode; anything
+ *  unrecognized (dorian, none, ...) maps to null so callers keep the
+ *  major default rather than trusting a free-form string. */
+export function parseKeyMode(text: string | null | undefined): KeyMode | null {
+  if (text === "major" || text === "minor") return text;
+  return null;
+}
+
 export interface ParsedNote {
   exportId: string; // MusicXML note/@id, e.g. hs-sn-000003-2 / hs-rest-000001
   canonicalId: string | null; // sn-000003, or null for rests
@@ -30,10 +41,13 @@ export interface ScoreDoc {
   /** Time signature like "4/4", when present. */
   meter: string | null;
   /** Key signature fifths (−7…+7), when present. */
-  keyFifths: number | null;
+ keyFifths: number | null;
+  /** #252: key mode (major/minor) when the document declares one; null
+   *  keeps the major default for legacy MusicXML without <mode>. */
+  keyMode: KeyMode | null;
   /** #146: key changes with their measure numbers, head first. Empty
    *  or single-entry = the piece stays in keyFifths. */
-  keyChanges: { measure: number; fifths: number }[];
+  keyChanges: { measure: number; fifths: number; mode: KeyMode | null }[];
   /** #134: a <sound><swing> direction exists — the piece is marked
    *  as swung (straight eighths play in the detected ratio). */
   swingFeel: boolean;
@@ -92,14 +106,17 @@ export function parseScoreDoc(xml: string): ScoreDoc {
   const beatType = doc.querySelector("time > beat-type")?.textContent?.trim();
   const meter = beats && beatType ? `${beats}/${beatType}` : null;
   const fifthsText = doc.querySelector("key > fifths")?.textContent;
-  const keyFifths =
-    fifthsText != null && Number.isFinite(Number(fifthsText)) ? Number(fifthsText) : null;
+ const keyFifths =
+   fifthsText != null && Number.isFinite(Number(fifthsText)) ? Number(fifthsText) : null;
+  const keyMode = parseKeyMode(
+    doc.querySelector("key > mode")?.textContent?.trim(),
+  );
   // #134: the engine emits <sound><swing> on swing-detected scores.
   const swingFeel = doc.querySelector("sound > swing") !== null;
 
   const notes: ParsedNote[] = [];
   let measureCount = 0;
-  const keyChanges: { measure: number; fifths: number }[] = [];
+  const keyChanges: { measure: number; fifths: number; mode: KeyMode | null }[] = [];
   const parts = Array.from(doc.querySelectorAll("part"));
   for (const measure of Array.from(
     parts[0]?.querySelectorAll(":scope > measure") ?? [],
@@ -111,10 +128,14 @@ export function parseScoreDoc(xml: string): ScoreDoc {
     for (const keyEl of Array.from(
       measure.querySelectorAll(":scope > attributes > key"),
     )) {
-      const f = keyEl.querySelector("fifths")?.textContent;
-      if (f != null && Number.isFinite(Number(f))) {
-        keyChanges.push({ measure: number, fifths: Number(f) });
-      }
+     const f = keyEl.querySelector("fifths")?.textContent;
+     if (f != null && Number.isFinite(Number(f))) {
+        keyChanges.push({
+          measure: number,
+          fifths: Number(f),
+          mode: parseKeyMode(keyEl.querySelector("mode")?.textContent?.trim()),
+        });
+     }
     }
   }
   for (const measure of Array.from(doc.querySelectorAll("part > measure"))) {
@@ -147,7 +168,7 @@ export function parseScoreDoc(xml: string): ScoreDoc {
       });
     }
   }
-  return { title, notes, measureCount, tempoBpm, meter, keyFifths, keyChanges, swingFeel };
+  return { title, notes, measureCount, tempoBpm, meter, keyFifths, keyMode, keyChanges, swingFeel };
 }
 
 /** canonical id → parsed fragments (both tie fragments and chords land here). */

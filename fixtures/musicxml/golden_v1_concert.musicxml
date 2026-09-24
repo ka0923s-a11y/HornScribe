@@ -31,6 +31,7 @@
         <divisions>10080</divisions>
         <key>
           <fifths>0</fifths>
+          <mode>major</mode>
         </key>
         <time>
           <beats>4</beats>
@@ -114,7 +115,7 @@
           <tied type="stop" />
         </notations>
       </note>
-      <note id="hs-rest-000001">
+      <note id="hs-layout-rest-000001">
         <rest />
         <duration>15120</duration>
         <type>quarter</type>
@@ -130,7 +131,7 @@
         <duration>20160</duration>
         <type>half</type>
       </note>
-      <note id="hs-rest-000002">
+      <note id="hs-layout-rest-000002">
         <rest />
         <duration>20160</duration>
         <type>half</type>

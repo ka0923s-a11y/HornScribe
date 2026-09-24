@@ -71,16 +71,32 @@ describe("parseScoreDoc", () => {
     );
     const doc = parseScoreDoc(xml);
     expect(doc.keyChanges).toEqual([
-      { measure: 1, fifths: -1 },
-      { measure: 2, fifths: -5 },
+      { measure: 1, fifths: -1, mode: null },
+      { measure: 2, fifths: -5, mode: null },
     ]);
     // Head key stays the first signature.
     expect(doc.keyFifths).toBe(-1);
   });
 
+  it("reads <mode> on the head key and on key changes (#252)", () => {
+    const xml = XML.replace(
+      "<key><fifths>-1</fifths></key>",
+      "<key><fifths>-1</fifths><mode>minor</mode></key>",
+    ).replace(
+      '<measure number="2">',
+      '<measure number="2"><attributes><key><fifths>2</fifths><mode>major</mode></key></attributes>',
+    );
+    const doc = parseScoreDoc(xml);
+    expect(doc.keyMode).toBe("minor");
+    expect(doc.keyChanges).toEqual([
+      { measure: 1, fifths: -1, mode: "minor" },
+      { measure: 2, fifths: 2, mode: "major" },
+    ]);
+  });
+
   it("single key yields a one-entry (or empty) change list", () => {
     const doc = parseScoreDoc(XML);
-    expect(doc.keyChanges).toEqual([{ measure: 1, fifths: -1 }]);
+    expect(doc.keyChanges).toEqual([{ measure: 1, fifths: -1, mode: null }]);
   });
 
   it("parses pitch, type, dots and measure numbers", () => {

@@ -15,7 +15,7 @@
 import type { ScoreDocumentMeta } from "./document";
 import type { ScoreReviewIssue } from "./review";
 import { issueConfidence } from "./review";
-import { noteTypeJa, pitchLabel, type ParsedNote } from "./scoreDoc";
+import { noteTypeJa, pitchLabel, type KeyMode, type ParsedNote } from "./scoreDoc";
 import type { PitchViewSetting } from "../commands/types";
 
 export interface InspectorIssueRow {
@@ -61,8 +61,10 @@ export interface ScoreInspectorModel {
   readonly meterBeats: number | null;
   readonly meterUnit: number | null;
   readonly keyLabel: string | null;
-  /** Raw head-key fifths for the editable key field (#145 setKey). */
-  readonly keyFifths: number | null;
+ /** Raw head-key fifths for the editable key field (#145 setKey). */
+ readonly keyFifths: number | null;
+  /** #252: head-key mode for the key field (null = major default). */
+  readonly keyMode: KeyMode | null;
   /** Number of key-signature boundaries; >1 means the piece modulates
    *  and the summary shows transitions instead of an editable field. */
   readonly keyChangeCount: number;
@@ -116,7 +118,7 @@ export interface InspectorCopy {
   /** e.g. (n) => `要確認 ${n} 件` */
   openIssues(n: number): string;
   /** Key-signature label for fifths (e.g. `ヘ長調`/`変ロ長調`…). */
-  key(fifths: number): string;
+  key(fifths: number, mode?: KeyMode | null): string;
 }
 
 const FIFTHS_JA: Record<string, string> = {
@@ -137,8 +139,49 @@ const FIFTHS_JA: Record<string, string> = {
   "7": "嬰ハ長調",
 };
 
-export function keyLabelJa(fifths: number): string {
-  return FIFTHS_JA[String(fifths)] ?? `${fifths}`;
+const FIFTHS_JA_MINOR: Record<string, string> = {
+  "-7": "変イ短調",
+  "-6": "変ホ短調",
+  "-5": "変ロ短調",
+  "-4": "ヘ短調",
+  "-3": "ハ短調",
+  "-2": "ト短調",
+  "-1": "ニ短調",
+  "0": "イ短調",
+  "1": "ホ短調",
+  "2": "ロ短調",
+  "3": "嬰ヘ短調",
+  "4": "嬰ハ短調",
+  "5": "嬰ト短調",
+  "6": "嬰ニ短調",
+  "7": "嬰イ短調",
+};
+
+export function keyLabelJa(fifths: number, mode?: KeyMode | null): string {
+ const table = mode === "minor" ? FIFTHS_JA_MINOR : FIFTHS_JA;
+ return table[String(fifths)] ?? `${fifths}`;
+}
+
+/** Fold a fifths count into the valid -7..+7 signature range by
+ *  enharmonic projection (mirror of horn_f._fold_fifths). */
+function foldFifths(fifths: number): number {
+  let f = fifths;
+  while (f > 7) f -= 12;
+  while (f < -7) f += 12;
+  return f;
+}
+
+/** #270: concert key fifths as they appear on the written Horn in F
+ *  score (+1 fifth, folded) — the inspector labels the view the user
+ *  is looking at, not the canonical concert document. */
+export function hornWrittenFifths(concertFifths: number): number {
+  return foldFifths(concertFifths + 1);
+}
+
+/** Inverse of hornWrittenFifths: a signature picked on the written
+ *  score maps back to the concert fifths the engine edit expects. */
+export function hornConcertFifths(writtenFifths: number): number {
+  return foldFifths(writtenFifths - 1);
 }
 
 /** Parse a "n/m" meter label into raw signature parts (#129). */
@@ -159,8 +202,14 @@ export function buildScoreInspector(
   meta: ScoreDocumentMeta,
   openIssueCount: number,
   copy: InspectorCopy,
+  view: PitchViewSetting = "concert",
 ): ScoreInspectorModel {
   const meter = parseMeterLabel(meta.meter);
+  // #270: the inspector mirrors the document the user is looking at —
+  // in the written Horn in F view every signature is projected +1
+  // fifth (folded), matching the score's own key display.
+  const viewFifths = (f: number) =>
+    view === "hornF" ? hornWrittenFifths(f) : f;
   return {
     kind: "score",
     title: meta.title,
@@ -176,14 +225,15 @@ export function buildScoreInspector(
         ? meta.keyChanges
             .map((c, i) =>
               i === 0
-                ? copy.key(c.fifths)
-                : copy.key(c.fifths) + "（第" + c.measure + "小節）",
+                ? copy.key(viewFifths(c.fifths), c.mode)
+                : copy.key(viewFifths(c.fifths), c.mode) + "（第" + c.measure + "小節）",
             )
             .join(" → ")
         : meta.keyFifths != null
-          ? copy.key(meta.keyFifths)
+          ? copy.key(viewFifths(meta.keyFifths), meta.keyMode)
           : null,
-    keyFifths: meta.keyFifths,
+    keyFifths: meta.keyFifths != null ? viewFifths(meta.keyFifths) : null,
+    keyMode: meta.keyMode,
     keyChangeCount: meta.keyChanges.length,
     swingFeel: meta.swingFeel,
     measureLabel: copy.measureCount(meta.measureCount),

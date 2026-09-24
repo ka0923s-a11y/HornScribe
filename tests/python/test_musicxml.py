@@ -135,6 +135,39 @@ def test_concert_export_keeps_concert_key() -> None:
     assert _fifths(export_concert_musicxml(make_score(fifths=-2))) == -2
 
 
+def test_minor_mode_exports_mode_element() -> None:
+    """#252: a minor key must emit <mode> — without it the desktop
+    shows the relative-major name and setKey edits lose the mode."""
+    xml = export_concert_musicxml(make_score(fifths=0, mode="minor"))
+    key = _root(xml).find("part/measure/attributes/key")
+    assert key is not None
+    assert key.findtext("mode") == "minor"
+    # The horn presentation transposes fifths but keeps the mode.
+    horn = export_horn_in_f_musicxml(make_score(fifths=0, mode="minor"))
+    hkey = _root(horn).find("part/measure/attributes/key")
+    assert hkey is not None
+    assert hkey.findtext("fifths") == "1"
+    assert hkey.findtext("mode") == "minor"
+
+
+def test_key_change_mode_exports_mode_element() -> None:
+    """#252: a mid-piece key change carries its own <mode> too."""
+    score = make_score(
+        [(60, 0, 4), (62, 4, 4), (64, 8, 4), (65, 12, 4)],
+        fifths=0,
+    )
+    changes = (
+        KeyChange(Fraction(0), KeySignature(0, "major")),
+        KeyChange(Fraction(8), KeySignature(-1, "minor")),
+    )
+    score = replace(score, payload=replace(score.payload, key_changes=changes))
+    modes = [
+        el.text
+        for el in _root(export_concert_musicxml(score)).iter("mode")
+    ]
+    assert modes == ["major", "minor"]
+
+
 def test_key_changes_emit_per_measure_signatures() -> None:
     """#133: a modulation writes a second <key> at its measure; the horn
     export transposes each signature by +1 fifth."""

@@ -633,6 +633,9 @@ def _build_part_measures(
             if presentation is PitchSpace.WRITTEN_HORN_F:
                 ks = horn_f.written_key_signature(ks)
             ks_mark = key.KeySignature(ks.fifths)
+            # KeySignature alone exports only <fifths>; assigning .mode
+            # makes music21 emit <mode> so minor keys survive (#252).
+            ks_mark.mode = ks.mode  # type: ignore[attr-defined]
             for idx, span in enumerate(spans):
                 if span.start_beat <= change.start_beat < span.end_beat:
                     key_marks.setdefault(idx, []).append(
@@ -660,7 +663,9 @@ def _build_part_measures(
             ks = payload.key_signature
             if presentation is PitchSpace.WRITTEN_HORN_F:
                 ks = horn_f.written_key_signature(ks)
-            measure.insert(0, key.KeySignature(ks.fifths))
+            head_mark = key.KeySignature(ks.fifths)
+            head_mark.mode = ks.mode  # type: ignore[attr-defined]
+            measure.insert(0, head_mark)
         if idx == 0:
             ts = span.time_signature
             measure.insert(0, meter.TimeSignature(f"{ts.beats_per_measure}/{ts.beat_unit}"))

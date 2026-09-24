@@ -40,7 +40,7 @@ export interface ScoreWorkspaceController {
   setMeter?(beatsPerMeasure: number, beatUnit: number): void;
   /** #145 (spec 14): set the piece key signature — undoable engine
    *  edit. Modulating scores collapse to the new single key. */
-  setKey?(fifths: number): void;
+  setKey?(fifths: number, mode?: "major" | "minor" | null): void;
   /** #130 (spec 14): re-quantize the whole score under changed
    *  quantization settings — undoable engine edit. */
   requantize?(settings: Record<string, unknown>): void;

@@ -40,6 +40,7 @@
         <divisions>10080</divisions>
         <key>
           <fifths>1</fifths>
+          <mode>major</mode>
         </key>
         <time>
           <beats>6</beats>

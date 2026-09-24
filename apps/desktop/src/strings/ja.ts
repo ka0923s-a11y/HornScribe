@@ -1115,10 +1115,16 @@ export const ja = {
       tempo: "テンポ",
       meter: "拍子",
       key: "調",
+      keyMode: "長短",
       feel: "リズムの感じ",
       measures: "小節数",
       notes: "音符数",
       openIssues: "要確認",
+    },
+    /** #252: key-mode select labels (major/minor share the signature). */
+    keyModes: {
+      major: "長調",
+      minor: "短調",
     },
     scoreSeconds: (sec: number) => `スコア ${sec.toFixed(1)} 秒`,
     tieFragments: (count: number) => `タイで分割（${count}分割）`,

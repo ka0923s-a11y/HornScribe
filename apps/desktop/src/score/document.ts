@@ -16,6 +16,7 @@
 import type { PitchViewSetting } from "../commands/types";
 import type { ReviewIssueStatus, ScoreReviewIssue } from "./review";
 import type { ScoreNoteEdit } from "./scoreEdits";
+import type { KeyMode } from "./scoreDoc";
 
 export interface ScoreDocumentMeta {
   /** Document title (MusicXML movement/work title). */
@@ -25,10 +26,13 @@ export interface ScoreDocumentMeta {
   /** Time signature "4/4" style, when notated. */
   readonly meter: string | null;
   /** Key signature fifths (−7…+7), when notated. */
-  readonly keyFifths: number | null;
+ readonly keyFifths: number | null;
+  /** #252: key mode (major/minor) when the document declares one; null
+   *  keeps the major default for legacy MusicXML without <mode>. */
+  readonly keyMode: KeyMode | null;
   /** #146: key changes with measure numbers (head first); empty or
    *  single-entry = the piece stays in keyFifths. */
-  readonly keyChanges: readonly { measure: number; fifths: number }[];
+  readonly keyChanges: readonly { measure: number; fifths: number; mode: KeyMode | null }[];
   /** #134: the score carries a swing marking (<sound><swing>). */
   readonly swingFeel: boolean;
   /** Number of measures in the score. */
