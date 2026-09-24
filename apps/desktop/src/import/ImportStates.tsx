@@ -235,8 +235,8 @@ const BACKEND_OPTIONS: readonly HsSelectOption[] = [
 ];
 const RANGE_OPTIONS: readonly HsSelectOption[] = [
   { value: "all", label: ja.import.audioOptions.rangeAll },
-  // #88: 時刻指定の範囲採譜。波形ドラッグ選択は別issueで検討中だが、
-  // 秒数入力だけでも「ソロ部分だけ採譜」は実用になる。
+  // #88: 範囲採譜 — 時刻入力のほか、波形ドラッグでも選べる
+  // (WaveformView の onSelect)。「ソロ部分だけ採譜」に対応。
   { value: "selection", label: ja.import.audioOptions.rangeSelection },
 ];
 
