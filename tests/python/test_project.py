@@ -221,3 +221,30 @@ def test_atomic_write_survives_replace(tmp_path: Path) -> None:
     store.save(_sample(), path)
     store.save(_sample(), path)
     assert os.path.getsize(path) > 0
+
+
+def test_saved_project_keys_match_published_schema() -> None:
+    """#255: every root key a v1 project can carry is declared in
+    protocol/schema/project-v1.schema.json — the published contract must
+    not reject documents HornScribe itself writes."""
+    schema = json.loads(
+        (Path(__file__).resolve().parents[2]
+         / "protocol" / "schema" / "project-v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    declared = set(schema["properties"])
+    saved = _sample().to_dict()
+    # The desktop writes these extras too (#218); both model output and
+    # the desktop's extras must be schema-declared.
+    saved.update(
+        {
+            "scoreDocument": None,
+            "reviewIssues": [],
+            "musicXmlConcert": None,
+            "musicXmlHornF": None,
+            "meta": None,
+        }
+    )
+    undeclared = set(saved) - declared
+    assert not undeclared, f"saved keys missing from schema: {undeclared}"

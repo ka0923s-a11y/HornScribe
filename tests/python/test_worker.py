@@ -734,3 +734,36 @@ def test_project_save_preserves_score_extras(
     assert saved["meta"] == {"noteCount": 4}
     # Schema keys still win over a colliding extra.
     assert saved["schemaVersion"] == 1
+
+
+def test_export_midi_returns_canonical_smf(spawn: Any) -> None:
+    """#256: export.midi runs the engine's playback_midi_bytes — the
+    desktop's MusicXML->MIDI rebuild loses velocity/bends/swing."""
+    import base64
+
+    from conftest import make_score
+
+    w = spawn()
+    w.handshake()
+    resp = _assert_ok(
+        w.request(
+            "export.midi",
+            {"scoreDocument": make_score([(60, 0, 1), (64, 1, 1)]).to_dict()},
+        )
+    )
+    midi = base64.b64decode(resp["midiBase64"])
+    assert midi[:4] == b"MThd"
+    assert len(midi) > 14
+
+
+def test_export_midi_rejects_bad_document(spawn: Any) -> None:
+    w = spawn()
+    w.handshake()
+    resp = w.request("export.midi", {"scoreDocument": {"bogus": True}})
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+
+
+def test_export_midi_advertised_in_handshake(spawn: Any) -> None:
+    w = spawn()
+    payload = _assert_ok(w.handshake())
+    assert "export.midi" in payload["capabilities"]["methods"]

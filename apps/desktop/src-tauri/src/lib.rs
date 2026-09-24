@@ -29,8 +29,12 @@ const PROJECT_FILE_SUFFIX: &str = ".hornscribe.json";
 /// 512 MiB — far above any realistic horn recording (~90 MB for 10 min of
 /// PCM16 stereo 44.1 kHz); guards against unbounded reads.
 const MAX_AUDIO_BYTES: u64 = 512 * 1024 * 1024;
-/// Project JSON is a small manifest; 16 MiB is already generous.
-const MAX_PROJECT_BYTES: u64 = 16 * 1024 * 1024;
+/// Project JSON embeds the canonical score + both MusicXML bodies
+/// (#218), so long pieces legitimately exceed the old 16 MiB cap —
+/// the save side has no limit and the open side must not reject
+/// projects it wrote (#262). 128 MiB is far above any realistic
+/// score while still guarding against unbounded reads.
+const MAX_PROJECT_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

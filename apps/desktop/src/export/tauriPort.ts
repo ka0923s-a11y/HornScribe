@@ -107,7 +107,18 @@ export class TauriExportPort implements ExportPort {
    *  PDF branch of export() so a user-specified MuseScore path wins. */
   private overrides?: ToolPathOverrides;
 
-  constructor(private readonly source: () => ExportSource | null) {}
+  /** #256: canonical MIDI via the engine's playback_midi_bytes — keeps
+   *  velocity / pitch bend / swing / tempo map. When absent (or the
+   *  document has no canonical payload) the client-side MusicXML→MIDI
+   *  rebuild is used as before. */
+  private readonly midiExporter?: (scoreDocument: unknown) => Promise<string>;
+
+  constructor(
+    private readonly source: () => ExportSource | null,
+    midiExporter?: (scoreDocument: unknown) => Promise<string>,
+  ) {
+    this.midiExporter = midiExporter;
+  }
 
   async capabilities(
     overrides?: ToolPathOverrides,
@@ -195,11 +206,27 @@ export class TauriExportPort implements ExportPort {
       } else if (format === "hornMusicxml") {
         batch.push({ format, name, dataBase64: textToBase64(source.doc.musicXml("hornF")) });
       } else if (format === "playbackMidi") {
-        batch.push({
-          format,
-          name,
-          dataBase64: toBase64(buildMidiFile(source.doc.musicXml("concert"))),
-        });
+        // #256: prefer the engine's canonical exporter — it carries
+        // velocity / pitch bend / swing / tempo map the MusicXML
+        // rebuild loses. Falls back to the client-side build only
+        // when no canonical payload or no engine hook exists.
+        const canonical = source.doc.canonicalDocument?.();
+        if (canonical && this.midiExporter) {
+          let midiBase64: string;
+          try {
+            midiBase64 = await this.midiExporter(canonical);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new ExportError("EXPORT_FAILED", msg);
+          }
+          batch.push({ format, name, dataBase64: midiBase64 });
+        } else {
+          batch.push({
+            format,
+            name,
+            dataBase64: toBase64(buildMidiFile(source.doc.musicXml("concert"))),
+          });
+        }
       }
     }
     if (batch.length > 0) {

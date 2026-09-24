@@ -104,6 +104,10 @@ class Worker:
             # same SpanRealizer the quantizer used, so the written
             # output stays consistent with the original engraving.
             "score.edit": self._handle_score_edit,
+            # #256: canonical playback MIDI — the engine's exporter
+            # keeps velocity / pitch bend / swing / tempo map that the
+            # client-side MusicXML->MIDI rebuild loses.
+            "export.midi": self._handle_export_midi,
             # Spike-only supervisor test hook: wedges the dispatch loop so
             # the supervisor-side read timeout path can be exercised.
             # Not a stable API; gated on the "debug." prefix.
@@ -437,6 +441,44 @@ class Worker:
             "musicXmlConcert": export_concert_musicxml(new_document),
             "musicXmlHornF": export_horn_in_f_musicxml(new_document),
         }
+
+    def _handle_export_midi(self, payload: Any) -> dict[str, Any]:
+        """`export.midi` — canonical playback MIDI for a scoreDocument (#256).
+
+        Payload: ``{"scoreDocument": {...}}``. Returns base64 SMF bytes
+        produced by hornscribe.export.midi.playback_midi_bytes — the
+        canonical exporter that carries velocity, pitch bend, swing
+        feel and the tempo map, all of which a client-side
+        MusicXML->MIDI rebuild loses.
+        """
+        if not isinstance(payload, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, "export.midi payload must be an object"
+            )
+        doc_raw = payload.get("scoreDocument")
+        if not isinstance(doc_raw, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS,
+                "export.midi requires a 'scoreDocument' object",
+            )
+        import base64  # noqa: PLC0415
+
+        from hornscribe.domain.score import ScoreDocument  # noqa: PLC0415
+        from hornscribe.export.midi import playback_midi_bytes  # noqa: PLC0415
+        try:
+            document = ScoreDocument.from_dict(doc_raw)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS,
+                f"invalid scoreDocument: {exc}",
+            ) from exc
+        try:
+            midi = playback_midi_bytes(document)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_JOB_FAILED, f"midi export failed: {exc}"
+            ) from exc
+        return {"midiBase64": base64.b64encode(midi).decode("ascii")}
 
     def _handle_debug_hang(self, payload: Any) -> dict[str, Any]:
         seconds = 5.0

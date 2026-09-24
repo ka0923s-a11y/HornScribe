@@ -214,9 +214,22 @@ export default function App() {
   // export time through this ref (state lives below; the port is
   // created once, so a ref keeps the getter fresh).
   const exportSourceRef = useRef<ExportSource | null>(null);
-  const exportPort = useMemo(
-    () => createDefaultExportPort(() => exportSourceRef.current),
+  // The session is created once per App mount; the default port is the
+  // mock outside Tauri and the gated port inside (src/sidecar/README.md).
+  const session = useMemo(
+    () => new TranscriptionSession({ portFactory: createDefaultSidecarPort }),
     [],
+  );
+  const exportPort = useMemo(
+    // #256: playback MIDI goes through the engine's canonical exporter
+    // (velocity / bends / swing / tempo map); the port falls back to
+    // the client-side build when the document has no canonical payload.
+    () =>
+      createDefaultExportPort(
+        () => exportSourceRef.current,
+        (doc) => session.exportMidi(doc).then((r) => r.midiBase64),
+      ),
+    [session],
   );
   const diagnosticsPort = useMemo(() => createDefaultDiagnosticsPort(), []);
   // User-specified tool paths (設定 → ツール) flow into every probe.
@@ -252,12 +265,6 @@ export default function App() {
   const [engineRestarting, setEngineRestarting] = useState(false);
   const layout = useWorkspaceLayout();
 
-  // The session is created once per App mount; the default port is the
-  // mock outside Tauri and the gated port inside (src/sidecar/README.md).
-  const session = useMemo(
-    () => new TranscriptionSession({ portFactory: createDefaultSidecarPort }),
-    [],
-  );
   const [sessionSnap, setSessionSnap] = useState(() => session.getSnapshot());
 
   useEffect(() => {

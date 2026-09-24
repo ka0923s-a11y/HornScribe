@@ -31,7 +31,9 @@ export type { ExportPort } from "./types";
 
 export function createDefaultExportPort(
   source?: () => ExportSource | null,
+  midiExporter?: (scoreDocument: unknown) => Promise<string>,
 ): ExportPort {
-  if (isTauriRuntime()) return new TauriExportPort(source ?? (() => null));
+  if (isTauriRuntime())
+    return new TauriExportPort(source ?? (() => null), midiExporter);
   return MockExportPort.withDevOverrides();
 }

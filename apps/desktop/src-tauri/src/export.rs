@@ -147,7 +147,10 @@ pub fn export_write_files(
 /// `export_copy_audio`: copy the source audio file into the export
 /// destination (#87 成果物同梱 — a recording→score bundle carries its
 /// own audio). Reads `src` (user-owned, never modified) and writes
-/// `dir/<basename>.<ext>` where `ext` is the source's own extension;
+/// `dir/<basename>_source.<ext>` where `ext` is the source's own
+/// extension (#259 — the `_source` suffix keeps the copy from
+/// colliding with the original when the export dir is the source's
+/// own folder);
 /// the destination dir is gated by the same allowlist as
 /// `export_write_files`, and the file name is sanitized to a stem plus
 /// a known audio extension so the command cannot write anything but
@@ -188,7 +191,7 @@ pub fn export_copy_audio(
         .trim()
         .to_string();
     let stem = if stem.is_empty() { "audio" } else { &stem };
-    let dest = dir_path.join(format!("{stem}.{ext}"));
+    let dest = dir_path.join(format!("{stem}_source.{ext}"));
     std::fs::copy(&src_path, &dest)
         .map_err(|e| format!("copy {}: {e}", dest.display()))?;
     Ok(dest.to_string_lossy().into_owned())

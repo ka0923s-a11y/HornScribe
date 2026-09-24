@@ -284,6 +284,23 @@ export class TranscriptionSession {
     }>("score.edit", { scoreDocument, edit });
   }
 
+  /**
+   * `export.midi` (#256): canonical playback MIDI for a scoreDocument —
+   * the engine's exporter keeps velocity / pitch bend / swing / tempo
+   * map that the client-side MusicXML→MIDI rebuild loses. Spawns the
+   * engine lazily like applyScoreEdit.
+   */
+  async exportMidi(scoreDocument: unknown): Promise<{ midiBase64: string }> {
+    await this.ensureEngine();
+    const client = this.client;
+    if (!client) {
+      throw new SidecarError(ERR.ENGINE_UNAVAILABLE, "no engine client");
+    }
+    return client.call<{ midiBase64: string }>("export.midi", {
+      scoreDocument,
+    });
+  }
+
   // ---- jobs --------------------------------------------------------------------
 
   /** The jobKind to request: `transcription` when the engine advertises

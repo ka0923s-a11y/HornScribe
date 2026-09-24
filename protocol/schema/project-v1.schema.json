@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hornscribe.local/schema/project-v1.schema.json",
   "title": "HornScribe Project v1",
+  "description": "Project document written by HornScribe 1.x. Authoritative fields: sourceAudio, transcription, score, userEdits, reviewDecisions, scoreDocument, reviewIssues, meta. Derived caches: musicXmlConcert/musicXmlHornF (re-renderable from scoreDocument). Versioning policy: consumers must tolerate additional root properties beyond this list; producers must not add fields that change the meaning of declared ones. A structural change to declared fields requires schemaVersion 2.",
   "type": "object",
   "required": ["schemaVersion", "projectId"],
   "additionalProperties": false,
@@ -71,6 +72,34 @@
         }
       }
     },
-    "uiSession": {"type": ["object", "null"]}
+    "uiSession": {"type": ["object", "null"]},
+    "scoreDocument": {
+      "type": ["object", "null"],
+      "description": "Canonical score document (schema v1 content) — the authoritative score body a saved project restores from; written by the desktop since #218."
+    },
+    "reviewIssues": {
+      "type": "array",
+      "description": "Review issues for the saved score revision, including their status (open/accepted/dismissed/fixed).",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": {"type": "string"},
+          "status": {"type": "string", "enum": ["open", "accepted", "dismissed", "fixed"]}
+        }
+      }
+    },
+    "musicXmlConcert": {
+      "type": ["string", "null"],
+      "description": "Derived cache: concert-pitch MusicXML 4.0 body; re-renderable from scoreDocument."
+    },
+    "musicXmlHornF": {
+      "type": ["string", "null"],
+      "description": "Derived cache: Horn in F written-pitch MusicXML 4.0 body; re-renderable from scoreDocument."
+    },
+    "meta": {
+      "type": ["object", "null"],
+      "description": "Job-result metadata (title, settings, diagnostics) carried for restore UX; non-authoritative."
+    }
   }
 }
