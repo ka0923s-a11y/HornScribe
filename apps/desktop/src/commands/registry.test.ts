@@ -68,6 +68,9 @@ function mockContext(): CommandContext & { calls: string[] } {
     redo: spy("redo"),
     openExport: spy("openExport"),
     openInMuseScore: spy("openInMuseScore"),
+    noteDurationScale: spy("noteDurationScale"),
+    shiftSelectedOnset: spy("shiftSelectedOnset"),
+    toggleSelectedTie: spy("toggleSelectedTie"),
     zoomScoreIn: spy("zoomScoreIn"),
     zoomScoreOut: spy("zoomScoreOut"),
     zoomScoreFit: spy("zoomScoreFit"),
@@ -112,6 +115,11 @@ describe("command definitions", () => {
       "score.zoomIn",
       "score.zoomOut",
       "score.zoomFit",
+      "score.noteLonger",
+      "score.noteShorter",
+      "score.noteShiftLeft",
+      "score.noteShiftRight",
+      "score.toggleTie",
       "nav.nextRegion",
       "nav.previousRegion",
       "app.settings",
@@ -166,6 +174,31 @@ describe("command definitions", () => {
     expect(shortcutOf("score.zoomFit")).toContain("Ctrl+0");
     expect(shortcutOf("nav.nextRegion")).toContain("F6");
     expect(shortcutOf("nav.previousRegion")).toContain("Shift+F6");
+  });
+
+  it("#115: rhythm edits gate on a note selection and invoke the ctx", () => {
+    const ctx = mockContext();
+    // SNAPSHOT_SCORE has a selection; EMPTY does not.
+    for (const id of [
+      "score.noteLonger",
+      "score.noteShorter",
+      "score.noteShiftLeft",
+      "score.noteShiftRight",
+      "score.toggleTie",
+    ]) {
+      expect(registry.invoke(id, ctx, SNAPSHOT_EMPTY)).toBe(false);
+      expect(registry.invoke(id, ctx, SNAPSHOT_SCORE)).toBe(true);
+    }
+    expect(ctx.calls).toEqual([
+      "noteDurationScale",
+      "noteDurationScale",
+      "shiftSelectedOnset",
+      "shiftSelectedOnset",
+      "toggleSelectedTie",
+    ]);
+    // Review owns the arrows/keys — rhythm edits stay disabled inside it.
+    const reviewing: CommandSnapshot = { ...SNAPSHOT_SCORE, reviewOpen: true };
+    expect(registry.invoke("score.toggleTie", ctx, reviewing)).toBe(false);
   });
 });
 

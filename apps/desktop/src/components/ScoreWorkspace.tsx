@@ -13,8 +13,27 @@ import type {
   ScoreWorkspaceController,
   ScoreWorkspaceState,
 } from "../score/controller";
+import type { RhythmEditInvoker } from "../score/rhythmEdits";
 import type { ScoreViewMode } from "../score/verovio";
 import type { PitchView } from "./PitchSegmented";
+
+/* #115: engine rhythm edits swap a document's content in place — its
+ * revisionId changes without the workspace needing a remount (a remount
+ * would drop the selection + the shared undo stack). React still needs
+ * a string key, so each document instance gets a stable id from a
+ * WeakMap: same object → same key across content swaps, a genuinely new
+ * document (new transcription, project load) → a new key → remount. */
+const documentKeys = new WeakMap<ScoreDocumentPort, number>();
+let nextDocumentKey = 0;
+function keyForDocument(doc: ScoreDocumentPort): string {
+  let id = documentKeys.get(doc);
+  if (id === undefined) {
+    id = nextDocumentKey;
+    nextDocumentKey += 1;
+    documentKeys.set(doc, id);
+  }
+  return `doc-${id}`;
+}
 
 /**
  * Score workspace (GUI_UX_SPEC §3/§4/§5/§6, §27 screen state machine).
@@ -57,6 +76,7 @@ export function ScoreWorkspace({
   announce,
   transport = null,
   sourceControl = null,
+  onRhythmEdit,
 }: {
   screen: ScreenState;
   importView: ImportView;
@@ -97,6 +117,9 @@ export function ScoreWorkspace({
     play(): void;
     setLoop(range: { start: number; end: number } | null): void;
   } | null;
+  /** #115: engine score.edit invoker for rhythm edits — absent for
+   *  fixture/dev documents (the commands announce unavailable). */
+  onRhythmEdit?: RhythmEditInvoker;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const dragActive = dragOver || externalDragActive;
@@ -153,7 +176,7 @@ export function ScoreWorkspace({
       ) : scoreState ? (
         showScore && scoreDocument ? (
           <ScoreReadyWorkspace
-            key={scoreDocument.revisionId}
+            key={keyForDocument(scoreDocument)}
             document={scoreDocument}
             pitch={pitch}
             initialViewMode={initialViewMode}
@@ -164,6 +187,7 @@ export function ScoreWorkspace({
             announce={(m) => announce?.(m)}
             transport={transport}
             sourceControl={sourceControl}
+            onRhythmEdit={onRhythmEdit}
           />
         ) : (
           <div className="hs-score-paper" aria-hidden="true">

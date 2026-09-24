@@ -74,6 +74,13 @@ import {
 import { ReviewSession, type ReviewEdit } from "./reviewSession";
 import { ReviewBar } from "./ReviewBar";
 import {
+  findCanonicalNote,
+  formatFraction,
+  scaleFraction,
+  type RhythmEditInvoker,
+  type RhythmEditOp,
+} from "./rhythmEdits";
+import {
   buildNoteInspector,
   buildScoreInspector,
   keyLabelJa,
@@ -119,6 +126,10 @@ interface Props {
   initialViewMode?: ScoreViewMode;
   /** 設定→再生 再生位置を追従 — seeds the follow toggle. */
   followPlayback?: boolean;
+  /** #115 (spec 13): engine score.edit invoker — absent for fixture/dev
+   *  documents, where rhythm edits announce as unavailable instead of
+   *  pretending to work. */
+  onRhythmEdit?: RhythmEditInvoker;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -170,6 +181,7 @@ export function ScoreReadyWorkspace({
   announce,
   transport,
   sourceControl = null,
+  onRhythmEdit,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<ScoreRenderer | null>(null);
@@ -241,6 +253,10 @@ export function ScoreReadyWorkspace({
   const session = sessionRef.current;
   const [docVersion, setDocVersion] = useState(0);
   const bumpDoc = useCallback(() => setDocVersion((v) => v + 1), []);
+  /* #115: engine rhythm edits are async — serialize them on a promise
+   *  chain so a fast key repeat builds on the newest content instead of
+   *  racing two score.edit calls against the same revision. */
+  const rhythmQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const allIssues = useMemo(
     () => session.issues(),
@@ -783,7 +799,9 @@ export function ScoreReadyWorkspace({
     ): boolean => {
       if (!edit) return false;
       bumpDoc();
-      if (opts.reload ?? edit.noteChanges.length > 0) reloadEditedScore();
+      if (opts.reload ?? (edit.noteChanges.length > 0 || edit.docSwap != null)) {
+        reloadEditedScore();
+      }
       reportInspector();
       announce(feedback);
       return true;
@@ -901,6 +919,109 @@ export function ScoreReadyWorkspace({
     }
   }, [session, runReviewEdit, announce]);
 
+  /* #115 (spec 13): engine rhythm edits — duration ladder, onset grid
+   *  shift, tie toggle. The engine re-realizes the affected measures
+   *  and returns fresh MusicXML + a new revision; the document swaps
+   *  its content in place so selection and this undo stack survive
+   *  (a remount would lose both). Undo restores the previous snapshot
+   *  through the shared ReviewSession stack. */
+  const applyRhythmEdit = useCallback(
+    (buildOp: (canonical: unknown) => RhythmEditOp | null, feedback: string) => {
+      if (!onRhythmEdit || !scoreDoc.replaceContent) {
+        announce(ja.commandFeedback.rhythmEditUnavailable);
+        return;
+      }
+      // Serialize engine edits: each call must see the newest content.
+      rhythmQueueRef.current = rhythmQueueRef.current.then(async () => {
+        const canonical = scoreDoc.canonicalDocument?.();
+        const prev = scoreDoc.contentSnapshot?.();
+        if (canonical == null || !prev) {
+          announce(ja.commandFeedback.rhythmEditUnavailable);
+          return;
+        }
+        const op = buildOp(canonical);
+        if (!op) {
+          announce(ja.commandFeedback.rhythmEditFailed);
+          return;
+        }
+        try {
+          const result = await onRhythmEdit(canonical, op);
+          const next = {
+            concertXml: result.musicXmlConcert,
+            hornXml: result.musicXmlHornF,
+            revisionId: result.scoreRevision,
+            canonicalDocument: result.scoreDocument,
+          };
+          scoreDoc.replaceContent?.(next);
+          session.commitDocSwap(prev, next);
+          bumpDoc();
+          reloadEditedScore();
+          reportInspector();
+          announce(feedback);
+        } catch {
+          announce(ja.commandFeedback.rhythmEditFailed);
+        }
+      });
+    },
+    [
+      scoreDoc,
+      onRhythmEdit,
+      session,
+      bumpDoc,
+      reloadEditedScore,
+      reportInspector,
+      announce,
+    ],
+  );
+
+  /** 音価を2倍/半分 — the duration ladder walks ×2/÷2 on the canonical
+   *  note's written length (a quarter → half → whole ...). */
+  const noteDurationScale = useCallback(
+    (power: number) => {
+      const canonicalId = selectionRef.current?.canonicalId;
+      if (!canonicalId) return;
+      applyRhythmEdit(
+        (canonical) => {
+          const note = findCanonicalNote(canonical, canonicalId);
+          if (!note) return null;
+          const next = scaleFraction(note.durationBeats, power);
+          if (!next) return null;
+          return {
+            kind: "setDuration",
+            noteId: canonicalId,
+            durationBeats: formatFraction(next),
+          };
+        },
+        ja.commandFeedback.rhythmEdited,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
+  /** 発音位置を左/右へ — shift the onset by whole minimum-grid steps. */
+  const shiftSelectedOnset = useCallback(
+    (steps: number) => {
+      const canonicalId = selectionRef.current?.canonicalId;
+      if (!canonicalId) return;
+      applyRhythmEdit(
+        () => ({ kind: "shiftOnset", noteId: canonicalId, steps }),
+        ja.commandFeedback.rhythmEdited,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
+  /** 次の音符とタイで結ぶ/解く — the engine validates the contiguous
+   *  same-pitch partner and reports a rejection honestly. */
+  const toggleSelectedTie = useCallback(() => {
+    const canonicalId = selectionRef.current?.canonicalId;
+    if (!canonicalId) return;
+    applyRhythmEdit(
+      () => ({ kind: "toggleTie", noteId: canonicalId }),
+      ja.commandFeedback.tieToggled,
+    );
+  }, [applyRhythmEdit]);
+
   const reviewUndo = useCallback(() => {
     const edit = session.undo();
     if (!edit) {
@@ -908,7 +1029,7 @@ export function ScoreReadyWorkspace({
       return;
     }
     bumpDoc();
-    if (edit.noteChanges.length > 0) reloadEditedScore();
+    if (edit.noteChanges.length > 0 || edit.docSwap != null) reloadEditedScore();
     reportInspector();
     announce(ja.review.feedback.undone);
   }, [session, bumpDoc, reloadEditedScore, reportInspector, announce]);
@@ -920,7 +1041,7 @@ export function ScoreReadyWorkspace({
       return;
     }
     bumpDoc();
-    if (edit.noteChanges.length > 0) reloadEditedScore();
+    if (edit.noteChanges.length > 0 || edit.docSwap != null) reloadEditedScore();
     reportInspector();
     announce(ja.review.feedback.redone);
   }, [session, bumpDoc, reloadEditedScore, reportInspector, announce]);
@@ -1039,6 +1160,11 @@ export function ScoreReadyWorkspace({
       editSelectedPitch: (delta) => editSelectedPitch(delta),
       toggleSelectedDeleted: () => toggleSelectedDeleted(),
       toggleSelectedEnharmonic: () => toggleSelectedEnharmonic(),
+      // #115: engine rhythm edits (spec 13) — duration ladder, onset
+      // grid shift, tie toggle. Async internally; feedback announces.
+      noteDurationScale: (power) => noteDurationScale(power),
+      shiftSelectedOnset: (steps) => shiftSelectedOnset(steps),
+      toggleSelectedTie: () => toggleSelectedTie(),
     };
     controllerRef(controller);
     return () => controllerRef(null);
@@ -1062,6 +1188,9 @@ export function ScoreReadyWorkspace({
     editSelectedPitch,
     toggleSelectedDeleted,
     toggleSelectedEnharmonic,
+    noteDurationScale,
+    shiftSelectedOnset,
+    toggleSelectedTie,
     announce,
   ]);
 

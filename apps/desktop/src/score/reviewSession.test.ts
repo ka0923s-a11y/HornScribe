@@ -9,6 +9,10 @@ import { createFixtureScoreDocument } from "./fixtureDocument";
 import { openIssues } from "./review";
 import { ReviewSession } from "./reviewSession";
 import { NO_NOTE_EDIT } from "./scoreEdits";
+import { XmlScoreDocument } from "./xmlDocument";
+import type { ScoreDocumentPort } from "./document";
+import concertXml from "./fixtures/score_concert.musicxml?raw";
+import hornXml from "./fixtures/score_horn_in_f.musicxml?raw";
 
 describe("ReviewSession decisions", () => {
   it("accept marks the issue resolved and persists on the document", () => {
@@ -182,5 +186,104 @@ describe("editNote (#114 - direct edits outside review)", () => {
     const session = new ReviewSession(createFixtureScoreDocument());
     expect(session.editNote("sn-000012", { pitchDelta: 0 })).toBeNull();
     expect(session.editNote("sn-000012", { deleted: false })).toBeNull();
+  });
+});
+
+describe("ReviewSession docSwap (#115 rhythm edits)", () => {
+  const CANONICAL = {
+    projectId: "pj-test",
+    revision: "rev-base",
+    content: { parts: [] },
+  };
+
+  function engineDoc(): XmlScoreDocument {
+    return new XmlScoreDocument({
+      concertXml,
+      hornXml,
+      revisionId: "rev-base",
+      issues: [],
+      canonicalDocument: CANONICAL,
+    });
+  }
+
+  it("undo/redo swap the document content back and forth", () => {
+    const doc = engineDoc();
+    const session = new ReviewSession(doc);
+    const prev = doc.contentSnapshot!();
+    const next = {
+      concertXml: hornXml, // swap bodies so the change is observable
+      hornXml: concertXml,
+      revisionId: "rev-edited",
+      canonicalDocument: { ...CANONICAL, revision: "rev-edited" },
+    };
+    doc.replaceContent!(next);
+    expect(doc.revisionId).toBe("rev-edited");
+
+    const edit = session.commitDocSwap(prev, next);
+    expect(edit).not.toBeNull();
+    expect(session.canUndo).toBe(true);
+
+    session.undo();
+    expect(doc.revisionId).toBe("rev-base");
+    expect(doc.musicXml("concert")).toContain("<note");
+    expect(doc.contentSnapshot!().concertXml).toBe(concertXml);
+    expect(doc.canonicalDocument!()).toBe(CANONICAL);
+
+    session.redo();
+    expect(doc.revisionId).toBe("rev-edited");
+    expect(doc.contentSnapshot!().concertXml).toBe(hornXml);
+    expect((doc.canonicalDocument!() as { revision: string }).revision).toBe(
+      "rev-edited",
+    );
+  });
+
+  it("note edits and decisions survive a content swap (stable ids)", () => {
+    const doc = engineDoc();
+    const session = new ReviewSession(doc);
+    session.editNote("sn-000012", { pitchDelta: 2 });
+    const prev = doc.contentSnapshot!();
+    const next = { ...prev, revisionId: "rev-edited" };
+    doc.replaceContent!(next);
+    session.commitDocSwap(prev, next);
+    expect(session.noteEditOf("sn-000012").pitchDelta).toBe(2);
+    session.undo();
+    expect(doc.revisionId).toBe("rev-base");
+    expect(session.noteEditOf("sn-000012").pitchDelta).toBe(2);
+  });
+
+  it("returns null when the document cannot swap content", () => {
+    // A minimal port without the optional #115 methods — e.g. a future
+    // non-engine adapter. Rhythm edits stay honestly unavailable there.
+    const bare: ScoreDocumentPort = {
+      revisionId: "rev-bare",
+      editVersion: 0,
+      meta: {
+        title: "",
+        tempoBpm: null,
+        meter: null,
+        keyFifths: null,
+        measureCount: 0,
+        noteCount: 0,
+      },
+      musicXml: () => "",
+      reviewIssues: () => [],
+      recordReviewDecision: () => undefined,
+      noteEdits: () => new Map(),
+      setNoteEdit: () => undefined,
+    };
+    const session = new ReviewSession(bare);
+    const snap = {
+      concertXml: "",
+      hornXml: "",
+      revisionId: "rev-x",
+      canonicalDocument: null,
+    };
+    expect(session.commitDocSwap(snap, snap)).toBeNull();
+    expect(session.canUndo).toBe(false);
+  });
+
+  it("fixture documents have no canonical payload — rhythm edits gate out", () => {
+    const doc = createFixtureScoreDocument();
+    expect(doc.canonicalDocument?.() ?? null).toBeNull();
   });
 });

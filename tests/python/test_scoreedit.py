@@ -1,0 +1,182 @@
+"""#115 (spec 13): score-level rhythm edits — duration, onset, tie.
+
+Each test builds a small canonical payload, applies an edit through
+``apply_score_edit`` and asserts the re-realized notation: measure
+tiling stays exact, rests fill the gaps, ids survive and the monophonic
+contract is enforced (never silently)."""
+
+from __future__ import annotations
+
+from fractions import Fraction
+
+import pytest
+
+from hornscribe.domain.ids import ProjectId, RawNoteEventId, ScoreNoteId
+from hornscribe.domain.score import (
+    KeySignature,
+    Part,
+    QuantizedNote,
+    ScoreDocument,
+    ScoreRevisionPayload,
+    TempoSegment,
+    TimeSignature,
+)
+from hornscribe.transcription.scoreedit import (
+    ScoreEdit,
+    ScoreEditError,
+    apply_score_edit,
+)
+
+
+def _note(
+    n: int, pitch: int, start: str, dur: str, **kw: object
+) -> QuantizedNote:
+    return QuantizedNote(
+        id=ScoreNoteId(f"sn-{n:06d}"),
+        source_event_ids=(RawNoteEventId(f"rne-{n:06d}"),),
+        pitch_midi=pitch,
+        start_beat=Fraction(start),
+        duration_beats=Fraction(dur),
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+def _doc(
+    notes: list[QuantizedNote],
+    rests: tuple = (),
+    settings: dict | None = None,
+) -> ScoreDocument:
+    payload = ScoreRevisionPayload(
+        tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=120.0),),
+        time_signature=TimeSignature(beats_per_measure=4, beat_unit=4),
+        key_signature=KeySignature(fifths=0, mode="major"),
+        pickup_beats=Fraction(0),
+        parts=(Part(id="part-1", name="Horn in F", notes=tuple(notes), rests=rests),),
+        quantization_settings=settings or {},
+    )
+    return ScoreDocument(
+        project_id=ProjectId("proj-test"),
+        payload=payload,
+        title="t",
+    )
+
+
+def _edit(kind: str, note: str, **kw: object) -> ScoreEdit:
+    return ScoreEdit.from_dict({"kind": kind, "noteId": note, **kw})
+
+
+def _total_span(part: Part) -> Fraction:
+    total = Fraction(0)
+    for n in part.notes:
+        total += n.duration_beats
+    for r in part.rests:
+        total += r.duration_beats
+    return total
+
+
+class TestSetDuration:
+    def test_shorter_leaves_rest(self) -> None:
+        # Quarter -> eighth at beat 0 in 4/4: the freed half-beat becomes
+        # a rest before the next note at beat 1.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(doc, _edit("setDuration", "sn-000001", durationBeats="1/2"))
+        part = out.payload.parts[0]
+        n1 = part.notes[0]
+        assert n1.duration_beats == Fraction(1, 2)
+        assert sum(a.duration_beats for a in n1.atoms) == Fraction(1, 2)
+        # Measure must still tile exactly: notes + rests = 4 beats.
+        assert _total_span(part) == Fraction(4)
+        assert any(
+            r.start_beat == Fraction(1, 2) and r.end_beat == Fraction(1)
+            for r in part.rests
+        )
+        # The edit changed content, so the revision must change.
+        assert out.revision != doc.revision
+
+    def test_longer_recovers_gap(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1/2"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(doc, _edit("setDuration", "sn-000001", durationBeats="1"))
+        part = out.payload.parts[0]
+        assert part.notes[0].duration_beats == Fraction(1)
+        assert _total_span(part) == Fraction(4)
+
+    def test_longer_past_next_onset_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        with pytest.raises(ScoreEditError, match="next note"):
+            apply_score_edit(
+                doc, _edit("setDuration", "sn-000001", durationBeats="3/2")
+            )
+
+    def test_zero_duration_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError):
+            apply_score_edit(doc, _edit("setDuration", "sn-000001", durationBeats="0"))
+
+
+class TestShiftOnset:
+    def test_shift_right(self) -> None:
+        # sn-1 at beat 0 (quarter) shifts one 16th right into open space;
+        # a 16th rest opens before it and the trailing gap grows.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "2", "1")])
+        out = apply_score_edit(doc, _edit("shiftOnset", "sn-000001", steps=1))
+        part = out.payload.parts[0]
+        assert part.notes[0].start_beat == Fraction(1, 4)
+        assert _total_span(part) == Fraction(4)
+        assert any(r.start_beat == 0 and r.end_beat == Fraction(1, 4) for r in part.rests)
+
+    def test_shift_right_into_next_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        with pytest.raises(ScoreEditError, match="next note"):
+            apply_score_edit(doc, _edit("shiftOnset", "sn-000001", steps=4))
+
+    def test_shift_left_clips_previous(self) -> None:
+        # The previous note's tail is clipped at the moved onset — the
+        # monophonic contract, applied honestly.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(doc, _edit("shiftOnset", "sn-000002", steps=-2))
+        part = out.payload.parts[0]
+        assert part.notes[0].duration_beats == Fraction(1, 2)
+        assert part.notes[1].start_beat == Fraction(1, 2)
+        assert _total_span(part) == Fraction(4)
+
+    def test_shift_before_zero_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "1", "1")])
+        with pytest.raises(ScoreEditError, match="before the score"):
+            apply_score_edit(doc, _edit("shiftOnset", "sn-000001", steps=-8))
+
+
+class TestToggleTie:
+    def test_tie_and_untie(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 60, "1", "1")])
+        out = apply_score_edit(doc, _edit("toggleTie", "sn-000001"))
+        assert out.payload.parts[0].notes[0].tie_start is True
+        assert out.payload.parts[0].notes[1].tie_stop is True
+        back = apply_score_edit(out, _edit("toggleTie", "sn-000001"))
+        assert back.payload.parts[0].notes[0].tie_start is False
+        assert back.payload.parts[0].notes[1].tie_stop is False
+
+    def test_different_pitch_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        with pytest.raises(ScoreEditError, match="same pitch"):
+            apply_score_edit(doc, _edit("toggleTie", "sn-000001"))
+
+    def test_non_contiguous_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1/2"), _note(2, 60, "1", "1")])
+        with pytest.raises(ScoreEditError, match="contiguous"):
+            apply_score_edit(doc, _edit("toggleTie", "sn-000001"))
+
+    def test_last_note_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="no next note"):
+            apply_score_edit(doc, _edit("toggleTie", "sn-000001"))
+
+
+class TestEditParsing:
+    def test_unknown_kind_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="kind"):
+            ScoreEdit.from_dict({"kind": "smear", "noteId": "sn-000001"})
+
+    def test_missing_note_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="not found"):
+            apply_score_edit(doc, _edit("toggleTie", "sn-999999"))

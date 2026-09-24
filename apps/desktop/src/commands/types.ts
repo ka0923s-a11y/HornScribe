@@ -141,6 +141,14 @@ export interface CommandContext {
   editSelectedPitch?(delta: number): void;
   toggleSelectedDeleted?(): void;
   toggleSelectedEnharmonic?(): void;
+  /** #115 (spec 13): engine rhythm edits on the selected note —
+   *  duration ladder (+1 = ×2, -1 = ÷2), onset shift by min-grid steps,
+   *  tie/untie to the contiguous next same-pitch note. Async: the
+   *  implementation announces success/failure itself. Optional so
+   *  fixture/test contexts keep compiling — absent = no-op. */
+  noteDurationScale?(power: number): void;
+  shiftSelectedOnset?(steps: number): void;
+  toggleSelectedTie?(): void;
   /** #113: Esc on a waveform selection (AUDIO_READY) - clears the range
    *  back to "all" (spec 8: Esc -> 選択解除). Optional: absent = no-op. */
   clearWaveformSelection?(): void;

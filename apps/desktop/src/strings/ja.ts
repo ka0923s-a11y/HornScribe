@@ -450,6 +450,12 @@ export const ja = {
     notePitchDown: "半音下げる",
     noteToggleDeleted: "音符を削除 / 復元",
     noteEnharmonic: "異名同音で書き換える",
+    /* #115 (spec 13): rhythm edits via the engine's score.edit */
+    noteLonger: "音価を2倍にする",
+    noteShorter: "音価を半分にする",
+    noteShiftLeft: "発音位置を左へ移動",
+    noteShiftRight: "発音位置を右へ移動",
+    noteToggleTie: "次の音符とタイで結ぶ / 解く",
   },
 
   /**
@@ -472,6 +478,11 @@ export const ja = {
     museScoreMissing:
       "MuseScoreが見つかりません。設定 → ツールで場所を指定してください",
     museScoreFailed: "MuseScoreで開けませんでした",
+    // #115: engine rhythm edits (score.noteLonger/Shorter/Shift*/Tie).
+    rhythmEdited: "音符の長さ・位置を変更しました",
+    tieToggled: "タイを切り替えました",
+    rhythmEditFailed: "この編集は適用できません",
+    rhythmEditUnavailable: "この楽譜ではリズム編集を利用できません",
     // #113: media A-B loop arming (transport.toggleLoop on AUDIO_READY).
     loopOn: "ループをオンにしました",
     loopOff: "ループをオフにしました",

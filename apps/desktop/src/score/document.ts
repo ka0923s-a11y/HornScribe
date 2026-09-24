@@ -56,4 +56,32 @@ export interface ScoreDocumentPort {
   noteEdits(): ReadonlyMap<string, ScoreNoteEdit>;
   /** Set or clear (`null` / empty edit) a canonical note's correction. */
   setNoteEdit(canonicalId: string, edit: ScoreNoteEdit | null): void;
+
+  /* ---- #115 (spec 13): rhythm edits via the engine ----
+   * These three are optional: only engine-backed documents can rebuild
+   * notation. The workspace gates rhythm edits on a non-null
+   * canonicalDocument() — a document without the canonical payload
+   * (fixtures, dev) has nothing to send to score.edit, so the edit
+   * stays unavailable (honest, never faked). */
+  /** The canonical scoreDocument dict (schema v1 content) the engine's
+   *  `score.edit` needs as its base, or null for non-engine sources. */
+  canonicalDocument?(): unknown | null;
+  /** The current XML bodies + revision — the undo-stack snapshot for
+   *  engine-driven content swaps. */
+  contentSnapshot?(): {
+    concertXml: string;
+    hornXml: string;
+    revisionId: string;
+    canonicalDocument: unknown;
+  };
+  /** Swap the document's content in place (engine rhythm edit): same
+   *  object, new bodies + revision + meta. The workspace re-renders via
+   *  editVersion — selection and the undo stack survive, unlike a
+   *  remount. */
+  replaceContent?(next: {
+    concertXml: string;
+    hornXml: string;
+    revisionId: string;
+    canonicalDocument: unknown;
+  }): void;
 }

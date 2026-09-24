@@ -25,6 +25,26 @@ export interface ReviewNoteChange {
   readonly next: ScoreNoteEdit;
 }
 
+/** #115: an engine rhythm edit's undo payload — the document's full
+ *  content before/after the score.edit swap (XML bodies + revision +
+ *  canonical payload). Snapshots come from ScoreDocumentPort's
+ *  contentSnapshot()/replaceContent(); documents without those port
+ *  methods (fixtures) simply cannot produce a docSwap. */
+export interface DocSwap {
+  readonly prev: {
+    readonly concertXml: string;
+    readonly hornXml: string;
+    readonly revisionId: string;
+    readonly canonicalDocument: unknown;
+  };
+  readonly next: {
+    readonly concertXml: string;
+    readonly hornXml: string;
+    readonly revisionId: string;
+    readonly canonicalDocument: unknown;
+  };
+}
+
 /** A recorded review action - the undo/redo unit (§14 "review decision"). */
 export interface ReviewEdit {
   /** Issue this edit is bound to; null for a direct note edit made
@@ -35,6 +55,9 @@ export interface ReviewEdit {
   /** Note corrections applied alongside the status change (empty for a
    *  pure decision like 問題なし). */
   readonly noteChanges: readonly ReviewNoteChange[];
+  /** #115: engine rhythm edits swap the document's whole content;
+   *  undo/redo restore the snapshot pair instead of note-level edits. */
+  readonly docSwap?: DocSwap;
 }
 
 function editOf(doc: ScoreDocumentPort, canonicalId: string): ScoreNoteEdit {
@@ -192,6 +215,26 @@ export class ReviewSession {
     return edit;
   }
 
+  /** #115 (spec 13): record an engine rhythm edit on the shared undo
+   *  stack. The caller captures `prev` via doc.contentSnapshot()
+   *  BEFORE applying doc.replaceContent(next) — snapshotting here would
+   *  already see the new content and undo would restore nothing.
+   *  Returns null when the document cannot snapshot (fixture/dev
+   *  documents: rhythm edits stay unavailable there, matching the
+   *  honest-disabled policy). */
+  commitDocSwap(prev: DocSwap["prev"], next: DocSwap["next"]): ReviewEdit | null {
+    if (!this.doc.replaceContent) return null;
+    const edit: ReviewEdit = {
+      issueId: null,
+      prevStatus: null,
+      nextStatus: null,
+      noteChanges: [],
+      docSwap: { prev, next },
+    };
+    this.push(edit);
+    return edit;
+  }
+
   /** Undo the most recent review action. Returns it, or null when the
    *  stack is empty. */
   undo(): ReviewEdit | null {
@@ -232,6 +275,10 @@ export class ReviewSession {
   private applyInverse(edit: ReviewEdit): void {
     // Restore note edits first, then the status - a consumer that
     // re-renders once sees a consistent state either way.
+    if (edit.docSwap) {
+      this.doc.replaceContent?.(edit.docSwap.prev);
+      return;
+    }
     for (const change of edit.noteChanges) {
       this.doc.setNoteEdit(change.canonicalId, change.prev);
     }
@@ -241,6 +288,10 @@ export class ReviewSession {
   }
 
   private applyForward(edit: ReviewEdit): void {
+    if (edit.docSwap) {
+      this.doc.replaceContent?.(edit.docSwap.next);
+      return;
+    }
     for (const change of edit.noteChanges) {
       this.doc.setNoteEdit(change.canonicalId, change.next);
     }

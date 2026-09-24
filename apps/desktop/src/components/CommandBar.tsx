@@ -14,6 +14,11 @@ import {
   Stop24Regular,
   Pause24Regular,
   Dismiss24Regular,
+  ArrowUp24Regular,
+  ArrowDown24Regular,
+  ArrowLeft24Regular,
+  ArrowRight24Regular,
+  Link24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -135,6 +140,44 @@ export function CommandBar({
             label: commands.title("export.openInMuseScore"),
             icon: <Open24Regular />,
             disabled: !commands.isEnabled("export.openInMuseScore"),
+          } satisfies HsMenuItem,
+        ]
+      : []),
+    // #115 (spec 13): per-note rhythm edits — menu-only discoverability;
+    // the keyboard chords do the real work. Disabled without a note
+    // selection (the command registry owns the gate).
+    ...(hasScore
+      ? [
+          { key: "rhythm-divider", divider: true } satisfies HsMenuItem,
+          {
+            key: "note-longer",
+            label: commands.title("score.noteLonger"),
+            icon: <ArrowUp24Regular />,
+            disabled: !commands.isEnabled("score.noteLonger"),
+          } satisfies HsMenuItem,
+          {
+            key: "note-shorter",
+            label: commands.title("score.noteShorter"),
+            icon: <ArrowDown24Regular />,
+            disabled: !commands.isEnabled("score.noteShorter"),
+          } satisfies HsMenuItem,
+          {
+            key: "note-shift-left",
+            label: commands.title("score.noteShiftLeft"),
+            icon: <ArrowLeft24Regular />,
+            disabled: !commands.isEnabled("score.noteShiftLeft"),
+          } satisfies HsMenuItem,
+          {
+            key: "note-shift-right",
+            label: commands.title("score.noteShiftRight"),
+            icon: <ArrowRight24Regular />,
+            disabled: !commands.isEnabled("score.noteShiftRight"),
+          } satisfies HsMenuItem,
+          {
+            key: "note-tie",
+            label: commands.title("score.toggleTie"),
+            icon: <Link24Regular />,
+            disabled: !commands.isEnabled("score.toggleTie"),
           } satisfies HsMenuItem,
         ]
       : []),
@@ -380,6 +423,13 @@ export function CommandBar({
           else if (key === "properties") onToggleProperties();
           else if (key === "musescore")
             commands.invoke("export.openInMuseScore");
+          else if (key === "note-longer") commands.invoke("score.noteLonger");
+          else if (key === "note-shorter") commands.invoke("score.noteShorter");
+          else if (key === "note-shift-left")
+            commands.invoke("score.noteShiftLeft");
+          else if (key === "note-shift-right")
+            commands.invoke("score.noteShiftRight");
+          else if (key === "note-tie") commands.invoke("score.toggleTie");
           else if (key === "diagnostics") commands.invoke("app.diagnostics");
         }}
       />

@@ -408,6 +408,51 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
       run: (ctx) => ctx.toggleSelectedEnharmonic?.(),
     },
+    {
+      // #115 (spec 13): rhythm edits need the engine (score.edit), so
+      // they live behind the same hasScore+selection gate; the workspace
+      // announces honestly when the document cannot take them (fixture)
+      // or the engine rejects the edit (span does not fit, no tie
+      // partner, ...).
+      id: "score.noteLonger",
+      title: ja.commands.noteLonger,
+      section: "score",
+      shortcuts: ["Ctrl+Shift+ArrowUp"],
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.noteDurationScale?.(1),
+    },
+    {
+      id: "score.noteShorter",
+      title: ja.commands.noteShorter,
+      section: "score",
+      shortcuts: ["Ctrl+Shift+ArrowDown"],
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.noteDurationScale?.(-1),
+    },
+    {
+      id: "score.noteShiftLeft",
+      title: ja.commands.noteShiftLeft,
+      section: "score",
+      shortcuts: ["Ctrl+Shift+ArrowLeft"],
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.shiftSelectedOnset?.(-1),
+    },
+    {
+      id: "score.noteShiftRight",
+      title: ja.commands.noteShiftRight,
+      section: "score",
+      shortcuts: ["Ctrl+Shift+ArrowRight"],
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.shiftSelectedOnset?.(1),
+    },
+    {
+      id: "score.toggleTie",
+      title: ja.commands.noteToggleTie,
+      section: "score",
+      shortcuts: ["T"],
+      isEnabled: (s) => s.hasScore && s.hasSelection && !s.reviewOpen,
+      run: (ctx) => ctx.toggleSelectedTie?.(),
+    },
 
     // ---- edit (§14: every fix is a command) ----
     {

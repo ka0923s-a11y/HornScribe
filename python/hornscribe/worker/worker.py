@@ -99,6 +99,11 @@ class Worker:
             # calls. Validation runs through HornScribeProject.from_dict
             # so a malformed document is rejected, never written.
             "project.save": self._handle_project_save,
+            # #115 (spec 13): rhythm edits that need re-realization —
+            # duration change, onset grid shift, tie toggle. Runs the
+            # same SpanRealizer the quantizer used, so the written
+            # output stays consistent with the original engraving.
+            "score.edit": self._handle_score_edit,
             # Spike-only supervisor test hook: wedges the dispatch loop so
             # the supervisor-side read timeout path can be exercised.
             # Not a stable API; gated on the "debug." prefix.
@@ -369,6 +374,66 @@ class Worker:
                 protocol.ERR_JOB_FAILED, f"could not write project file: {exc}"
             ) from exc
         return {"path": str(target), "projectId": str(project.project_id)}
+
+    def _handle_score_edit(self, payload: Any) -> dict[str, Any]:
+        """`score.edit` — apply one §13 rhythm edit (#115).
+
+        Payload: ``{"scoreDocument": {...}, "edit": {...}}``. Returns the
+        rebuilt ``scoreDocument`` plus fresh concert/horn MusicXML and
+        the new ``scoreRevision``. The edit kinds (setDuration /
+        shiftOnset / toggleTie) re-realize the affected measures through
+        the same SpanRealizer the quantizer used — measure length and
+        rest/atom structure stay consistent instead of drifting.
+        """
+        if not isinstance(payload, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, "score.edit payload must be an object"
+            )
+        doc_raw = payload.get("scoreDocument")
+        if not isinstance(doc_raw, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS,
+                "score.edit requires a 'scoreDocument' object",
+            )
+        edit_raw = payload.get("edit")
+        if not isinstance(edit_raw, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, "score.edit requires an 'edit' object"
+            )
+        from hornscribe.domain.score import ScoreDocument  # noqa: PLC0415
+        from hornscribe.export.musicxml import (  # noqa: PLC0415
+            export_concert_musicxml,
+            export_horn_in_f_musicxml,
+        )
+        from hornscribe.transcription.scoreedit import (  # noqa: PLC0415
+            ScoreEdit,
+            ScoreEditError,
+            apply_score_edit,
+        )
+        try:
+            document = ScoreDocument.from_dict(doc_raw)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS,
+                f"invalid scoreDocument: {exc}",
+            ) from exc
+        try:
+            edit = ScoreEdit.from_dict(edit_raw)
+            new_document = apply_score_edit(document, edit)
+        except ScoreEditError as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, str(exc)
+            ) from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_JOB_FAILED, f"score edit failed: {exc}"
+            ) from exc
+        return {
+            "scoreDocument": new_document.to_dict(),
+            "scoreRevision": str(new_document.revision),
+            "musicXmlConcert": export_concert_musicxml(new_document),
+            "musicXmlHornF": export_horn_in_f_musicxml(new_document),
+        }
 
     def _handle_debug_hang(self, payload: Any) -> dict[str, Any]:
         seconds = 5.0

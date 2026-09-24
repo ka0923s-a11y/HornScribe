@@ -38,6 +38,7 @@ import {
 } from "./score/xmlDocument";
 import type { ScoreDocumentPort } from "./score/document";
 import type { InspectorModel } from "./score/inspector";
+import type { RhythmEditInvoker } from "./score/rhythmEdits";
 import type {
   ScoreWorkspaceController,
   ScoreWorkspaceState,
@@ -620,6 +621,15 @@ export default function App() {
     }
   }, [scoreDocument, importState.audio, sessionSnap.lastResult, session]);
 
+  // #115 (spec 13): engine rhythm edits — the score workspace delegates
+  // to the live engine's score.edit; the same worker that produced the
+  // score re-realizes the edited measures (one worker, one caller, so
+  // no extra spawn cost beyond the lazy ensureEngine).
+  const applyRhythmEdit = useCallback<RhythmEditInvoker>(
+    (scoreDocPayload, op) => session.applyScoreEdit(scoreDocPayload, op),
+    [session],
+  );
+
   const ctx = useMemo<CommandContext>(
     () => ({
       openAudio: () => void importer.openViaDialog(),
@@ -863,6 +873,15 @@ export default function App() {
         scoreCtlRef.current?.toggleSelectedDeleted?.(),
       toggleSelectedEnharmonic: () =>
         scoreCtlRef.current?.toggleSelectedEnharmonic?.(),
+      // #115: engine rhythm edits (spec 13) — duration ladder, onset
+      // grid shift, tie toggle. The workspace runs them through the
+      // serialized score.edit queue; these just forward.
+      noteDurationScale: (power) =>
+        scoreCtlRef.current?.noteDurationScale?.(power),
+      shiftSelectedOnset: (steps) =>
+        scoreCtlRef.current?.shiftSelectedOnset?.(steps),
+      toggleSelectedTie: () =>
+        scoreCtlRef.current?.toggleSelectedTie?.(),
       openSettings: () => {
         setSettingsFocus(undefined);
         setView("settings");
@@ -1322,8 +1341,9 @@ export default function App() {
                             void transport.play().catch(() => undefined),
                           setLoop: (r) => transport.setLoop(r),
                         }
-                      : null
+                        : null
                   }
+                  onRhythmEdit={applyRhythmEdit}
                 />
                 {propertiesVisible ? (
                   <PropertiesPanel

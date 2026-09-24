@@ -251,6 +251,36 @@ export class TranscriptionSession {
     );
   }
 
+  /**
+   * `score.edit` (#115, spec 13): apply one rhythm edit (setDuration /
+   * shiftOnset / toggleTie) against the canonical scoreDocument. Returns
+   * the rebuilt payload + fresh concert/horn MusicXML + the new
+   * content-derived scoreRevision. The engine worker is the same one
+   * that produced the score — the call reuses the live client and only
+   * spawns lazily when the engine is down.
+   */
+  async applyScoreEdit(
+    scoreDocument: unknown,
+    edit: unknown,
+  ): Promise<{
+    scoreDocument: unknown;
+    scoreRevision: string;
+    musicXmlConcert: string;
+    musicXmlHornF: string;
+  }> {
+    await this.ensureEngine();
+    const client = this.client;
+    if (!client) {
+      throw new SidecarError(ERR.ENGINE_UNAVAILABLE, "no engine client");
+    }
+    return client.call<{
+      scoreDocument: unknown;
+      scoreRevision: string;
+      musicXmlConcert: string;
+      musicXmlHornF: string;
+    }>("score.edit", { scoreDocument, edit });
+  }
+
   // ---- jobs --------------------------------------------------------------------
 
   /** The jobKind to request: `transcription` when the engine advertises

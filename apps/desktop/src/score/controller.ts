@@ -25,6 +25,12 @@ export interface ScoreWorkspaceController {
   /** #114 (spec 13 異名同音): respell the selected note in the other
    *  accidental family (sounding pitch unchanged). */
   toggleSelectedEnharmonic?(): void;
+  /** #115 (spec 13): engine rhythm edits on the selected note —
+   *  duration ×2/÷2 (power ±1), onset shift by min-grid steps, tie
+   *  toggle. Async internally; the workspace announces the outcome. */
+  noteDurationScale?(power: number): void;
+  shiftSelectedOnset?(steps: number): void;
+  toggleSelectedTie?(): void;
 
   // ---- transport (§9) — no-ops until a clock exists ----
   togglePlayPause(): void;
