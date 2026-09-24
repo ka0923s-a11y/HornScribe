@@ -69,6 +69,7 @@ from hornscribe.domain.score import (
     beat_ql_of,
     measure_length_beats,
     measure_spans,
+    primary_beat_beats,
 )
 from hornscribe.instruments import horn_f
 
@@ -463,14 +464,37 @@ def _build_part_measures(
 
     tempo_marks: dict[int, list[tuple[Fraction, tempo.MetronomeMark]]] = {}
     for seg in payload.tempo_map:
-        mark = tempo.MetronomeMark(number=seg.bpm)
         for idx, span in enumerate(spans):
             if span.start_beat <= seg.start_beat < span.end_beat:
+                # #157: tempo_map bpm counts *primary* beats of the
+                # meter active at the mark (6/8 -> dotted quarter).
+                # Without the referent music21 prints quarter=bpm and
+                # Verovio plays compound meters 1.5x too slow.
+                mark = tempo.MetronomeMark(
+                    number=seg.bpm,
+                    referent=duration.Duration(
+                        float(
+                            primary_beat_beats(span.time_signature, beat_ql)
+                            * beat_ql
+                        )
+                    ),
+                )
                 tempo_marks.setdefault(idx, []).append((seg.start_beat - span.start_beat, mark))
                 break
         else:
             # Segment begins at/after the content end: keep the tempo
             # change by anchoring it to the end of the final measure.
+            mark = tempo.MetronomeMark(
+                number=seg.bpm,
+                referent=duration.Duration(
+                    float(
+                        primary_beat_beats(
+                            spans[-1].time_signature, beat_ql
+                        )
+                        * beat_ql
+                    )
+                ),
+            )
             tempo_marks.setdefault(len(spans) - 1, []).append(
                 (spans[-1].duration_beats, mark)
             )

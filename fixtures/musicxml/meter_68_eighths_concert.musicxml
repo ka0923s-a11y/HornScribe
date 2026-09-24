@@ -45,10 +45,11 @@
         <direction-type>
           <metronome parentheses="no">
             <beat-unit>quarter</beat-unit>
+            <beat-unit-dot />
             <per-minute>120</per-minute>
           </metronome>
         </direction-type>
-        <sound tempo="120" />
+        <sound tempo="180" />
       </direction>
       <note id="hs-sn-000001">
         <pitch>

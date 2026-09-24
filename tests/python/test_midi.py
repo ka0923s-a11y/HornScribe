@@ -86,11 +86,11 @@ def test_playback_mid_velocity() -> None:
 
 
 def test_eighth_beat_unit_tempo() -> None:
-    """6/8 bpm counts eighth beats -> quarter tempo halves."""
+    """#157: 6/8 bpm counts primary (dotted-quarter) beats -> 180 quarters/min."""
     score = make_score([(60, 0, 1)], beats_per_measure=6, beat_unit=8, bpm=120.0)
     mid = _parse(playback_midi_bytes(score))
     tempos = [m.tempo for m in mid.tracks[0] if m.type == "set_tempo"]
-    assert tempos == [1000000]  # 60 quarters/min
+    assert tempos == [333333]  # 60e6 / (120 * 3/2) quarters/min
 
 
 def test_non_integer_tick_rejected() -> None:

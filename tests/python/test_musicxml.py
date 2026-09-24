@@ -357,3 +357,22 @@ def test_tempo_mark_exported() -> None:
     xml = export_concert_musicxml(make_score(bpm=96.0))
     assert 'tempo="96"' in xml
     assert "<per-minute>96</per-minute>" in xml
+
+
+def test_compound_meter_tempo_mark_uses_dotted_quarter() -> None:
+    """#157: 6/8 bpm counts dotted-quarter beats — the mark must say so
+    (and sound tempo must be the quarter-note equivalent) or players
+    render the piece 1.5x too slow."""
+    xml = export_concert_musicxml(
+        make_score(bpm=60.0, beats_per_measure=6, beat_unit=8)
+    )
+    root = ET.fromstring(xml)
+    metronome = root.find(".//metronome")
+    assert metronome is not None
+    assert metronome.findtext("beat-unit") == "quarter"
+    assert metronome.find("beat-unit-dot") is not None
+    assert metronome.findtext("per-minute") == "60"
+    # dotted-quarter=60 -> quarter=90 sounding rate.
+    sound = root.find(".//sound[@tempo]")
+    assert sound is not None
+    assert float(sound.get("tempo")) == 90.0

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import mido
 
-from hornscribe.domain.score import ScoreDocument
+from hornscribe.domain.score import ScoreDocument, primary_beat_beats
 
 DEFAULT_TICKS_PER_BEAT = 480
 """MIDI ticks per quarter note (PPQ)."""
@@ -51,11 +51,11 @@ def _beat_to_tick(beat: Fraction, beat_unit: int, ticks_per_beat: int) -> int:
     return int(rounded)
 
 
-def _tempo_us_per_quarter(bpm: float, beat_unit: int) -> int:
-    """Score bpm (per beat-unit beat) -> microseconds per MIDI quarter note."""
+def _tempo_us_per_quarter(bpm: float, primary_beat_ql: Fraction) -> int:
+    """Score bpm (per primary beat) -> microseconds per MIDI quarter note."""
     if bpm <= 0:
         raise MidiExportError(f"invalid tempo bpm: {bpm}")
-    quarters_per_minute = bpm * 4 / beat_unit
+    quarters_per_minute = bpm * float(primary_beat_ql)
     return round(60_000_000 / quarters_per_minute)
 
 
@@ -102,9 +102,13 @@ def playback_midi_bytes(
 
     total_ticks = 0
     tempo_events: list[tuple[int, mido.MetaMessage]] = []
+    # #157: tempo_map bpm counts primary beats (6/8 -> dotted quarter),
+    # not payload beats — match the notation referent.
+    beat_ql = Fraction(4, ts.beat_unit)
+    primary_ql = primary_beat_beats(ts, beat_ql) * beat_ql
     for seg in payload.tempo_map:
         tick = _beat_to_tick(seg.start_beat, ts.beat_unit, ticks_per_beat)
-        us_per_quarter = _tempo_us_per_quarter(seg.bpm, ts.beat_unit)
+        us_per_quarter = _tempo_us_per_quarter(seg.bpm, primary_ql)
         tempo_events.append(
             (tick, mido.MetaMessage("set_tempo", tempo=us_per_quarter, time=0))
         )
