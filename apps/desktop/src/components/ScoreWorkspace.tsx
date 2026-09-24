@@ -79,6 +79,7 @@ export function ScoreWorkspace({
   onRhythmEdit,
   onRetranscribeVoices,
   onRetranscribeBasicPitch,
+  onOpenProperties,
 }: {
   screen: ScreenState;
   importView: ImportView;
@@ -128,6 +129,9 @@ export function ScoreWorkspace({
   /** #181: review-bar action — re-run the job with the Basic Pitch
    *  backend when pYIN produced a monophonic result. */
   onRetranscribeBasicPitch?(): void;
+  /** #209: review-bar action — open the properties panel so the
+   *  meter-conflict issue can reach the meter select. */
+  onOpenProperties?(): void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const dragActive = dragOver || externalDragActive;
@@ -198,6 +202,7 @@ export function ScoreWorkspace({
             onRhythmEdit={onRhythmEdit}
             onRetranscribeVoices={onRetranscribeVoices}
             onRetranscribeBasicPitch={onRetranscribeBasicPitch}
+            onOpenProperties={onOpenProperties}
           />
         ) : (
           <div className="hs-score-paper" aria-hidden="true">

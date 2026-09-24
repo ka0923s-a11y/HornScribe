@@ -1293,6 +1293,9 @@ export const ja = {
     /** #188: apply the suggested BPM on the tempo-uncertain issue. */
     applyTempoSuggestion: (bpm: number) =>
       `♩=${Math.round(bpm)}に修正`,
+    /** #209: meter_conflict cannot auto-resolve — open the meter
+     *  select in the properties panel instead. */
+    openMeterEditor: "プロパティで拍子を変更",
     pitchUp: "半音上げる",
     pitchDown: "半音下げる",
     deleteNote: "削除",

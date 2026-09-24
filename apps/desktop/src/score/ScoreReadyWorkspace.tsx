@@ -150,6 +150,9 @@ interface Props {
   /** #181: re-run the job with the Basic Pitch backend — offered on
    *  the monophonic-backend review issue. */
   onRetranscribeBasicPitch?(): void;
+  /** #209: open the properties panel — offered on the meter-conflict
+   *  issue so the user finds the meter select without hunting. */
+  onOpenProperties?(): void;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -236,6 +239,7 @@ export function ScoreReadyWorkspace({
   onRhythmEdit,
   onRetranscribeVoices,
   onRetranscribeBasicPitch,
+  onOpenProperties,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<ScoreRenderer | null>(null);
@@ -1627,6 +1631,12 @@ export function ScoreReadyWorkspace({
                 issue.evidence["suggestedBpm"] as number,
               );
             }
+            // #209: the meter-conflict issue cannot auto-resolve —
+            // the remedy is the meter select in the properties
+            // panel, so the action opens it.
+            if (issue.reason === "meter_conflict" && onOpenProperties) {
+              return ja.review.openMeterEditor;
+            }
             return null;
           })()}
           onAction={(() => {
@@ -1668,6 +1678,9 @@ export function ScoreReadyWorkspace({
                   () => markIssueFixed(issue.id),
                 );
               };
+            }
+            if (issue.reason === "meter_conflict") {
+              return onOpenProperties ?? undefined;
             }
             return undefined;
           })()}

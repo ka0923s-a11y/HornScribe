@@ -1440,6 +1440,7 @@ export default function App() {
                     }));
                     startTranscriptionJob({ backend: "basicPitch" });
                   }}
+                  onOpenProperties={() => layout.setPropertiesOpen(true)}
                 />
                 {propertiesVisible ? (
                   <PropertiesPanel
