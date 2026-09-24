@@ -25,7 +25,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,25 @@ import { fileURLToPath } from "node:url";
 const DESKTOP_DIR = path.dirname(fileURLToPath(import.meta.url)) + "/..";
 const STAGE_DIR = path.join(tmpdir(), "hornscribe-dev");
 const MAX_STAGE_BYTES = 512 * 1024 * 1024; // 512 MiB — a generous audio cap
+const STAGE_TTL_MS = 24 * 60 * 60 * 1000; // staged files live a day
+
+/** Drop staged files older than a day — dev-only scratch space must
+ *  not grow without bound across sessions. Best-effort, never fails. */
+async function pruneStaged() {
+  try {
+    const now = Date.now();
+    for (const name of await readdir(STAGE_DIR)) {
+      if (!name.startsWith("staged-")) continue;
+      const p = path.join(STAGE_DIR, name);
+      const s = await stat(p).catch(() => null);
+      if (s && now - s.mtimeMs > STAGE_TTL_MS) {
+        await unlink(p).catch(() => undefined);
+      }
+    }
+  } catch {
+    /* missing dir or locked file — staging still proceeds */
+  }
+}
 
 /** Site-packages probe: does this venv have a package installed? */
 function venvHas(venvDir, pkg) {
@@ -239,6 +258,7 @@ export function devEngineBridge() {
         // Strip path separators — the name only becomes a suffix tag.
         const safe = raw.replace(/[^\w.-]+/g, "_").slice(-80);
         await mkdir(STAGE_DIR, { recursive: true });
+        await pruneStaged();
         const dest = path.join(STAGE_DIR, "staged-" + Date.now() + "-" + safe);
         await writeFile(dest, body);
         return json(res, 200, { path: dest });
