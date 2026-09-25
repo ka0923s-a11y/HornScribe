@@ -37,6 +37,13 @@ export interface ImportPorts {
   readAudioBytes(path: string): Promise<Blob>;
   /** Bytes of a `.hornscribe.json` project file (`read_project_file`). */
   readProjectBytes(path: string): Promise<Blob>;
+  /** Optional (#365): engine-side `project.open` — migrate_project_dict +
+   *  HornScribeProject.from_dict on the worker returns the normalized
+   *  current-schema dict (extras preserved). Absent in plain-browser dev,
+   *  where the controller falls back to its lighter local parser. */
+  inspectProject?(
+    ref: { path: string } | { documentBase64: string },
+  ): Promise<{ path: string; project: Record<string, unknown> }>;
   /** Decode audio for the waveform/metadata (WebAudio decodeAudioData). */
   decodeAudio(blob: Blob, fileName: string): Promise<DecodedAudio>;
   /**

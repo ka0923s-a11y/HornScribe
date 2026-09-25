@@ -230,3 +230,29 @@ deliberately NOT worker error codes:
 - `REQUEST_TIMEOUT` — a request exceeded its response timeout.
 - `ENGINE_UNAVAILABLE` / `ENGINE_NOT_READY` — the port could not spawn
   or the client is not in `ready` state.
+
+### `project.open` [#365]
+
+The authoritative project-open funnel — the shell must never re-implement
+schema validation or migration client-side.
+
+Request payload (one of):
+
+- `{path: string}` — a `.hornscribe.json` path; the worker reads the file
+  itself (nothing crosses the webview).
+- `{documentBase64: string}` — UTF-8 JSON bytes, base64-encoded, for
+  byte-opens with no durable path (File drops, autosave snapshots).
+
+The raw document goes through `migrate_project_dict` then
+`HornScribeProject.from_dict`, and the response carries the normalized
+current-schema dict (root extras such as `scoreDocument`, `musicXmlConcert`,
+`musicXmlHornF`, `reviewIssues`, `meta` preserved verbatim):
+
+```json
+{"path": "<path or ''>", "project": { "schemaVersion": 1, "projectId": "prj-...", "..." }}
+```
+
+Failure modes fail closed: unreadable path → `JOB_FAILED`; non-JSON,
+non-object, malformed ids, or unsupported/newer `schemaVersion` →
+`INVALID_PARAMS`. The shell maps every failure to its recoverable
+`projectOpenFailed` surface.

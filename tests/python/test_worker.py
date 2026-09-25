@@ -736,6 +736,116 @@ def test_project_save_preserves_score_extras(
     assert saved["schemaVersion"] == 1
 
 
+# -----------------------------------------------------------------------
+# project.open (#365) — the authoritative migrate+validate open funnel
+# -----------------------------------------------------------------------
+
+
+def test_project_open_by_path_normalizes_and_preserves_extras(
+    spawn: Any, tmp_path: Path
+) -> None:
+    w = spawn()
+    w.handshake()
+    target = tmp_path / "take.hornscribe.json"
+    doc = _project_doc()
+    doc.update(
+        {
+            "musicXmlConcert": "<score-partwise/>",
+            "musicXmlHornF": "<score-partwise horn/>",
+            "reviewIssues": [{"id": "ri-000001", "status": "open"}],
+            "scoreDocument": {"content": {"parts": []}},
+        }
+    )
+    target.write_text(json.dumps(doc), encoding="utf-8")
+
+    payload = _assert_ok(w.request("project.open", {"path": str(target)}))
+    assert payload["path"] == str(target)
+    project = payload["project"]
+    # Schema keys validate + normalize through HornScribeProject.
+    assert project["schemaVersion"] == 1
+    assert project["projectId"] == "prj-0123456789abcdef"
+    assert project["score"]["revision"] == "rev-0123456789abcdef"
+    # Extras round-trip — the shell restores the score from them.
+    assert project["musicXmlConcert"] == "<score-partwise/>"
+    assert project["musicXmlHornF"] == "<score-partwise horn/>"
+    assert project["reviewIssues"] == [{"id": "ri-000001", "status": "open"}]
+    assert project["scoreDocument"] == {"content": {"parts": []}}
+
+
+def test_project_open_document_base64_mode(spawn: Any) -> None:
+    """Byte-opens (File drops, autosave snapshots) take the same
+    migrate+validate path — no durable path required."""
+    import base64
+
+    w = spawn()
+    w.handshake()
+    doc = _project_doc()
+    payload = _assert_ok(
+        w.request(
+            "project.open",
+            {"documentBase64": base64.b64encode(json.dumps(doc).encode()).decode()},
+        )
+    )
+    assert payload["path"] == ""
+    assert payload["project"]["projectId"] == "prj-0123456789abcdef"
+
+
+def test_project_open_fails_closed_on_bad_documents(
+    spawn: Any, tmp_path: Path
+) -> None:
+    w = spawn()
+    w.handshake()
+
+    cases: list[dict[str, Any]] = [
+        # malformed projectId — the TS parser used to accept this
+        {**_project_doc(), "projectId": "foo"},
+        # newer schema than this build understands
+        {**_project_doc(), "schemaVersion": 99},
+        # non-integer schemaVersion
+        {**_project_doc(), "schemaVersion": "1"},
+        # malformed transcription revision id
+        {
+            **_project_doc(),
+            "transcription": {
+                **_project_doc()["transcription"],
+                "revision": "bogus",
+            },
+        },
+        # malformed score revision id
+        {**_project_doc(), "score": {"revision": "x"}},
+    ]
+    for doc in cases:
+        target = tmp_path / "bad.hornscribe.json"
+        target.write_text(json.dumps(doc), encoding="utf-8")
+        resp = w.request("project.open", {"path": str(target)})
+        assert resp["error"]["code"] == "INVALID_PARAMS", doc
+
+    # Non-JSON content also fails closed.
+    target.write_text("{corrupt", encoding="utf-8")
+    resp = w.request("project.open", {"path": str(target)})
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+
+    # Wrong suffix / missing file are rejected before parsing.
+    resp = w.request("project.open", {"path": str(tmp_path / "x.json")})
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+    resp = w.request(
+        "project.open",
+        {"path": str(tmp_path / "gone.hornscribe.json")},
+    )
+    assert resp["error"] is not None
+
+    # Garbage base64 and a bare payload are rejected too.
+    resp = w.request("project.open", {"documentBase64": "!!!"})
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+    resp = w.request("project.open", {})
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+
+
+def test_project_open_advertised_in_handshake(spawn: Any) -> None:
+    w = spawn()
+    payload = _assert_ok(w.handshake())
+    assert "project.open" in payload["capabilities"]["methods"]
+
 def test_export_midi_returns_canonical_smf(spawn: Any) -> None:
     """#256: export.midi runs the engine's playback_midi_bytes — the
     desktop's MusicXML->MIDI rebuild loses velocity/bends/swing."""

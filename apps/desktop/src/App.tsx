@@ -523,7 +523,12 @@ export default function App() {
   const importer = useMemo(
     () =>
       new ImportController(
-        createImportPorts(),
+        // #365: route project opens through the engine's project.open —
+        // migrate + validate worker-side; the lighter local parser only
+        // remains for plain-browser dev where no engine exists.
+        createImportPorts({
+          inspectProject: (ref) => session.inspectProject(ref),
+        }),
         {
           onScreenChange: (s) => setScreen(s),
           onState: (s) => setImportState(s),
@@ -627,7 +632,7 @@ export default function App() {
         // Recent-project MRU persists in localStorage (web + webview).
         typeof window !== "undefined" ? window.localStorage : null,
       ),
-    [transport],
+    [transport, session],
   );
 
   // #128 (§26 last project): on launch, reopen the project at the top

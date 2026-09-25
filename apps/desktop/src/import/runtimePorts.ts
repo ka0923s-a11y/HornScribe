@@ -177,8 +177,16 @@ async function sha256Hex(blob: Blob): Promise<string> {
 
 /* ------------------------------ composition ------------------------------ */
 
-export function createImportPorts(): ImportPorts {
+export function createImportPorts(
+  options?: {
+    /** #365: engine-backed project open — the host wires it to
+     *  `session.inspectProject` so desktop opens take the same
+     *  migrate+validate path as project.save. */
+    inspectProject?: ImportPorts["inspectProject"];
+  },
+): ImportPorts {
   return {
+    inspectProject: options?.inspectProject,
     pickAudio: () => (isTauri() ? pickViaDialog() : pickViaFileInput()),
     readAudioBytes: (path) => invokeBytes("read_audio_bytes", path),
     readProjectBytes: (path) => invokeBytes("read_project_file", path),

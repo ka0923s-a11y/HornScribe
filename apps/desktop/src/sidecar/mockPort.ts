@@ -44,6 +44,7 @@ const MOCK_METHODS = [
   "engine.shutdown",
   "job.start",
   "job.cancel",
+  "project.open",
 ];
 
 /** Job kinds this emulation advertises in the handshake. `transcription`
@@ -321,6 +322,8 @@ export class MockSidecarPort implements SidecarPort {
         return this.handleJobStart(id, frame.payload);
       case "job.cancel":
         return this.handleJobCancel(id, frame.payload);
+      case "project.open":
+        return this.handleProjectOpen(id, frame.payload);
       default:
         this.respondError(id, method, ERR.UNKNOWN_METHOD, `unknown method '${method}'`, {
           methods: MOCK_METHODS,
@@ -465,6 +468,66 @@ export class MockSidecarPort implements SidecarPort {
     }
     job.cancelled = true;
     this.respond(id, "job.cancel", { jobId: job.jobId, cancellation: "requested" });
+  }
+
+  /** #365 `project.open` — dev-fake emulation: decodes documentBase64,
+   *  JSON.parses and applies the light local checks (the real worker's
+   *  migrate+validate lives in Python — this exercises the wire shape
+   *  for browser-dev project opens). `path` mode needs real fs access,
+   *  which the mock honestly lacks. */
+  private handleProjectOpen(id: string, payload: unknown): void {
+    const params =
+      typeof payload === "object" && payload !== null
+        ? (payload as Record<string, unknown>)
+        : {};
+    if (typeof params.path === "string" && params.path) {
+      this.respondError(
+        id,
+        "project.open",
+        ERR.INVALID_PARAMS,
+        "project.open by path requires the real worker (mock has no fs)",
+      );
+      return;
+    }
+    const b64 = params.documentBase64;
+    if (typeof b64 !== "string" || !b64) {
+      this.respondError(
+        id,
+        "project.open",
+        ERR.INVALID_PARAMS,
+        "project.open requires 'path' or 'documentBase64'",
+      );
+      return;
+    }
+    let doc: unknown;
+    try {
+      doc = JSON.parse(atob(b64)) as unknown;
+    } catch {
+      this.respondError(
+        id,
+        "project.open",
+        ERR.INVALID_PARAMS,
+        "project document is not valid JSON/base64",
+      );
+      return;
+    }
+    const data = doc as Record<string, unknown> | null;
+    if (
+      typeof data !== "object" ||
+      data === null ||
+      data.schemaVersion !== 1 ||
+      typeof data.projectId !== "string" ||
+      !data.projectId
+    ) {
+      this.respondError(
+        id,
+        "project.open",
+        ERR.INVALID_PARAMS,
+        "invalid or unsupported project document (mock)",
+      );
+      return;
+    }
+    this.respond(id, "project.open", { path: "", project: data });
   }
 
   // ---- job runner (mirrors run_demo_long_task) ----------------------------

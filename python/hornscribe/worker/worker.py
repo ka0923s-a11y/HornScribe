@@ -20,8 +20,10 @@ Lifecycle contract (ADR-0002):
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import importlib.util
+import json
 import logging
 import os
 import platform
@@ -34,7 +36,8 @@ from pathlib import Path
 from typing import Any, TextIO
 
 import hornscribe
-from hornscribe.project.errors import ProjectError
+from hornscribe.project.errors import ProjectError, SchemaVersionError
+from hornscribe.project.migrate import migrate_project_dict
 from hornscribe.project.model import (
     PROJECT_FILE_SUFFIX,
     HornScribeProject,
@@ -99,6 +102,10 @@ class Worker:
             # calls. Validation runs through HornScribeProject.from_dict
             # so a malformed document is rejected, never written.
             "project.save": self._handle_project_save,
+            # #365: the authoritative project-open funnel — read +
+            # migrate_project_dict + HornScribeProject.from_dict, so the
+            # shell never re-implements schema validation/migration.
+            "project.open": self._handle_project_open,
             # #115 (spec 13): rhythm edits that need re-realization —
             # duration change, onset grid shift, tie toggle. Runs the
             # same SpanRealizer the quantizer used, so the written
@@ -378,6 +385,81 @@ class Worker:
                 protocol.ERR_JOB_FAILED, f"could not write project file: {exc}"
             ) from exc
         return {"path": str(target), "projectId": str(project.project_id)}
+
+    def _handle_project_open(self, payload: Any) -> dict[str, Any]:
+        """`project.open` — read + migrate + validate a .hornscribe.json (#365).
+
+        Payload: ``{"path": str}`` — the worker owns filesystem reads — or
+        ``{"documentBase64": str}`` for byte-opens with no durable path
+        (File drops, autosave snapshots). The raw document goes through
+        ``migrate_project_dict`` then ``HornScribeProject.from_dict``, so
+        the shell never re-implements schema rules; the response carries
+        the normalized current-schema dict with extras (scoreDocument,
+        musicXmlConcert/musicXmlHornF, reviewIssues, meta) preserved.
+        Malformed documents and newer/unknown schema versions fail closed.
+        """
+        if not isinstance(payload, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, "project.open payload must be an object"
+            )
+
+        path_raw = payload.get("path")
+        document_b64 = payload.get("documentBase64")
+        raw_bytes: bytes
+        if isinstance(path_raw, str) and path_raw:
+            if not path_raw.endswith(PROJECT_FILE_SUFFIX):
+                raise protocol.ProtocolError(
+                    protocol.ERR_INVALID_PARAMS,
+                    f"project.open requires a path ending in {PROJECT_FILE_SUFFIX}",
+                )
+            try:
+                raw_bytes = Path(path_raw).read_bytes()
+            except OSError as exc:
+                raise protocol.ProtocolError(
+                    protocol.ERR_JOB_FAILED,
+                    f"could not read project file: {exc}",
+                ) from exc
+        elif isinstance(document_b64, str) and document_b64:
+            try:
+                raw_bytes = base64.b64decode(document_b64, validate=True)
+            except ValueError as exc:
+                raise protocol.ProtocolError(
+                    protocol.ERR_INVALID_PARAMS,
+                    "project.open documentBase64 is not valid base64",
+                ) from exc
+        else:
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS,
+                "project.open requires 'path' or 'documentBase64'",
+            )
+
+        try:
+            raw = json.loads(raw_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS,
+                f"project document is not valid JSON: {exc}",
+            ) from exc
+        if not isinstance(raw, dict):
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, "project document is not an object"
+            )
+        try:
+            migrated = migrate_project_dict(raw)
+            project = HornScribeProject.from_dict(migrated)
+        except SchemaVersionError as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, f"unsupported project schema: {exc}"
+            ) from exc
+        except ProjectError as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_INVALID_PARAMS, f"invalid project document: {exc}"
+            ) from exc
+
+        return {
+            "path": path_raw if isinstance(path_raw, str) else "",
+            "project": project.to_dict(),
+        }
 
     def _handle_score_edit(self, payload: Any) -> dict[str, Any]:
         """`score.edit` — apply one §13 rhythm edit (#115).

@@ -42,6 +42,18 @@ function projectJson(overrides: Record<string, unknown> = {}): Blob {
   ]);
 }
 
+/** Same chunked UTF-8→base64 as production `blobToBase64` — lets the
+ *  byte-open test assert the exact `documentBase64` payload. */
+async function blobToBase64ForTest(blob: Blob): Promise<string> {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < buf.length; i += CHUNK) {
+    bin += String.fromCharCode(...buf.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
 function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
   const screens: ScreenState[] = [];
   const states: ImportState[] = [];
@@ -496,6 +508,89 @@ describe("openProject — source verification (store.py contract)", () => {
 });
 
 describe("relinkWith — hash-validated relink (store.py relink_source_audio)", () => {
+
+describe("openProject — engine-routed project.open (#365)", () => {
+  const entry: RecentProjectEntry = {
+    name: "etude",
+    path: "C:\\p\\etude.hornscribe.json",
+    openedAt: 1,
+  };
+
+  function eventsFor(h: ReturnType<typeof makeHarness>) {
+    return {
+      onScreenChange: (s: ScreenState) => h.screens.push(s),
+      onState: () => {},
+      announce: (m: string) => h.announcements.push(m),
+      onRecentChange: () => {},
+      onAudioReady: (a: (typeof h.readyAudios)[number]) =>
+        h.readyAudios.push(a),
+    };
+  }
+
+  it("path opens inspect worker-side — bytes never enter the webview", async () => {
+    const h = makeHarness();
+    h.store.set(entry.path, projectJson());
+    h.store.set("C:\\audio\\etude.wav", new Blob(["etude"]));
+    const calls: unknown[] = [];
+    let byteReads = 0;
+    const ports = {
+      ...h.ports,
+      readProjectBytes: async () => {
+        byteReads += 1;
+        throw new Error("must not read project bytes");
+      },
+      inspectProject: async (ref: { path: string }) => {
+        calls.push(ref);
+        const raw = await h.store.get(entry.path)!.text();
+        return { path: entry.path, project: JSON.parse(raw) };
+      },
+    };
+    const c = new ImportController(ports, eventsFor(h));
+    await c.openProject(entry);
+    expect(calls).toEqual([{ path: entry.path }]);
+    expect(byteReads).toBe(0);
+    expect(h.readyAudios).toHaveLength(1);
+  });
+
+  it("byte-opens ride documentBase64 through the same worker path", async () => {
+    const h = makeHarness();
+    h.store.set("C:\\audio\\etude.wav", new Blob(["etude"]));
+    const refs: { documentBase64: string }[] = [];
+    const ports = {
+      ...h.ports,
+      inspectProject: async (ref: { documentBase64: string }) => {
+        refs.push(ref);
+        const doc = JSON.parse(atob(ref.documentBase64));
+        return { path: "", project: doc };
+      },
+    };
+    const c = new ImportController(ports, eventsFor(h));
+    const blob = projectJson();
+    await c.openProject({ name: "dropped", path: "", openedAt: 1 }, blob);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].documentBase64).toBe(await blobToBase64ForTest(blob));
+    expect(h.readyAudios).toHaveLength(1);
+  });
+
+  it("worker rejection maps to projectOpenFailed with the path attached", async () => {
+    const h = makeHarness();
+    const ports = {
+      ...h.ports,
+      inspectProject: async () => {
+        throw new Error("invalid project document: schemaVersion 99");
+      },
+    };
+    const c = new ImportController(ports, eventsFor(h));
+    await c.openProject(entry);
+    expect(c.getState().phase).toBe("error");
+    expect(c.getState().issue).toMatchObject({
+      kind: "projectOpenFailed",
+      fileName: "etude",
+      path: entry.path,
+    });
+  });
+});
+
   const entry: RecentProjectEntry = {
     name: "etude",
     path: "C:\\p\\etude.hornscribe.json",

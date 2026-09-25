@@ -400,3 +400,33 @@ describe("TranscriptionSession", () => {
     await session.dispose();
   });
 });
+
+describe("inspectProject — engine project.open (#365)", () => {
+  it("spawns lazily and returns the normalized document dict", async () => {
+    const { session } = makeSession();
+    const doc = {
+      schemaVersion: 1,
+      projectId: "prj-0123456789abcdef",
+      sourceAudio: null,
+      scoreDocument: { content: {} },
+    };
+    const res = await session.inspectProject({
+      documentBase64: btoa(JSON.stringify(doc)),
+    });
+    expect(res.path).toBe("");
+    expect(res.project).toMatchObject({
+      projectId: "prj-0123456789abcdef",
+      scoreDocument: { content: {} },
+    });
+    expect(session.getSnapshot().engine).toBe("ready");
+    await session.dispose();
+  });
+
+  it("worker rejection surfaces as a thrown SidecarError (fail closed)", async () => {
+    const { session } = makeSession();
+    await expect(
+      session.inspectProject({ documentBase64: btoa("{corrupt") }),
+    ).rejects.toMatchObject({ name: "SidecarError", code: "INVALID_PARAMS" });
+    await session.dispose();
+  });
+});

@@ -329,12 +329,18 @@ export class ImportController {
   async openProject(entry: RecentProjectEntry, bytes?: Blob): Promise<void> {
     const gen = this.begin("project", entry.name);
     try {
-      const blob = bytes ?? (await this.ports.readProjectBytes(entry.path));
+      // #365: when the engine-backed inspector is wired, the document is
+      // migrated + validated by `project.open` (same funnel as
+      // project.save); the lighter local parser remains only as the
+      // no-engine browser-dev fallback.
+      const data = bytes
+        ? await this.projectDocumentFromBytes(bytes)
+        : await this.projectDocumentFromPath(entry.path);
       // Browser-dev File refs have no durable path — project.path
       // stays "" so touchRecent skips them; the display name comes
       // from the file name instead.
-      const project = parseProjectFile(
-        await blob.arrayBuffer(),
+      const project = projectSummaryFromDocument(
+        data,
         entry.path,
         entry.path ? undefined : entry.name,
       );
@@ -591,6 +597,37 @@ export class ImportController {
     return gen === this.generation;
   }
 
+  /** `project.open` by path — the worker reads the file itself, so no
+   *  bytes cross the webview. Falls back to the local parser where no
+   *  engine exists (browser dev). */
+  private async projectDocumentFromPath(
+    path: string,
+  ): Promise<Record<string, unknown>> {
+    const inspect = this.ports.inspectProject;
+    if (inspect) {
+      const res = await inspect({ path });
+      return res.project;
+    }
+    const blob = await this.ports.readProjectBytes(path);
+    return parseProjectJson(await blob.arrayBuffer());
+  }
+
+  /** `project.open` by bytes — File drops and autosave snapshots ride
+   *  `documentBase64` so they take the identical migrate+validate path
+   *  as a disk open (#365 acceptance). */
+  private async projectDocumentFromBytes(
+    bytes: Blob,
+  ): Promise<Record<string, unknown>> {
+    const inspect = this.ports.inspectProject;
+    if (inspect) {
+      const res = await inspect({
+        documentBase64: await blobToBase64(bytes),
+      });
+      return res.project;
+    }
+    return parseProjectJson(await bytes.arrayBuffer());
+  }
+
   private fail(issue: ImportIssue): void {
     if (this.state.audio) {
       // Workspace is alive — the issue becomes a dialog over it, the
@@ -725,15 +762,10 @@ function screenForPhase(phase: ImportPhase): ScreenState | null {
 /* --------------------------- project parsing --------------------------- */
 
 /**
- * Parse a `.hornscribe.json` document into the relink-relevant summary
- * (schema v1 — mirrors `HornScribeProject.from_dict`). Throws on malformed
- * or unsupported documents → caller maps to `projectOpenFailed`.
+ * UTF-8 bytes → raw project dict (JSON.parse only — no validation).
+ * Engine-routed opens skip this: `project.open` parses worker-side.
  */
-export function parseProjectFile(
-  bytes: ArrayBuffer,
-  path: string,
-  displayName?: string,
-): ProjectSummary {
+function parseProjectJson(bytes: ArrayBuffer): Record<string, unknown> {
   const data = JSON.parse(new TextDecoder().decode(bytes)) as Record<
     string,
     unknown
@@ -741,6 +773,48 @@ export function parseProjectFile(
   if (typeof data !== "object" || data === null) {
     throw new Error("project document is not an object");
   }
+  return data;
+}
+
+/** UTF-8-safe base64 for `documentBase64` payloads — chunked so large
+ *  project documents stay under the String.fromCharCode arg limit. */
+async function blobToBase64(bytes: Blob): Promise<string> {
+  const buf = new Uint8Array(await bytes.arrayBuffer());
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < buf.length; i += CHUNK) {
+    bin += String.fromCharCode(...buf.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+/**
+ * Parse a `.hornscribe.json` document into the relink-relevant summary
+ * (schema v1 — mirrors `HornScribeProject.from_dict`). Throws on malformed
+ * or unsupported documents → caller maps to `projectOpenFailed`.
+ *
+ * This is the browser-dev/no-engine fallback parser; production opens go
+ * through `project.open` on the worker (#365), which returns the already
+ * normalized dict to {@link projectSummaryFromDocument}.
+ */
+export function parseProjectFile(
+  bytes: ArrayBuffer,
+  path: string,
+  displayName?: string,
+): ProjectSummary {
+  return projectSummaryFromDocument(parseProjectJson(bytes), path, displayName);
+}
+
+/**
+ * Dict → {@link ProjectSummary} — the extraction both open paths share.
+ * The schema checks stay as a defensive floor: the local fallback needs
+ * them, and they document the version the shell understands (#365).
+ */
+function projectSummaryFromDocument(
+  data: Record<string, unknown>,
+  path: string,
+  displayName?: string,
+): ProjectSummary {
   if (data.schemaVersion !== 1) {
     throw new Error(`unsupported schemaVersion: ${String(data.schemaVersion)}`);
   }

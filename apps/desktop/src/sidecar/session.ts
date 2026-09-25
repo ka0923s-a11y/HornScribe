@@ -274,6 +274,27 @@ export class TranscriptionSession {
   }
 
   /**
+   * `project.open` (#365): the authoritative open path — the worker
+   * reads (or decodes), migrates and validates the document, and returns
+   * the normalized current-schema dict. `path` covers MRU/disk opens;
+   * `documentBase64` covers byte-opens (File drops, autosave snapshots).
+   * Spawns the engine lazily, same as saveProject.
+   */
+  async inspectProject(
+    ref: { path: string } | { documentBase64: string },
+  ): Promise<{ path: string; project: Record<string, unknown> }> {
+    await this.ensureEngine();
+    const client = this.client;
+    if (!client) {
+      throw new SidecarError(ERR.ENGINE_UNAVAILABLE, "no engine client");
+    }
+    return client.call<{ path: string; project: Record<string, unknown> }>(
+      "project.open",
+      ref,
+    );
+  }
+
+  /**
    * `score.edit` (#115, spec 13): apply one rhythm edit (setDuration /
    * shiftOnset / toggleTie) against the canonical scoreDocument. Returns
    * the rebuilt payload + fresh concert/horn MusicXML + the new
