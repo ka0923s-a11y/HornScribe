@@ -1001,6 +1001,11 @@ export const ja = {
       multiFileNotice:
         "一度に開けるのは1ファイルだけです。先頭のファイルを開きます",
       projectOpened: (name: string) => `${name} を開きました`,
+      /* #391: the main .hornscribe.json was unreadable and the open
+       * came from the .recovery sibling — tell the user explicitly
+       * (and that Ctrl+S repairs the main file). */
+      projectRecovered: (name: string) =>
+        `${name} は前回保存時のバックアップから復元しました。元のファイルは読み込めませんでした。保存し直すには Ctrl+S を押してください`,
       sourceRelinked: "元音源を関連付け直しました",
       transcribeCancelled: "採譜をキャンセルしました",
       playing: "再生中",

@@ -256,3 +256,15 @@ Failure modes fail closed: unreadable path → `JOB_FAILED`; non-JSON,
 non-object, malformed ids, or unsupported/newer `schemaVersion` →
 `INVALID_PARAMS`. The shell maps every failure to its recoverable
 `projectOpenFailed` surface.
+
+`.recovery` fallback [#391]: for `{path}` opens, every failure of the
+main document (unreadable, non-JSON, failed migration/validation)
+retries the sibling `<name>.hornscribe.json.recovery` through the
+identical funnel — the snapshot `project.save` leaves behind on every
+successful write. A successful fallback sets `"recovered": true` on the
+response so the shell can surface the restore and mark the document
+dirty (the next `project.save` repairs the main file). When the sibling
+is absent or also broken, the original main-file failure is returned.
+`documentBase64` opens have no sibling and never set `recovered`.
+This is distinct from the appData autosave snapshot: `.recovery` is the
+previous explicitly-saved file, the autosave holds unsaved edits.

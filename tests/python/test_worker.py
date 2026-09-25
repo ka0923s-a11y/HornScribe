@@ -846,6 +846,95 @@ def test_project_open_advertised_in_handshake(spawn: Any) -> None:
     payload = _assert_ok(w.handshake())
     assert "project.open" in payload["capabilities"]["methods"]
 
+
+# -----------------------------------------------------------------------
+# project.open .recovery fallback (#391) — the save protocol's sibling
+# snapshot must actually serve the product open path.
+# -----------------------------------------------------------------------
+
+
+def test_project_open_recovers_from_recovery_sibling(
+    spawn: Any, tmp_path: Path
+) -> None:
+    """Truncated main + valid recovery fixture: the open succeeds through
+    the sibling and flags `recovered` so the shell can surface it."""
+    w = spawn()
+    w.handshake()
+    target = tmp_path / "take.hornscribe.json"
+    recovery = tmp_path / "take.hornscribe.json.recovery"
+    recovery.write_text(json.dumps(_project_doc()), encoding="utf-8")
+    target.write_text('{"schemaVersion": 1, "projectId": "prj-01234567', encoding="utf-8")
+
+    payload = _assert_ok(w.request("project.open", {"path": str(target)}))
+    assert payload["path"] == str(target)
+    assert payload["recovered"] is True
+    assert payload["project"]["projectId"] == "prj-0123456789abcdef"
+
+    # The restored document can be saved straight back over the broken
+    # main file — the acceptance path for repairing the project.
+    _assert_ok(
+        w.request(
+            "project.save",
+            {"path": str(target), "project": payload["project"]},
+        )
+    )
+    repaired = json.loads(target.read_text(encoding="utf-8"))
+    assert repaired["projectId"] == "prj-0123456789abcdef"
+
+
+def test_project_open_valid_main_ignores_recovery(
+    spawn: Any, tmp_path: Path
+) -> None:
+    """A readable main file always wins — the sibling never shadows it."""
+    w = spawn()
+    w.handshake()
+    target = tmp_path / "take.hornscribe.json"
+    recovery = tmp_path / "take.hornscribe.json.recovery"
+    target.write_text(json.dumps(_project_doc()), encoding="utf-8")
+    stale = _project_doc()
+    stale["projectId"] = "prj-aaaaaaaaaaaaaaaa"
+    recovery.write_text(json.dumps(stale), encoding="utf-8")
+
+    payload = _assert_ok(w.request("project.open", {"path": str(target)}))
+    assert "recovered" not in payload
+    assert payload["project"]["projectId"] == "prj-0123456789abcdef"
+
+
+def test_project_open_missing_main_uses_recovery(
+    spawn: Any, tmp_path: Path
+) -> None:
+    """store.py load() semantics: an unreadable/absent main file falls
+    back to the sibling the same way a corrupt one does."""
+    w = spawn()
+    w.handshake()
+    target = tmp_path / "take.hornscribe.json"
+    recovery = tmp_path / "take.hornscribe.json.recovery"
+    recovery.write_text(json.dumps(_project_doc()), encoding="utf-8")
+
+    payload = _assert_ok(w.request("project.open", {"path": str(target)}))
+    assert payload["recovered"] is True
+
+
+def test_project_open_broken_pair_surfaces_main_failure(
+    spawn: Any, tmp_path: Path
+) -> None:
+    """A recovery sibling rides the identical validation funnel — when it
+    is also broken the open still fails closed with the main error."""
+    w = spawn()
+    w.handshake()
+    target = tmp_path / "take.hornscribe.json"
+    recovery = tmp_path / "take.hornscribe.json.recovery"
+    target.write_text("{corrupt", encoding="utf-8")
+    # A schema-valid read but a version this build cannot serve.
+    recovery.write_text(
+        json.dumps({**_project_doc(), "schemaVersion": 99}),
+        encoding="utf-8",
+    )
+
+    resp = w.request("project.open", {"path": str(target)})
+    assert resp["error"]["code"] == "INVALID_PARAMS"
+    assert "not valid JSON" in resp["error"]["message"]
+
 def test_export_midi_returns_canonical_smf(spawn: Any) -> None:
     """#256: export.midi runs the engine's playback_midi_bytes — the
     desktop's MusicXML->MIDI rebuild loses velocity/bends/swing."""

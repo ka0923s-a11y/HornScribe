@@ -88,6 +88,10 @@ export interface ImportEvents {
       // #265: the recorded source path — the host keeps it so a
       // SOURCE_MISSING save preserves the relink target.
       sourcePath: string | null;
+      /** #391: the project document came from the `.recovery` sibling
+       *  — the host keeps the restored doc dirty so the next save
+       *  repairs the unreadable main file. */
+      recovered?: boolean;
     },
   ): void;
   /** Optional (#264): a project document was opened (or relinked) —
@@ -333,7 +337,7 @@ export class ImportController {
       // migrated + validated by `project.open` (same funnel as
       // project.save); the lighter local parser remains only as the
       // no-engine browser-dev fallback.
-      const data = bytes
+      const { document: data, recovered } = bytes
         ? await this.projectDocumentFromBytes(bytes)
         : await this.projectDocumentFromPath(entry.path);
       // Browser-dev File refs have no durable path — project.path
@@ -343,6 +347,7 @@ export class ImportController {
         data,
         entry.path,
         entry.path ? undefined : entry.name,
+        recovered,
       );
       // #147: record the project's sourceAudio ref into the persistent
       // index — survives MRU truncation, covers SOURCE_MISSING opens too
@@ -554,10 +559,12 @@ export class ImportController {
         path: project.path,
         sourceHash: project.sourceHash,
         sourcePath: project.sourcePath,
+        recovered: project.recovered,
       });
-      this.events.announce(ja.import.feedback.projectOpened(project.name));
+      this.announceOpened(project);
     } else {
-      this.events.announce(ja.import.feedback.sourceRelinked);
+      // #391: the restore notice outranks the routine relink one.
+      this.announceOpened(project, ja.import.feedback.sourceRelinked);
     }
   }
 
@@ -602,14 +609,19 @@ export class ImportController {
    *  engine exists (browser dev). */
   private async projectDocumentFromPath(
     path: string,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<{ document: Record<string, unknown>; recovered: boolean }> {
     const inspect = this.ports.inspectProject;
     if (inspect) {
       const res = await inspect({ path });
-      return res.project;
+      // #391: `recovered` marks a .recovery-sibling restore — the
+      // browser-dev parser has no such sibling so it stays false.
+      return { document: res.project, recovered: res.recovered === true };
     }
     const blob = await this.ports.readProjectBytes(path);
-    return parseProjectJson(await blob.arrayBuffer());
+    return {
+      document: parseProjectJson(await blob.arrayBuffer()),
+      recovered: false,
+    };
   }
 
   /** `project.open` by bytes — File drops and autosave snapshots ride
@@ -617,15 +629,17 @@ export class ImportController {
    *  as a disk open (#365 acceptance). */
   private async projectDocumentFromBytes(
     bytes: Blob,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<{ document: Record<string, unknown>; recovered: boolean }> {
     const inspect = this.ports.inspectProject;
     if (inspect) {
       const res = await inspect({
         documentBase64: await blobToBase64(bytes),
       });
-      return res.project;
+      // Byte-opens have no durable path — there is no .recovery
+      // sibling to restore from, so a success is never `recovered`.
+      return { document: res.project, recovered: false };
     }
-    return parseProjectJson(await bytes.arrayBuffer());
+    return { document: parseProjectJson(await bytes.arrayBuffer()), recovered: false };
   }
 
   private fail(issue: ImportIssue): void {
@@ -662,7 +676,13 @@ export class ImportController {
         path: project.path,
         sourceHash: project.sourceHash,
         sourcePath: project.sourcePath,
+        recovered: project.recovered,
       });
+    }
+    // #391: a .recovery restore has no card of its own — the status
+    // line carries the notice alongside the SOURCE_MISSING card.
+    if (project.recovered) {
+      this.events.announce(ja.import.feedback.projectRecovered(project.name));
     }
   }
 
@@ -712,11 +732,25 @@ export class ImportController {
         path: project.path,
         sourceHash: project.sourceHash,
         sourcePath: project.sourcePath,
+        recovered: project.recovered,
       });
-      this.events.announce(ja.import.feedback.projectOpened(project.name));
+      this.announceOpened(project);
     } else {
-      this.events.announce(ja.import.feedback.loaded(ref.name));
+      // #391: even a score-less restore must surface the recovery —
+      // the user needs to know the main file is broken.
+      this.announceOpened(project, ja.import.feedback.loaded(ref.name));
     }
+  }
+
+  /** Project-open announce — a `.recovery` restore overrides the usual
+   *  opened/loaded notice: "your file was broken, we restored the
+   *  backup" outranks the routine message (#391). */
+  private announceOpened(project: ProjectSummary, fallback?: string): void {
+    this.events.announce(
+      project.recovered
+        ? ja.import.feedback.projectRecovered(project.name)
+        : (fallback ?? ja.import.feedback.projectOpened(project.name)),
+    );
   }
 
   private touchRecent(project: ProjectSummary): void {
@@ -814,6 +848,7 @@ function projectSummaryFromDocument(
   data: Record<string, unknown>,
   path: string,
   displayName?: string,
+  recovered?: boolean,
 ): ProjectSummary {
   if (data.schemaVersion !== 1) {
     throw new Error(`unsupported schemaVersion: ${String(data.schemaVersion)}`);
@@ -836,6 +871,7 @@ function projectSummaryFromDocument(
         : null,
    scoreResult: scoreResultFromProject(data),
     transcriptionSettings: transcriptionSettingsFromProject(data),
+    recovered: recovered || undefined,
   };
 }
 

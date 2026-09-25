@@ -608,7 +608,14 @@ export default function App() {
               pendingRecoveryPathRef.current = undefined;
             } else {
               setProjectPath(project.path || null);
-              savedEditVersionRef.current = doc.editVersion;
+              /* #391: a .recovery restore keeps the main file as the
+               * save target but stays dirty — Ctrl+S writes the
+               * recovered document back over the unreadable main
+               * file (project.save then snapshots the broken file as
+               * the next .recovery). */
+              savedEditVersionRef.current = project.recovered
+                ? null
+                : doc.editVersion;
             }
             setScreen("scoreReady");
           },

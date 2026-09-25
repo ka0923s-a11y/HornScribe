@@ -43,7 +43,15 @@ export interface ImportPorts {
    *  where the controller falls back to its lighter local parser. */
   inspectProject?(
     ref: { path: string } | { documentBase64: string },
-  ): Promise<{ path: string; project: Record<string, unknown> }>;
+  ): Promise<{
+    path: string;
+    project: Record<string, unknown>;
+    /** #391: the main file failed and the response came from the
+     *  sibling `.recovery` snapshot — the host surfaces the restore
+     *  and keeps the document dirty so the next save repairs the
+     *  main file. */
+    recovered?: boolean;
+  }>;
   /** Decode audio for the waveform/metadata (WebAudio decodeAudioData). */
   decodeAudio(blob: Blob, fileName: string): Promise<DecodedAudio>;
   /**

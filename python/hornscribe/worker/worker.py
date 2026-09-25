@@ -43,7 +43,7 @@ from hornscribe.project.model import (
     HornScribeProject,
     hash_file_sha256,
 )
-from hornscribe.project.store import ProjectStore
+from hornscribe.project.store import RECOVERY_SUFFIX, ProjectStore
 from hornscribe.transcription import (
     JOB_KIND_TRANSCRIPTION,
     TranscriptionParams,
@@ -405,21 +405,37 @@ class Worker:
 
         path_raw = payload.get("path")
         document_b64 = payload.get("documentBase64")
-        raw_bytes: bytes
         if isinstance(path_raw, str) and path_raw:
             if not path_raw.endswith(PROJECT_FILE_SUFFIX):
                 raise protocol.ProtocolError(
                     protocol.ERR_INVALID_PARAMS,
                     f"project.open requires a path ending in {PROJECT_FILE_SUFFIX}",
                 )
+            target = Path(path_raw)
             try:
-                raw_bytes = Path(path_raw).read_bytes()
-            except OSError as exc:
-                raise protocol.ProtocolError(
-                    protocol.ERR_JOB_FAILED,
-                    f"could not read project file: {exc}",
-                ) from exc
-        elif isinstance(document_b64, str) and document_b64:
+                return {
+                    "path": path_raw,
+                    "project": self._read_project_document(target),
+                }
+            except protocol.ProtocolError as main_error:
+                # #391: the save protocol keeps the previous good file as
+                # <name>.recovery — a main file that fails to read, parse,
+                # migrate or validate falls back to that snapshot instead
+                # of erroring while a good copy sits next to it. The
+                # sibling rides the identical validation funnel, and a
+                # broken pair still surfaces the main failure.
+                recovery = target.with_name(target.name + RECOVERY_SUFFIX)
+                if recovery.is_file():
+                    try:
+                        return {
+                            "path": path_raw,
+                            "project": self._read_project_document(recovery),
+                            "recovered": True,
+                        }
+                    except protocol.ProtocolError:
+                        pass
+                raise main_error
+        if isinstance(document_b64, str) and document_b64:
             try:
                 raw_bytes = base64.b64decode(document_b64, validate=True)
             except ValueError as exc:
@@ -427,12 +443,31 @@ class Worker:
                     protocol.ERR_INVALID_PARAMS,
                     "project.open documentBase64 is not valid base64",
                 ) from exc
-        else:
-            raise protocol.ProtocolError(
-                protocol.ERR_INVALID_PARAMS,
-                "project.open requires 'path' or 'documentBase64'",
-            )
+            return {"path": "", "project": self._parse_project_document(raw_bytes)}
+        raise protocol.ProtocolError(
+            protocol.ERR_INVALID_PARAMS,
+            "project.open requires 'path' or 'documentBase64'",
+        )
 
+    def _read_project_document(self, path: Path) -> dict[str, Any]:
+        """Read one project file and run it through the shared funnel."""
+        try:
+            raw_bytes = path.read_bytes()
+        except OSError as exc:
+            raise protocol.ProtocolError(
+                protocol.ERR_JOB_FAILED,
+                f"could not read project file: {exc}",
+            ) from exc
+        return self._parse_project_document(raw_bytes)
+
+    def _parse_project_document(self, raw_bytes: bytes) -> dict[str, Any]:
+        """Decode -> migrate -> validate -> normalized schema dict.
+
+        Single funnel for main files, .recovery siblings and
+        ``documentBase64`` payloads (#365/#391): every document the
+        shell can open went through ``migrate_project_dict`` +
+        ``HornScribeProject.from_dict`` here.
+        """
         try:
             raw = json.loads(raw_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -456,10 +491,7 @@ class Worker:
                 protocol.ERR_INVALID_PARAMS, f"invalid project document: {exc}"
             ) from exc
 
-        return {
-            "path": path_raw if isinstance(path_raw, str) else "",
-            "project": project.to_dict(),
-        }
+        return project.to_dict()
 
     def _handle_score_edit(self, payload: Any) -> dict[str, Any]:
         """`score.edit` — apply one §13 rhythm edit (#115).

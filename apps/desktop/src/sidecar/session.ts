@@ -282,13 +282,23 @@ export class TranscriptionSession {
    */
   async inspectProject(
     ref: { path: string } | { documentBase64: string },
-  ): Promise<{ path: string; project: Record<string, unknown> }> {
+  ): Promise<{
+    path: string;
+    project: Record<string, unknown>;
+    /** #391: set when the response came from the `.recovery` sibling
+     *  because the main file was unreadable. */
+    recovered?: boolean;
+  }> {
     await this.ensureEngine();
     const client = this.client;
     if (!client) {
       throw new SidecarError(ERR.ENGINE_UNAVAILABLE, "no engine client");
     }
-    return client.call<{ path: string; project: Record<string, unknown> }>(
+    return client.call<{
+      path: string;
+      project: Record<string, unknown>;
+      recovered?: boolean;
+    }>(
       "project.open",
       ref,
     );

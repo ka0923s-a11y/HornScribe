@@ -106,6 +106,10 @@ export interface ProjectSummary {
    *  the conditions that produced this project, not the current
    *  global defaults. Null for externally authored files. */
   transcriptionSettings: Record<string, unknown> | null;
+  /** #391: the open came from the `.recovery` sibling because the main
+   *  file was unreadable — the host announces the restore and keeps the
+   *  document dirty so Ctrl+S repairs the main file. */
+  recovered?: boolean;
 }
 
 /** SOURCE_MISSING context: which project lost its audio, and whether the

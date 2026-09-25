@@ -62,6 +62,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
   const recents: RecentProjectEntry[][] = [];
   const scoreResults: unknown[] = [];
   const scoreProjectPaths: (string | undefined)[] = [];
+  const scoreProjects: { path: string; recovered?: boolean }[] = [];
   const openedProjects: ProjectSummary[] = [];
   const eventOrder: string[] = [];
   const store = new Map<string, Blob>();
@@ -78,6 +79,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     onProjectScoreReady: (r, project) => {
       scoreResults.push(r);
       scoreProjectPaths.push(project.path);
+      scoreProjects.push(project);
     },
     onProjectOpened: (p) => {
       eventOrder.push("projectOpened");
@@ -122,6 +124,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     recents,
     scoreResults,
     scoreProjectPaths,
+    scoreProjects,
     openedProjects,
     eventOrder,
   };
@@ -524,6 +527,10 @@ describe("openProject — engine-routed project.open (#365)", () => {
       onRecentChange: () => {},
       onAudioReady: (a: (typeof h.readyAudios)[number]) =>
         h.readyAudios.push(a),
+      onProjectScoreReady: (r: unknown, project: { path: string }) => {
+        h.scoreResults.push(r);
+        h.scoreProjects.push(project);
+      },
     };
   }
 
@@ -588,6 +595,36 @@ describe("openProject — engine-routed project.open (#365)", () => {
       fileName: "etude",
       path: entry.path,
     });
+  });
+
+  it("a .recovery restore flags the summary + announces the backup (#391)", async () => {
+    const h = makeHarness();
+    h.store.set("C:\\audio\\etude.wav", new Blob(["etude"]));
+    const ports = {
+      ...h.ports,
+      inspectProject: async () => ({
+        path: entry.path,
+        project: JSON.parse(
+          await projectJson({
+            musicXmlConcert: "<score-partwise/>",
+            musicXmlHornF: "<score-partwise horn/>",
+          }).text(),
+        ),
+        recovered: true,
+      }),
+    };
+    const c = new ImportController(ports, eventsFor(h));
+    await c.openProject(entry);
+    expect(h.readyAudios).toHaveLength(1);
+    // The restored doc reaches the host with `recovered` so the
+    // save baseline stays dirty — Ctrl+S repairs the main file.
+    expect(h.scoreProjects).toEqual([
+      expect.objectContaining({ path: entry.path, recovered: true }),
+    ]);
+    // The restore notice outranks the routine opened message.
+    expect(h.announcements.at(-1)).toBe(
+      ja.import.feedback.projectRecovered("etude"),
+    );
   });
 });
 
