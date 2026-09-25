@@ -61,6 +61,10 @@ describe("ShellDiagnosticsPort.collect", () => {
         };
       }
       if (cmd === "probe_tool_path") return { status: "missing" };
+      if (cmd === "diagnostics_paths") {
+        return { cache: "C:/x/cache", logs: "C:/x/logs" };
+      }
+      if (cmd === "reveal_log_folder") return null;
       throw new Error("unexpected invoke " + cmd);
     });
   });
@@ -91,6 +95,81 @@ describe("ShellDiagnosticsPort.collect", () => {
     const info = await new ShellDiagnosticsPort().collect();
     expect(info.tools.museScore.status).toBe("unknown");
     expect(info.tools.ffmpeg.status).toBe("unknown");
+  });
+
+  it("reports the real cache/log paths and bundled verovio (#403)", async () => {
+    const info = await new ShellDiagnosticsPort().collect();
+    expect(info.paths).toEqual({ cache: "C:/x/cache", logs: "C:/x/logs" });
+    expect(info.tools.verovio.status).toBe("found");
+    expect(info.tools.verovio.version).toBeTruthy();
+    // No wavesurfer dep — honest unknown, not an invented version.
+    expect(info.tools.wavesurfer.status).toBe("unknown");
+  });
+
+  it("with no session dep the worker fields stay honest nulls", async () => {
+    const info = await new ShellDiagnosticsPort().collect();
+    expect(info.engine).toBeNull();
+    expect(info.protocolVersion).toBeNull();
+    expect(info.backend).toBeNull();
+    expect(info.workerStatus).toBe("unavailable");
+  });
+
+  it("a wired session feeds engine/protocol/backend and liveness", async () => {
+    const info = await new ShellDiagnosticsPort({
+      sessionSnapshot: () => ({
+        engine: "ready",
+        engineInfo: { name: "hornscribe-engine", version: "0.4.0" },
+        protocolVersion: 1,
+        backend: "basicPitch",
+      }),
+    }).collect();
+    expect(info.engine?.name).toBe("hornscribe-engine");
+    expect(info.protocolVersion).toBe(1);
+    expect(info.backend).toBe("basicPitch");
+    expect(info.workerStatus).toBe("running");
+  });
+
+  it("a supervised-but-idle or crashed engine maps to stopped", async () => {
+    for (const engine of ["offline", "crashed", "closed"]) {
+      const info = await new ShellDiagnosticsPort({
+        sessionSnapshot: () => ({
+          engine,
+          engineInfo: null,
+          protocolVersion: null,
+          backend: null,
+        }),
+      }).collect();
+      expect(info.workerStatus).toBe("stopped");
+    }
+  });
+
+  it("openLogFolder reveals the real folder; restartEngine delegates", async () => {
+    let restarts = 0;
+    const port = new ShellDiagnosticsPort({
+      restartEngine: async () => {
+        restarts += 1;
+      },
+    });
+    await expect(port.openLogFolder()).resolves.toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith("reveal_log_folder");
+    await expect(port.restartEngine()).resolves.toBe(true);
+    expect(restarts).toBe(1);
+  });
+
+  it("missing/failed actions resolve false, never throw", async () => {
+    await expect(new ShellDiagnosticsPort().restartEngine()).resolves.toBe(
+      false,
+    );
+    const failing = new ShellDiagnosticsPort({
+      restartEngine: () => Promise.reject(new Error("spawn failed")),
+    });
+    await expect(failing.restartEngine()).resolves.toBe(false);
+    invokeMock.mockImplementation(async () => {
+      throw new Error("no bridge");
+    });
+    await expect(new ShellDiagnosticsPort().openLogFolder()).resolves.toBe(
+      false,
+    );
   });
 });
 

@@ -79,6 +79,10 @@ export interface SessionFailure {
 export interface SessionSnapshot {
   engine: EngineStatus;
   engineInfo: EngineInfo | null;
+  /** Negotiated protocol version from the last successful handshake
+   *  (kept after a crash as last-known, same as engineInfo) — the
+   *  diagnostics surface (#403) reports this instead of a constant. */
+  protocolVersion: number | null;
   capabilities: EngineCapabilities | null;
   /** In-flight or just-ended job — null when idle. */
   job: JobView | null;
@@ -128,6 +132,7 @@ export class TranscriptionSession {
   private snap: SessionSnapshot = {
     engine: "offline",
     engineInfo: null,
+    protocolVersion: null,
     capabilities: null,
     job: null,
     failure: null,
@@ -194,6 +199,7 @@ export class TranscriptionSession {
       this.update({
         engine: "ready",
         engineInfo: hs.engineInfo,
+        protocolVersion: hs.protocolVersion,
         capabilities: hs.capabilities,
       });
     } catch (e) {
@@ -233,6 +239,7 @@ export class TranscriptionSession {
       this.update({
         engine: "ready",
         engineInfo: hs.engineInfo,
+        protocolVersion: hs.protocolVersion,
         capabilities: hs.capabilities,
       });
     } catch (e) {
@@ -559,7 +566,7 @@ export class TranscriptionSession {
     const s = this.snap;
     const lines: string[] = [
       "HornScribe desktop — transcription session",
-      `protocolVersion: 1`,
+      `protocolVersion: ${s.protocolVersion ?? "?"}`,
       `engine: ${s.engine}`,
       `engineInfo: ${s.engineInfo ? JSON.stringify(s.engineInfo) : "(none)"}`,
       `jobKinds: ${JSON.stringify(s.capabilities?.jobKinds ?? [])}`,

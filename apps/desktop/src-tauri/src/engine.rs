@@ -131,8 +131,10 @@ pub fn engine_spawn(
         })
         .map_err(|e| format!("spawn stdout reader: {e}"))?;
 
-    // stderr -> diagnostics lines.
+    // stderr -> diagnostics lines + a persistent per-spawn log file
+    // (#403: 診断情報 の ログフォルダを開く needs a real file to show).
     let err_chan = channel.clone();
+    let mut log_file = crate::diagnostics::engine_log_file(&app);
     std::thread::Builder::new()
         .name("hornscribe-engine-stderr".into())
         .spawn(move || {
@@ -140,6 +142,9 @@ pub fn engine_spawn(
             for line in reader.lines() {
                 match line {
                     Ok(l) if !l.is_empty() => {
+                        if let Some(f) = log_file.as_mut() {
+                            let _ = writeln!(f, "{l}");
+                        }
                         let _ = err_chan.send(json!({"kind":"stderr","line":l}));
                     }
                     Ok(_) => {}

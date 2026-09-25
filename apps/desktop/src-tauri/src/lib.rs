@@ -15,6 +15,7 @@ use serde::Serialize;
 
 mod audio;
 mod capture;
+mod diagnostics;
 mod engine;
 mod export;
 
@@ -146,6 +147,8 @@ pub fn run() {
             engine::engine_write,
             engine::engine_close_stdin,
             engine::engine_kill,
+            diagnostics::diagnostics_paths,
+            diagnostics::reveal_log_folder,
             export::export_pick_dir,
             export::export_default_dir,
             export::export_check_existing,

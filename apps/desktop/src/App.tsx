@@ -274,7 +274,31 @@ export default function App() {
       ),
     [session],
   );
-  const diagnosticsPort = useMemo(() => createDefaultDiagnosticsPort(), []);
+  const diagnosticsPort = useMemo(
+    () =>
+      createDefaultDiagnosticsPort({
+        // #403: the §19 surface now reports live session truth —
+        // worker liveness, engine identity/protocol and the backend the
+        // last completed job actually used.
+        sessionSnapshot: () => {
+          const s = session.getSnapshot();
+          const meta =
+            s.lastResult && typeof s.lastResult === "object"
+              ? ((s.lastResult as Record<string, unknown>).meta as
+                  | Record<string, unknown>
+                  | undefined)
+              : undefined;
+          return {
+            engine: s.engine,
+            engineInfo: s.engineInfo,
+            protocolVersion: s.protocolVersion,
+            backend: typeof meta?.backend === "string" ? meta.backend : null,
+          };
+        },
+        restartEngine: () => session.restartEngine(),
+      }),
+    [session],
+  );
   // User-specified tool paths (設定 → ツール) flow into every probe.
   const toolOverrides = useMemo(
     () => ({

@@ -296,6 +296,17 @@ describe("TranscriptionSession", () => {
     await session.dispose();
   });
 
+  it("protocolVersion tracks the negotiated handshake (#403)", async () => {
+    const { session } = makeSession();
+    // Offline: never negotiated — honest null, not a hardcoded 1.
+    expect(session.getSnapshot().protocolVersion).toBeNull();
+    await session.startTranscription(FAST);
+    await until(() => session.getSnapshot().job?.phase === "completed");
+    expect(session.getSnapshot().protocolVersion).toBe(1);
+    expect(session.buildDiagnostics()).toContain("protocolVersion: 1");
+    await session.dispose();
+  });
+
   it("watchdog unresponsiveness mid-job sets workerNotResponding", async () => {
     const { session, port } = makeSession();
     await session.startTranscription({ steps: 100, stepDurationMs: 5 });
