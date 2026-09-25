@@ -72,6 +72,15 @@ describe("MockExportPort.export", () => {
       "PERMISSION_DENIED",
       "ENGINE_UNAVAILABLE",
       "MUSESCORE_UNAVAILABLE",
+      "EXPORT_DISK_FULL",
+      "EXPORT_SOURCE_MISSING",
+      "EXPORT_MUSESCORE_RENDER_FAILED",
+      "EXPORT_DESTINATION_INVALID",
+      "EXPORT_WRITE_FAILED",
+      "EXPORT_COMMIT_FAILED",
+      "EXPORT_NAME_INVALID",
+      "EXPORT_NAME_EXHAUSTED",
+      "EXPORT_INTERNAL",
       "EXPORT_FAILED",
     ] as const) {
       const err = await port({ failure: code })

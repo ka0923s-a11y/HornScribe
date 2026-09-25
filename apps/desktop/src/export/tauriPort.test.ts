@@ -177,6 +177,36 @@ describe("TauriExportPort.export", () => {
       false,
     );
   });
+
+  // #384: the Rust side tags every failure `CODE: detail` — the
+  // prefix alone selects the recovery surface; untagged errors still
+  // collapse to EXPORT_FAILED.
+  it.each([
+    ["EXPORT_DISK_FULL: write C:\\out\\take.mid: os error 112", "EXPORT_DISK_FULL"],
+    ["EXPORT_SOURCE_MISSING: C:\\audio\\take.wav", "EXPORT_SOURCE_MISSING"],
+    ["EXPORT_MUSESCORE_RENDER_FAILED: MuseScore exited with exit code: 1", "EXPORT_MUSESCORE_RENDER_FAILED"],
+    ["EXPORT_DESTINATION_INVALID: not a directory: C:\\x", "EXPORT_DESTINATION_INVALID"],
+    ["EXPORT_COMMIT_FAILED: write C:\\out\\take.mid: os error 5", "EXPORT_COMMIT_FAILED"],
+    ["EXPORT_WRITE_FAILED: stage C:\\tmp\\h: os error 123", "EXPORT_WRITE_FAILED"],
+    ["EXPORT_NAME_INVALID: ../evil", "EXPORT_NAME_INVALID"],
+    ["EXPORT_INTERNAL: take.mid: bad base64 byte", "EXPORT_INTERNAL"],
+    ["PERMISSION_DENIED", "PERMISSION_DENIED"],
+    ["PERMISSION_DENIED: create C:\\out: os error 5", "PERMISSION_DENIED"],
+    ["write C:\\out\\take.mid: os error 1", "EXPORT_FAILED"],
+    ["MuseScore exited with exit code: 1", "EXPORT_FAILED"],
+  ])("export_run rejection %j maps to %s", async (message, code) => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "export_check_existing") return [];
+      if (cmd === "export_run") throw new Error(message);
+      throw new Error("unexpected " + cmd);
+    });
+    await expect(
+      port().export({
+        formats: ["concertMusicxml"],
+        destination: "C:\\out",
+      }),
+    ).rejects.toMatchObject({ code });
+  });
 });
 
 describe("TauriExportPort.capabilities", () => {

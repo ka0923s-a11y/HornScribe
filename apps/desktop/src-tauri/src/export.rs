@@ -273,7 +273,7 @@ pub fn probe_tool_path(path: String) -> ToolProbe {
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if !p.is_dir() {
-        return Err(format!("not a directory: {path}"));
+        return Err(format!("EXPORT_DESTINATION_INVALID: not a directory: {path}"));
     }
     std::process::Command::new("explorer")
         .arg(&p)
@@ -465,7 +465,7 @@ pub fn export_check_existing(
     let mut existing = Vec::new();
     for name in names {
         if !valid_artifact_name(&name) {
-            return Err(format!("invalid export name: {}", name));
+            return Err(format!("EXPORT_NAME_INVALID: {}", name));
         }
         if dir_path.join(&name).is_file() {
             existing.push(name);
@@ -490,6 +490,30 @@ pub struct ExportAudioCopy {
 pub struct ExportRunPdf {
     pub name: String,
     pub music_xml: String,
+}
+
+/// #384: every export error carries a stable `CODE:` prefix — the TS
+/// `mapInvokeError` reads the prefix to pick the right recovery
+/// surface; the rest of the message (context, path, OS error) stays
+/// for diagnostics and never reaches the dialog. `fallback` is the
+/// code used when the OS error isn't a known actionable cause.
+fn io_export_error(
+    context: &str,
+    path: &Path,
+    e: &std::io::Error,
+    fallback: &str,
+) -> String {
+    let code = match e.kind() {
+        std::io::ErrorKind::PermissionDenied => "PERMISSION_DENIED",
+        _ => match e.raw_os_error() {
+            // ENOSPC / ERROR_HANDLE_DISK_FULL / ERROR_DISK_FULL / EDQUOT.
+            Some(28) | Some(39) | Some(112) | Some(122) => "EXPORT_DISK_FULL",
+            // EPERM / EACCES / ERROR_ACCESS_DENIED / ERROR_WRITE_PROTECT / EROFS.
+            Some(1) | Some(13) | Some(5) | Some(19) | Some(30) => "PERMISSION_DENIED",
+            _ => fallback,
+        },
+    };
+    format!("{code}: {context} {}: {e}", path.display())
 }
 
 /// `export_run` — the transactional export (#258). Every artifact is
@@ -568,20 +592,20 @@ fn run_export(
     // must not leave a half-staged directory behind.
     for f in &files {
         if !valid_export_name(&f.name) {
-            return Err(format!("invalid export name: {}", f.name));
+            return Err(format!("EXPORT_NAME_INVALID: {}", f.name));
         }
     }
     for p in &pdfs {
         if !valid_export_name(&p.name) || !p.name.to_ascii_lowercase().ends_with(".pdf") {
-            return Err(format!("invalid export name: {}", p.name));
+            return Err(format!("EXPORT_NAME_INVALID: {}", p.name));
         }
     }
     if let Some(a) = &audio {
         if !valid_audio_name(&a.name) {
-            return Err(format!("invalid export name: {}", a.name));
+            return Err(format!("EXPORT_NAME_INVALID: {}", a.name));
         }
         if !PathBuf::from(&a.src).is_file() {
-            return Err(format!("source audio not found: {}", a.src));
+            return Err(format!("EXPORT_SOURCE_MISSING: {}", a.src));
         }
     }
     let exe = if pdfs.is_empty() {
@@ -594,7 +618,9 @@ fn run_export(
         }
         Some(exe)
     };
-    std::fs::create_dir_all(dir_path).map_err(|e| format!("create {}: {e}", dir_path.display()))?;
+    std::fs::create_dir_all(dir_path).map_err(|e| {
+        io_export_error("create", dir_path, &e, "EXPORT_DESTINATION_INVALID")
+    })?;
 
     let uniq = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -605,20 +631,29 @@ fn run_export(
     let result = (|| -> Result<Vec<String>, String> {
         check(handle)?;
         std::fs::create_dir_all(&staging)
-            .map_err(|e| format!("stage {}: {e}", staging.display()))?;
+            .map_err(|e| io_export_error("stage", &staging, &e, "EXPORT_WRITE_FAILED"))?;
         let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
         if let Some(a) = &audio {
             check(handle)?;
             let src = PathBuf::from(&a.src);
             let tmp = staging.join(&a.name);
-            std::fs::copy(&src, &tmp).map_err(|e| format!("copy {}: {e}", tmp.display()))?;
+            std::fs::copy(&src, &tmp).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    // The source existed at validation but vanished mid-run.
+                    format!("EXPORT_SOURCE_MISSING: {}", a.src)
+                } else {
+                    io_export_error("copy", &tmp, &e, "EXPORT_WRITE_FAILED")
+                }
+            })?;
             staged.push((tmp, dir_path.join(&a.name)));
         }
         for f in &files {
             check(handle)?;
-            let bytes = decode_base64(&f.data_base64).map_err(|e| format!("{}: {e}", f.name))?;
+            let bytes = decode_base64(&f.data_base64)
+                .map_err(|e| format!("EXPORT_INTERNAL: {}: {e}", f.name))?;
             let tmp = staging.join(&f.name);
-            std::fs::write(&tmp, &bytes).map_err(|e| format!("write {}: {e}", tmp.display()))?;
+            std::fs::write(&tmp, &bytes)
+                .map_err(|e| io_export_error("write", &tmp, &e, "EXPORT_WRITE_FAILED"))?;
             staged.push((tmp, dir_path.join(&f.name)));
         }
         if let Some(exe) = &exe {
@@ -626,7 +661,7 @@ fn run_export(
                 check(handle)?;
                 let tmp_xml = staging.join(format!("{}.musicxml", p.name));
                 std::fs::write(&tmp_xml, p.music_xml.as_bytes())
-                    .map_err(|e| format!("stage {}: {e}", tmp_xml.display()))?;
+                    .map_err(|e| io_export_error("stage", &tmp_xml, &e, "EXPORT_WRITE_FAILED"))?;
                 let tmp_pdf = staging.join(&p.name);
                 // #383: spawn + poll instead of blocking .status() —
                 // export_cancel flips the flag AND kills the child,
@@ -636,7 +671,9 @@ fn run_export(
                 match status {
                     Ok(s) if s.success() && tmp_pdf.is_file() => {}
                     Ok(s) => {
-                        return Err(format!("MuseScore exited with {s}"));
+                        return Err(format!(
+                            "EXPORT_MUSESCORE_RENDER_FAILED: MuseScore exited with {s}"
+                        ));
                     }
                     Err(e) => {
                         return Err(e);
@@ -658,7 +695,12 @@ fn run_export(
                 Ok(()) => {}
                 Err(_) => {
                     std::fs::copy(&tmp, &dest)
-                        .map_err(|e| format!("write {}: {e}", dest.display()))?;
+                        .map_err(|e| {
+                            // #384: a commit-phase failure can leave a
+                            // partial artifact set — a distinct code
+                            // keeps the dialog honest about that.
+                            format!("EXPORT_COMMIT_FAILED: write {}: {e}", dest.display())
+                        })?;
                     let _ = std::fs::remove_file(&tmp);
                 }
             }
@@ -690,12 +732,19 @@ fn wait_render(
         .spawn();
     let mut child = match spawned {
         Ok(c) => c,
-        Err(e) => return Err(format!("spawn {}: {e}", exe.display())),
+        Err(e) => {
+            return Err(format!(
+                "EXPORT_MUSESCORE_RENDER_FAILED: spawn {}: {e}",
+                exe.display()
+            ))
+        }
     };
     let Some(h) = handle else {
         return child
             .wait()
-            .map_err(|e| format!("wait {}: {e}", exe.display()));
+            .map_err(|e| {
+                format!("EXPORT_MUSESCORE_RENDER_FAILED: wait {}: {e}", exe.display())
+            });
     };
     {
         let mut slot = h.child.lock().unwrap_or_else(|e| e.into_inner());
@@ -719,7 +768,10 @@ fn wait_render(
                     Ok(s) => s,
                     Err(e) => {
                         drop(slot);
-                        return Err(format!("wait {}: {e}", exe.display()));
+                        return Err(format!(
+                            "EXPORT_MUSESCORE_RENDER_FAILED: wait {}: {e}",
+                            exe.display()
+                        ));
                     }
                 },
                 // export_cancel already took+killed the child.

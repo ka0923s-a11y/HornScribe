@@ -123,7 +123,29 @@ export type ExportErrorCode =
   | "ENGINE_UNAVAILABLE"
   /** PDF was requested without a usable MuseScore. */
   | "MUSESCORE_UNAVAILABLE"
-  /** Anything else — generic failure with retry/choose-destination. */
+  /** No space left on the staging or destination device. */
+  | "EXPORT_DISK_FULL"
+  /** The source-audio file for the bundle vanished/moved. */
+  | "EXPORT_SOURCE_MISSING"
+  /** MuseScore ran (or failed to spawn) but the render did not
+   *  succeed — distinct from the binary being absent. */
+  | "EXPORT_MUSESCORE_RENDER_FAILED"
+  /** Destination path does not exist or is not a usable directory. */
+  | "EXPORT_DESTINATION_INVALID"
+  /** A staged write/copy failed for a non-permission, non-space
+   *  reason — nothing reached the destination. */
+  | "EXPORT_WRITE_FAILED"
+  /** The commit loop failed mid-way — a partial artifact set may
+   *  exist in the destination (the dialog says so honestly). */
+  | "EXPORT_COMMIT_FAILED"
+  /** An artifact name failed Rust-side validation — a client-side
+   *  generation bug, not something the user can fix. */
+  | "EXPORT_NAME_INVALID"
+  /** The rename loop found no free stem (999 collisions). */
+  | "EXPORT_NAME_EXHAUSTED"
+  /** Client-side/precondition failure (bad payload, no document). */
+  | "EXPORT_INTERNAL"
+  /** Anything else — generic failure with retry/diagnostics. */
   | "EXPORT_FAILED"
   /** #231: the user cancelled at the collision prompt — resolved
    *  quietly, not an error surface. */

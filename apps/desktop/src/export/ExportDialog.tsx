@@ -16,17 +16,59 @@ import {
   pdfBlocked,
   EXPORT_FORMAT_GROUPS,
   type ExportCapabilities,
+  type ExportErrorCode,
   type ExportFormatId,
   type ExportResult,
 } from "./types";
 
 type Phase = "loading" | "form" | "running" | "collision" | "done" | "error";
-type ErrorKind = "permission" | "unavailable" | "musescore" | "failed";
+type ErrorKind =
+  | "permission"
+  | "unavailable"
+  | "musescore"
+  | "renderFailed"
+  | "diskFull"
+  | "destinationInvalid"
+  | "sourceMissing"
+  | "writeFailed"
+  | "commitFailed"
+  | "internal"
+  | "nameExhausted"
+  | "failed";
+
+/** #384: every stable code lands on a recovery surface whose actions
+ *  match the actual cause — a generic failure never offers
+ *  "保存先を選び直す" (§20 error-recovery contract). */
+const KIND_BY_CODE: Record<ExportErrorCode, ErrorKind> = {
+  PERMISSION_DENIED: "permission",
+  ENGINE_UNAVAILABLE: "unavailable",
+  MUSESCORE_UNAVAILABLE: "musescore",
+  EXPORT_DISK_FULL: "diskFull",
+  EXPORT_SOURCE_MISSING: "sourceMissing",
+  EXPORT_MUSESCORE_RENDER_FAILED: "renderFailed",
+  EXPORT_DESTINATION_INVALID: "destinationInvalid",
+  EXPORT_WRITE_FAILED: "writeFailed",
+  EXPORT_COMMIT_FAILED: "commitFailed",
+  EXPORT_NAME_INVALID: "internal",
+  EXPORT_NAME_EXHAUSTED: "nameExhausted",
+  EXPORT_INTERNAL: "internal",
+  EXPORT_FAILED: "failed",
+  // Cancelled is handled before the lookup — never an error surface.
+  EXPORT_CANCELLED: "failed",
+};
 
 const ERROR_TITLE: Record<ErrorKind, string> = {
   permission: ja.errors.exportPermissionDenied.title,
   unavailable: ja.errors.engineUnavailable.title,
   musescore: ja.errors.musescoreMissing.title,
+  renderFailed: ja.errors.exportRenderFailed.title,
+  diskFull: ja.errors.exportDiskFull.title,
+  destinationInvalid: ja.errors.exportDestinationInvalid.title,
+  sourceMissing: ja.errors.exportSourceMissing.title,
+  writeFailed: ja.errors.exportWriteFailed.title,
+  commitFailed: ja.errors.exportCommitFailed.title,
+  internal: ja.errors.exportInternal.title,
+  nameExhausted: ja.errors.exportNameExhausted.title,
   failed: ja.errors.exportFailed.title,
 };
 
@@ -34,7 +76,65 @@ const ERROR_BODY: Record<ErrorKind, string> = {
   permission: ja.errors.exportPermissionDenied.body,
   unavailable: ja.errors.engineUnavailable.body,
   musescore: ja.errors.musescoreMissing.body,
+  renderFailed: ja.errors.exportRenderFailed.body,
+  diskFull: ja.errors.exportDiskFull.body,
+  destinationInvalid: ja.errors.exportDestinationInvalid.body,
+  sourceMissing: ja.errors.exportSourceMissing.body,
+  writeFailed: ja.errors.exportWriteFailed.body,
+  commitFailed: ja.errors.exportCommitFailed.body,
+  internal: ja.errors.exportInternal.body,
+  nameExhausted: ja.errors.exportNameExhausted.body,
   failed: ja.errors.exportFailed.body,
+};
+
+/** Recovery actions per error kind — the first entry is the
+ *  recommended (primary) path; every kind still gets 閉じる. */
+type ErrorAction =
+  | "chooseDestination"
+  | "backToForm"
+  | "retry"
+  | "specifyMusescore"
+  | "diagnostics";
+
+const ERROR_ACTIONS: Record<ErrorKind, readonly ErrorAction[]> = {
+  permission: ["chooseDestination"],
+  destinationInvalid: ["chooseDestination"],
+  diskFull: ["chooseDestination", "retry"],
+  writeFailed: ["chooseDestination", "retry"],
+  sourceMissing: ["backToForm"],
+  nameExhausted: ["backToForm"],
+  musescore: ["specifyMusescore"],
+  renderFailed: ["retry", "diagnostics"],
+  commitFailed: ["retry", "chooseDestination"],
+  internal: ["retry", "diagnostics"],
+  unavailable: ["diagnostics"],
+  failed: ["retry", "diagnostics"],
+};
+
+const ERROR_ACTION_LABEL: Record<ErrorAction, string> = {
+  chooseDestination: ja.errors.exportPermissionDenied.actions.chooseDestination,
+  backToForm: ja.errors.exportShared.backToForm,
+  retry: ja.errors.exportFailed.actions.retry,
+  specifyMusescore: ja.errors.musescoreMissing.actions.specifyMusescore,
+  diagnostics: ja.errors.engineUnavailable.actions.diagnostics,
+};
+
+/** §20 何が保持されているか — the staging guarantee (#258) means a
+ *  pre-commit failure leaves the destination untouched; a commit
+ *  failure may leave a partial set. Unknown-phase failures make no
+ *  claim at all. */
+const ERROR_KEPT: Partial<Record<ErrorKind, string>> = {
+  permission: ja.errors.exportShared.kept,
+  unavailable: ja.errors.exportShared.kept,
+  musescore: ja.errors.exportShared.kept,
+  renderFailed: ja.errors.exportShared.kept,
+  diskFull: ja.errors.exportShared.kept,
+  destinationInvalid: ja.errors.exportShared.kept,
+  sourceMissing: ja.errors.exportShared.kept,
+  writeFailed: ja.errors.exportShared.kept,
+  internal: ja.errors.exportShared.kept,
+  nameExhausted: ja.errors.exportShared.kept,
+  commitFailed: ja.errors.exportShared.keptPartial,
 };
 
 /**
@@ -111,7 +211,6 @@ export function ExportDialog({
   const abortRef = useRef<AbortController | null>(null);
 
   const e = ja.exportSheet;
-  const errs = ja.errors;
 
   // Probe capabilities + destination when the dialog opens.
   useEffect(() => {
@@ -138,11 +237,10 @@ export function ExportDialog({
         setPhase("form");
       } catch (err) {
         if (cancelled || generation.current !== gen) return;
-        setErrorKind(
-          exportErrorCode(err) === "ENGINE_UNAVAILABLE"
-            ? "unavailable"
-            : "failed",
-        );
+        // #384: probe failures land on the matching surface too — a
+        // permission-denied probe result offers destination advice,
+        // not just the engine-down page.
+        setErrorKind(KIND_BY_CODE[exportErrorCode(err)]);
         setPhase("error");
       }
     })();
@@ -249,15 +347,7 @@ export function ExportDialog({
         setPhase("form");
         return;
       }
-      setErrorKind(
-        code === "PERMISSION_DENIED"
-          ? "permission"
-          : code === "ENGINE_UNAVAILABLE"
-            ? "unavailable"
-            : code === "MUSESCORE_UNAVAILABLE"
-              ? "musescore"
-              : "failed",
-      );
+      setErrorKind(KIND_BY_CODE[code]);
       setPhase("error");
     } finally {
       abortRef.current = null;
@@ -393,35 +483,58 @@ export function ExportDialog({
           </>
         ) : phase === "error" ? (
           <>
-            {errorKind === "permission" || errorKind === "failed" ? (
-              <HsButton onClick={() => setPhase("form")}>
-                {errs.exportPermissionDenied.actions.chooseDestination}
-              </HsButton>
-            ) : null}
-            {errorKind === "failed" ? (
-              <HsButton onClick={() => void submit()}>
-                {errs.exportFailed.actions.retry}
-              </HsButton>
-            ) : null}
-            {errorKind === "musescore" ? (
-              <HsButton
-                variant="primary"
-                onClick={goToMuseScoreSettings}
-              >
-                {errs.musescoreMissing.actions.specifyMusescore}
-              </HsButton>
-            ) : null}
-            {errorKind === "unavailable" ? (
-              <HsButton
-                variant="primary"
-                onClick={() => {
-                  close();
-                  onOpenDiagnostics();
-                }}
-              >
-                {errs.engineUnavailable.actions.diagnostics}
-              </HsButton>
-            ) : null}
+            {ERROR_ACTIONS[errorKind].map((action, i) => {
+              const variant = i === 0 ? "primary" : undefined;
+              switch (action) {
+                case "chooseDestination":
+                case "backToForm":
+                  // Both land on the form — destination picker,
+                  // basename field and the 音源同梱 checkbox all live
+                  // there; the label names the relevant fix.
+                  return (
+                    <HsButton
+                      key={action}
+                      variant={variant}
+                      onClick={() => setPhase("form")}
+                    >
+                      {ERROR_ACTION_LABEL[action]}
+                    </HsButton>
+                  );
+                case "retry":
+                  return (
+                    <HsButton
+                      key={action}
+                      variant={variant}
+                      onClick={() => void submit()}
+                    >
+                      {ERROR_ACTION_LABEL[action]}
+                    </HsButton>
+                  );
+                case "specifyMusescore":
+                  return (
+                    <HsButton
+                      key={action}
+                      variant={variant}
+                      onClick={goToMuseScoreSettings}
+                    >
+                      {ERROR_ACTION_LABEL[action]}
+                    </HsButton>
+                  );
+                case "diagnostics":
+                  return (
+                    <HsButton
+                      key={action}
+                      variant={variant}
+                      onClick={() => {
+                        close();
+                        onOpenDiagnostics();
+                      }}
+                    >
+                      {ERROR_ACTION_LABEL[action]}
+                    </HsButton>
+                  );
+              }
+            })}
             <HsButton onClick={close}>{ja.common.close}</HsButton>
           </>
         ) : undefined
@@ -546,6 +659,11 @@ export function ExportDialog({
             />
             <span>{ERROR_BODY[errorKind]}</span>
           </p>
+          {ERROR_KEPT[errorKind] ? (
+            <p className="hs-export__note" role="note">
+              <span>{ERROR_KEPT[errorKind]}</span>
+            </p>
+          ) : null}
         </div>
       )}
     </HsDialog>

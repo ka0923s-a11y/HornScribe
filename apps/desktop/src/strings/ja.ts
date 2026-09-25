@@ -1086,6 +1086,78 @@ export const ja = {
         chooseDestination: "別の保存先を選ぶ",
       },
     },
+    /* ---- #384: cause-specific export failures — each entry feeds
+       one ErrorKind in ExportDialog so the recovery action matches
+       the actual cause. exportShared.kept* states 何が保持されたか
+       (§20 contract); the staging model (#258) guarantees no partial
+       artifacts until the commit loop. ---- */
+    exportShared: {
+      backToForm: "書き出し設定に戻る",
+      kept: "書き出しは完了していません。保存先の既存ファイルは変更されていません。",
+      keptPartial:
+        "保存の途中で失敗したため、一部のファイルが保存先に残っている可能性があります。不要であれば削除してから再度書き出してください。",
+    },
+    exportDiskFull: {
+      title: "空き容量が不足しています",
+      body: "保存先または作業用ドライブの空き容量が足りず、ファイルを書き込めませんでした。空き容量を確保するか、別の保存先を選んでください。",
+      actions: {
+        chooseDestination: "別の保存先を選ぶ",
+        retry: "再試行",
+      },
+    },
+    exportDestinationInvalid: {
+      title: "保存先を利用できません",
+      body: "選択した保存先が存在しないか、フォルダとして使用できません。別の保存先を選んでください。",
+      actions: {
+        chooseDestination: "別の保存先を選ぶ",
+      },
+    },
+    exportSourceMissing: {
+      title: "元の音源が見つかりません",
+      body: "同梱する音源ファイルが移動または削除されています。音源の同梱をオフにして書き出すか、読み込み画面で音源を再リンクしてください。",
+      actions: {
+        backToForm: "書き出し設定に戻る",
+      },
+    },
+    exportRenderFailed: {
+      title: "PDFの変換に失敗しました",
+      body: "MuseScoreによるPDF変換が正常に終了しませんでした。MusicXMLとMIDIには影響ありません。再試行するか、診断情報でMuseScoreの状態を確認してください。",
+      actions: {
+        retry: "再試行",
+        diagnostics: "診断情報",
+      },
+    },
+    exportWriteFailed: {
+      title: "ファイルを書き込めませんでした",
+      body: "書き出し用ファイルの作成に失敗しました。別の保存先を選ぶか、再試行してください。",
+      actions: {
+        retry: "再試行",
+        chooseDestination: "別の保存先を選ぶ",
+      },
+    },
+    exportCommitFailed: {
+      title: "保存の途中で失敗しました",
+      body: "ファイルを保存先へ移す途中でエラーが発生しました。保存先の空き容量と権限を確認して、もう一度書き出してください。",
+      actions: {
+        retry: "再試行",
+        chooseDestination: "別の保存先を選ぶ",
+      },
+    },
+    exportInternal: {
+      title: "予期しないエラーが発生しました",
+      body: "書き出し処理で予期しないエラーが発生しました。再試行しても解決しない場合は、診断情報を確認してください。",
+      actions: {
+        retry: "再試行",
+        diagnostics: "診断情報",
+      },
+    },
+    exportNameExhausted: {
+      title: "ファイル名を決定できませんでした",
+      body: "同名のファイルが多数あるため、空いている名前を付けられませんでした。書き出し名を変更するか、別の保存先を選んでください。",
+      actions: {
+        backToForm: "書き出し設定に戻る",
+      },
+    },
   },
 
   /** 診断情報 (GUI_UX_SPEC §19) — セッションが正直に報告できる範囲のみ。

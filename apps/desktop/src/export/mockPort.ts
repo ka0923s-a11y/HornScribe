@@ -57,6 +57,15 @@ const DEV_FAILURE_CODES: Record<string, ExportErrorCode> = {
   permission: "PERMISSION_DENIED",
   engine: "ENGINE_UNAVAILABLE",
   musescore: "MUSESCORE_UNAVAILABLE",
+  renderFailed: "EXPORT_MUSESCORE_RENDER_FAILED",
+  diskFull: "EXPORT_DISK_FULL",
+  destinationInvalid: "EXPORT_DESTINATION_INVALID",
+  sourceMissing: "EXPORT_SOURCE_MISSING",
+  writeFailed: "EXPORT_WRITE_FAILED",
+  commitFailed: "EXPORT_COMMIT_FAILED",
+  nameExhausted: "EXPORT_NAME_EXHAUSTED",
+  nameInvalid: "EXPORT_NAME_INVALID",
+  internal: "EXPORT_INTERNAL",
   failed: "EXPORT_FAILED",
 };
 

@@ -22,6 +22,7 @@ import { buildMidiFile } from "./midi";
 import {
   ExportError,
   type ExportCapabilities,
+  type ExportErrorCode,
   type ExportFormatId,
   type ExportPort,
   type ExportRequest,
@@ -96,17 +97,33 @@ function audioExtOf(name: string | null): string {
 
 function mapInvokeError(err: unknown): ExportError {
   const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes("PERMISSION_DENIED")) {
-    return new ExportError("PERMISSION_DENIED", msg);
-  }
-  if (msg.includes("MUSESCORE_UNAVAILABLE")) {
-    return new ExportError("MUSESCORE_UNAVAILABLE", msg);
-  }
-  if (msg.includes("EXPORT_CANCELLED")) {
-    return new ExportError("EXPORT_CANCELLED", msg);
-  }
-  return new ExportError("EXPORT_FAILED", msg);
+  // #384: Rust errors arrive as `CODE` or `CODE: detail` — the token
+  // before the first colon is the stable UI-facing code; anything
+  // after stays in the message for diagnostics and never reaches the
+  // dialog. Unknown/untagged failures collapse to EXPORT_FAILED.
+  const head = msg.trimStart().split(":", 1)[0]?.trim() ?? "";
+  const code = INVOKE_ERROR_CODES.find((c) => c === head);
+  return new ExportError(code ?? "EXPORT_FAILED", msg);
 }
+
+/** Codes the Rust export commands may emit — prefix-matched by
+ *  mapInvokeError (#384). */
+const INVOKE_ERROR_CODES: readonly ExportErrorCode[] = [
+  "PERMISSION_DENIED",
+  "ENGINE_UNAVAILABLE",
+  "MUSESCORE_UNAVAILABLE",
+  "EXPORT_DISK_FULL",
+  "EXPORT_SOURCE_MISSING",
+  "EXPORT_MUSESCORE_RENDER_FAILED",
+  "EXPORT_DESTINATION_INVALID",
+  "EXPORT_WRITE_FAILED",
+  "EXPORT_COMMIT_FAILED",
+  "EXPORT_NAME_INVALID",
+  "EXPORT_NAME_EXHAUSTED",
+  "EXPORT_INTERNAL",
+  "EXPORT_CANCELLED",
+  "EXPORT_FAILED",
+];
 
 export class TauriExportPort implements ExportPort {
   /** Last tool-path overrides seen by capabilities() — reused by the
@@ -192,7 +209,9 @@ export class TauriExportPort implements ExportPort {
     throwIfAborted();
     const source = this.source();
     if (!source?.doc) {
-      throw new ExportError("EXPORT_FAILED", "no score document to export");
+      // #384: a missing document is a client-side precondition bug —
+      // the dialog offers retry/diagnostics, not destination advice.
+      throw new ExportError("EXPORT_INTERNAL", "no score document to export");
     }
     const basename = sanitizeBasename(
       request.basename?.trim() || source.basename || source.doc.meta.title,
@@ -253,7 +272,7 @@ export class TauriExportPort implements ExportPort {
         if (existing.length > 0) {
           // Pathological: 999 stems taken — refuse rather than
           // silently overwriting after the user chose rename.
-          throw new ExportError("EXPORT_FAILED", "no free export name");
+          throw new ExportError("EXPORT_NAME_EXHAUSTED", "no free export name");
         }
       }
     }
@@ -376,7 +395,7 @@ export class TauriExportPort implements ExportPort {
   ): Promise<string> {
     const source = this.source();
     if (!source?.doc) {
-      throw new ExportError("EXPORT_FAILED", "no score document to open");
+      throw new ExportError("EXPORT_INTERNAL", "no score document to open");
     }
     const caps = await this.capabilities(overrides ?? this.overrides);
     const exe = caps.museScore.status === "found" ? caps.museScore.path : null;
