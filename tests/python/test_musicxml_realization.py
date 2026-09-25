@@ -37,6 +37,7 @@ from hornscribe.export.musicxml import (
     export_horn_in_f_musicxml,
     iter_exported_notes,
     read_exported_rhythm,
+    verify_horn_f_projection,
     verify_rhythm_roundtrip,
 )
 from hornscribe.rhythm import normalize_to_score_time, quantize_events
@@ -73,6 +74,88 @@ def test_rhythm_roundtrip_concert_and_horn(make: Callable[[], RhythmFixture]) ->
     doc = _doc_for(make())
     assert verify_rhythm_roundtrip(doc, export_concert_musicxml(doc)) == []
     assert verify_rhythm_roundtrip(doc, export_horn_in_f_musicxml(doc)) == []
+
+
+# --- Horn in F projection invariant (#370) ------------------------------------
+
+
+def _doc_with_key(fifths: int, mode: str = "major") -> ScoreDocument:
+    fixture = fx.rests_44()
+    alt = quantize_events(fixture.events, fixture.warp, fixture.meter_map)[0]
+    notes = normalize_to_score_time(fixture.events, fixture.warp)
+    return assemble_score_document(
+        alt,
+        notes,
+        fixture.meter_map,
+        bpm=fixture.bpm or 120.0,
+        fifths=fifths,
+        mode=mode,
+        title="key-projection",
+    )
+
+
+@pytest.mark.parametrize(
+    "make",
+    fx.ALL_FIXTURES,
+    ids=[m().name for m in fx.ALL_FIXTURES],
+)
+def test_horn_f_projection_clean_on_valid_export(
+    make: Callable[[], RhythmFixture]
+) -> None:
+    """Every written pitch + the declared -P5 transpose projects back to
+    the canonical sounding pitch, and the written key is the +1-fifth
+    projection of the canonical key."""
+    doc = _doc_for(make())
+    assert verify_horn_f_projection(doc, export_horn_in_f_musicxml(doc)) == []
+
+
+@pytest.mark.parametrize("fifths,mode", [(0, "major"), (-2, "major"), (3, "minor"), (7, "major")])
+def test_horn_f_projection_key_signatures(fifths: int, mode: str) -> None:
+    """Written key = canonical +1 fifth, enharmonically folded — the
+    concert +7 (C#) -> written -4 (Ab) case from #257 included."""
+    doc = _doc_with_key(fifths, mode)
+    assert verify_horn_f_projection(doc, export_horn_in_f_musicxml(doc)) == []
+
+
+def test_horn_f_projection_catches_pitch_corruption() -> None:
+    """A written pitch shifted a semitone no longer projects to the
+    canonical sounding pitch — the check sees what rhythm cannot."""
+    doc = _doc_for(fx.rests_44())
+    root = ET.fromstring(export_horn_in_f_musicxml(doc))
+    step = root.find(".//part/measure/note/pitch/step")
+    assert step is not None and step.text is not None
+    step.text = "D" if step.text != "D" else "E"
+    broken = ET.tostring(root, encoding="unicode")
+    problems = verify_horn_f_projection(doc, broken)
+    assert any("sounding midi" in p for p in problems)
+
+
+def test_horn_f_projection_catches_broken_transpose() -> None:
+    """Dropping the -P5 declaration makes written read as sounding."""
+    doc = _doc_for(fx.rests_44())
+    root = ET.fromstring(export_horn_in_f_musicxml(doc))
+    chromatic = root.find(".//transpose/chromatic")
+    assert chromatic is not None
+    chromatic.text = "0"
+    broken = ET.tostring(root, encoding="unicode")
+    problems = verify_horn_f_projection(doc, broken)
+    assert any("transpose" in p for p in problems)
+    assert any("sounding midi" in p for p in problems)
+
+
+def test_horn_f_projection_catches_key_corruption() -> None:
+    """Concert Bb (-2) writes as F major (-1) — a signature that
+    contradicts it must surface."""
+    doc = _doc_with_key(-2)
+    xml = export_horn_in_f_musicxml(doc)
+    assert verify_horn_f_projection(doc, xml) == []
+    root = ET.fromstring(xml)
+    fifths = root.find(".//key/fifths")
+    assert fifths is not None
+    fifths.text = "-3"
+    broken = ET.tostring(root, encoding="unicode")
+    problems = verify_horn_f_projection(doc, broken)
+    assert any("key fifths" in p for p in problems)
 
 
 # --- canonical score bridge ----------------------------------------------------

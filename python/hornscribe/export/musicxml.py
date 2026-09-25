@@ -759,3 +759,109 @@ def verify_rhythm_roundtrip(
                     f"{el.onset_beats} lacks incoming tie"
                 )
     return problems
+
+
+def verify_horn_f_projection(
+    score: ScoreDocument, xml_text: str, part_index: int = 0
+) -> list[str]:
+    """Verify the Horn in F presentation invariant (#370).
+
+    ``horn_in_f.musicxml`` is the product's main artifact, not a
+    decorative second output. For every pitched ``<note>`` carrying a
+    canonical id, ``written + <transpose> chromatic`` must project back
+    to the canonical sounding ``pitch_midi``; the part must declare the
+    Horn in F ``<transpose>`` (-P5); and every measure's effective key
+    signature must equal the canonical key through the same +1-fifth
+    projection (``horn_f.written_key_signature``, the #257 policy that
+    keeps signature and note spelling in agreement).
+
+    Returns human-readable mismatch strings (empty = clean).
+    """
+    payload = score.payload
+    if part_index >= len(payload.parts):
+        raise ExportError(f"part_index {part_index} out of range")
+    root = ET.fromstring(xml_text)
+    if root.tag != "score-partwise":
+        raise ExportError(f"expected score-partwise root, got {root.tag!r}")
+    part_els = root.findall("part")
+    problems: list[str] = []
+    if len(part_els) != len(payload.parts):
+        problems.append(
+            f"part count {len(part_els)} != expected {len(payload.parts)}"
+        )
+        return problems
+    part_el = part_els[part_index]
+    part_id = part_el.get("id") or f"part {part_index + 1}"
+
+    # 1. The written -> sounding declaration itself: without -P5 a
+    # reader plays written pitch as sounding (a fifth too high).
+    transpose = _first_transpose(part_el)
+    expected_transpose = (
+        str(horn_f.HORN_F_WRITTEN_TO_SOUNDING_DIATONIC),
+        str(horn_f.HORN_F_WRITTEN_TO_SOUNDING_CHROMATIC),
+    )
+    actual_transpose = (
+        (transpose.findtext("diatonic"), transpose.findtext("chromatic"))
+        if transpose is not None
+        else (None, None)
+    )
+    if actual_transpose != expected_transpose:
+        problems.append(
+            f"{part_id}: transpose {actual_transpose} != expected "
+            f"{expected_transpose} (Horn in F written->sounding)"
+        )
+
+    # 2. Per-note sounding projection: written + chromatic must land on
+    # the canonical pitch — catches transposed-wrong, dropped-octave and
+    # respelled-to-wrong-semitone corruption the rhythm check cannot see.
+    canonical_pitch = {
+        note.id: note.pitch_midi for p in payload.parts for note in p.notes
+    }
+    for note in iter_exported_notes(xml_text):
+        if note.part_id != part_id:
+            continue
+        if note.canonical_id is None or note.written_midi is None:
+            continue  # rest
+        expected_midi = canonical_pitch.get(note.canonical_id)
+        if expected_midi is None:
+            problems.append(f"{part_id} {note.export_id}: no canonical note")
+        elif note.sounding_midi != expected_midi:
+            problems.append(
+                f"{part_id} {note.export_id}: sounding midi "
+                f"{note.sounding_midi} != canonical {expected_midi}"
+            )
+
+    # 3. Key signatures: written key = canonical key +1 fifth (folded),
+    # the same projection the note spelling used — a mismatch makes
+    # printed accidentals contradict the signature.
+    spans = measure_spans(payload)
+    measures = part_el.findall("measure")
+    inherited: tuple[int | None, str | None] = (None, None)
+    key_changes = sorted(payload.key_changes, key=lambda k: k.start_beat)
+    for i, (m_el, span) in enumerate(zip(measures, spans, strict=False)):
+        key_el = m_el.find("attributes/key")
+        if key_el is not None:
+            fifths_text = key_el.findtext("fifths")
+            inherited = (
+                int(fifths_text) if fifths_text is not None else None,
+                key_el.findtext("mode"),
+            )
+        concert_key = payload.key_signature
+        for change in key_changes:
+            if change.start_beat <= span.start_beat:
+                concert_key = change.key_signature
+            else:
+                break
+        expected_key = horn_f.written_key_signature(concert_key)
+        if inherited[0] != expected_key.fifths:
+            problems.append(
+                f"{part_id} measure {m_el.get('number') or i}: key fifths "
+                f"{inherited[0]} != expected written {expected_key.fifths} "
+                f"(concert {concert_key.fifths})"
+            )
+        if inherited[1] is not None and inherited[1] != expected_key.mode:
+            problems.append(
+                f"{part_id} measure {m_el.get('number') or i}: key mode "
+                f"{inherited[1]!r} != expected {expected_key.mode!r}"
+            )
+    return problems

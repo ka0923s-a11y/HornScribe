@@ -1215,6 +1215,7 @@ def run_transcription_job(
         # MusicXML back and compare committed rhythm per part (multi-
         # voice scores verify every part, not just the first).
         from hornscribe.export.musicxml import (  # noqa: PLC0415
+            verify_horn_f_projection,
             verify_rhythm_roundtrip,
         )
         rhythm_problems = [
@@ -1222,6 +1223,25 @@ def run_transcription_job(
             for pi in range(len(payload.parts))
             for p in verify_rhythm_roundtrip(
                 document, musicxml_concert, part_index=pi
+            )
+        ]
+        # #370: the Horn in F file is the product's main artifact — it
+        # gets the same structural round-trip plus the written->sounding
+        # projection invariant (transpose block, per-note pitch
+        # recovery, written key = canonical key +1 fifth). Corruption
+        # that parses but transposes wrong used to ship silently.
+        rhythm_problems += [
+            f"hornF part {pi}: {p}"
+            for pi in range(len(payload.parts))
+            for p in verify_rhythm_roundtrip(
+                document, musicxml_horn, part_index=pi
+            )
+        ]
+        rhythm_problems += [
+            f"hornF part {pi}: {p}"
+            for pi in range(len(payload.parts))
+            for p in verify_horn_f_projection(
+                document, musicxml_horn, part_index=pi
             )
         ]
         if rhythm_problems:
