@@ -238,6 +238,50 @@ function inspectorCopy(): InspectorCopy {
             return ja.reviewEvidence.swingFeel(offbeats, swing);
           }
         }
+        // #352: name the estimated key plus every reason it is
+        // unsure — the engine's `details` flags decide which clauses
+        // the copy shows (few notes / low confidence / a close
+        // runner-up / ambiguous mid-piece measures).
+        if (issue.reason === "key_uncertain") {
+          const fifths = numEvidence(issue, "keyFifths");
+          const mode = issue.evidence["keyMode"];
+          if (fifths != null) {
+            const details = issue.evidence["details"];
+            const runnerFifths = numEvidence(issue, "runnerUpFifths");
+            const runnerMode = issue.evidence["runnerUpMode"];
+            const margin = numEvidence(issue, "keyMargin");
+            const conf = numEvidence(issue, "keyConfidence");
+            const segs = issue.evidence["uncertainSegments"];
+            return ja.reviewEvidence.keyUncertain({
+              details: Array.isArray(details)
+                ? details.filter(
+                    (d): d is string => typeof d === "string",
+                  )
+                : [],
+              estimated: keyLabelJa(
+                fifths,
+                mode === "minor" ? "minor" : "major",
+              ),
+              confidencePct:
+                conf != null ? Math.round(conf * 100) : null,
+              noteCount: numEvidence(issue, "noteCount") ?? 0,
+              runnerUp:
+                runnerFifths != null
+                  ? keyLabelJa(
+                      runnerFifths,
+                      runnerMode === "minor" ? "minor" : "major",
+                    )
+                  : null,
+              marginPct:
+                margin != null ? Math.round(margin * 100) : null,
+              uncertainMeasures: Array.isArray(segs)
+                ? segs.filter(
+                    (s): s is number => typeof s === "number",
+                  )
+                : [],
+            });
+          }
+        }
         // #322: isolation was skipped because voices/chords keep the
         // overlapping lines — say so instead of the generic mono/
         // decode-failure copy.

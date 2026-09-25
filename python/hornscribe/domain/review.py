@@ -54,6 +54,13 @@ class ReviewReason(Enum):
     # isolation — stripping the accompaniment would defeat the
     # multi-voice request (evidence.detail = "polyphonic_texture").
     VOCAL_ISOLATION_UNAVAILABLE = "vocal_isolation_unavailable"
+    # #352: the auto-estimated key could not be justified — low
+    # absolute correlation, a runner-up that explains the notes almost
+    # as well (relative major/minor pairs land here), too little
+    # material, or an ambiguous mid-piece segment. Evidence carries the
+    # estimate, runner-up + margin, and per-segment stats when the
+    # piece modulates — the remedy is the properties key editor.
+    KEY_UNCERTAIN = "key_uncertain"
 
 
 class Severity(Enum):

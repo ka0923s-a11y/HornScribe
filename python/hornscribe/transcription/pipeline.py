@@ -86,7 +86,7 @@ from .clean import (
     clip_to_range,
     split_voices,
 )
-from .key import estimate_key, estimate_key_segments
+from .key import analyze_key, key_uncertainty
 from .meter import estimate_meter
 from .options import TranscriptionParams
 from .scorebuild import build_score
@@ -848,18 +848,17 @@ def run_transcription_job(
         while pos <= last_onset:
             measure_starts.append(pos)
             pos += measure_len_ql / beat_ql
-        if len(measure_starts) >= 5:
-            key, key_changes, key_confidence = estimate_key_segments(
-                tuple(key_pitches),
-                tuple(key_onsets),
-                tuple(key_durations),
-                tuple(measure_starts),
-            )
-        else:
-            key, key_confidence = estimate_key(
-                tuple(key_pitches), tuple(key_durations)
-            )
-            key_changes = ()
+        # #352: one analysis produces the key map AND the uncertainty
+        # evidence — segmentation guards live inside analyze_key.
+        key_analysis = analyze_key(
+            tuple(key_pitches),
+            tuple(key_onsets),
+            tuple(key_durations),
+            tuple(measure_starts),
+        )
+        key = key_analysis.key
+        key_changes = key_analysis.changes
+        key_confidence = key_analysis.confidence
         tempo_map = tempo_map_from_estimate(estimate, meter)
         shift = best.diagnostics.alignment_shift_sec
         # #134 swing feel: census the normalized offbeat onsets — a
@@ -1022,6 +1021,22 @@ def run_transcription_job(
                         "estimatedMeter": f"{meter.numerator}/{meter.denominator}",
                         "meterConfidence": round(meter_confidence, 3),
                     },
+                )
+            )
+        # #352: a wrong key ripples into the signature, enharmonic
+        # spelling and the Horn-in-F transposition — never write a
+        # low-confidence or two-candidate estimate silently.
+        key_uncertain = key_uncertainty(key_analysis)
+        if key_uncertain is not None:
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=analysis_range,
+                    reason=ReviewReason.KEY_UNCERTAIN,
+                    severity=Severity.CAUTION,
+                    evidence=key_uncertain,
                 )
             )
         if voice_split is not None:

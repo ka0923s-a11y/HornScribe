@@ -176,6 +176,18 @@ describe("buildReviewAction", () => {
     expect(h.openProperties).toHaveBeenCalledOnce();
   });
 
+  it("#352: key uncertain opens the properties key editor", () => {
+    const h = handlers();
+    const a = buildReviewAction(
+      issue({ reason: "key_uncertain", canonicalNoteIds: [] }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.openKeyEditor);
+    expect(a?.tooltip).toBe(ja.review.openKeyEditorTip);
+    a?.run();
+    expect(h.openProperties).toHaveBeenCalledOnce();
+  });
+
   it("quantization ambiguous: applyAlternative op", () => {
     const applyEdit = vi.fn();
     const h = handlers({ applyEdit });

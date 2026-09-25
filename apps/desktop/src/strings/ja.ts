@@ -1411,6 +1411,13 @@ export const ja = {
       detail:
         "モノラル音源または読み込み失敗のため、元の音源のまま採譜しました。ステレオのミックス音源で有効です。",
     },
+    // #352: the auto-estimated key could not be justified — the
+    // evidence branch names the estimate and why it is unsure.
+    key_uncertain: {
+      title: "調を確認してください",
+      detail:
+        "推定された調を確定できません。プロパティの調エディタで確認・修正してください。",
+    },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
       detail: "音の開始位置が曖昧です。",
@@ -1474,6 +1481,47 @@ export const ja = {
      *  would defeat the multi-voice texture. */
     vocalIsolationPolyphonic:
       "複数声部・和音の採譜とボーカル分離は同時に使えません。重なった音を残すため、元の音源のまま採譜しました",
+    // #352: key-uncertainty evidence — names the estimate and each
+    // reason it is unsure (few notes / low confidence / a close
+    // runner-up / an ambiguous mid-piece span).
+    keyUncertain: (p: {
+      readonly details: readonly string[];
+      readonly estimated: string;
+      readonly confidencePct: number | null;
+      readonly noteCount: number;
+      readonly runnerUp: string | null;
+      readonly marginPct: number | null;
+      readonly uncertainMeasures: readonly number[];
+    }) => {
+      const clauses = [`推定は${p.estimated}です`];
+      if (p.details.includes("too_few_notes")) {
+        clauses.push(`材料は${p.noteCount}音のみで、調を確定できません`);
+      }
+      if (
+        p.details.includes("low_confidence") &&
+        p.confidencePct != null
+      ) {
+        clauses.push(`確信度が${p.confidencePct}%と低めです`);
+      }
+      if (
+        p.details.includes("close_candidates") &&
+        p.runnerUp != null &&
+        p.marginPct != null
+      ) {
+        clauses.push(
+          `次点の${p.runnerUp}との差が${p.marginPct}%しかありません`,
+        );
+      }
+      if (p.uncertainMeasures.length > 0) {
+        clauses.push(
+          `第${p.uncertainMeasures.join("・")}小節まわりの調も曖昧です`,
+        );
+      }
+      if (clauses.length === 1) {
+        clauses.push("元音源と聴き比べて確認してください");
+      }
+      return clauses.join("。") + "。";
+    },
   },
 
   /* #130 (§14): re-quantize dialog — change the quantization settings
@@ -1524,6 +1572,9 @@ export const ja = {
     /** #209: meter_conflict cannot auto-resolve — open the meter
      *  select in the properties panel instead. */
     openMeterEditor: "プロパティで拍子を変更",
+    /** #352: key_uncertain cannot auto-resolve — the key-map editor
+     *  in the properties panel is the remedy. */
+    openKeyEditor: "プロパティで調を変更",
     /** #208: swap in the runner-up notation for an ambiguous run. */
     applyAlternative: "別の解釈に切り替え",
     /** #212: rewrite the flagged beat as triplets. */
@@ -1540,6 +1591,8 @@ export const ja = {
       "検出されたテンポの誤りを修正します（音符の長さも連動して調整されます）",
     openMeterEditorTip:
       "プロパティパネルを開いて拍子を選び直します",
+    openKeyEditorTip:
+      "プロパティパネルを開いて調を選び直します",
     applyAlternativeTip:
       "エンジンが次点として残した音符配置に差し替えます",
     applyTripletTip:

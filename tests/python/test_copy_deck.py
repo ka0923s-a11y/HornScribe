@@ -80,6 +80,8 @@ HSQ_REVIEW_REASONS = {
     "pickup_ambiguous",
     "meter_conflict",
     "overlapping_candidates",
+    # #352: emitted by the engine — deck coverage is required.
+    "key_uncertain",
 }
 
 # JAPANESE_UI_COPY §5 internal stage names.

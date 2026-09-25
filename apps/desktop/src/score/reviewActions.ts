@@ -151,6 +151,17 @@ export function buildReviewAction(
     };
   }
 
+  // #352: key_uncertain cannot auto-resolve either - the engine's
+  // best candidate stays written; the remedy is the key-map editor
+  // in the properties panel.
+  if (issue.reason === "key_uncertain" && handlers.openProperties) {
+    return {
+      label: r.openKeyEditor,
+      tooltip: r.openKeyEditorTip,
+      run: () => handlers.openProperties?.(),
+    };
+  }
+
   // #208: ambiguous quantization -> swap in the runner-up spans.
   if (
     issue.reason === "quantization_ambiguous" &&

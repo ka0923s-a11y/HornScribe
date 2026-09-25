@@ -49,6 +49,8 @@ def test_all_master_plan_reasons_exist() -> None:
             # #187: vocal-isolation provenance reasons.
             "vocal_isolation_applied",
             "vocal_isolation_unavailable",
+            # #352: key-estimate uncertainty contract.
+            "key_uncertain",
         }
     assert {r.value for r in ReviewReason} == expected
 

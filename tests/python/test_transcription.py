@@ -21,7 +21,12 @@ import pytest
 from hornscribe.domain.events import PitchBendPoint, RawNoteEvent
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
 from hornscribe.transcription.clean import clean_monophonic, clip_to_range
-from hornscribe.transcription.key import estimate_key, estimate_key_segments
+from hornscribe.transcription.key import (
+    analyze_key,
+    estimate_key,
+    estimate_key_segments,
+    key_uncertainty,
+)
 from hornscribe.transcription.meter import estimate_meter
 from hornscribe.transcription.options import TranscriptionParams
 from hornscribe.transcription.pipeline import (
@@ -774,6 +779,120 @@ class TestKeySegments:
         assert changes == ()
         assert head.fifths == 0
         assert conf == 0.0
+
+
+class TestKeyUncertainty:
+    """#352: key estimates that cannot stand alone surface as review
+    evidence — never a silently written signature."""
+
+    def _analyze(
+        self,
+        notes: list[tuple[int, Fraction, Fraction]],
+        measure_len: Fraction = Fraction(4),
+    ):
+        pitches = tuple(p for p, _o, _d in notes)
+        onsets = tuple(o for _p, o, _d in notes)
+        durs = tuple(d for _p, _o, d in notes)
+        end = max((o + d for _p, o, d in notes), default=Fraction(0))
+        starts = [Fraction(0)]
+        pos = measure_len
+        while pos <= end:
+            starts.append(pos)
+            pos += measure_len
+        return analyze_key(pitches, onsets, durs, tuple(starts))
+
+    def test_ambiguous_relative_candidates_flagged(self) -> None:
+        # All white notes ending on G — two keys explain the material
+        # almost equally well, so the written signature must not be
+        # treated as settled.
+        a = self._analyze(
+            [
+                (p, Fraction(i), Fraction(1))
+                for i, p in enumerate((60, 62, 64, 65, 67, 69, 71, 67))
+            ]
+        )
+        ev = key_uncertainty(a)
+        assert ev is not None
+        assert "close_candidates" in ev["details"]
+        assert ev["runnerUpFifths"] is not None
+        assert ev["keyMargin"] is not None and ev["keyMargin"] < 0.06
+        assert ev["noteCount"] == 8
+
+    def test_clear_key_not_flagged(self) -> None:
+        a = self._analyze(
+            [
+                (p, Fraction(i), Fraction(1))
+                for i, p in enumerate((60, 62, 64, 65, 67, 69, 71, 72))
+            ]
+        )
+        assert key_uncertainty(a) is None
+
+    def test_short_material_flagged(self) -> None:
+        # Three notes correlate fine and still cannot carry a key.
+        a = self._analyze(
+            [
+                (p, Fraction(i), Fraction(1))
+                for i, p in enumerate((60, 64, 67))
+            ]
+        )
+        ev = key_uncertainty(a)
+        assert ev is not None
+        assert "too_few_notes" in ev["details"]
+
+    def test_empty_not_flagged(self) -> None:
+        assert key_uncertainty(self._analyze([])) is None
+
+    def test_uncertain_segment_identified(self) -> None:
+        # 8 bars C major + 8 bars F# major (a real modulation the DP
+        # splits) + 8 bars of drifting chromatic material the
+        # estimator cannot pin down.
+        notes: list[tuple[int, Fraction, Fraction]] = []
+        t = Fraction(0)
+        for pitches, measures in (
+            ((60, 62, 64, 65, 67, 69, 71, 72), 8),
+            ((66, 68, 70, 71, 73, 75, 77, 78), 8),
+            ((61, 62, 63, 64), 8),
+        ):
+            for i in range(measures * 4):
+                notes.append((pitches[i % len(pitches)], t + i, Fraction(1)))
+            t += measures * 4
+        a = self._analyze(notes)
+        ev = key_uncertainty(a)
+        assert ev is not None
+        assert ev["details"] == ["segment_uncertain"]
+        assert ev["uncertainSegments"] == [19]
+        flagged = [
+            s for s in ev["segments"] if s["uncertain"]
+        ]
+        assert len(flagged) == 1
+        assert flagged[0]["measure"] == 19
+
+    def test_pipeline_emits_key_uncertain_issue(
+        self, tmp_path: Path
+    ) -> None:
+        log = run(
+            tmp_path, make_events([60, 62, 64, 65, 67, 69, 71, 67])
+        )
+        assert log[-1]["phase"] == "completed"
+        key_issues = [
+            i
+            for i in log[-1]["result"]["reviewIssues"]
+            if i["reason"] == "key_uncertain"
+        ]
+        assert len(key_issues) == 1
+        ev = key_issues[0]["evidence"]
+        assert "close_candidates" in ev["details"]
+        assert ev["keyFifths"] is not None
+        # #352: the meta contract stays — same estimate, both places.
+        meta = log[-1]["result"]["meta"]
+        assert meta["keyConfidence"] == ev["keyConfidence"]
+
+    def test_pipeline_clear_key_no_issue(self, tmp_path: Path) -> None:
+        log = run(
+            tmp_path, make_events([60, 62, 64, 65, 67, 69, 71, 72])
+        )
+        reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
+        assert "key_uncertain" not in reasons
 
 
 class TestSwing:
@@ -1797,5 +1916,3 @@ class TestVocalPolyphonicConflict:
         assert any(
             i["reason"] == "vocal_isolation_applied" for i in issues
         )
-
-
