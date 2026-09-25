@@ -165,6 +165,34 @@ describe("buildProjectDocument", () => {
     });
     expect(docNoCanon!.scoreDocument).toEqual({ notes: [] });
   });
+
+  it("#360: persists still-deferred omitted issues verbatim", async () => {
+    const deferred = [
+      {
+        id: "ri-000061",
+        scoreRevision: "rev-0123456789abcdef",
+        canonicalNoteIds: ["sn-000001"],
+        reason: "low_model_confidence" as const,
+        severity: "warning" as const,
+        evidence: {},
+        status: "open" as const,
+      },
+    ];
+    const doc = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc({ deferredReviewIssues: () => deferred }),
+      result: RESULT,
+    });
+    expect(doc!.omittedReviewIssues).toBe(deferred);
+    // A document without the optional port method falls back to the
+    // job result's extras (older saves / fixture path).
+    const docOld = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc(),
+      result: { ...RESULT, omittedReviewIssues: deferred },
+    });
+    expect(docOld!.omittedReviewIssues).toBe(deferred);
+  });
 });
 
 describe("#222/#243: identity + source hash", () => {

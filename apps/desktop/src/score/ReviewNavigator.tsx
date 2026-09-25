@@ -27,6 +27,9 @@ export interface ReviewNavigatorProps {
   readonly activeIndex: number;
   /** #272: issues the surfacing cap omitted (footer note; 0 = hide). */
   readonly omitted?: number;
+  // #360: when the document carries the deferred issues, the footer
+  //  offers the one-click expansion into the live review list.
+  onExpandOmitted?(): void;
   readonly copy: ReviewCopy;
   onJump(index: number): void;
   onClose(): void;
@@ -54,6 +57,7 @@ export function ReviewNavigator({
   issues,
   activeIndex,
   omitted = 0,
+  onExpandOmitted,
   copy,
   onJump,
   onClose,
@@ -255,7 +259,19 @@ export function ReviewNavigator({
         </ul>
       )}
       {omitted > 0 && (
-        <p className="hs-reviewnav__omitted">{ja.review.omitted(omitted)}</p>
+        <p className="hs-reviewnav__omitted">
+          {onExpandOmitted ? (
+            <button
+              type="button"
+              className="hs-reviewnav__expand"
+              onClick={onExpandOmitted}
+            >
+              {ja.review.expandOmitted(omitted)}
+            </button>
+          ) : (
+            ja.review.omitted(omitted)
+          )}
+        </p>
       )}
     </div>
   );

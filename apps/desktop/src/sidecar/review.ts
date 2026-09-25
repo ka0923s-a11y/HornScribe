@@ -114,6 +114,18 @@ export function extractReviewIssues(result: unknown): ReviewIssuePayload[] {
   return raw.filter(isReviewIssuePayload);
 }
 
+/** #360: `result.omittedReviewIssues` — the cap-truncated tail the
+ *  engine now retains verbatim. Same payload shape as reviewIssues;
+ *  absent/invalid → empty list (older engines simply lack the field). */
+export function extractOmittedReviewIssues(
+  result: unknown,
+): ReviewIssuePayload[] {
+  if (typeof result !== "object" || result === null) return [];
+  const raw = (result as Record<string, unknown>).omittedReviewIssues;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isReviewIssuePayload);
+}
+
 /** `result.reviewIssues.length`, with `result.reviewIssueCount` as a
  *  compact alternative the engine may emit instead of the full list. */
 export function extractReviewIssueCount(result: unknown): number {

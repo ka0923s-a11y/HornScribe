@@ -1233,6 +1233,24 @@ body {
   white-space: nowrap;
   font-size: var(--hs-font-size-sm);
 }
+/* #360: the omitted counter doubles as the expand action — same
+ *  subdued size, but a dotted underline marks it as clickable (a
+ *  labelled text control, never color-only per §15). */
+.hs-score-reviewbar__omitted--action {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--hs-font-size-sm);
+  color: var(--hs-accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.hs-score-reviewbar__omitted--action:hover {
+  text-decoration-style: solid;
+}
 /* Text badge (§15: never color-only — a labelled glyph + dotted edge). */
 .hs-score-reviewbar__badge {
   border: 1px dashed var(--hs-review-ink);
@@ -1371,6 +1389,22 @@ body {
   color: var(--hs-text-secondary);
   border-top: 1px solid var(--hs-border-subtle);
   margin: 0;
+}
+/* #360: footer expand action — labelled text button matching the
+ *  review-bar treatment (dotted underline = clickable affordance). */
+.hs-reviewnav__expand {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--hs-accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.hs-reviewnav__expand:hover {
+  text-decoration-style: solid;
 }
 
 .hs-score-scroll {

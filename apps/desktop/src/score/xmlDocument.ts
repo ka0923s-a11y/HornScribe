@@ -33,6 +33,10 @@ export interface XmlScoreDocumentSources {
   readonly canonicalDocument?: unknown;
   /** #272: issues the engine detected but the surfacing cap omitted. */
   readonly omittedIssueCount?: number;
+  /** #360: the omitted issues themselves — retained for lazy
+   *  expansion into the review list (ids are stable, allocated at
+   *  detection time inside the engine). */
+  readonly omittedIssues?: readonly ScoreReviewIssue[];
 }
 
 export class XmlScoreDocument implements ScoreDocumentPort {
@@ -55,6 +59,18 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     string,
     Map<string, ReviewIssueStatus>
   >();
+  /** #360: cap-omitted issues still pending lazy expansion, keyed like
+   *  issuesByRevision so a content swap (score.edit undo pair) restores
+   *  the exact deferred set of each revision. */
+  private deferredIssues: readonly ScoreReviewIssue[];
+  private readonly deferredByRevision = new Map<
+    string,
+    readonly ScoreReviewIssue[]
+  >();
+  /* #360: the displayed omitted count is revision-bound too — it can
+   *  exceed the deferred list (older results carry a bare count), so
+   *  it is stashed separately rather than derived on every swap. */
+  private readonly omittedCountByRevision = new Map<string, number>();
   private readonly edits = new Map<string, ScoreNoteEdit>();
   private editCounter = 0;
   /** #224: canonical ids whose QuantizedNote carries deleted:true —
@@ -71,7 +87,19 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     this.canonicalDoc = src.canonicalDocument ?? null;
     this.canonicalDeletedIds = deletedIdsOf(this.canonicalDoc);
     this._meta = XmlScoreDocument.computeMeta(src.concertXml);
-    this._omittedIssueCount = src.omittedIssueCount ?? 0;
+    // #360: prefer the real deferred list's length — a result that
+    //  carries omittedReviewIssues but a stale meta count stays
+    //  consistent (older results carry only the count).
+    this.deferredIssues = src.omittedIssues ?? [];
+    this.deferredByRevision.set(src.revisionId, this.deferredIssues);
+    this._omittedIssueCount =
+      this.deferredIssues.length > 0
+        ? this.deferredIssues.length
+        : (src.omittedIssueCount ?? 0);
+    this.omittedCountByRevision.set(
+      src.revisionId,
+      this._omittedIssueCount,
+    );
     this._meta = {
       ...this._meta,
       tempoChanges: mergeTempoStarts(
@@ -139,6 +167,40 @@ export class XmlScoreDocument implements ScoreDocumentPort {
   recordReviewDecision(issueId: string, status: ReviewIssueStatus): void {
     this.decisions.set(issueId, status);
     this.editCounter += 1;
+  }
+
+  /* ---- #360: lazy expansion of cap-omitted issues ---- */
+
+  /** Issues the surfacing cap kept out of the live list, with any
+   *  recorded decisions overlaid — persisted verbatim on save. */
+  deferredReviewIssues(): readonly ScoreReviewIssue[] {
+    return this.deferredIssues.map((issue) => {
+      const decided = this.decisions.get(issue.id);
+      return decided !== undefined ? { ...issue, status: decided } : issue;
+    });
+  }
+
+  /** How many detected issues still sit in the deferred pool. */
+  get deferredIssueCount(): number {
+    return this.deferredIssues.length;
+  }
+
+  /** Merge every deferred issue into the live review list (they were
+   *  the tail of the engine's severity-sorted extras, so they append
+   *  after the surfaced set). Returns the count added; 0 when nothing
+   *  is deferred — idempotent. Not an undoable edit: it changes which
+   *  detected items are visible, never the score or a decision. */
+  expandOmittedIssues(): number {
+    if (this.deferredIssues.length === 0) return 0;
+    const added = this.deferredIssues;
+    this.issues = [...this.issues, ...this.deferredReviewIssues()];
+    this.deferredIssues = [];
+    this.deferredByRevision.set(this._revisionId, this.deferredIssues);
+    this._omittedIssueCount = 0;
+    this.omittedCountByRevision.set(this._revisionId, 0);
+    this._meta = { ...this._meta, omittedIssueCount: 0 };
+    this.editCounter += 1;
+    return added.length;
   }
 
   noteEdits(): ReadonlyMap<string, ScoreNoteEdit> {
@@ -279,9 +341,21 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       // never seen — a score.edit result carries no issue list).
       this.issuesByRevision.set(this._revisionId, this.issues);
       this.decisionsByRevision.set(this._revisionId, this.decisions);
+      // #360: the deferred (cap-omitted) pool is revision-bound too —
+      //  an engine edit's regenerated issue list does not inherit the
+      //  old revision's omitted tail.
+      this.deferredByRevision.set(this._revisionId, this.deferredIssues);
+      this.omittedCountByRevision.set(
+        this._revisionId,
+        this._omittedIssueCount,
+      );
       this.issues = this.issuesByRevision.get(next.revisionId) ?? [];
       this.decisions =
         this.decisionsByRevision.get(next.revisionId) ?? new Map();
+      this.deferredIssues =
+        this.deferredByRevision.get(next.revisionId) ?? [];
+      this._omittedIssueCount =
+        this.omittedCountByRevision.get(next.revisionId) ?? 0;
     }
     this.concertXml = next.concertXml;
     this.hornXml = next.hornXml;
@@ -431,6 +505,9 @@ export interface EngineScoreDocumentInput {
   readonly canonicalDocument?: unknown;
   /** #272: issues the engine detected but the surfacing cap omitted. */
   readonly omittedIssueCount?: number;
+  // #360: the omitted issues themselves, verbatim from the result /
+  //  project extras — lazily expandable into the review list.
+  readonly omittedIssues?: readonly ScoreReviewIssue[];
 }
 
 /**
@@ -450,6 +527,7 @@ export function createEngineScoreDocument(
       issues: input.issues,
       canonicalDocument: input.canonicalDocument,
       omittedIssueCount: input.omittedIssueCount,
+      omittedIssues: input.omittedIssues,
     });
   } catch {
     // parseScoreDoc throws on malformed MusicXML — a corrupt engine

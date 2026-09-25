@@ -208,4 +208,28 @@ describe("ReviewNavigator (#361)", () => {
     //  resolved row must still be listable (history view).
     expect(options()).toHaveLength(1);
   });
+
+  it("#360: omitted footer becomes the expand action when offered", async () => {
+    const onExpandOmitted = vi.fn();
+    await mount(props({ omitted: 10, onExpandOmitted }));
+    const btn = document.querySelector<HTMLButtonElement>(
+      ".hs-reviewnav__expand",
+    );
+    expect(btn).not.toBeNull();
+    expect(btn!.textContent).toContain("10");
+    await act(async () => {
+      btn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onExpandOmitted).toHaveBeenCalledOnce();
+  });
+
+  it("#360: without an expand handler the footer stays a plain count", async () => {
+    await mount(props({ omitted: 10 }));
+    expect(
+      document.querySelector(".hs-reviewnav__expand"),
+    ).toBeNull();
+    expect(
+      document.querySelector(".hs-reviewnav__omitted")!.textContent,
+    ).toContain("10");
+  });
 });

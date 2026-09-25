@@ -36,6 +36,9 @@ export interface ReviewBarProps {
   /** #272: issues the engine detected but the surfacing cap omitted —
    *  shown so a truncated list is never silent (0 = hide). */
   readonly omitted?: number;
+  // #360: expanding the omitted tail — when the document can supply
+  //  the deferred issues, the count turns into a one-click 展開.
+  onExpandOmitted?(): void;
   readonly issue: ScoreReviewIssue | null;
   readonly copy: ReviewBarCopy | null;
   /** True when the focused issue's primary note is currently deleted. */
@@ -83,6 +86,7 @@ export function ReviewBar({
   total,
   pending,
   omitted = 0,
+  onExpandOmitted,
   issue,
   copy,
   noteDeleted,
@@ -129,9 +133,19 @@ export function ReviewBar({
           </span>
         )}
         {omitted > 0 && (
-          <span className="hs-score-reviewbar__omitted">
-            {r.omitted(omitted)}
-          </span>
+          onExpandOmitted ? (
+            <button
+              type="button"
+              className="hs-score-reviewbar__omitted hs-score-reviewbar__omitted--action"
+              onClick={onExpandOmitted}
+            >
+              {r.expandOmitted(omitted)}
+            </button>
+          ) : (
+            <span className="hs-score-reviewbar__omitted">
+              {r.omitted(omitted)}
+            </span>
+          )
         )}
         {issue && copy && (
           <>

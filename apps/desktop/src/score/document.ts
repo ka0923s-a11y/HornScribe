@@ -78,6 +78,15 @@ export interface ScoreDocumentPort {
   /** Review issues for this score revision (any status), with user
    *  decisions recorded via `recordReviewDecision` already applied. */
   reviewIssues(): readonly ScoreReviewIssue[];
+  // #360: detected issues still deferred behind the surfacing cap —
+  //  kept verbatim so they persist across save/reopen; empty or absent
+  //  when the document has none (fixtures, older results).
+  deferredReviewIssues?(): readonly ScoreReviewIssue[];
+  // #360: merge the deferred cap-omitted issues into the live review
+  //  list — they join as ordinary open issues (markers, prev/next,
+  //  decisions all apply). Returns the count added, 0 when nothing is
+  //  deferred. View-level op: not part of the undo stack.
+  expandOmittedIssues?(): number;
   /**
    * Persist a review decision against (issueId, this revision) — the
    * document-model record the project-file adapter will later serialize.

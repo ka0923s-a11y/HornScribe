@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { XmlScoreDocument } from "./xmlDocument";
+import type { ScoreReviewIssue } from "./review";
 
 const XML = `<?xml version="1.0" encoding="utf-8"?>
 <score-partwise version="4.0">
@@ -454,5 +455,113 @@ describe("XmlScoreDocument rebasedNoteEdits (#392)", () => {
       deleted: false,
       enharmonic: true,
     });
+  });
+});
+
+/* #360: cap-omitted issues ride the result as a deferred pool — the
+ * review bar's expand action merges them into the live list, and the
+ * pool is revision-bound like the surfaced issue set. */
+describe("XmlScoreDocument omitted-issue expansion (#360)", () => {
+  const deferred = (n: number, from = 61): ScoreReviewIssue[] =>
+    Array.from({ length: n }, (_, i) => ({
+      id: "ri-" + String(from + i).padStart(6, "0"),
+      scoreRevision: "sr-test",
+      canonicalNoteIds: ["sn-000001"],
+      reason: "low_model_confidence",
+      severity: "warning",
+      evidence: {},
+      status: "open",
+    }));
+
+  it("expand merges deferred issues into the live review list", () => {
+    const doc = new XmlScoreDocument({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-test",
+      issues: [],
+      canonicalDocument: CANONICAL,
+      omittedIssues: deferred(10),
+    });
+    expect(doc.meta.omittedIssueCount).toBe(10);
+    expect(doc.reviewIssues()).toHaveLength(0);
+    expect(doc.expandOmittedIssues!()).toBe(10);
+    expect(doc.reviewIssues()).toHaveLength(10);
+    expect(doc.meta.omittedIssueCount).toBe(0);
+    expect(doc.deferredReviewIssues!()).toHaveLength(0);
+    // Idempotent — a second click adds nothing.
+    expect(doc.expandOmittedIssues!()).toBe(0);
+  });
+
+  it("deferredReviewIssues overlays recorded decisions for save", () => {
+    const doc = new XmlScoreDocument({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-test",
+      issues: deferred(2, 1),
+      canonicalDocument: CANONICAL,
+      omittedIssues: deferred(3),
+    });
+    doc.recordReviewDecision("ri-000061", "dismissed");
+    const saved = doc.deferredReviewIssues!();
+    expect(saved.find((i) => i.id === "ri-000061")?.status).toBe(
+      "dismissed",
+    );
+    expect(saved.filter((i) => i.status === "open")).toHaveLength(2);
+  });
+
+  it("a revision swap restores each revision's own deferred pool", () => {
+    const doc = new XmlScoreDocument({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-test",
+      issues: [],
+      canonicalDocument: CANONICAL,
+      omittedIssues: deferred(10),
+    });
+    doc.expandOmittedIssues!();
+    // An engine edit lands a new revision: the expanded list and the
+    // emptied pool both stash under sr-test.
+    doc.replaceContent({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-next",
+      canonicalDocument: CANONICAL,
+    });
+    expect(doc.reviewIssues()).toHaveLength(0);
+    expect(doc.meta.omittedIssueCount).toBe(0);
+    doc.replaceContent({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-test",
+      canonicalDocument: CANONICAL,
+    });
+    expect(doc.reviewIssues()).toHaveLength(10);
+    expect(doc.deferredReviewIssues!()).toHaveLength(0);
+  });
+
+  it("a count-only result keeps its omitted count across a swap", () => {
+    const doc = new XmlScoreDocument({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-test",
+      issues: [],
+      canonicalDocument: CANONICAL,
+      omittedIssueCount: 7,
+    });
+    expect(doc.meta.omittedIssueCount).toBe(7);
+    doc.replaceContent({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-next",
+      canonicalDocument: CANONICAL,
+    });
+    expect(doc.meta.omittedIssueCount).toBe(0);
+    doc.replaceContent({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-test",
+      canonicalDocument: CANONICAL,
+    });
+    expect(doc.meta.omittedIssueCount).toBe(7);
   });
 });

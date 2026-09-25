@@ -945,6 +945,12 @@ function scoreResultFromProject(
         ? score.revision
         : "rev-project",
     reviewIssues: Array.isArray(data.reviewIssues) ? data.reviewIssues : [],
+    // #360: deferred cap-omitted issues round-trip verbatim too — a
+    //  saved project keeps the full detected set, not just the tail
+    //  that was surfaced when it was written.
+    omittedReviewIssues: Array.isArray(data.omittedReviewIssues)
+      ? data.omittedReviewIssues
+      : [],
     scoreDocument: data.scoreDocument ?? null,
     meta: data.meta ?? {},
   };

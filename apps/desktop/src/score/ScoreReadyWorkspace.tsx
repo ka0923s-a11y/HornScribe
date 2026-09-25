@@ -1466,6 +1466,17 @@ export function ScoreReadyWorkspace({
     [session, bumpDoc, reportInspector, advanceAfterResolve],
   );
 
+  // #360: issues beyond the engine cap ride the result as deferred
+  // extras — expanding appends them to the live review list so they
+  // get markers, decisions, and navigation like any other issue.
+  const expandOmitted = useCallback(() => {
+    const n = scoreDoc.expandOmittedIssues?.() ?? 0;
+    if (n <= 0) return;
+    bumpDoc();
+    reportInspector();
+    announce(ja.review.feedback.expandedOmitted(n));
+  }, [scoreDoc, bumpDoc, reportInspector, announce]);
+
   /* #115 (spec 13): engine rhythm edits — duration ladder, onset grid
    *  shift, tie toggle. The engine re-realizes the affected measures
    *  and returns fresh MusicXML + a new revision; the document swaps
@@ -2351,6 +2362,9 @@ const setKey = useCallback(
           navigatorOpen={navOpen}
           onToggleNavigator={toggleNavigator}
           navigatorButtonRef={navToggleRef}
+          onExpandOmitted={
+            scoreDoc.expandOmittedIssues ? expandOmitted : undefined
+          }
           onPlaySource={playSource}
           onAccept={reviewAccept}
           onDismiss={reviewDismiss}
@@ -2369,6 +2383,9 @@ const setKey = useCallback(
               )}
               omitted={scoreDoc.meta.omittedIssueCount}
               copy={copy.review}
+              onExpandOmitted={
+                scoreDoc.expandOmittedIssues ? expandOmitted : undefined
+              }
               onJump={(i) => {
                 gotoIssue(i);
                 closeNavigator();

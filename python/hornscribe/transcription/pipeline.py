@@ -1080,6 +1080,10 @@ def run_transcription_job(
         )
         omitted_extras = extras[MAX_EXTRA_ISSUES:]
         issues = issues[: len(issues) - len(extras)] + extras[:MAX_EXTRA_ISSUES]
+        # #360: the cap trims what the review UI SURFACES, not what the
+        #  result knows — omitted extras ride along so the desktop can
+        #  expand the full list on demand (and the project save keeps
+        #  them). Detection must never be silently dropped.
         omitted_by_severity: dict[str, int] = {}
         for i in omitted_extras:
             sev = i.severity.value
@@ -1324,6 +1328,12 @@ def run_transcription_job(
         issues = [
             replace(issue, id=allocator.allocate()) for issue in issues
         ]
+        # #360: deferred extras need real ids too — they were sliced
+        #  out before the renumber, so continue the same allocator or
+        #  the desktop's lazy expansion meets empty/duplicate ids.
+        omitted_extras = [
+            replace(issue, id=allocator.allocate()) for issue in omitted_extras
+        ]
         if stop(5):
             return
 
@@ -1407,6 +1417,10 @@ def run_transcription_job(
                 "scoreRevision": str(score_revision),
                 "scoreDocument": document.to_dict(),
                 "reviewIssues": [i.to_dict() for i in issues],
+                # #360: cap-omitted detections stay in the result — the
+                #  desktop lazily expands them into the review list
+                #  (ids were allocated at detection, so they are stable).
+                "omittedReviewIssues": [i.to_dict() for i in omitted_extras],
                 "musicXmlConcert": musicxml_concert,
                 "musicXmlHornF": musicxml_horn,
                 "meta": {

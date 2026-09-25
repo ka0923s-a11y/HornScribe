@@ -1916,3 +1916,67 @@ class TestVocalPolyphonicConflict:
         assert any(
             i["reason"] == "vocal_isolation_applied" for i in issues
         )
+
+
+class TestOmittedIssues:
+    """#360: the 60-issue surfacing cap keeps the omitted tail inside
+    the result — with real allocated ids — so the desktop can expand
+    it on demand instead of dropping the detections."""
+
+    def _run_long(
+        self, tmp_path: Path, events: tuple[RawNoteEvent, ...]
+    ) -> list[dict[str, Any]]:
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected, emit = collect()
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+            }
+        )
+        run_transcription_job(
+            job_id="job-0001",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=lambda _p: events,
+            # 45s of silence — the 70-event run spans ~35s.
+            loader=lambda _p: (array("f", [0.0] * (22050 * 45)), 22050),
+        )
+        return collected
+
+    def test_cap_defers_tail_with_real_ids(
+        self, tmp_path: Path
+    ) -> None:
+        # 70 low-confidence notes -> 70 extra issues; the cap surfaces
+        # 60 and defers the remaining 10 verbatim.
+        log = self._run_long(
+            tmp_path,
+            make_events([60 + (i % 12) for i in range(70)], confidence=0.2),
+        )
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        omitted = result["omittedReviewIssues"]
+        assert len(omitted) == 10
+        assert all(i["reason"] == "low_model_confidence" for i in omitted)
+        surfaced = [
+            i
+            for i in result["reviewIssues"]
+            if i["reason"] == "low_model_confidence"
+        ]
+        assert len(surfaced) == 60
+        # Deferred ids were allocated like any other issue — unique,
+        # non-empty, disjoint from the surfaced set.
+        surfaced_ids = {i["id"] for i in result["reviewIssues"]}
+        omitted_ids = {i["id"] for i in omitted}
+        assert len(omitted_ids) == 10
+        assert "" not in omitted_ids
+        assert omitted_ids.isdisjoint(surfaced_ids)
+        assert result["meta"]["reviewSummary"]["omitted"] == 10
+
+    def test_no_omissions_emits_empty_list(self, tmp_path: Path) -> None:
+        log = run(tmp_path, make_events([60, 62, 64, 65]))
+        assert log[-1]["phase"] == "completed"
+        assert log[-1]["result"]["omittedReviewIssues"] == []

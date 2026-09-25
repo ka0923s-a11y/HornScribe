@@ -396,6 +396,7 @@ export default function App() {
           ? createEngineScoreDocument({
               ...engineInput,
               issues: handoff?.issues ?? [],
+              omittedIssues: handoff?.omittedIssues ?? [],
             })
           : null;
       // #234: a stale job result (its source was replaced while it
@@ -603,6 +604,7 @@ export default function App() {
             const doc = createEngineScoreDocument({
               ...input,
               issues: handoff?.issues ?? [],
+              omittedIssues: handoff?.omittedIssues ?? [],
             });
             if (!doc) return;
             setHasScore(true);

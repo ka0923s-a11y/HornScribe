@@ -228,6 +228,14 @@ export async function buildProjectDocument(
     // already the edited bodies).
     scoreDocument: doc.canonicalDocument?.() ?? resultObj.scoreDocument ?? null,
     reviewIssues: doc.reviewIssues(),
+    // #360: still-deferred cap-omitted issues persist verbatim —
+    //  expanded ones already ride inside reviewIssues above (with
+    //  their decisions), so reopening never loses either half.
+    omittedReviewIssues:
+      doc.deferredReviewIssues?.() ??
+      (Array.isArray(resultObj.omittedReviewIssues)
+        ? resultObj.omittedReviewIssues
+        : []),
     musicXmlConcert: doc.musicXml("concert"),
     musicXmlHornF: doc.musicXml("hornF"),
     meta,

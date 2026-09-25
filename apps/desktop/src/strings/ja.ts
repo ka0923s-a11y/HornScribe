@@ -1616,6 +1616,9 @@ export const ja = {
     allDone: "すべての要確認箇所を確認しました",
     /* #272: issues dropped by the surfacing cap — never silent. */
     omitted: (count: number) => `（他 ${count} 件を省略）`,
+    // #360: the omitted tail is expandable into the live review list
+    //  — one click joins it as ordinary open issues.
+    expandOmitted: (count: number) => `残り ${count} 件を展開`,
     actionsLabel: "要確認の操作",
     playSource: "元音源を再生",
     markOk: "問題なし",
@@ -1725,6 +1728,9 @@ export const ja = {
       playingSource: "元音源を再生しています",
       exited: "要確認を終了しました",
       noIssues: "要確認箇所はありません",
+      // #360: cap-omitted issues expanded into the live list.
+      expandedOmitted: (count: number) =>
+        `${count} 件の省略箇所を展開しました`,
     },
   },
 

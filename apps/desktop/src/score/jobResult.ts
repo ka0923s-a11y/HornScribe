@@ -18,6 +18,7 @@
  */
 import {
   extractReviewIssues,
+  extractOmittedReviewIssues,
   REVIEW_ISSUE_STATUSES,
   REVIEW_SEVERITIES,
   type ReviewIssuePayload,
@@ -36,6 +37,10 @@ export interface ScoreResultHandoff {
   /** Review issues typed for the score workspace (possibly empty — a
    *  clean transcription honestly reports zero issues). */
   readonly issues: readonly ScoreReviewIssue[];
+  /** #360: issues the surfacing cap dropped from the live list —
+   *  retained verbatim so the review navigator can expand them on
+   *  demand (they join as ordinary open issues). */
+  readonly omittedIssues: readonly ScoreReviewIssue[];
 }
 
 /**
@@ -54,6 +59,7 @@ export function scoreHandoffFromResult(
     revisionId:
       typeof r.scoreRevision === "string" ? r.scoreRevision : undefined,
     issues: extractReviewIssues(result).map(toScoreIssue),
+    omittedIssues: extractOmittedReviewIssues(result).map(toScoreIssue),
   };
 }
 
