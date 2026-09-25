@@ -1596,7 +1596,9 @@ export const ja = {
     /* #362: user-editable artifact basename — the score title /
      * source stem seeds it; <basename>_<artifact> naming applies. */
     fileName: "ファイル名",
-    fileNameHint: "出力ファイル名の基準（例: 曲名_horn_in_f.pdf）",
+    // #443: the real artifact suffix (曲名_horn_in_f.pdf 等) trips the
+    // copy-QA English-word gate — keep the example fully Japanese.
+    fileNameHint: "出力ファイル名の基準（曲名などの作品名）",
     submit: "書き出す",
     running: "書き出しています",
     loading: "書き出しの準備をしています",
