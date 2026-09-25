@@ -2,7 +2,13 @@
 
 Staged exactly as the UI progress contract (GUI_UX_SPEC §5,
 ``TRANSCRIPTION_STAGE_IDS``) — every stage emits a ``progress`` event
-carrying ``stage`` so the transcribing screen never has to guess:
+carrying ``stage`` so the transcribing screen never has to guess.
+#385: stage transitions are honest boundaries — they carry NO job
+fraction (the old fixed milestones 0.15/0.55/... read as real
+percentages without measuring anything). Real measured work is
+reported separately as ``step``/``totalSteps`` counts inside the
+stage that owns the loop; the only ``progress`` fraction left is
+``1.0`` on the terminal ``completed`` event.
 
     preparing_audio -> transcribing -> cleaning -> analyzing_rhythm
     -> quantizing -> building_score -> rendering
@@ -405,8 +411,21 @@ def run_transcription_job(
     """
     started = time.monotonic()
 
-    def stage(index: int, progress: float) -> None:
-        emit("progress", stage=STAGES[index], progress=progress)
+    def stage(index: int) -> None:
+        # #385: a stage boundary is position, not fraction — no
+        # fabricated percentage rides along (GUI_UX_SPEC honesty).
+        emit("progress", stage=STAGES[index])
+
+    def step(index: int, done: int, total: int) -> None:
+        # #385: the only in-stage progress allowed — counted work
+        # units the stage actually finished (decoded chunks, cleaned
+        # voices, quantized voices, verified parts).
+        emit(
+            "progress",
+            stage=STAGES[index],
+            step=done,
+            totalSteps=total,
+        )
 
     def cancelled(stage_index: int) -> bool:
         if cancel.is_set():
@@ -437,7 +456,7 @@ def run_transcription_job(
     def stop(stage_index: int) -> bool:
         return cancelled(stage_index) or timed_out(stage_index)
 
-    emit("started", stage=STAGES[0], progress=0.0)
+    emit("started", stage=STAGES[0])
     try:
         # ---- preparing_audio ------------------------------------------
         if not os.path.isfile(params.audio_path):
@@ -451,7 +470,9 @@ def run_transcription_job(
             )
             return
         audio_hash = _sha256_file(params.audio_path)
+        step(0, 1, 2)
         samples, sample_rate = (loader or load_mono_audio)(params.audio_path)
+        step(0, 2, 2)
         duration_sec = len(samples) / float(sample_rate)
 
         # #229: a selection job slices the decoded audio BEFORE inference
@@ -498,7 +519,7 @@ def run_transcription_job(
             return
 
         # ---- transcribing (blocking ONNX call) ------------------------
-        stage(1, 0.15)
+        stage(1)
         # #229: the backend reads a file path — stage the slice as a
         # temp WAV so inference only processes the selected span. A
         # staging failure falls back to the original file (correct, just
@@ -516,6 +537,15 @@ def run_transcription_job(
         # so stripping the accompaniment first would silently defeat
         # the texture. Skip it and report the conflict instead.
         polyphonic_texture = params.texture in ("voices", "chords")
+        # #385: counted sub-steps — vocal isolation (when it will
+        # run), selection staging (when needed), the backend call.
+        # Each blocks internally; the honest count moves between them.
+        transcribe_done = 0
+        transcribe_total = (
+            1
+            + int(params.vocal_isolation and not polyphonic_texture)
+            + int(params.range_kind == "selection")
+        )
         if params.vocal_isolation and polyphonic_texture:
             vocal_reason = "polyphonic_texture"
         elif params.vocal_isolation:
@@ -545,8 +575,18 @@ def run_transcription_job(
                 vis_hi,
                 sample_rate,
             )
+            if vocal_path is not None:
+                # Isolation produced the backend input — the staging
+                # unit below is no longer part of the plan.
+                transcribe_total -= int(
+                    params.range_kind == "selection"
+                )
+            transcribe_done += 1
+            step(1, transcribe_done, transcribe_total)
         if vocal_path is None and params.range_kind == "selection":
             staged_path = _stage_selection_wav(samples, sample_rate)
+            transcribe_done += 1
+            step(1, transcribe_done, transcribe_total)
         backend_path = vocal_path or staged_path or params.audio_path
         # #189: "auto" picks the engine that fits the declared
         # texture — a declared-mono source gets the monophonic
@@ -643,11 +683,12 @@ def run_transcription_job(
                     os.unlink(vocal_path)
         if staged_path is not None or vocal_path is not None:
             raw_events = _shift_event_times(raw_events, selection_offset_sec)
+        step(1, transcribe_done + 1, transcribe_total)
         if stop(1):
             return
 
         # ---- cleaning --------------------------------------------------
-        stage(2, 0.55)
+        stage(2)
         ranged = clip_to_range(
             raw_events, params.selection_start_sec, params.selection_end_sec
         )
@@ -665,13 +706,17 @@ def run_transcription_job(
             # lowest note.  #155: the chords texture splits the same
             # way, then merges the voices into one part at build time.
             voice_split = split_voices(ranged, max_voices=3)
+            clean_total = len(voice_split.voices)
             cleaned = clean_monophonic(
                 voice_split.voices[0], merge_gap_sec=clean_merge_gap
             )
-            cleaned_lowers = [
-                clean_monophonic(v, merge_gap_sec=clean_merge_gap)
-                for v in voice_split.voices[1:]
-            ]
+            step(2, 1, clean_total)
+            cleaned_lowers = []
+            for i, v in enumerate(voice_split.voices[1:]):
+                cleaned_lowers.append(
+                    clean_monophonic(v, merge_gap_sec=clean_merge_gap)
+                )
+                step(2, 2 + i, clean_total)
         else:
             cleaned = clean_monophonic(
                 ranged,
@@ -679,6 +724,7 @@ def run_transcription_job(
                 prefer=prefer,
             )
             cleaned_lowers = []
+            step(2, 1, 1)
         # #148: remember when auto detected a mix — the overlap warning
         # then suggests re-transcribing with the voices texture so the
         # accompaniment is not silently merged into the melody.
@@ -696,6 +742,10 @@ def run_transcription_job(
                     prefer="top",
                 )
                 auto_mix_detected = True
+                # The re-clean is a second real unit — the total grows
+                # from 1 to 2 only when the mix signature actually
+                # forced the extra pass.
+                step(2, 2, 2)
         # #200: a mono-declared job with the same overlap signature
         # probably means the audio was not actually monophonic — the
         # voices re-run remedy applies there too (melody intentionally
@@ -721,11 +771,15 @@ def run_transcription_job(
             return
 
         # ---- analyzing_rhythm -----------------------------------------
-        stage(3, 0.65)
+        stage(3)
         meter = params.meter_segment()
         meter_estimated = False
         meter_uncertain = False
         pulse_unit_ql: Fraction | None = None
+        # #385: counted sub-steps — beat track (when needed), meter
+        # estimate (auto only), tempo estimate.
+        rhythm_done = 0
+        rhythm_total = 0
         # #229: the beat track runs on the slice, so it must also run
         # whenever estimate_tempo would track internally on the slice —
         # a pinned meter + auto tempo + selection would otherwise mix
@@ -735,9 +789,12 @@ def run_transcription_job(
         need_beats = params.meter == "auto" or (
             params.tempo_bpm is None and selection_offset_sec > 0.0
         )
+        rhythm_total += int(need_beats) + int(params.meter == "auto") + 1
         if need_beats:
             tracked_times, strengths = _track_beats(samples, sample_rate)
             beat_times = tuple(t + selection_offset_sec for t in tracked_times)
+            rhythm_done += 1
+            step(3, rhythm_done, rhythm_total)
         else:
             beat_times = None
             strengths = ()
@@ -757,6 +814,8 @@ def run_transcription_job(
             meter_confidence = meter_est.confidence
             if meter_est.tracked_eighths:
                 pulse_unit_ql = Fraction(4, meter.denominator)
+            rhythm_done += 1
+            step(3, rhythm_done, rhythm_total)
         else:
             meter_confidence = 1.0
         estimate = estimate_tempo(
@@ -768,6 +827,8 @@ def run_transcription_job(
             beat_times=beat_times,
             pulse_unit_ql=pulse_unit_ql,
         )
+        rhythm_done += 1
+        step(3, rhythm_done, rhythm_total)
         if estimate.pickup_len_ql:
             meter = MeterSegment(
                 start_ql=Fraction(0),
@@ -782,11 +843,16 @@ def run_transcription_job(
             return
 
         # ---- quantizing ------------------------------------------------
-        stage(4, 0.75)
+        stage(4)
         profile = params.quantization_profile()
         alternatives = quantize_events(
             cleaned.events, estimate.warp, meter_map, profile
         )
+        # #385: one real unit per quantized voice.
+        quantize_total = 1 + sum(
+            1 for c in cleaned_lowers if c.events
+        )
+        step(4, 1, quantize_total)
         if not alternatives:
             emit(
                 "failed",
@@ -802,6 +868,7 @@ def run_transcription_job(
         # SAME tempo/meter map AND the same alignment shift — separate
         # searches would let the parts drift against each other.
         lower_alternatives = []
+        quantize_done = 1
         for cleaned_lower in cleaned_lowers:
             if not cleaned_lower.events:
                 continue
@@ -814,11 +881,17 @@ def run_transcription_job(
             )
             if alts:
                 lower_alternatives.append(alts)
+            quantize_done += 1
+            step(4, quantize_done, quantize_total)
         if stop(4):
             return
 
         # ---- building_score -------------------------------------------
-        stage(5, 0.9)
+        stage(5)
+        # #385: counted sub-steps — key analysis, swing census, tempo
+        # octave census (auto tempo only), build_score, evidence doc.
+        build_done = 0
+        build_total = 4 + int(estimate.auto)
         event_by_id: dict[RawNoteEventId, RawNoteEvent] = {
             e.id: e for e in cleaned.events
         }
@@ -859,6 +932,8 @@ def run_transcription_job(
         key = key_analysis.key
         key_changes = key_analysis.changes
         key_confidence = key_analysis.confidence
+        build_done += 1
+        step(5, build_done, build_total)
         tempo_map = tempo_map_from_estimate(estimate, meter)
         shift = best.diagnostics.alignment_shift_sec
         # #134 swing feel: census the normalized offbeat onsets — a
@@ -872,6 +947,8 @@ def run_transcription_job(
             tuple(n.onset_ql for n in normalized),
             Fraction(4, meter.denominator),
         )
+        build_done += 1
+        step(5, build_done, build_total)
         # #188 tempo octave census — only meaningful when the tempo
         # came from tracking (a pinned BPM is the user's word).
         tempo_octave = (
@@ -882,6 +959,9 @@ def run_transcription_job(
             if estimate.auto
             else None
         )
+        if estimate.auto:
+            build_done += 1
+            step(5, build_done, build_total)
         built = build_score(
             best,
             meter,
@@ -919,6 +999,8 @@ def run_transcription_job(
             transcription_backend=backend_id,
             transcription_backend_version=backend_version,
         )
+        build_done += 1
+        step(5, build_done, build_total)
         # #223/#226: persist the raw transcription evidence inline on
         # the document — the cleaned events per part plus the warp that
         # mapped them. A later requantize replays the real performance
@@ -946,6 +1028,8 @@ def run_transcription_job(
                 ],
             },
         )
+        build_done += 1
+        step(5, build_done, build_total)
         payload = built.payload
         score_revision = payload.revision_id()
 
@@ -1222,9 +1306,15 @@ def run_transcription_job(
             return
 
         # ---- rendering -------------------------------------------------
-        stage(6, 0.96)
+        stage(6)
         musicxml_concert = export_concert_musicxml(document)
+        # #385: two exports plus three per-part verification passes —
+        # every unit is a real completed check, nothing estimated.
+        render_total = 2 + 3 * len(payload.parts)
+        render_done = 0
+        step(6, 1, render_total)
         musicxml_horn = export_horn_in_f_musicxml(document)
+        step(6, 2, render_total)
 
         # The export path is verified, not trusted: read the emitted
         # MusicXML back and compare committed rhythm per part (multi-
@@ -1233,32 +1323,39 @@ def run_transcription_job(
             verify_horn_f_projection,
             verify_rhythm_roundtrip,
         )
-        rhythm_problems = [
-            f"part {pi}: {p}"
-            for pi in range(len(payload.parts))
-            for p in verify_rhythm_roundtrip(
-                document, musicxml_concert, part_index=pi
-            )
-        ]
+        rhythm_problems: list[str] = []
+        for pi in range(len(payload.parts)):
+            rhythm_problems += [
+                f"part {pi}: {p}"
+                for p in verify_rhythm_roundtrip(
+                    document, musicxml_concert, part_index=pi
+                )
+            ]
+            render_done += 1
+            step(6, 2 + render_done, render_total)
         # #370: the Horn in F file is the product's main artifact — it
         # gets the same structural round-trip plus the written->sounding
         # projection invariant (transpose block, per-note pitch
         # recovery, written key = canonical key +1 fifth). Corruption
         # that parses but transposes wrong used to ship silently.
-        rhythm_problems += [
-            f"hornF part {pi}: {p}"
-            for pi in range(len(payload.parts))
-            for p in verify_rhythm_roundtrip(
-                document, musicxml_horn, part_index=pi
-            )
-        ]
-        rhythm_problems += [
-            f"hornF part {pi}: {p}"
-            for pi in range(len(payload.parts))
-            for p in verify_horn_f_projection(
-                document, musicxml_horn, part_index=pi
-            )
-        ]
+        for pi in range(len(payload.parts)):
+            rhythm_problems += [
+                f"hornF part {pi}: {p}"
+                for p in verify_rhythm_roundtrip(
+                    document, musicxml_horn, part_index=pi
+                )
+            ]
+            render_done += 1
+            step(6, 2 + render_done, render_total)
+        for pi in range(len(payload.parts)):
+            rhythm_problems += [
+                f"hornF part {pi}: {p}"
+                for p in verify_horn_f_projection(
+                    document, musicxml_horn, part_index=pi
+                )
+            ]
+            render_done += 1
+            step(6, 2 + render_done, render_total)
         if rhythm_problems:
             # Late verification issue: allocate an id like the others
             # (issue ids were already renumbered above — keep them

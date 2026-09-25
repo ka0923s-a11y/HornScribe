@@ -445,7 +445,7 @@ export class MockSidecarPort implements SidecarPort {
     this.respond(id, "job.start", { jobId, jobKind, state: "accepted" });
     this.emitJobEvent(job, "started", {
       step: 0,
-      progress: 0,
+      progress: jobFraction(job, 0),
       totalSteps: params.steps,
       stage: stageFor(job, 0),
     });
@@ -544,9 +544,9 @@ export class MockSidecarPort implements SidecarPort {
       Date.now() - job.startedAt > job.params.deadlineMs
     ) {
       job.done = true;
-      this.emitJobEvent(job, "failed", {
+    this.emitJobEvent(job, "failed", {
         step: job.step,
-        progress: job.step / job.params.steps,
+        progress: jobFraction(job, job.step),
         error: {
           code: ERR.JOB_TIMEOUT,
           message: `job exceeded deadlineMs=${job.params.deadlineMs}`,
@@ -559,7 +559,7 @@ export class MockSidecarPort implements SidecarPort {
       job.done = true;
       this.emitJobEvent(job, "failed", {
         step: next,
-        progress: (next - 1) / job.params.steps,
+        progress: jobFraction(job, next - 1),
         error: {
           code: ERR.JOB_FAILED,
           message: `${job.jobKind} failed at step ${next} (failAtStep hook)`,
@@ -570,7 +570,7 @@ export class MockSidecarPort implements SidecarPort {
     job.step = next;
     this.emitJobEvent(job, "progress", {
       step: next,
-      progress: next / job.params.steps,
+      progress: jobFraction(job, next),
       totalSteps: job.params.steps,
       stage: stageFor(job, next),
     });
@@ -595,7 +595,7 @@ export class MockSidecarPort implements SidecarPort {
     job.done = true;
     this.emitJobEvent(job, "cancelled", {
       step: job.step,
-      progress: job.step / job.params.steps,
+      progress: jobFraction(job, job.step),
       reason: "cancel requested between steps",
     });
   }
@@ -630,6 +630,15 @@ function stageFor(job: MockJob, step: number): string | undefined {
   ];
 }
 
+// #385: a whole-job fraction is emitted only by job kinds that can
+// truly measure one — `demoLongTask` (uniform steps). `transcription`
+// mirrors the real engine: stage boundaries and counted units only;
+// `progress` appears solely on the terminal `completed` event.
+function jobFraction(job: MockJob, done: number): number | undefined {
+  return job.jobKind === "transcription"
+    ? undefined
+    : done / job.params.steps;
+}
 function parseJobParams(raw: unknown): MockJobParams {
   if (raw === undefined || raw === null) {
     return { steps: TRANSCRIPTION_STAGE_IDS.length, stepDurationMs: 400 };

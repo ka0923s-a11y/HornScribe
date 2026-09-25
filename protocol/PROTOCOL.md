@@ -117,6 +117,23 @@ Phases: `started` → `progress`* → exactly one terminal phase:
 `payload.error = {code, message}` (envelope `error` stays `null` — the
 frame itself is well-formed; the *job* failed).
 
+Progress fields are honest by contract (**#385**):
+
+* `progress` — a real, measured 0–1 fraction of the WHOLE job. It is
+  emitted only by job kinds that can truly compute one
+  (`demoLongTask`'s uniform steps; any job's terminal `completed`
+  reports `1.0`). It is never a stage-boundary milestone dressed up
+  as a percentage.
+* `step` / `totalSteps` — counted work units the job actually
+  finished. For the `transcription` job the count is scoped to the
+  active `stage` (decoded units, cleaned voices, quantized voices,
+  verified parts); a new stage resets the count. A stage boundary
+  event may carry `stage` alone with no step fields — during
+  blocking, unmeasurable work (e.g. backend inference) that is the
+  honest "indeterminate" state.
+* The UI must not fabricate percentages: no `progress` ⇒ determinate
+  display only from `step`/`totalSteps`; neither ⇒ indeterminate.
+
 ### `debug.hang` [UI-002 — spike test hook, NOT a stable API]
 
 `{seconds}` wedges the dispatch loop so a supervisor can exercise its

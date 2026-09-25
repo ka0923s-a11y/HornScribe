@@ -19,8 +19,11 @@ import {
  * - Stage list is driven ONLY by engine-reported `stage` fields — a job
  *   that reports none (spike demoLongTask) shows every stage pending
  *   rather than a guessed position.
- * - The progress bar is determinate only when the engine emitted a real
- *   fraction; otherwise indeterminate — no fabricated percents, no ETA.
+ * - The progress bar is determinate only on real measured work — a
+ *   whole-job `progress` fraction for job kinds that compute one, or
+ *   the counted units (`step`/`totalSteps`) of the active stage.
+ *   #385: stage boundaries carry no fabricated percentage, so a
+ *   blocking inference stays honestly indeterminate.
  * - キャンセル sends cooperative `job.cancel`; the button then shows the
  *   honest pending state until the terminal `cancelled` event arrives.
  * - `job` is null while the engine is still spawning/handshaking — the
@@ -79,7 +82,16 @@ export function TranscriptionView({
   const activeStageText = activeStage
     ? stageLabel(activeStage.id, "active")
     : ja.transcription.running;
+  const stepCount = job?.stepCount ?? null;
+  // #385: the bar is determinate only on real fractions — a whole-job
+  // `progress` (job kinds that measure one) or the counted units of
+  // the active stage; otherwise it stays honestly indeterminate.
+  const barValue =
+    progress ??
+    (stepCount !== null ? stepCount.step / stepCount.total : undefined);
   const percent = progress !== null ? Math.round(progress * 100) : null;
+  const stepText =
+    stepCount !== null ? `${stepCount.step}/${stepCount.total}` : null;
 
   return (
       // No role=status here: the container holds a ticking elapsed readout,
@@ -96,12 +108,15 @@ export function TranscriptionView({
 
         <HsProgress
           label={ja.transcription.progressAria}
-          value={progress ?? undefined}
+          value={barValue}
           description={activeStageText}
         />
         <div className="hs-transcribing__meta">
           {percent !== null ? (
             <span className="hs-transcribing__percent">{percent}%</span>
+          ) : null}
+          {stepText !== null ? (
+            <span className="hs-transcribing__steps">{stepText}</span>
           ) : null}
           <span className="hs-transcribing__elapsed">
             {ja.transcription.elapsedLabel} {elapsed}

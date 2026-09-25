@@ -59,6 +59,12 @@ export interface JobView {
   stages: StageView[];
   /** Real 0–1 fraction reported by the engine, else null → indeterminate. */
   progress: number | null;
+  // #385: counted work units of the ACTIVE stage (`step`/`totalSteps`)
+  // — real measured progress inside a stage, e.g. verified parts 2/5.
+  // Null when the stage does not count units (blocking inference) or
+  // none have completed yet; reset on every stage transition so a new
+  // stage never inherits the previous one's count.
+  stepCount: { readonly step: number; readonly total: number } | null;
   /** Index of the active stage, or -1 when the engine reports no stages. */
   activeStageIndex: number;
   /** Whether any `stage` field has been seen for this job. */
@@ -85,6 +91,7 @@ export function createJobView(
     phase: "running",
     stages: initialStages(),
     progress: null,
+    stepCount: null,
     activeStageIndex: -1,
     hasStageInfo: false,
     error: null,
@@ -115,6 +122,7 @@ export function reduceJobEvent(view: JobView, event: JobEventPayload): JobView {
   }
 
   let { stages, activeStageIndex, hasStageInfo, progress } = view;
+  let { stepCount } = view;
 
   const realProgress = clampProgress(event.progress);
   if (realProgress !== null) progress = realProgress;
@@ -135,8 +143,24 @@ export function reduceJobEvent(view: JobView, event: JobEventPayload): JobView {
           status: i < idx ? "done" : i === idx ? "active" : "pending",
         }));
         activeStageIndex = idx;
+        // #385: step counts are stage-local — a new stage starts
+        // counting from nothing instead of inheriting the old count.
+        stepCount = null;
       }
     }
+  }
+
+  // #385: counted units of the active stage — a measured `step` of
+  // `totalSteps`, never a fabricated percentage.
+  if (
+    typeof event.step === "number" &&
+    typeof event.totalSteps === "number" &&
+    event.totalSteps > 0
+  ) {
+    stepCount = {
+      step: Math.max(0, Math.min(event.step, event.totalSteps)),
+      total: event.totalSteps,
+    };
   }
 
   switch (event.phase) {
@@ -180,6 +204,7 @@ export function reduceJobEvent(view: JobView, event: JobEventPayload): JobView {
         ...view,
         stages,
         progress,
+        stepCount,
         activeStageIndex,
         hasStageInfo,
       };

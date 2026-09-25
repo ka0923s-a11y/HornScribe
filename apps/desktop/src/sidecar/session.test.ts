@@ -85,6 +85,27 @@ describe("jobView tracker (pure)", () => {
     expect(v.activeStageIndex).toBe(5);
   });
 
+  it("#385: step counts track the active stage and reset on advance", () => {
+    let v = createJobView("job-1", "transcription", 0);
+    expect(v.stepCount).toBeNull();
+    v = reduceJobEvent(v, ev({ stage: "preparing_audio" }));
+    expect(v.stepCount).toBeNull(); // boundary alone: indeterminate
+    v = reduceJobEvent(
+      v,
+      ev({ stage: "preparing_audio", step: 1, totalSteps: 2 }),
+    );
+    expect(v.stepCount).toEqual({ step: 1, total: 2 });
+    // Same-stage events keep the last count; a new stage clears it.
+    v = reduceJobEvent(
+      v,
+      ev({ stage: "preparing_audio", step: 2, totalSteps: 2 }),
+    );
+    v = reduceJobEvent(v, ev({ stage: "transcribing" }));
+    expect(v.stepCount).toBeNull();
+    // Step counts never masquerade as a job fraction.
+    expect(v.progress).toBeNull();
+  });
+
   it("a job without stage info stays honest (all pending, real progress)", () => {
     let v = createJobView("job-1", "demoLongTask", 0);
     v = reduceJobEvent(v, ev({ progress: 0.4 }));
@@ -238,7 +259,9 @@ describe("TranscriptionSession", () => {
     const { session, port } = makeSession();
     await session.startTranscription({ steps: 100, stepDurationMs: 5 });
     await until(
-      () => (session.getSnapshot().job?.progress ?? 0) > 0,
+      // #385: the honest mid-job signal is a counted step — the
+      // transcription kind emits no fabricated job fraction anymore.
+      () => (session.getSnapshot().job?.stepCount?.step ?? 0) > 0,
     );
     port.simulateCrash();
     await until(() => session.getSnapshot().failure !== null);
@@ -260,7 +283,9 @@ describe("TranscriptionSession", () => {
       clientOptions: { watchdogMs: 40, pingTimeoutMs: 30 },
     });
     await session.startTranscription({ steps: 100, stepDurationMs: 5 });
-    await until(() => (session.getSnapshot().job?.progress ?? 0) > 0);
+    await until(
+      () => (session.getSnapshot().job?.stepCount?.step ?? 0) > 0,
+    );
     port.simulateCrash();
     await until(() => session.getSnapshot().engine === "crashed");
     await session.restartEngine();
@@ -274,7 +299,9 @@ describe("TranscriptionSession", () => {
   it("watchdog unresponsiveness mid-job sets workerNotResponding", async () => {
     const { session, port } = makeSession();
     await session.startTranscription({ steps: 100, stepDurationMs: 5 });
-    await until(() => (session.getSnapshot().job?.progress ?? 0) > 0);
+    await until(
+      () => (session.getSnapshot().job?.stepCount?.step ?? 0) > 0,
+    );
     port.simulateHang();
     await until(() => session.getSnapshot().failure !== null, 2000);
     const s = session.getSnapshot();
@@ -341,7 +368,9 @@ describe("TranscriptionSession", () => {
       cancelGraceMs: 60,
     });
     await session.startTranscription({ steps: 100, stepDurationMs: 5 });
-    await until(() => (session.getSnapshot().job?.progress ?? 0) > 0);
+    await until(
+      () => (session.getSnapshot().job?.stepCount?.step ?? 0) > 0,
+    );
     // The job is now inside a non-interruptible call: job.cancel gets
     // its ack, but no terminal event can arrive.
     ports[0].simulateBlockingInference();
