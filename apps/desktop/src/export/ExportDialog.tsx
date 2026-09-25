@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Checkbox, Tooltip } from "@fluentui/react-components";
+import { Checkbox, Input, Tooltip } from "@fluentui/react-components";
 import {
   CheckmarkCircle24Regular,
   ErrorCircle24Regular,
@@ -63,6 +63,7 @@ export function ExportDialog({
   onAnnounce,
   initialSelected,
   onSelectionChange,
+  suggestedBasename,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -79,6 +80,9 @@ export function ExportDialog({
   initialSelected: Record<ExportFormatId, boolean>;
   /** #377: persist the user's picks so the next open restores them. */
   onSelectionChange?(selected: Record<ExportFormatId, boolean>): void;
+  /** #362: suggested file basename — score title when edited, else
+   *  the source-audio stem. Editable in the dialog. */
+  suggestedBasename: string;
 }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [caps, setCaps] = useState<ExportCapabilities | null>(null);
@@ -88,6 +92,9 @@ export function ExportDialog({
   const [selected, setSelected] = useState<Record<ExportFormatId, boolean>>(
     initialSelected,
   );
+  // #362: the artifact basename is user-editable — seeded from the
+  // score title / source stem each open, not silently fixed.
+  const [basename, setBasename] = useState("");
   const [result, setResult] = useState<ExportResult | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind>("failed");
   // #231: pending collision prompt — the port's onCollision awaits
@@ -110,6 +117,9 @@ export function ExportDialog({
     setPhase("loading");
     setCaps(null);
     setResult(null);
+    // #362: reseed the basename per open — the score title may have
+    // been edited since the last export.
+    setBasename(suggestedBasename);
     let cancelled = false;
     void (async () => {
       try {
@@ -136,7 +146,7 @@ export function ExportDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, port, defaultDestination, toolOverrides]);
+  }, [open, port, defaultDestination, toolOverrides, suggestedBasename]);
 
   const close = useCallback(() => {
     generation.current += 1;
@@ -188,6 +198,9 @@ export function ExportDialog({
       const res = await port.export({
         formats: effectiveFormats,
         destination,
+        // #362: the edited basename wins over the source stem —
+        // sanitized/emptied upstream in the port.
+        basename: basename.trim() || undefined,
         // #231: existing artifact names pause the export here — the
         // dialog shows one prompt for the whole set and the chosen
         // policy resumes (or cancels) the transactional write.
@@ -225,7 +238,7 @@ export function ExportDialog({
       );
       setPhase("error");
     }
-  }, [effectiveFormats, port, destination, onAnnounce]);
+  }, [effectiveFormats, port, destination, basename, onAnnounce]);
 
   const pickDestination = useCallback(async () => {
     try {
@@ -424,6 +437,27 @@ export function ExportDialog({
 
           <h3 className="hs-export__section">{e.audioSection}</h3>
           <div className="hs-export__group">{formatRow("sourceAudio")}</div>
+
+          {/* #362: the artifact basename is user-editable — the
+              score title (or source stem) seeds it, and the field
+              feeds <basename>_<artifact> naming. */}
+          <div className="hs-export__basename">
+            <label
+              className="hs-export__basename-label"
+              htmlFor="hs-export-basename"
+            >
+              {e.fileName}
+            </label>
+            <Input
+              id="hs-export-basename"
+              value={basename}
+              disabled={running}
+              onChange={(_e, d) => setBasename(d.value)}
+            />
+            <span className="hs-export__basename-hint">
+              {e.fileNameHint}
+            </span>
+          </div>
 
           <div className="hs-export__dest">
             <span className="hs-export__dest-label">{e.destination}</span>

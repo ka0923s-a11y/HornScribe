@@ -2371,6 +2371,18 @@ export default function App() {
             onSelectionChange={(selected) =>
               updateSettings({ exportFormats: selected })
             }
+            // #362: seed the editable basename — an edited score
+            // title wins over the mechanical source stem.
+            suggestedBasename={
+              (() => {
+                const stem = (importState.audio?.fileName ?? "").replace(
+                  /\.[^.]*$/,
+                  "",
+                );
+                const title = scoreDocument?.meta.title ?? "";
+                return title && title !== stem ? title : stem;
+              })()
+            }
             toolOverrides={toolOverrides}
             onOpenSettings={(category) => {
               setSettingsFocus(category);

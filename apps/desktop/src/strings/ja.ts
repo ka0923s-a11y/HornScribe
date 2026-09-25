@@ -1507,6 +1507,10 @@ export const ja = {
     },
     destination: "保存先",
     chooseDestination: "保存先を選ぶ",
+    /* #362: user-editable artifact basename — the score title /
+     * source stem seeds it; <basename>_<artifact> naming applies. */
+    fileName: "ファイル名",
+    fileNameHint: "出力ファイル名の基準（例: 曲名_horn_in_f.pdf）",
     submit: "書き出す",
     running: "書き出しています",
     loading: "書き出しの準備をしています",
