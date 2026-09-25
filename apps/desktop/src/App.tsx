@@ -112,8 +112,13 @@ import {
 } from "./import/transcriptionParams";
 import { stageAudioForEngine } from "./import/staging";
 import { formatTimecode } from "./import/format";
+import type { SelectionRange } from "./import/selection";
 import { requestRetranscription } from "./import/retranscribe";
 import { dirtyFingerprint } from "./score/dirtyFingerprint";
+import {
+  optionsAfterWaveformClear,
+  optionsAfterWaveformSelect,
+} from "./workspace/waveformSelection";
 import { closeGuardKind, type PendingCloseKind } from "./workspace/closeGuard";
 import { HsButton } from "./components/primitives/Button";
 import { HsDialog } from "./components/primitives/Dialog";
@@ -447,6 +452,12 @@ export default function App() {
   const [nativeDrag, setNativeDrag] = useState(false);
   const [transcriptionOptions, setTranscriptionOptions] =
     useState<TranscriptionOptions>(DEFAULT_TRANSCRIPTION_OPTIONS);
+  /* #353: the waveform band is playback/navigation state owned here
+   *  — decoupled from TranscriptionOptions so post-score selection
+   *  works for loop/play/zoom without silently narrowing the next
+   *  retranscribe (#345 reuses this band). */
+  const [waveformSelection, setWaveformSelection] =
+    useState<SelectionRange | null>(null);
   // #264: a project open carries its saved transcription.settings —
   // the audio-slot reset below must prefer them over global defaults
   // so 採譜し直す reproduces the project's own conditions. Keyed by
@@ -765,6 +776,12 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [scoreDocument, importState.audio]);
 
+  // #353: a new source invalidates the old band — the selection was
+  // anchored to the previous audio's timeline.
+  useEffect(() => {
+    setWaveformSelection(null);
+  }, [importState.audio]);
+
   /** #221: run a destructive navigation now, or hold it behind the
    *  未保存 guard when the score has unsaved changes. */
   const guardDiscard = useCallback((action: () => void) => {
@@ -979,11 +996,32 @@ export default function App() {
   // panel auto-opens on real selections and stays closed otherwise (§6).
   const inspector: InspectorContent = useMemo(
     () =>
-      inspectorModel.kind === "note"
-        ? { kind: "note", noteId: inspectorModel.canonicalId ?? "" }
-        : NO_SELECTION,
-    [inspectorModel],
+      // #353: a live waveform band is the most recent selection —
+      // it wins over the note inspector until cleared (documented
+      // priority: range > note > score summary).
+      waveformSelection
+        ? {
+            kind: "range",
+            startSec: waveformSelection.startSec,
+            endSec: waveformSelection.endSec,
+          }
+        : inspectorModel.kind === "note"
+          ? { kind: "note", noteId: inspectorModel.canonicalId ?? "" }
+          : NO_SELECTION,
+    [inspectorModel, waveformSelection],
   );
+  /* #353: same priority for the panel body — a committed band shows
+   *  start/duration until cleared, then the previous note or score
+   *  summary resumes. */
+  const panelModel: InspectorModel = waveformSelection
+    ? {
+        kind: "range",
+        startLabel: formatTimecode(waveformSelection.startSec),
+        endLabel: formatTimecode(
+          Math.max(0, waveformSelection.endSec - waveformSelection.startSec),
+        ),
+      }
+    : inspectorModel;
   const propertiesVisible = regions.properties && layout.propertiesOpen;
   // Open-issue count prefers the live workspace mirror (UI-050: it tracks
   // decisions as they resolve); then the document's static list; then the
@@ -1026,8 +1064,9 @@ export default function App() {
       hasRestSelection: scoreState?.hasRestSelection ?? false,
       // #113: the waveform range selection (AUDIO_READY) is Esc-clearable
       // like a score selection (spec 8).
-      hasWaveformSelection:
-        screen === "audioReady" && transcriptionOptions.range === "selection",
+      // #353: Esc-clearable on every screen the band exists — it is
+      // playback selection now, not just the import range.
+      hasWaveformSelection: waveformSelection != null,
       reviewOpen: scoreState?.reviewOpen ?? screen === "reviewing",
       reviewIssueEditable: scoreState?.reviewIssueEditable ?? false,
       reviewCount,
@@ -1047,8 +1086,8 @@ export default function App() {
       reviewCount,
       view,
       captureState,
-      transcriptionOptions,
       importState.audio,
+      waveformSelection,
     ],
   );
 
@@ -1492,15 +1531,15 @@ export default function App() {
             transport.setLoop(null);
             setStatusMessage(ja.commandFeedback.loopOff);
           } else {
-            const sel =
-              transcriptionOptions.range === "selection" &&
-              transcriptionOptions.selectionStartSec != null &&
-              transcriptionOptions.selectionEndSec != null
-                ? {
-                    start: transcriptionOptions.selectionStartSec,
-                    end: transcriptionOptions.selectionEndSec,
-                  }
-                : { start: 0, end: transportSnap.duration };
+            // #353: Ctrl+L loops the live waveform band when one is
+            // armed (any screen) — job options no longer decide the
+            // playback loop.
+            const sel = waveformSelection
+              ? {
+                  start: waveformSelection.startSec,
+                  end: waveformSelection.endSec,
+                }
+              : { start: 0, end: transportSnap.duration };
             transport.setLoop(sel);
             setStatusMessage(ja.commandFeedback.loopOn);
           }
@@ -1601,12 +1640,11 @@ export default function App() {
       zoomScoreOut: () => scoreCtlRef.current?.zoomOut(),
       zoomScoreFit: () => scoreCtlRef.current?.zoomFit(),
       clearSelection: () => scoreCtlRef.current?.clearSelection(),
-      // #113: Esc on a waveform selection drops the committed range and
-      // returns the transcription-range option to "all" (spec 8).
+      // #113/#353: Esc drops the live band on any screen; the job
+      // range option only follows when it still says "selection".
       clearWaveformSelection: () => {
-        if (transcriptionOptions.range === "selection") {
-          setTranscriptionOptions({ ...transcriptionOptions, range: "all" });
-        }
+        setWaveformSelection(null);
+        setTranscriptionOptions(optionsAfterWaveformClear);
       },
       // #114: score note navigation + direct edits (spec 10/13).
       selectAdjacentNote: (direction) =>
@@ -1669,7 +1707,7 @@ export default function App() {
       capture,
       requestCapture,
       transportSnap,
-      transcriptionOptions,
+      waveformSelection,
       settings.skipSeconds,
       saveProjectFlow,
       guardDiscard,
@@ -2016,8 +2054,13 @@ export default function App() {
                     void transport.seek(s).catch(() => undefined);
                   }}
                   captureState={captureState}
+                  // #353: the band is playback/navigation state on
+                  // every screen — loop/play/zoom work post-score.
+                  // On the import screen a typed options selection
+                  // still paints the band (workflow preserved).
                   selection={
-                    screen === "audioReady" &&
+                    waveformSelection ??
+                    (screen === "audioReady" &&
                     transcriptionOptions.range === "selection"
                       ? {
                           startSec: transcriptionOptions.selectionStartSec ?? 0,
@@ -2026,19 +2069,18 @@ export default function App() {
                             importState.audio?.durationSeconds ??
                             0,
                         }
-                      : null
+                      : null)
                   }
-                  onSelect={
-                    screen === "audioReady"
-                      ? (range) =>
-                          setTranscriptionOptions({
-                            ...transcriptionOptions,
-                            range: "selection",
-                            selectionStartSec: range.startSec,
-                            selectionEndSec: range.endSec,
-                          })
-                      : undefined
-                  }
+                  onSelect={(range) => {
+                    // #353: drag commits to the band everywhere; the
+                    // job's range option only follows on the import
+                    // screen — post-score selection never silently
+                    // narrows a future retranscribe.
+                    setWaveformSelection(range);
+                    setTranscriptionOptions((o) =>
+                      optionsAfterWaveformSelect(screen, o, range),
+                    );
+                  }}
                   // #113: armed media loop band + selection context
                   // actions (spec 8: ループ/再生/ズーム/解除).
                   loop={
@@ -2065,12 +2107,8 @@ export default function App() {
                       .catch(() => undefined);
                   }}
                   onClearSelection={() => {
-                    if (transcriptionOptions.range === "selection") {
-                      setTranscriptionOptions({
-                        ...transcriptionOptions,
-                        range: "all",
-                      });
-                    }
+                    setWaveformSelection(null);
+                    setTranscriptionOptions(optionsAfterWaveformClear);
                   }}
                 />
               ) : null}
@@ -2265,7 +2303,7 @@ export default function App() {
                 {propertiesVisible ? (
                   <PropertiesPanel
                     content={inspector}
-                    model={inspectorModel}
+                    model={panelModel}
                     pitch={pitch}
                     width={layout.propertiesWidth}
                     min={layout.propertiesMin}
