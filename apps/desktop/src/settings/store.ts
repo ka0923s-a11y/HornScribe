@@ -12,6 +12,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 
+import { EXPORT_FORMAT_IDS, type ExportFormatId } from "../export/types";
+
 const STORAGE_KEY = "hornscribe.settings";
 
 /** The §18 categories in display order (録音 sits between 再生 and 採譜). */
@@ -71,6 +73,8 @@ export interface AppSettings {
   readonly backend: BackendSetting;
   /** 録音 → 自動削除の保持日数 (0 = 削除しない). */
   readonly recordingsRetentionDays: number;
+  /** 書き出し → 前回選んだ形式 (#377 — re-export keeps the last set). */
+  readonly exportFormats: Record<ExportFormatId, boolean>;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -88,6 +92,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ffmpegPath: "",
   backend: "auto",
   recordingsRetentionDays: 0,
+  // #377: the first-run default is every format on; the dialog then
+  // persists whatever the user last picked.
+  exportFormats: Object.fromEntries(
+    EXPORT_FORMAT_IDS.map((id) => [id, true]),
+  ) as Record<ExportFormatId, boolean>,
 };
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -155,6 +164,20 @@ export function parseSettings(raw: string | null): AppSettings {
     backend: oneOf(o.backend, BACKENDS) ?? d.backend,
     recordingsRetentionDays:
       num(o.recordingsRetentionDays, 0, 3650) ?? d.recordingsRetentionDays,
+    // #377: per-format booleans — unknown ids are dropped, missing
+    // ones fall back to the default so a stale blob never unchecks
+    // a format the user never saw.
+    exportFormats: (() => {
+      const raw = o.exportFormats;
+      const out = { ...d.exportFormats };
+      if (raw && typeof raw === "object") {
+        for (const id of EXPORT_FORMAT_IDS) {
+          const v = (raw as Record<string, unknown>)[id];
+          if (typeof v === "boolean") out[id] = v;
+        }
+      }
+      return out;
+    })(),
   };
 }
 

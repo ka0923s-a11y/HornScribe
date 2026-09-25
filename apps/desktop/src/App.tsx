@@ -2365,6 +2365,12 @@ export default function App() {
             onOpenChange={setExportOpen}
             port={exportPort}
             defaultDestination={settings.defaultExportDir}
+            // #377: the dialog restores the last-used format set and
+            // persists every change back into settings.
+            initialSelected={settings.exportFormats}
+            onSelectionChange={(selected) =>
+              updateSettings({ exportFormats: selected })
+            }
             toolOverrides={toolOverrides}
             onOpenSettings={(category) => {
               setSettingsFocus(category);

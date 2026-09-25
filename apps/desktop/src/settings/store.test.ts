@@ -91,3 +91,29 @@ describe("categories", () => {
     }
   });
 });
+
+describe("exportFormats persistence (#377)", () => {
+  it("round-trips the user's picks and repairs per-key", () => {
+    // A stored set keeps the user's picks; unknown ids drop, missing
+    // ones fall back to the default (true) instead of unchecking.
+    const parsed = parseSettings(
+      JSON.stringify({
+        exportFormats: {
+          hornPdf: false,
+          sourceAudio: false,
+          bogusFormat: true,
+        },
+      }),
+    );
+    expect(parsed.exportFormats.hornPdf).toBe(false);
+    expect(parsed.exportFormats.sourceAudio).toBe(false);
+    expect(parsed.exportFormats.concertMusicxml).toBe(true);
+    expect("bogusFormat" in parsed.exportFormats).toBe(false);
+    // A non-object blob keeps the default set.
+    expect(
+      parseSettings(JSON.stringify({ exportFormats: "x" })),
+    ).toEqual(DEFAULT_SETTINGS);
+  });
+});
+
+

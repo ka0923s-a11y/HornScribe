@@ -61,6 +61,8 @@ export function ExportDialog({
   onOpenSettings,
   onOpenDiagnostics,
   onAnnounce,
+  initialSelected,
+  onSelectionChange,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -73,18 +75,19 @@ export function ExportDialog({
   onOpenSettings(category: "export"): void;
   onOpenDiagnostics(): void;
   onAnnounce(message: string): void;
+  /** #377: the last-used format set from settings. */
+  initialSelected: Record<ExportFormatId, boolean>;
+  /** #377: persist the user's picks so the next open restores them. */
+  onSelectionChange?(selected: Record<ExportFormatId, boolean>): void;
 }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [caps, setCaps] = useState<ExportCapabilities | null>(null);
   const [destination, setDestination] = useState("");
-  const [selected, setSelected] = useState<Record<ExportFormatId, boolean>>({
-    concertMusicxml: true,
-    hornMusicxml: true,
-    concertPdf: true,
-    hornPdf: true,
-    playbackMidi: true,
-    sourceAudio: true,
-  });
+  // #377: the last-used set comes from settings — reopening the dialog
+  // keeps the user's formats instead of resetting all six every time.
+  const [selected, setSelected] = useState<Record<ExportFormatId, boolean>>(
+    initialSelected,
+  );
   const [result, setResult] = useState<ExportResult | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind>("failed");
   // #231: pending collision prompt — the port's onCollision awaits
@@ -107,14 +110,6 @@ export function ExportDialog({
     setPhase("loading");
     setCaps(null);
     setResult(null);
-    setSelected({
-      concertMusicxml: true,
-      hornMusicxml: true,
-      concertPdf: true,
-      hornPdf: true,
-      playbackMidi: true,
-      sourceAudio: true,
-    });
     let cancelled = false;
     void (async () => {
       try {
@@ -258,6 +253,13 @@ export function ExportDialog({
     (key: ExportFormatId) =>
     (_: unknown, d: { checked: boolean | "mixed" }) =>
       setSelected((s) => ({ ...s, [key]: d.checked === true }));
+
+  // #377: persist the last-used set — the next open restores it.
+  // Fires once on mount with the seeded value too; the write is
+  // idempotent so that echo is harmless.
+  useEffect(() => {
+    onSelectionChange?.(selected);
+  }, [selected, onSelectionChange]);
 
   const title =
     phase === "done"
