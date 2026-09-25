@@ -5,8 +5,11 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  loadAutoOpenSkips,
+  markAutoOpenFailed,
   MAX_RECENT_PROJECTS,
   loadRecentProjects,
+  nextAutoOpenEntry,
   recordRecentProject,
   removeRecentProject,
 } from "./recentProjects";
@@ -86,5 +89,55 @@ describe("removeRecentProject", () => {
     const list = removeRecentProject("/p/a", s);
     expect(list.map((e) => e.path)).toEqual(["/p/b"]);
     expect(loadRecentProjects(s).map((e) => e.path)).toEqual(["/p/b"]);
+  });
+});
+
+describe("auto-open skip set (#364)", () => {
+  it("nextAutoOpenEntry returns the MRU head when nothing is marked", () => {
+    const s = memStorage();
+    const list = recordRecentProject({ name: "a", path: "/p/a" }, s, 1);
+    expect(nextAutoOpenEntry(list, s)?.path).toBe("/p/a");
+  });
+
+  it("skips marked heads and falls through to the next live entry", () => {
+    const s = memStorage();
+    recordRecentProject({ name: "a", path: "/p/a" }, s, 1);
+    const list = recordRecentProject({ name: "b", path: "/p/b" }, s, 2);
+    markAutoOpenFailed("/p/b", s);
+    expect(nextAutoOpenEntry(list, s)?.path).toBe("/p/a");
+  });
+
+  it("returns undefined when every entry is marked — stay on EMPTY", () => {
+    const s = memStorage();
+    const list = recordRecentProject({ name: "a", path: "/p/a" }, s, 1);
+    markAutoOpenFailed("/p/a", s);
+    expect(nextAutoOpenEntry(list, s)).toBeUndefined();
+  });
+
+  it("two dead entries do not ping-pong the marker", () => {
+    const s = memStorage();
+    recordRecentProject({ name: "a", path: "/p/a" }, s, 1);
+    const list = recordRecentProject({ name: "b", path: "/p/b" }, s, 2);
+    markAutoOpenFailed("/p/b", s);
+    markAutoOpenFailed("/p/a", s);
+    expect(nextAutoOpenEntry(list, s)).toBeUndefined();
+    expect(loadAutoOpenSkips(s).sort()).toEqual(["/p/a", "/p/b"]);
+  });
+
+  it("a successful open clears the mark (file repaired/relocated)", () => {
+    const s = memStorage();
+    recordRecentProject({ name: "a", path: "/p/a" }, s, 1);
+    markAutoOpenFailed("/p/a", s);
+    const list = recordRecentProject({ name: "a", path: "/p/a" }, s, 2);
+    expect(loadAutoOpenSkips(s)).toEqual([]);
+    expect(nextAutoOpenEntry(list, s)?.path).toBe("/p/a");
+  });
+
+  it("removing an entry also drops its mark", () => {
+    const s = memStorage();
+    recordRecentProject({ name: "a", path: "/p/a" }, s, 1);
+    markAutoOpenFailed("/p/a", s);
+    removeRecentProject("/p/a", s);
+    expect(loadAutoOpenSkips(s)).toEqual([]);
   });
 });

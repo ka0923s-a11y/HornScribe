@@ -21,7 +21,11 @@ import type { ScreenState } from "../workspace/screen";
 import { ja } from "../strings/ja";
 import { type ImportPorts } from "./ports";
 import { audioFormatOf, baseName, projectDisplayName } from "./formats";
-import { recordRecentProject, loadRecentProjects } from "./recentProjects";
+import {
+  markAutoOpenFailed,
+  recordRecentProject,
+  loadRecentProjects,
+} from "./recentProjects";
 import type {
   AudioFileRef,
   AudioFormat,
@@ -422,7 +426,15 @@ export class ImportController {
       }
     } catch {
       if (!this.isCurrent(gen)) return;
-      this.fail({ kind: "projectOpenFailed", fileName: entry.name });
+      // #364: a failed open marks the path so the launch auto-open
+      // cannot error-loop on the same dead MRU head every start; the
+      // path rides the issue so the error card can offer 履歴から削除.
+      if (entry.path) markAutoOpenFailed(entry.path);
+      this.fail({
+        kind: "projectOpenFailed",
+        fileName: entry.name,
+        path: entry.path || undefined,
+      });
     }
   }
 

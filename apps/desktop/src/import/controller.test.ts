@@ -412,6 +412,9 @@ describe("openProject — source verification (store.py contract)", () => {
     expect(s.issue).toEqual({
       kind: "projectOpenFailed",
       fileName: "etude",
+      // #364: the failed MRU path rides the issue so the card can
+      // offer 履歴から削除 and the launch auto-open can skip it.
+      path: entry.path,
     });
     expect(h.screens.at(-1)).toBe("audioError");
   });

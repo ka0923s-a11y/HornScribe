@@ -53,6 +53,7 @@ function view(overrides: Partial<ImportView>): ImportView {
     options: DEFAULT_TRANSCRIPTION_OPTIONS,
     onOpenAudio: NOOP,
     onOpenProject: NOOP,
+    onRemoveRecent: NOOP,
     onPickRelink: NOOP,
     onDismissError: NOOP,
     onOptionsChange: NOOP,

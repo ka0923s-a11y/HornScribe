@@ -77,8 +77,10 @@ export type ImportIssue =
   /** Read/decode failed (corrupt file, vanished path, codec the webview
       cannot decode and FFmpeg normalization has not landed yet). */
   | { kind: "openFailed"; fileName?: string }
-  /** `.hornscribe.json` could not be read or parsed. */
-  | { kind: "projectOpenFailed"; fileName: string };
+  /** `.hornscribe.json` could not be read or parsed. `path` is the MRU
+   *  path that failed — powers the 履歴から削除 action on the error card
+   *  and the launch auto-open skip set (#364); absent for byte-opens. */
+  | { kind: "projectOpenFailed"; fileName: string; path?: string };
 
 /**
  * The subset of `HornScribeProject` (python/hornscribe/project/model.py,

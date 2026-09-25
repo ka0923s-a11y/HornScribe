@@ -12,6 +12,7 @@
  * copy deck (protocol/copy/ja-JP.json) is the source of truth.
  */
 import {
+  Dismiss16Regular,
   ErrorCircle24Regular,
   FolderOpen24Regular,
   History24Regular,
@@ -52,6 +53,9 @@ export interface ImportView {
   options: TranscriptionOptions;
   onOpenAudio(): void;
   onOpenProject(entry: RecentProjectEntry): void;
+  /** #364: 履歴から削除 — drops the path from the MRU (list entries and
+   *  the projectOpenFailed card both use it). Never touches the file. */
+  onRemoveRecent(path: string): void;
   onPickRelink(): void;
   onDismissError(): void;
   onOptionsChange(next: TranscriptionOptions): void;
@@ -141,36 +145,75 @@ function EmptyStateBody({ view }: { view: ImportView }) {
       ) : null}
       <p className="hs-empty__privacy">{ja.emptyState.privacy}</p>
       {/* §3: 履歴がある場合のみ「最近使ったプロジェクト」 */}
-      {view.recentProjects.length > 0 ? (
-        <div
-          className="hs-recent"
-          role="group"
-          aria-label={ja.import.recent.title}
-        >
-          <p className="hs-recent__title">{ja.import.recent.title}</p>
-          <ul className="hs-recent__list">
-            {view.recentProjects.map((entry) => (
-              <li key={entry.path}>
-                <button
-                  type="button"
-                  className="hs-recent__item"
-                  title={entry.path}
-                  aria-label={ja.import.recent.openAria(entry.name)}
-                  onClick={() => view.onOpenProject(entry)}
-                >
-                  <History24Regular aria-hidden="true" />
-                  <span className="hs-recent__name">{entry.name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <RecentProjectList view={view} />
     </div>
   );
 }
 
 /* --------------------------- OPENING_AUDIO --------------------------- */
+
+/** §3 recents list — per-row 履歴から削除 (#364); duplicate names get a
+ *  parent-dir subline so same-named projects stay distinguishable. Rows
+ *  are plain <button>s: keyboard focus + Enter/Space just work. */
+function RecentProjectList({ view }: { view: ImportView }) {
+  if (view.recentProjects.length === 0) return null;
+  const nameCounts = new Map<string, number>();
+  for (const e of view.recentProjects) {
+    nameCounts.set(e.name, (nameCounts.get(e.name) ?? 0) + 1);
+  }
+  return (
+    <div
+      className="hs-recent"
+      role="group"
+      aria-label={ja.import.recent.title}
+    >
+      <p className="hs-recent__title">{ja.import.recent.title}</p>
+      <ul className="hs-recent__list">
+        {view.recentProjects.map((entry) => {
+          const dir =
+            (nameCounts.get(entry.name) ?? 0) > 1
+              ? parentDir(entry.path)
+              : null;
+          return (
+            <li key={entry.path} className="hs-recent__row">
+              <button
+                type="button"
+                className="hs-recent__item"
+                title={entry.path}
+                aria-label={ja.import.recent.openAria(entry.name)}
+                onClick={() => view.onOpenProject(entry)}
+              >
+                <History24Regular aria-hidden="true" />
+                <span className="hs-recent__text">
+                  <span className="hs-recent__name">{entry.name}</span>
+                  {dir ? (
+                    <span className="hs-recent__dir">{dir}</span>
+                  ) : null}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="hs-recent__remove"
+                title={ja.import.recent.removeTitle}
+                aria-label={ja.import.recent.removeAria(entry.name)}
+                onClick={() => view.onRemoveRecent(entry.path)}
+              >
+                <Dismiss16Regular aria-hidden="true" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** Containing directory of an MRU path (either separator) — rendered
+ *  only when two entries share a name (#364 disambiguation). */
+function parentDir(path: string): string {
+  const i = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return i > 0 ? path.slice(0, i) : "";
+}
 
 function OpeningAudioBody({ view }: { view: ImportView }) {
   const title =
@@ -449,7 +492,8 @@ export function issueCopy(issue: ImportIssue): {
 function AudioErrorBody({ view }: { view: ImportView }) {
   const issue = view.issue ?? { kind: "openFailed" as const };
   const copy = issueCopy(issue);
-  const canPickAnother = issue.kind !== "projectOpenFailed";
+  const removablePath =
+    issue.kind === "projectOpenFailed" ? issue.path : undefined;
   return (
     <div className="hs-empty hs-error" role="alert">
       <ErrorCircle24Regular
@@ -462,13 +506,27 @@ function AudioErrorBody({ view }: { view: ImportView }) {
       ) : null}
       <p className="hs-error__body">{copy.body}</p>
       <div className="hs-error__actions">
-        {canPickAnother ? (
-          <HsButton variant="primary" onClick={view.onOpenAudio}>
-            {ja.import.errors.chooseAnother}
+        {/* The shared picker routes .hornscribe.json back to
+            openProject, so this doubles as "open another project" —
+            shown on projectOpenFailed too (#364). */}
+        <HsButton variant="primary" onClick={view.onOpenAudio}>
+          {ja.import.errors.chooseAnother}
+        </HsButton>
+        {removablePath ? (
+          <HsButton
+            variant="secondary"
+            onClick={() => {
+              // One click resolves the dead MRU entry: remove, then
+              // close back to the (already refreshed) recent list.
+              view.onRemoveRecent(removablePath);
+              view.onDismissError();
+            }}
+          >
+            {ja.import.errors.removeFromRecent}
           </HsButton>
         ) : null}
         <HsButton
-          variant={canPickAnother ? "secondary" : "primary"}
+          variant="secondary"
           onClick={view.onDismissError}
         >
           {ja.import.errors.close}

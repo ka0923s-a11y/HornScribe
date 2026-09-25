@@ -11,6 +11,11 @@ import type { RecentProjectEntry } from "./types";
 const STORAGE_KEY = "hornscribe.recentProjects.v1";
 export const MAX_RECENT_PROJECTS = 8;
 
+/** Paths whose last auto-open attempt failed with projectOpenFailed —
+ *  skipped at launch so a dead MRU head cannot error-loop every start
+ *  (#364). Manual opens still work; a successful record clears it. */
+const SKIP_KEY = "hornscribe.recentProjects.autoOpenSkip.v1";
+
 function isEntry(v: unknown): v is RecentProjectEntry {
   return (
     typeof v === "object" &&
@@ -52,17 +57,75 @@ export function recordRecentProject(
   list.unshift({ ...entry, openedAt: now });
   const capped = list.slice(0, MAX_RECENT_PROJECTS);
   persist(capped, storage);
+  clearAutoOpenSkip(entry.path, storage);
   return capped;
 }
 
-/** Drop a path (e.g. user removes a dead entry later on). */
+/** Drop a path — the 履歴から削除 affordance on the empty-state list and
+ *  the projectOpenFailed card (#364). */
 export function removeRecentProject(
   path: string,
   storage: Pick<Storage, "getItem" | "setItem"> | null = defaultStorage(),
 ): RecentProjectEntry[] {
   const list = loadRecentProjects(storage).filter((e) => e.path !== path);
   persist(list, storage);
+  clearAutoOpenSkip(path, storage);
   return list;
+}
+
+export function loadAutoOpenSkips(
+  storage: Pick<Storage, "getItem"> | null = defaultStorage(),
+): string[] {
+  if (!storage) return [];
+  try {
+    const parsed = JSON.parse(storage.getItem(SKIP_KEY) ?? "[]") as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((p): p is string => typeof p === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Mark a path as failing to open — skipped by the launch auto-open until
+ *  a manual open of the same path succeeds (recordRecentProject clears
+ *  it). A set, not a single value: consecutive dead entries must not
+ *  ping-pong the marker between each other. */
+export function markAutoOpenFailed(
+  path: string,
+  storage: Pick<Storage, "getItem" | "setItem"> | null = defaultStorage(),
+): void {
+  if (!path || !storage) return;
+  const next = [path, ...loadAutoOpenSkips(storage).filter((p) => p !== path)];
+  try {
+    storage.setItem(SKIP_KEY, JSON.stringify(next.slice(0, MAX_RECENT_PROJECTS)));
+  } catch {
+    /* best-effort */
+  }
+}
+
+export function clearAutoOpenSkip(
+  path: string,
+  storage: Pick<Storage, "getItem" | "setItem"> | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  const next = loadAutoOpenSkips(storage).filter((p) => p !== path);
+  try {
+    storage.setItem(SKIP_KEY, JSON.stringify(next));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** The MRU entry the launch auto-open should attempt: the first path not
+ *  on the failed-open skip set; undefined when every recent is known-dead
+ *  (stay on EMPTY). */
+export function nextAutoOpenEntry(
+  list: readonly RecentProjectEntry[],
+  storage: Pick<Storage, "getItem"> | null = defaultStorage(),
+): RecentProjectEntry | undefined {
+  const skips = new Set(loadAutoOpenSkips(storage));
+  return list.find((e) => !skips.has(e.path));
 }
 
 function persist(

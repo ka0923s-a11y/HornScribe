@@ -693,6 +693,8 @@ body {
   align-items: center;
   gap: var(--hs-space-sm);
   width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: var(--hs-space-xs) var(--hs-space-sm);
   border: 0;
   border-radius: var(--hs-radius-input);
@@ -713,6 +715,46 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* #364: each MRU row pairs the open button with a small 履歴から削除
+   icon button; the text column holds the name plus an optional parent-dir
+   subline rendered only when two entries share a name. */
+.hs-recent__row {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-micro);
+}
+.hs-recent__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.hs-recent__dir {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hs-recent__remove {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--hs-radius-input);
+  background: transparent;
+  color: var(--hs-text-muted);
+  cursor: pointer;
+}
+.hs-recent__remove:hover {
+  background: var(--hs-control-hover);
+  color: var(--hs-text-secondary);
 }
 
 /* OPENING_AUDIO (§5): the indeterminate bar + filename sit in the same

@@ -901,6 +901,9 @@ export const ja = {
     recent: {
       title: "最近使ったプロジェクト",
       openAria: (name: string) => `最近のプロジェクト ${name} を開く`,
+      /** #364: per-entry 履歴から削除 affordance. */
+      removeTitle: "履歴から削除",
+      removeAria: (name: string) => `最近のプロジェクト ${name} を履歴から削除`,
     },
     /** AUDIO_READY の採譜オプション popover (transcription.options)。 */
     audioOptions: {
@@ -971,6 +974,9 @@ export const ja = {
       projectOpenFailedBody:
         "ファイルが破損しているか、対応していない形式の可能性があります。",
       chooseAnother: "別のファイルを選ぶ",
+      /** #364: drop the dead MRU entry from the projectOpenFailed card.
+       *  One click removes and closes — the refreshed list shows on EMPTY. */
+      removeFromRecent: "履歴から削除して閉じる",
       close: "閉じる",
       sourceMissingTitle: "元音源が見つかりません",
       sourceMissingBody:
@@ -1563,6 +1569,8 @@ export const ja = {
     /** #234: 採譜中は音源・プロジェクトの差し替えを受け付けない。 */
     importWhileTranscribing:
       "採譜の実行中です。完了またはキャンセルしてから開いてください",
+    /** #364: 履歴から削除 feedback (MRU only — the file is untouched). */
+    recentRemoved: "履歴から削除しました",
     /** #219: SOURCE_MISSING でも採譜は開けるが、元音源依存の操作は不可。 */
     transcribeRequiresAudio: "元音源がありません。音源を指定すると採譜できます",
   },

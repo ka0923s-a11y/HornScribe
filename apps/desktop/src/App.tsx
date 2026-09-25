@@ -69,7 +69,9 @@ import {
 import { INITIAL_IMPORT_STATE } from "./import/controller";
 import {
   loadRecentProjects,
+  nextAutoOpenEntry,
   recordRecentProject,
+  removeRecentProject,
 } from "./import/recentProjects";
 import { createImportPorts } from "./import/runtimePorts";
 import { issueCopy, type ImportView } from "./import/ImportStates";
@@ -642,7 +644,10 @@ export default function App() {
     restoredProjectRef.current = true;
     if (!isTauriRuntime()) return;
     if (screen !== "empty") return;
-    const last = recentProjects[0];
+    // #364: skip entries whose last open failed projectOpenFailed — a
+    // dead MRU head must not error-loop every launch. The user can
+    // still open it manually (a success clears the skip marker).
+    const last = nextAutoOpenEntry(recentProjects);
     if (!last?.path) return;
     void importer.openProject(last);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- launch-only restore
@@ -1753,6 +1758,12 @@ export default function App() {
         }
         // #221: プロジェクトを開くと現在の楽譜は置き換わる。
         guardDiscard(() => void importer.openProject(entry));
+      },
+      // #364: 履歴から削除 — MRU-only removal; the project file itself
+      // is never touched (dead entries stop owning an MRU slot).
+      onRemoveRecent: (path) => {
+        setRecentProjects(removeRecentProject(path));
+        setStatusMessage(ja.notifications.recentRemoved);
       },
       onPickRelink: () => void importer.pickRelinkSource(),
       onDismissError: () => importer.dismiss(),
