@@ -61,6 +61,14 @@ class ReviewReason(Enum):
     # estimate, runner-up + margin, and per-segment stats when the
     # piece modulates — the remedy is the properties key editor.
     KEY_UNCERTAIN = "key_uncertain"
+    # #358: the auto-estimated anacrusis could not be justified —
+    # accent evidence prefers a different downbeat phase, the phase
+    # candidates tie, a hairline-early onset forced a whole-beat
+    # pickup, or the first onset lands mid-beat. Evidence carries the
+    # inferred/alternative pickup, per-phase downbeat scores, and the
+    # onset/beat gap inputs — the remedy is the properties pickup
+    # editor (setPickup re-tiles, no re-transcription).
+    PICKUP_UNCERTAIN = "pickup_uncertain"
 
 
 class Severity(Enum):

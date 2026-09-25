@@ -162,6 +162,38 @@ export function buildReviewAction(
     };
   }
 
+  // #358: pickup_uncertain — when the accent/onset evidence names a
+  // better anacrusis the bar offers the one-tap fix (setPickup
+  // re-tiles every barline; note values stay put). Without a
+  // suggestion the remedy is the pickup field in the properties
+  // panel, same as meter/key.
+  if (issue.reason === "pickup_uncertain") {
+    const suggested = issue.evidence["suggestedPickupBeats"];
+    if (typeof suggested === "number" && handlers.applyEdit) {
+      return {
+        label: r.applyPickupSuggestion(suggested),
+        tooltip: r.applyPickupSuggestionTip,
+        run: () =>
+          handlers.applyEdit?.(
+            () => ({
+              kind: "setPickup",
+              noteId: "",
+              pickupBeats: `${suggested}/1`,
+            }),
+            ja.commandFeedback.pickupChanged,
+            () => handlers.markFixed?.(issue.id),
+          ),
+      };
+    }
+    if (handlers.openProperties) {
+      return {
+        label: r.openPickupEditor,
+        tooltip: r.openPickupEditorTip,
+        run: () => handlers.openProperties?.(),
+      };
+    }
+  }
+
   // #208: ambiguous quantization -> swap in the runner-up spans.
   if (
     issue.reason === "quantization_ambiguous" &&

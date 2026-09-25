@@ -24,6 +24,8 @@ export const REVIEW_REASONS = [
   // #187: vocal-isolation provenance — applied or reported unavailable.
   "vocal_isolation_applied",
   "vocal_isolation_unavailable",
+  // #358: auto-estimated anacrusis the evidence cannot justify.
+  "pickup_uncertain",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
@@ -52,6 +54,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "vocal_isolation_applied",
   "vocal_isolation_unavailable",
   "key_uncertain",
+  "pickup_uncertain",
   "onset_uncertain",
   "pitch_uncertain",
   "multiple_candidates",

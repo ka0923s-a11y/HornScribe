@@ -544,6 +544,8 @@ export const ja = {
     tempoChanged: "テンポを変更しました",
     tempoChangeRemoved: "テンポ変化を削除しました",
     meterChanged: "拍子を変更しました",
+    // #358: user-corrected anacrusis via the properties pickup field.
+    pickupChanged: "弱起を変更しました",
     keyChanged: "調を変更しました",
     keyChangeRemoved: "転調を削除しました",
     metadataChanged: "譜面情報を更新しました",
@@ -1273,6 +1275,8 @@ export const ja = {
       arranger: "編曲者",
       tempo: "テンポ",
       meter: "拍子",
+      // #358: the anacrusis summary row / pickup-field label.
+      pickup: "弱起",
       key: "調",
       keyMode: "長短",
       feel: "リズムの感じ",
@@ -1322,6 +1326,11 @@ export const ja = {
     noteCountLabel: (n: number) => `${n} 音`,
     openIssuesLabel: (n: number) => `${n} 件`,
     keyLabel: (fifthsLabel: string) => fifthsLabel,
+    // #358: pickup labels — the summary row + select options. The
+    // label is a formatted beat count ("1", "1/2") so fractional
+    // anacruses stay readable.
+    pickupNone: "弱起なし",
+    pickupLabel: (beatsLabel: string) => `弱起${beatsLabel}拍`,
     /** #134: the score carries a swing marking (<sound><swing>). */
     feelSwing: "スウィング",
   },
@@ -1425,6 +1434,15 @@ export const ja = {
       title: "調を確認してください",
       detail:
         "推定された調を確定できません。プロパティの調エディタで確認・修正してください。",
+    },
+    // #358: the auto-estimated pickup (anacrusis) could not be
+    // justified — a wrong guess ripples into every barline, so the
+    // evidence branch names why it is unsure and the pickup field
+    // in the properties panel is the fix.
+    pickup_uncertain: {
+      title: "弱起（アウフタクト）を確認してください",
+      detail:
+        "曲頭の弱起の推定が曖昧です。プロパティの弱起フィールドで確認・修正してください（小節線の位置が全体的に直ります）。",
     },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
@@ -1530,6 +1548,44 @@ export const ja = {
       }
       return clauses.join("。") + "。";
     },
+    // #358: pickup-uncertainty evidence — names the inferred
+    // anacrusis, each flag that makes it unsure (accent phase /
+    // hairline onset / mid-beat onset), and the suggested fix when
+    // the evidence produces one.
+    pickupUncertain: (p: {
+      readonly flags: readonly string[];
+      readonly inferredBeats: number;
+      readonly suggestedBeats: number | null;
+    }) => {
+      const clauses = [
+        p.inferredBeats > 0
+          ? "推定は弱起" + p.inferredBeats + "拍です"
+          : "弱起なしと推定されました",
+      ];
+      if (p.flags.includes("hairline_onset")) {
+        clauses.push(
+          "最初の音が第1拍の直前に検出されたため、弱起ではなく検出タイミングのずれの可能性があります",
+        );
+      }
+      if (p.flags.includes("downbeat_phase_mismatch")) {
+        clauses.push(
+          "各拍の強さの証拠からは、別の拍を1拍目とした方が自然です",
+        );
+      } else if (p.flags.includes("downbeat_phase_ambiguous")) {
+        clauses.push(
+          "どの拍が1拍目か、強さの証拠だけでは決めきれません",
+        );
+      }
+      if (p.flags.includes("offbeat_onset")) {
+        clauses.push(
+          "最初の音が拍の途中から始まるため、弱起かシンコペーションの入りか判断できません",
+        );
+      }
+      if (clauses.length === 1) {
+        clauses.push("元音源の曲頭を聴き比べて確認してください");
+      }
+      return clauses.join("。") + "。";
+    },
   },
 
   /* #130 (§14): re-quantize dialog — change the quantization settings
@@ -1583,6 +1639,12 @@ export const ja = {
     /** #352: key_uncertain cannot auto-resolve — the key-map editor
      *  in the properties panel is the remedy. */
     openKeyEditor: "プロパティで調を変更",
+    /** #358: pickup_uncertain remedies — apply the suggested
+     *  anacrusis when the evidence has one, else open the pickup
+     *  field in the properties panel. */
+    applyPickupSuggestion: (beats: number) =>
+      beats === 0 ? "弱起なしに修正" : `弱起${beats}拍に修正`,
+    openPickupEditor: "プロパティで弱起を変更",
     /** #208: swap in the runner-up notation for an ambiguous run. */
     applyAlternative: "別の解釈に切り替え",
     /** #212: rewrite the flagged beat as triplets. */
@@ -1601,6 +1663,10 @@ export const ja = {
       "プロパティパネルを開いて拍子を選び直します",
     openKeyEditorTip:
       "プロパティパネルを開いて調を選び直します",
+    applyPickupSuggestionTip:
+      "推定された弱起を修正します（全ての小節線が直り、音符の長さは変わりません）",
+    openPickupEditorTip:
+      "プロパティパネルを開いて弱起を選び直します",
     applyAlternativeTip:
       "エンジンが次点として残した音符配置に差し替えます",
     applyTripletTip:

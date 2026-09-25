@@ -501,6 +501,129 @@ class TestSetMeter:
             )
 
 
+class TestSetPickup:
+    """#358: setPickup — user-corrected anacrusis. Every barline
+    re-tiles under the new measure phase while canonical beat
+    positions and note values stay put (no rescale, no AMT pass)."""
+
+    def test_pickup_updates_and_retiles(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "2", "1")])
+        out = apply_score_edit(
+            doc, _edit("setPickup", "", pickupBeats="1/1")
+        )
+        assert out.payload.pickup_beats == Fraction(1)
+        notes = out.payload.parts[0].notes
+        # Canonical positions/values are untouched — only barlines
+        # (and therefore atom decomposition / rest grouping) move.
+        assert [
+            (n.start_beat, n.duration_beats) for n in notes
+        ] == [
+            (Fraction(0), Fraction(1)),
+            (Fraction(2), Fraction(1)),
+        ]
+        assert out.revision != doc.revision
+
+    def test_remove_pickup(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc, payload=replace(doc.payload, pickup_beats=Fraction(1))
+        )
+        out = apply_score_edit(
+            doc, _edit("setPickup", "", pickupBeats="0/1")
+        )
+        assert out.payload.pickup_beats == Fraction(0)
+
+    def test_fractional_pickup(self) -> None:
+        # An eighth-note pickup in 4/4 is a half canonical beat —
+        # the wire form accepts fractions, not just whole beats.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "2", "1")])
+        out = apply_score_edit(
+            doc, _edit("setPickup", "", pickupBeats="1/2")
+        )
+        assert out.payload.pickup_beats == Fraction(1, 2)
+
+    def test_meter_changes_head_phase_follows(self) -> None:
+        # Payload invariant: the head meter change's phase equals
+        # beats_per_measure - pickup; it must move in step.
+        doc = _doc([_note(1, 60, "0", "1")])
+        change = MeterChange(
+            start_beat=Fraction(0),
+            time_signature=TimeSignature(
+                beats_per_measure=4, beat_unit=4
+            ),
+            measure_phase_beats=Fraction(0),
+        )
+        doc = replace(
+            doc, payload=replace(doc.payload, meter_changes=(change,))
+        )
+        out = apply_score_edit(
+            doc, _edit("setPickup", "", pickupBeats="1/1")
+        )
+        assert out.payload.pickup_beats == Fraction(1)
+        assert (
+            out.payload.meter_changes[0].measure_phase_beats
+            == Fraction(3)
+        )
+
+    def test_tempo_map_and_key_untouched(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        out = apply_score_edit(
+            doc, _edit("setPickup", "", pickupBeats="1/1")
+        )
+        assert out.payload.tempo_map == doc.payload.tempo_map
+        assert out.payload.key_signature == doc.payload.key_signature
+        assert out.payload.time_signature == doc.payload.time_signature
+
+    def test_rests_retile(self) -> None:
+        # A trailing rest keeps its span under the new barline grid.
+        doc = _doc([_note(1, 60, "0", "1")])
+        part = doc.payload.parts[0]
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                parts=(
+                    replace(
+                        part,
+                        rests=(
+                            ScoreRest(
+                                start_beat=Fraction(1),
+                                atoms=(
+                                    ScoreAtom(
+                                        duration_beats=Fraction(3),
+                                        symbol="half",
+                                        dots=1,
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        out = apply_score_edit(
+            doc, _edit("setPickup", "", pickupBeats="1/1")
+        )
+        rests = out.payload.parts[0].rests
+        total = sum((r.duration_beats for r in rests), Fraction(0))
+        assert total == Fraction(3)
+
+    def test_missing_pickup_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="requires"):
+            ScoreEdit.from_dict({"kind": "setPickup", "noteId": ""})
+
+    def test_out_of_range_pickup_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="shorter than"):
+            apply_score_edit(
+                doc, _edit("setPickup", "", pickupBeats="4/1")
+            )
+        with pytest.raises(ScoreEditError, match=">= 0"):
+            apply_score_edit(
+                doc, _edit("setPickup", "", pickupBeats="-1/1")
+            )
+
+
 class TestSplitMerge:
     def test_split_midpoint(self) -> None:
         doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])

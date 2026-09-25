@@ -2339,6 +2339,9 @@ export default function App() {
                     onMeterChange={(b, u) =>
                       scoreCtlRef.current?.setMeter?.(b, u)
                     }
+                    onPickupChange={(p) =>
+                      scoreCtlRef.current?.setPickup?.(p)
+                    }
                     onKeyChange={(f, mode) => scoreCtlRef.current?.setKey?.(f, mode)}
                     onKeyChangeAt={(args) =>
                       scoreCtlRef.current?.keyChangeAt?.(args)

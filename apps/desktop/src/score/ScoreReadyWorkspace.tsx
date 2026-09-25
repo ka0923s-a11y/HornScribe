@@ -282,6 +282,25 @@ function inspectorCopy(): InspectorCopy {
             });
           }
         }
+        // #358: pickup-uncertainty evidence — name the inferred
+        // anacrusis plus each flag that makes it unsure (accent phase
+        // prefers another downbeat / a hairline-early first onset /
+        // a mid-beat first onset). The properties pickup field or
+        // the review bar's suggestion button is the fix.
+        if (issue.reason === "pickup_uncertain") {
+          const inferred = numEvidence(issue, "inferredPickupBeats");
+          if (inferred != null) {
+            const flags = issue.evidence["flags"];
+            const suggested = numEvidence(issue, "suggestedPickupBeats");
+            return ja.reviewEvidence.pickupUncertain({
+              flags: Array.isArray(flags)
+                ? flags.filter((f): f is string => typeof f === "string")
+                : [],
+              inferredBeats: inferred,
+              suggestedBeats: suggested,
+            });
+          }
+        }
         // #322: isolation was skipped because voices/chords keep the
         // overlapping lines — say so instead of the generic mono/
         // decode-failure copy.
@@ -304,6 +323,9 @@ function inspectorCopy(): InspectorCopy {
     noteCount: (n) => j.noteCountLabel(n),
     openIssues: (n) => j.openIssuesLabel(n),
     key: (fifths, mode) => j.keyLabel(keyLabelJa(fifths, mode)),
+    // #358: anacrusis label for the score summary row.
+    pickup: (label) =>
+      label == null ? ja.inspector.pickupNone : ja.inspector.pickupLabel(label),
   };
 }
 
@@ -1564,6 +1586,20 @@ export function ScoreReadyWorkspace({
     [applyRhythmEdit],
   );
 
+  /* #358 (spec 14): anacrusis edit — the engine rebuilds the barline
+   * grid under the new pickup while note values stay put (unlike
+   * setMeter, nothing rescales); the properties pickup field and
+   * the review bar's suggestion both land here. */
+  const setPickup = useCallback(
+    (pickupBeats: string) => {
+      applyRhythmEdit(
+        () => ({ kind: "setPickup", noteId: "", pickupBeats }),
+        ja.commandFeedback.pickupChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   /* #145 (spec 14): key edit — replaces the head signature and
    * collapses detected key changes to the new single key; same
    * serialized queue + undo stack as the other rhythm edits. */
@@ -1902,6 +1938,7 @@ const setKey = useCallback(
       setTempo: (bpm) => setTempo(bpm),
       scaleTempo: (factor) => scaleTempo(factor),
       setMeter: (bpm_, bu) => setMeter(bpm_, bu),
+      setPickup: (p) => setPickup(p),
       setKey: (fifths, mode) => setKey(fifths, mode),
       keyChangeAt: (args) => keyChangeAt(args),
       removeKeyChange: (m) => removeKeyChange(m),
@@ -1942,6 +1979,7 @@ const setKey = useCallback(
     setTempo,
     scaleTempo,
     setMeter,
+    setPickup,
     setKey,
     keyChangeAt,
     removeKeyChange,

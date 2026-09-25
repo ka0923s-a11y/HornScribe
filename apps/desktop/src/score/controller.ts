@@ -38,6 +38,10 @@ export interface ScoreWorkspaceController {
   scaleTempo?(factor: number): void;
   /** #129 (spec 14): set the piece meter — full re-tile engine edit. */
   setMeter?(beatsPerMeasure: number, beatUnit: number): void;
+  /** #358 (spec 14): set the anacrusis length in beats — the engine
+   *  re-tiles every barline; note values stay put. A fractional
+   *  beats string ("1/2") is accepted for sub-beat pickups. */
+  setPickup?(pickupBeats: string): void;
   /** #145 (spec 14): set the piece key signature — undoable engine
    *  edit. Modulating scores collapse to the new single key. */
   setKey?(fifths: number, mode?: "major" | "minor" | null): void;

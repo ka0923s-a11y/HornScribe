@@ -176,6 +176,62 @@ describe("buildReviewAction", () => {
     expect(h.openProperties).toHaveBeenCalledOnce();
   });
 
+  it("#358: pickup suggestion applies setPickup via applyEdit", () => {
+    const applyEdit = vi.fn();
+    const h = handlers({ applyEdit });
+    const a = buildReviewAction(
+      issue({
+        reason: "pickup_uncertain",
+        canonicalNoteIds: [],
+        evidence: { suggestedPickupBeats: 1 },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.applyPickupSuggestion(1));
+    expect(a?.tooltip).toBe(ja.review.applyPickupSuggestionTip);
+    a?.run();
+    expect(applyEdit).toHaveBeenCalledOnce();
+    const [op, feedback, onApplied] = applyEdit.mock.calls[0];
+    expect(op()).toEqual({
+      kind: "setPickup",
+      noteId: "",
+      pickupBeats: "1/1",
+    });
+    expect(feedback).toBe(ja.commandFeedback.pickupChanged);
+    onApplied();
+    expect(h.markFixed).toHaveBeenCalledWith("ri-000001");
+  });
+
+  it("#358: a zero-beat suggestion still offers the fix", () => {
+    // suggestedPickupBeats 0 means "remove the phantom pickup" — a
+    // truthiness check would silently drop the remedy entirely.
+    const a = buildReviewAction(
+      issue({
+        reason: "pickup_uncertain",
+        canonicalNoteIds: [],
+        evidence: { suggestedPickupBeats: 0 },
+      }),
+      handlers(),
+    );
+    expect(a?.label).toBe(ja.review.applyPickupSuggestion(0));
+  });
+
+  it("#358: no suggestion falls back to the properties pickup field", () => {
+    const h = handlers();
+    const a = buildReviewAction(
+      issue({
+        reason: "pickup_uncertain",
+        canonicalNoteIds: [],
+        evidence: { suggestedPickupBeats: null },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.openPickupEditor);
+    expect(a?.tooltip).toBe(ja.review.openPickupEditorTip);
+    a?.run();
+    expect(h.openProperties).toHaveBeenCalledOnce();
+  });
+
   it("#352: key uncertain opens the properties key editor", () => {
     const h = handlers();
     const a = buildReviewAction(

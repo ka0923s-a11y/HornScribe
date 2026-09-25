@@ -97,7 +97,11 @@ from .meter import estimate_meter
 from .options import TranscriptionParams
 from .scorebuild import build_score
 from .swing import detect_swing
-from .tempo import estimate_tempo, tempo_map_from_estimate
+from .tempo import (
+    estimate_tempo,
+    pickup_uncertainty,
+    tempo_map_from_estimate,
+)
 from .tempo_octave import detect_tempo_octave
 from .vocal import vocal_wav
 
@@ -826,6 +830,7 @@ def run_transcription_job(
             first_onset_sec=cleaned.events[0].onset_sec,
             beat_times=beat_times,
             pulse_unit_ql=pulse_unit_ql,
+            beat_strengths=strengths,
         )
         rhythm_done += 1
         step(3, rhythm_done, rhythm_total)
@@ -1105,6 +1110,23 @@ def run_transcription_job(
                         "estimatedMeter": f"{meter.numerator}/{meter.denominator}",
                         "meterConfidence": round(meter_confidence, 3),
                     },
+                )
+            )
+        # #358: a wrong anacrusis ripples into every barline, rest
+        # grouping, tie decomposition and the measure-level tempo/key
+        # maps — a heuristic pickup never writes silently when the
+        # evidence cannot justify it.
+        pickup_uncertain = pickup_uncertainty(estimate)
+        if pickup_uncertain is not None:
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=analysis_range,
+                    reason=ReviewReason.PICKUP_UNCERTAIN,
+                    severity=Severity.CAUTION,
+                    evidence=pickup_uncertain,
                 )
             )
         # #352: a wrong key ripples into the signature, enharmonic

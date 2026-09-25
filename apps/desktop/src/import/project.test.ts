@@ -19,6 +19,7 @@ function fakeDoc(
         arranger: null,
       tempoBpm: 120,
       meter: "4/4",
+      pickupBeats: null,
       keyFifths: 0,
       keyChanges: [],
       tempoChanges: [],

@@ -78,6 +78,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
         this._meta.tempoChanges,
         this.canonicalDoc,
       ),
+      pickupBeats: pickupBeatsOf(this.canonicalDoc),
       omittedIssueCount: this._omittedIssueCount,
     };
   }
@@ -97,6 +98,10 @@ export class XmlScoreDocument implements ScoreDocumentPort {
      keyChanges: doc.keyChanges,
       tempoChanges: doc.tempoChanges,
       keyMode: doc.keyMode,
+      // #358: MusicXML expresses the pickup implicitly (partial
+      // first measure); the canonical payload is authoritative, so
+      // computeMeta leaves null and the caller merges pickupBeatsOf.
+      pickupBeats: null,
       swingFeel: doc.swingFeel,
       measureCount: doc.measureCount,
       noteCount: canonical.size,
@@ -296,6 +301,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
         this._meta.tempoChanges,
         this.canonicalDoc,
       ),
+      pickupBeats: pickupBeatsOf(this.canonicalDoc),
       omittedIssueCount: this._omittedIssueCount,
     };
     this.editCounter += 1;
@@ -322,6 +328,20 @@ function mergeTempoStarts(
       ? { ...m, startBeat }
       : { ...m };
   });
+}
+
+/** #358: canonical anacrusis in beat units ("1/1", "1/2" fraction
+ *  strings). Read from the payload like tempoMap's startBeat — a
+ *  fixture or foreign document leaves null and the pickup field
+ *  degrades to display-only. */
+function pickupBeatsOf(canonicalDoc: unknown): string | null {
+  const content = (
+    canonicalDoc as { content?: { pickupBeats?: unknown } }
+  )?.content;
+  const raw = content?.pickupBeats;
+  return typeof raw === "string" && /^\d+\/\d+$/.test(raw)
+    ? raw
+    : null;
 }
 
 /* ------------------------- #224: canonical edits -------------------------

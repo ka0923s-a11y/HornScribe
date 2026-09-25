@@ -31,6 +31,9 @@ const MODEL: ScoreInspectorModel = {
   meterLabel: "4/4",
   meterBeats: 4,
   meterUnit: 4,
+  pickupBeats: 1,
+  pickupBeatsRaw: "1/1",
+  pickupLabel: "弱起1拍",
   keyLabel: "ハ長調",
   keyFifths: 0,
   keyMode: "major",
@@ -192,5 +195,66 @@ describe("TempoMapEditor (mounted)", () => {
       bpm: 140,
       startBeat: "0/1",
     });
+  });
+});
+
+describe("PickupField (mounted)", () => {
+  const pickupSelect = (): HTMLSelectElement => {
+    const sel = [...host!.querySelectorAll("select")].find((s) =>
+      [...s.options].some((o) => o.value === "1/1"),
+    );
+    expect(sel).toBeDefined();
+    return sel as HTMLSelectElement;
+  };
+
+  // #358: every integer beat that fits the measure plus the common
+  // half-beat pickup — ordered by position inside the bar.
+  it("lists 弱起なし, half-beat, then integer beats", () => {
+    mount({ onPickupChange: vi.fn() });
+    const sel = pickupSelect();
+    const values = [...sel.options].map((o) => o.value);
+    expect(values).toEqual(["0/1", "1/2", "1/1", "2/1", "3/1"]);
+    expect(sel.value).toBe("1/1");
+    const labels = [...sel.options].map((o) => o.textContent);
+    expect(labels[0]).toBe("弱起なし");
+    expect(labels).toContain("弱起1拍");
+  });
+
+  it("commits the picked fraction to onPickupChange", () => {
+    const onPickupChange = vi.fn();
+    mount({ onPickupChange });
+    const sel = pickupSelect();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(sel, "0/1");
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(onPickupChange).toHaveBeenCalledWith("0/1");
+  });
+
+  it("keeps an unusual current value selectable", () => {
+    mount({
+      onPickupChange: vi.fn(),
+      model: {
+        ...MODEL,
+        pickupBeats: 1.5,
+        pickupBeatsRaw: "3/2",
+        pickupLabel: "弱起3/2拍",
+      },
+    });
+    const sel = pickupSelect();
+    expect(sel.options[0].value).toBe("3/2");
+    expect(sel.value).toBe("3/2");
+  });
+
+  it("falls back to the summary row without an edit channel", () => {
+    mount();
+    const rows = [...host!.querySelectorAll(".hs-properties__rows *")]
+      .map((el) => el.textContent);
+    expect(rows).toContain("弱起");
+    expect(rows).toContain("弱起1拍");
   });
 });

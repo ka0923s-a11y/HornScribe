@@ -29,6 +29,10 @@ export interface ScoreDocumentMeta {
   readonly tempoBpm: number | null;
   /** Time signature "4/4" style, when notated. */
   readonly meter: string | null;
+  /** #358: anacrusis length in head-signature beats — a canonical
+   *  fraction string ("1/1", "1/2") from the engine payload, null
+   *  when the document carries no payload (fixture/foreign XML). */
+  readonly pickupBeats: string | null;
   /** Key signature fifths (−7…+7), when notated. */
  readonly keyFifths: number | null;
   /** #252: key mode (major/minor) when the document declares one; null

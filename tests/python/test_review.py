@@ -51,6 +51,8 @@ def test_all_master_plan_reasons_exist() -> None:
             "vocal_isolation_unavailable",
             # #352: key-estimate uncertainty contract.
             "key_uncertain",
+            # #358: anacrusis-inference uncertainty contract.
+            "pickup_uncertain",
         }
     assert {r.value for r in ReviewReason} == expected
 

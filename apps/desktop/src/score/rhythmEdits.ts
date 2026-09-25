@@ -34,7 +34,8 @@ export type RhythmEditKind =
   | "applyTriplet"
   | "setMetadata"
   | "transposeNote"
-  | "transposeRange";
+  | "transposeRange"
+  | "setPickup";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -94,6 +95,10 @@ export interface RhythmEditOp {
   /** transposeRange only (#267): optional upper bound — a note is in
    *  range when its onset falls inside [startBeat, endBeat). */
   readonly endBeat?: string;
+  // setPickup only (#358): the anacrusis length as a "n/d" beat
+  // fraction in canonical beats (0 = no pickup). The engine re-tiles
+  // every barline under the new measure phase — no AMT re-run.
+  readonly pickupBeats?: string;
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

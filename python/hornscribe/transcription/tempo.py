@@ -56,6 +56,52 @@ class TempoEstimate:
     """Anacrusis span before the first downbeat (0 = no pickup)."""
     pulse_unit_ql: Fraction | None = None
     """Grid unit each tracked beat anchors (None = meter.beat_unit_ql)."""
+    pickup_analysis: PickupAnalysis | None = None
+    """#358: downbeat-phase evidence behind pickup_len_ql (None for
+    the pinned/short-track paths, where no inference happened)."""
+
+
+@dataclass(frozen=True)
+class PickupCandidate:
+    """#358: one alternative anacrusis length, scored by accent evidence.
+
+    ``pickup_beats`` counts tracked-pulse units before beat 0 (the
+    first tracked beat stays the first downbeat under every
+    candidate). ``downbeat_score`` is the mean normalized onset
+    strength at the beats that phase would make barlines; without
+    beat strengths every candidate reports the neutral 0.5 and the
+    margin logic stays silent.
+    """
+
+    pickup_beats: int
+    downbeat_score: float
+
+
+@dataclass(frozen=True)
+class PickupAnalysis:
+    """#358: the evidence behind the inferred measure phase.
+
+    The pickup lift is a heuristic over the first-onset/beat-0 gap —
+    this keeps the inputs and the phase-candidate scores so the
+    pipeline can emit ``pickup_uncertain`` with traceable evidence
+    instead of silently confirming a guess.
+    """
+
+    inferred_pickup_ql: Fraction
+    inferred_pickup_beats: Fraction
+    """Same span in canonical beat units (the ScoreEdit unit)."""
+    first_onset_sec: float | None
+    first_beat_sec: float | None
+    """First tracked beat (before leading-beat synthesis)."""
+    median_interval_sec: float
+    leading_beats_added: int
+    onset_phase_in_beat: float | None
+    """First onset's position inside its beat cell, 0..1 (None when
+    the onset could not be measured). A mid-cell onset makes the
+    anacrusis reading ambiguous against syncopation/tracker offset."""
+    candidates: tuple[PickupCandidate, ...]
+    """Phase candidates 0..measure-1 beats, best-downbeat-score first."""
+    strength_available: bool
 
 
 def estimate_tempo(
@@ -67,6 +113,7 @@ def estimate_tempo(
     first_onset_sec: float | None,
     beat_times: tuple[float, ...] | None = None,
     pulse_unit_ql: Fraction | None = None,
+    beat_strengths: tuple[float, ...] | None = None,
 ) -> TempoEstimate:
     """Build the seconds->ql warp for this run.
 
@@ -78,6 +125,9 @@ def estimate_tempo(
     needs it for meter estimation first); ``pulse_unit_ql`` overrides
     ``meter.beat_unit_ql`` as the grid unit each tracked beat anchors —
     auto-detected 6/8 tracks eighths, not dotted quarters.
+    ``beat_strengths`` is the parallel onset-envelope sample per
+    ``beat_times`` entry — downbeat-phase evidence for the pickup
+    ambiguity analysis (#358).
     """
     beat_unit_ql = pulse_unit_ql if pulse_unit_ql is not None else meter.beat_unit_ql
     if tempo_bpm is not None:
@@ -124,6 +174,15 @@ def estimate_tempo(
     # pulse over the attack at t=0). When the first onset sits roughly
     # one interval before beat 0, prepend a synthesized beat at the
     # onset — otherwise the real downbeat gets misread as a pickup.
+    # #358: strengths stay index-aligned with beat_times through the
+    # mutations below — synthesized leading beats get the neutral
+    # median, the snapped-away beat drops its strength too.
+    first_tracked_beat_sec = beat_times[0] if beat_times else None
+    strengths: list[float] = (
+        [float(s) for s in beat_strengths[: len(beat_times)]]
+        if beat_strengths is not None
+        else []
+    )
     leading_beats: list[float] = []
     if first_onset_sec is not None:
         gap = beat_times[0] - first_onset_sec
@@ -136,6 +195,8 @@ def estimate_tempo(
             # pickup.
             leading_beats.append(float(first_onset_sec))
             beat_times = beat_times[1:]
+            if strengths:
+                strengths = strengths[1:]
         elif gap >= 1.5 * median_sec:
             # Multiple missing beats: walk back on the median grid and
             # land the earliest grid point on the onset itself.
@@ -148,12 +209,21 @@ def estimate_tempo(
                         float(first_onset_sec) + (n_missing - k) * median_sec
                     )
     all_beats = tuple(leading_beats) + beat_times
+    neutral_strength = (
+        sorted(strengths)[len(strengths) // 2] if strengths else 0.5
+    )
+    all_strengths = (
+        [neutral_strength] * len(leading_beats) + strengths
+        if beat_strengths is not None
+        else []
+    )
 
     # Anchor beat i to score position i * beat_unit_ql, then lift the
     # whole row by whole beats when the first onset precedes beat 0 —
     # the lift is the pickup length (the first tracked beat stays the
     # first downbeat).
     shift_ql = Fraction(0)
+    first_ql: Fraction | None = None
     if first_onset_sec is not None:
         # Provisional warp to measure the pre-beat-0 gap.
         probe = TimeWarp.from_beat_map(
@@ -191,6 +261,21 @@ def estimate_tempo(
     median_bpm = (
         float(beat_unit_ql) * 60.0 / (median_sec * float(meter.beat_unit_ql))
     )
+    # #358: keep the inference evidence — the pipeline decides whether
+    # this pickup was confident enough to write silently.
+    pickup_analysis = _build_pickup_analysis(
+        all_beats=all_beats,
+        all_strengths=all_strengths,
+        first_onset_sec=first_onset_sec,
+        first_tracked_beat_sec=first_tracked_beat_sec,
+        median_interval_sec=median_sec,
+        leading_beats_added=len(leading_beats),
+        first_ql=first_ql,
+        beat_unit_ql=beat_unit_ql,
+        measure_ql=measure_ql,
+        meter_beat_ql=meter.beat_unit_ql,
+        inferred_pickup_ql=pickup_len,
+    )
     return TempoEstimate(
         warp=warp,
         beat_times_sec=all_beats,
@@ -198,7 +283,166 @@ def estimate_tempo(
         auto=True,
         pickup_len_ql=pickup_len,
         pulse_unit_ql=pulse_unit_ql,
+        pickup_analysis=pickup_analysis,
     )
+
+
+# #358 uncertainty thresholds. The candidate-phase margin is a
+# normalized accent-score difference; the onset-phase windows mark
+# landings the heuristic cannot justify either way.
+_PICKUP_PHASE_MARGIN = 0.10
+_ONSET_JITTER_PHASE = 0.90
+_ONSET_MID_BEAT_LO = 0.25
+_ONSET_MID_BEAT_HI = 0.75
+
+
+def _build_pickup_analysis(
+    *,
+    all_beats: tuple[float, ...],
+    all_strengths: list[float],
+    first_onset_sec: float | None,
+    first_tracked_beat_sec: float | None,
+    median_interval_sec: float,
+    leading_beats_added: int,
+    first_ql: Fraction | None,
+    beat_unit_ql: Fraction,
+    measure_ql: Fraction,
+    meter_beat_ql: Fraction,
+    inferred_pickup_ql: Fraction,
+) -> PickupAnalysis:
+    """Score the downbeat-phase candidates behind the inferred pickup.
+
+    Candidate ``j`` reads beats ``j, j+mb, j+2mb...`` as the downbeats
+    (the inference assumes ``j == 0``). Its implied anacrusis is
+    ``(inferred + j) mod mb`` beats; its score is the mean normalized
+    onset strength at those beat positions — an accent phase the
+    tracker cannot name is exactly the ambiguity a reviewer should
+    see. Non-integral measure lengths skip phase scoring entirely.
+    """
+    mb_frac = measure_ql / beat_unit_ql
+    inferred_beats = int(inferred_pickup_ql / beat_unit_ql)
+    onset_phase: float | None = None
+    if first_ql is not None:
+        onset_phase = float(
+            (first_ql % beat_unit_ql) / beat_unit_ql
+        )
+    candidates: list[PickupCandidate] = []
+    strength_available = (
+        len(all_strengths) == len(all_beats) and bool(all_strengths)
+    )
+    if mb_frac.denominator == 1 and mb_frac >= 1:
+        mb = int(mb_frac)
+        peak = max(all_strengths) if all_strengths else 1.0
+        norm = peak if peak > 0 else 1.0
+        for j in range(mb):
+            idx = [i for i in range(len(all_beats)) if i % mb == j]
+            if strength_available:
+                score = (
+                    sum(all_strengths[i] for i in idx) / (len(idx) * norm)
+                    if idx
+                    else 0.0
+                )
+            else:
+                score = 0.5
+            candidates.append(
+                PickupCandidate(
+                    pickup_beats=(inferred_beats + j) % mb,
+                    downbeat_score=round(score, 4),
+                )
+            )
+    else:
+        strength_available = False
+    return PickupAnalysis(
+        inferred_pickup_ql=inferred_pickup_ql,
+        inferred_pickup_beats=Fraction(inferred_pickup_ql / meter_beat_ql),
+        first_onset_sec=first_onset_sec,
+        first_beat_sec=first_tracked_beat_sec,
+        median_interval_sec=median_interval_sec,
+        leading_beats_added=leading_beats_added,
+        onset_phase_in_beat=onset_phase,
+        candidates=tuple(candidates),
+        strength_available=strength_available,
+    )
+
+
+def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
+    """#358: is the inferred anacrusis ambiguous enough to review?
+
+    Returns the ReviewIssue evidence dict (None = confident). Fires
+    when accent evidence prefers a different downbeat phase, when the
+    phase candidates tie, when a hairline-early onset forced a
+    whole-beat pickup, or when the first onset lands mid-beat (the
+    anacrusis/offbeat-entrance readings cannot be told apart).
+    """
+    a = estimate.pickup_analysis
+    if a is None:
+        return None
+    inferred_beats = int(a.inferred_pickup_beats)
+    flags: list[str] = []
+    suggested: int | None = None
+    ranked = sorted(
+        a.candidates, key=lambda c: -c.downbeat_score
+    )
+    current = next(
+        (c for c in a.candidates if c.pickup_beats == inferred_beats),
+        None,
+    )
+    if a.strength_available and len(ranked) >= 2:
+        best, runner_up = ranked[0], ranked[1]
+        margin = best.downbeat_score - runner_up.downbeat_score
+        current_score = current.downbeat_score if current else 0.0
+        if (
+            best.pickup_beats != inferred_beats
+            and best.downbeat_score - current_score >= _PICKUP_PHASE_MARGIN
+        ):
+            flags.append("downbeat_phase_mismatch")
+            suggested = best.pickup_beats
+        elif margin < _PICKUP_PHASE_MARGIN:
+            flags.append("downbeat_phase_ambiguous")
+            if best.pickup_beats != inferred_beats:
+                suggested = best.pickup_beats
+    # A hairline-early onset producing a whole-beat pickup is the
+    # classic phantom anacrusis — tracker jitter is just as plausible.
+    if (
+        inferred_beats > 0
+        and a.onset_phase_in_beat is not None
+        and a.onset_phase_in_beat >= _ONSET_JITTER_PHASE
+    ):
+        flags.append("hairline_onset")
+        suggested = 0
+    # A mid-beat onset reads equally well as a syncopated entrance or
+    # an offbeat pickup the phase grid cannot name.
+    if (
+        a.onset_phase_in_beat is not None
+        and _ONSET_MID_BEAT_LO <= a.onset_phase_in_beat <= _ONSET_MID_BEAT_HI
+    ):
+        flags.append("offbeat_onset")
+    if not flags:
+        return None
+    return {
+        "inferredPickupBeats": inferred_beats,
+        "suggestedPickupBeats": suggested,
+        "flags": flags,
+        "candidates": [
+            {
+                "pickupBeats": c.pickup_beats,
+                "downbeatScore": c.downbeat_score,
+            }
+            for c in a.candidates
+        ],
+        "firstOnsetSec": round(a.first_onset_sec, 4)
+        if a.first_onset_sec is not None
+        else None,
+        "firstTrackedBeatSec": round(a.first_beat_sec, 4)
+        if a.first_beat_sec is not None
+        else None,
+        "medianBeatIntervalSec": round(a.median_interval_sec, 4),
+        "leadingBeatsAdded": a.leading_beats_added,
+        "onsetPhaseInBeat": round(a.onset_phase_in_beat, 3)
+        if a.onset_phase_in_beat is not None
+        else None,
+        "downbeatStrengthUsed": a.strength_available,
+    }
 
 
 def tempo_map_from_estimate(

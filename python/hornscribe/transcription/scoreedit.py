@@ -109,6 +109,9 @@ class ScoreEdit:
     # #267: transposeRange's optional upper bound (startBeat is the
     # lower bound, both exclusive of rests).
     end_beat: Fraction | None = None
+    # #358: setPickup — the anacrusis length in canonical beats
+    # (0 = no pickup; must be < beats_per_measure).
+    pickup_beats: Fraction | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -134,6 +137,7 @@ class ScoreEdit:
             "setMetadata",
             "transposeNote",
             "transposeRange",
+            "setPickup",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
@@ -141,7 +145,7 @@ class ScoreEdit:
                 "setKey/keyChangeAt/removeKeyChange/restToNote/"
                 "tempoChangeAt/removeTempoChange/"
                 "scaleTempo/applyAlternative/applyTriplet/setMetadata/"
-                "transposeNote/transposeRange, "
+                "transposeNote/transposeRange/setPickup, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -160,6 +164,7 @@ class ScoreEdit:
             "applyTriplet",
             "setMetadata",
             "transposeRange",
+            "setPickup",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -375,6 +380,25 @@ class ScoreEdit:
             semitones = semitones_raw
         if kind in ("transposeNote", "transposeRange") and semitones is None:
             raise ScoreEditError(f"{kind} requires semitones")
+        pickup_raw = data.get("pickupBeats")
+        pickup_beats: Fraction | None = None
+        if pickup_raw is not None:
+            if isinstance(pickup_raw, bool):
+                raise ScoreEditError(
+                    f"edit.pickupBeats is not a rational number: "
+                    f"{pickup_raw!r}"
+                )
+            try:
+                # str() first: Fraction(0.1) would capture the binary
+                # float, not the decimal the client sent.
+                pickup_beats = Fraction(str(pickup_raw))
+            except (TypeError, ValueError, ZeroDivisionError) as exc:
+                raise ScoreEditError(
+                    f"edit.pickupBeats is not a rational number: "
+                    f"{pickup_raw!r}"
+                ) from exc
+        if kind == "setPickup" and pickup_beats is None:
+            raise ScoreEditError("setPickup requires pickupBeats")
         return cls(
             kind=kind,
             note_id=ScoreNoteId(note_id),
@@ -394,6 +418,7 @@ class ScoreEdit:
             factor=factor,
             alternative_notes=alternative_notes,
             metadata=metadata,
+            pickup_beats=pickup_beats,
             semitones=semitones,
         )
 
@@ -1253,6 +1278,113 @@ def _apply_set_meter(
     )
 
 
+def _apply_set_pickup(
+    payload: ScoreRevisionPayload, pickup_beats: Fraction
+) -> ScoreRevisionPayload:
+    """Change the anacrusis length (#358) and re-tile the whole score.
+
+    The canonical beat axis does not move — every note keeps its
+    onset/duration in beats; what changes is where the barlines
+    fall, so the whole score re-tiles under the new measure phase
+    (rests regroup, ties re-split, the partial first measure
+    resizes). No AMT pass runs: this is a score-level correction
+    like setMeter, not a re-transcription.
+    """
+    ts = payload.time_signature
+    beat_ql = beat_ql_of(payload)
+    if pickup_beats < 0:
+        raise ScoreEditError(
+            f"pickupBeats must be >= 0, got {pickup_beats}"
+        )
+    # Legacy single-meter payloads: pickup must fit inside a measure
+    # of the head signature (domain validation repeats this).
+    if pickup_beats >= ts.beats_per_measure:
+        raise ScoreEditError(
+            f"pickupBeats {pickup_beats} must be shorter than a "
+            f"{ts.beats_per_measure}-beat measure"
+        )
+    measure_ql = Fraction(ts.beats_per_measure) * beat_ql
+    pickup_ql = pickup_beats * beat_ql
+    phase_ql = (
+        (measure_ql - pickup_ql) % measure_ql if pickup_ql else Fraction(0)
+    )
+    meter_map = MeterMap(
+        (
+            MeterSegment(
+                start_ql=Fraction(0),
+                numerator=ts.beats_per_measure,
+                denominator=ts.beat_unit,
+                measure_phase_ql=phase_ql,
+            ),
+        )
+    )
+    # meter_changes present: the head change carries the anacrusis —
+    # the payload invariant demands its phase equal bpm - pickup, so
+    # update it in step and rebuild the map the realizer tiles from.
+    meter_changes = payload.meter_changes
+    if meter_changes:
+        first = meter_changes[0]
+        # first.start_beat == 0 and first.ts == ts per the payload
+        # invariant — the phase alone owns the pickup difference.
+        new_phase0 = (
+            Fraction(ts.beats_per_measure) - pickup_beats
+            if pickup_beats
+            else Fraction(0)
+        )
+        meter_changes = (
+            replace(first, measure_phase_beats=new_phase0),
+        ) + meter_changes[1:]
+        meter_map = MeterMap(
+            tuple(
+                MeterSegment(
+                    start_ql=c.start_beat * beat_ql,
+                    numerator=c.time_signature.beats_per_measure,
+                    denominator=c.time_signature.beat_unit,
+                    measure_phase_ql=c.measure_phase_beats * beat_ql,
+                )
+                for c in meter_changes
+            )
+        )
+    profile = _profile_from_settings(payload.quantization_settings)
+    new_parts: list[Part] = []
+    for part in payload.parts:
+        notes = list(part.notes)
+        # The re-tile window covers notes AND existing rest spans so a
+        # trailing rest keeps its span under the new layout.
+        hi = Fraction(0)
+        for n in notes:
+            hi = max(hi, n.end_beat)
+        for r in part.rests:
+            hi = max(hi, r.end_beat)
+        regions = _triplet_regions(tuple(notes), meter_map, profile, beat_ql)
+        realizer = SpanRealizer(meter_map, profile, triplet_regions=regions)
+        if hi > Fraction(0):
+            try:
+                new_notes, new_rests = _retile_window(
+                    notes, Fraction(0), hi, realizer, beat_ql
+                )
+            except ValueError as exc:
+                raise ScoreEditError(
+                    "the score's rhythm cannot be written under the "
+                    f"new pickup of {pickup_beats} beats: {exc}"
+                ) from exc
+            new_parts.append(
+                replace(
+                    part,
+                    notes=tuple(new_notes),
+                    rests=tuple(new_rests),
+                )
+            )
+        else:
+            new_parts.append(replace(part, notes=tuple(notes), rests=()))
+    return replace(
+        payload,
+        pickup_beats=pickup_beats,
+        meter_changes=meter_changes,
+        parts=tuple(new_parts),
+    )
+
+
 def _warp_from_evidence(raw: Any) -> TimeWarp | None:
     """Rebuild the persisted seconds->ql warp (#226).
 
@@ -2097,6 +2229,11 @@ def apply_score_edit(
             beat_unit=edit.beat_unit,
         )
         new_payload = _apply_set_meter(payload, ts)
+        return replace(document, payload=new_payload)
+    if edit.kind == "setPickup":
+        if edit.pickup_beats is None:
+            raise ScoreEditError("setPickup requires pickupBeats")
+        new_payload = _apply_set_pickup(payload, edit.pickup_beats)
         return replace(document, payload=new_payload)
     if edit.kind == "requantize":
         if not edit.settings:

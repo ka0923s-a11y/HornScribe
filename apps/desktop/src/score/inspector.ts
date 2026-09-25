@@ -16,6 +16,7 @@ import type { ScoreDocumentMeta } from "./document";
 import type { ScoreReviewIssue } from "./review";
 import { issueConfidence } from "./review";
 import { noteTypeJa, pitchLabel, type KeyMode, type ParsedNote } from "./scoreDoc";
+import { parseFraction } from "./rhythmEdits";
 import type { PitchViewSetting } from "../commands/types";
 
 export interface InspectorIssueRow {
@@ -63,6 +64,15 @@ export interface ScoreInspectorModel {
    *  "n/m" label — null when the score carries no usable signature. */
   readonly meterBeats: number | null;
   readonly meterUnit: number | null;
+  /** #358: anacrusis in head-signature beats (may be fractional, e.g.
+   *  0.5 for an eighth pickup) — null for payload-less documents. */
+  readonly pickupBeats: number | null;
+  /** #358: the canonical fraction string ("1/1", "1/2") — the
+   *  pickup select submits this exact wire form for fractional
+   *  values and keeps unusual ones selectable. */
+  readonly pickupBeatsRaw: string | null;
+  /** #358: display label (弱起なし / 弱起1拍 / 弱起1/2拍). */
+  readonly pickupLabel: string | null;
   readonly keyLabel: string | null;
  /** Raw head-key fifths for the editable key field (#145 setKey). */
  readonly keyFifths: number | null;
@@ -139,6 +149,8 @@ export interface InspectorCopy {
   openIssues(n: number): string;
   /** Key-signature label for fifths (e.g. `ヘ長調`/`変ロ長調`…). */
   key(fifths: number, mode?: KeyMode | null): string;
+  /** #358: anacrusis label — beatsLabel null means 弱起なし. */
+  pickup(beatsLabel: string | null): string;
 }
 
 const FIFTHS_JA: Record<string, string> = {
@@ -240,6 +252,24 @@ export function buildScoreInspector(
     meterLabel: meta.meter,
     meterBeats: meter?.beats ?? null,
     meterUnit: meter?.unit ?? null,
+    // #358: canonical pickup — "0/1" still shows 弱起なし so the
+    // user can tell an explicit no-pickup apart from an unknown one
+    // (payload-less docs leave null and hide the row).
+    pickupBeats:
+      meta.pickupBeats != null
+        ? (() => {
+            const f = parseFraction(meta.pickupBeats);
+            return f ? f.num / f.den : null;
+          })()
+        : null,
+    pickupBeatsRaw: meta.pickupBeats,
+    pickupLabel: (() => {
+      const f = parseFraction(meta.pickupBeats);
+      if (!f) return null;
+      return copy.pickup(
+        f.num === 0 ? null : f.den === 1 ? String(f.num) : `${f.num}/${f.den}`,
+      );
+    })(),
     // #146: with mid-piece key changes, show the transitions
     // (head key -> key at measure N) instead of just the head key.
     keyLabel:

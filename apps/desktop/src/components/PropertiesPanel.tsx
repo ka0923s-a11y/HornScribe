@@ -48,6 +48,7 @@ export function PropertiesPanel({
   onTempoChange,
   onTempoScale,
   onMeterChange,
+  onPickupChange,
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
@@ -75,6 +76,9 @@ export function PropertiesPanel({
   onTempoScale?(factor: number): void;
   /** #129 (§14): commit a new meter via the engine score.edit. */
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
+  /** #358 (§14): commit a new anacrusis length (canonical beat
+   *  fraction "n/d") via the engine score.edit. */
+  onPickupChange?(pickupBeats: string): void;
   /** #145 (§14): commit a new key signature via the engine score.edit. */
   onKeyChange?(fifths: number, mode?: KeyMode | null): void;
   /** #145 (§14): insert/update a key-change boundary — startBeat
@@ -139,6 +143,7 @@ export function PropertiesPanel({
               onTempoChange={onTempoChange}
               onTempoScale={onTempoScale}
             onMeterChange={onMeterChange}
+            onPickupChange={onPickupChange}
             onKeyChange={onKeyChange}
             onKeyChangeAt={onKeyChangeAt}
             onRemoveKeyChange={onRemoveKeyChange}
@@ -189,6 +194,7 @@ function InspectorBody({
   onTempoChange,
   onTempoScale,
   onMeterChange,
+  onPickupChange,
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
@@ -201,6 +207,7 @@ function InspectorBody({
   onTempoChange?(bpm: number): void;
   onTempoScale?(factor: number): void;
  onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
+  onPickupChange?(pickupBeats: string): void;
   onKeyChange?(fifths: number, mode?: KeyMode | null): void;
   onKeyChangeAt?(args: {
     fifths: number;
@@ -232,6 +239,7 @@ function InspectorBody({
         onTempoChange={onTempoChange}
         onTempoScale={onTempoScale}
         onMeterChange={onMeterChange}
+        onPickupChange={onPickupChange}
         onKeyChange={onKeyChange}
         onKeyChangeAt={onKeyChangeAt}
         onRemoveKeyChange={onRemoveKeyChange}
@@ -261,6 +269,7 @@ function ScoreBody({
   onTempoChange,
   onTempoScale,
   onMeterChange,
+  onPickupChange,
   onKeyChange,
   onKeyChangeAt,
   onRemoveKeyChange,
@@ -273,6 +282,7 @@ function ScoreBody({
   onTempoChange?(bpm: number): void;
   onTempoScale?(factor: number): void;
   onMeterChange?(beatsPerMeasure: number, beatUnit: number): void;
+  onPickupChange?(pickupBeats: string): void;
   onKeyChange?(fifths: number, mode?: KeyMode | null): void;
   onKeyChangeAt?(args: {
     fifths: number;
@@ -381,6 +391,20 @@ function ScoreBody({
           />
         ) : (
           model.meterLabel && <Row label={f.meter} value={model.meterLabel} />
+        )}
+        {/* #358: the anacrusis select — engine-backed docs only
+            (pickupBeatsRaw is null for fixture/foreign XML, so the
+            field degrades to the summary row instead of guessing). */}
+        {model.pickupBeatsRaw != null && onPickupChange ? (
+          <PickupField
+            current={model.pickupBeatsRaw}
+            meterBeats={model.meterBeats ?? 4}
+            onCommit={onPickupChange}
+          />
+        ) : (
+          model.pickupLabel && (
+            <Row label={f.pickup} value={model.pickupLabel} />
+          )
         )}
         {model.keyFifths != null &&
         model.keyChangeCount <= 1 &&
@@ -996,6 +1020,49 @@ function MeterField({
           const u = Number(m[2]);
           if (b === beats && u === unit) return;
           onCommit(b, u);
+        }}
+      />
+    </div>
+  );
+}
+
+/** #358: anacrusis select — canonical beat fractions "n/d". Options
+ *  are every integer beat that fits inside the measure plus the
+ *  common half-beat pickup; an unusual current value (e.g. "3/2")
+ *  stays selectable like MeterField's unusual meters. */
+function PickupField({
+  current,
+  meterBeats,
+  onCommit,
+}: {
+  current: string;
+  meterBeats: number;
+  onCommit(pickupBeats: string): void;
+}) {
+  const f = ja.inspector.summaryFields;
+  // Ordered by position inside the measure: 弱起なし, the common
+  // half-beat pickup, then every integer beat that still leaves a
+  // beat in the bar.
+  const values: string[] = ["0/1", "1/2"];
+  const limit = Math.max(1, Math.floor(meterBeats));
+  for (let b = 1; b < limit; b += 1) values.push(`${b}/1`);
+  if (!values.includes(current)) values.unshift(current);
+  const label = (v: string): string => {
+    const m = /^(\d+)\/(\d+)$/.exec(v);
+    if (!m) return v;
+    if (m[1] === "0") return ja.inspector.pickupNone;
+    return ja.inspector.pickupLabel(
+      m[2] === "1" ? m[1] : `${Number(m[1])}/${Number(m[2])}`,
+    );
+  };
+  return (
+    <div className="hs-properties__meter">
+      <HsSelect
+        label={f.pickup}
+        value={current}
+        options={values.map((v) => ({ value: v, label: label(v) }))}
+        onChange={(v) => {
+          if (v !== current) onCommit(v);
         }}
       />
     </div>
