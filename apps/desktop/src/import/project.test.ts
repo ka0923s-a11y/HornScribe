@@ -5,6 +5,8 @@ import {
   buildProjectDocument,
   deriveProjectId,
   isSaveableRevision,
+  validateProjectDocument,
+  writeProjectDocument,
 } from "./project";
 
 function fakeDoc(
@@ -216,5 +218,142 @@ describe("#222/#243: identity + source hash", () => {
     // No verified hash anywhere → the source block is omitted,
     // never written as the schema-invalid empty string (#243).
     expect(doc!.sourceAudio).toBeNull();
+  });
+});
+
+/* #389: the shell-side validator mirrors HornScribeProject.from_dict
+ * — manual save runs it before project_write, autosave before the
+ * recovery write. Invalid documents fail closed: nothing touches
+ * disk. */
+describe("validateProjectDocument", () => {
+  async function validProject() {
+    const doc = await buildProjectDocument({
+      audio: fakeAudio(),
+      doc: fakeDoc(),
+      result: RESULT,
+    });
+    expect(doc).not.toBeNull();
+    return doc!;
+  }
+
+  it("accepts the buildProjectDocument output", async () => {
+    expect(validateProjectDocument(await validProject())).toBeNull();
+  });
+
+  it("rejects missing/wrong schemaVersion", async () => {
+    const base = await validProject();
+    expect(
+      validateProjectDocument({ ...base, schemaVersion: undefined }),
+    ).toMatch(/schemaVersion/);
+    expect(
+      validateProjectDocument({ ...base, schemaVersion: 2 }),
+    ).toMatch(/schemaVersion/);
+    expect(
+      validateProjectDocument({ ...base, schemaVersion: "1" }),
+    ).toMatch(/schemaVersion/);
+  });
+
+  it("rejects a malformed projectId", async () => {
+    const base = await validProject();
+    expect(
+      validateProjectDocument({ ...base, projectId: "x" }),
+    ).toMatch(/projectId/);
+    expect(
+      validateProjectDocument({ ...base, projectId: 42 }),
+    ).toMatch(/projectId/);
+  });
+
+  it("rejects a malformed sourceAudio / transcription / score ref", async () => {
+    const base = await validProject();
+    expect(
+      validateProjectDocument({
+        ...base,
+        sourceAudio: { originalPath: "x" },
+      }),
+    ).toMatch(/sourceAudio/);
+    expect(
+      validateProjectDocument({
+        ...base,
+        transcription: { backend: "b", backendVersion: "v", revision: "tr-bad" },
+      }),
+    ).toMatch(/transcription/);
+    expect(
+      validateProjectDocument({
+        ...base,
+        score: { revision: "not-a-rev" },
+      }),
+    ).toMatch(/score\.revision/);
+  });
+
+  it("rejects malformed userEdits / reviewDecisions ids", async () => {
+    const base = await validProject();
+    expect(
+      validateProjectDocument({
+        ...base,
+        userEdits: [
+          {
+            id: "ue-0001",
+            scoreRevision: "rev-nope",
+            kind: "delete",
+            targetNoteIds: [],
+          },
+        ],
+      }),
+    ).toMatch(/userEdits/);
+    expect(
+      validateProjectDocument({
+        ...base,
+        userEdits: [
+          {
+            id: "ue-0001",
+            scoreRevision: "rev-0123456789abcdef",
+            kind: "pitch_change",
+            targetNoteIds: ["not-a-note"],
+          },
+        ],
+      }),
+    ).toMatch(/userEdits/);
+    expect(
+      validateProjectDocument({
+        ...base,
+        reviewDecisions: [
+          { issueId: "ri-1", scoreRevision: "bad", status: "fixed" },
+        ],
+      }),
+    ).toMatch(/reviewDecisions/);
+  });
+});
+
+describe("writeProjectDocument", () => {
+  it("validates then writes — the write seam never sees an invalid doc", async () => {
+    const doc = await buildProjectDocument({
+      audio: fakeAudio(),
+      doc: fakeDoc(),
+      result: RESULT,
+    });
+    const writes: [string, string][] = [];
+    await writeProjectDocument("C:\\out\\take.hornscribe.json", doc!, (p, c) => {
+      writes.push([p, c]);
+      return Promise.resolve();
+    });
+    expect(writes.length).toBe(1);
+    expect(writes[0][0]).toBe("C:\\out\\take.hornscribe.json");
+    // Same serializer contract as autosave: plain JSON.stringify.
+    expect(JSON.parse(writes[0][1]).schemaVersion).toBe(1);
+  });
+
+  it("fails closed — invalid documents throw before any write", async () => {
+    const writes: [string, string][] = [];
+    await expect(
+      writeProjectDocument(
+        "C:\\out\\take.hornscribe.json",
+        { schemaVersion: 2, projectId: "prj-0123456789abcdef" },
+        (p, c) => {
+          writes.push([p, c]);
+          return Promise.resolve();
+        },
+      ),
+    ).rejects.toThrow(/invalid project document/);
+    expect(writes).toEqual([]);
   });
 });

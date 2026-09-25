@@ -1786,6 +1786,10 @@ export const ja = {
     /* #100: project save */
     projectSaved: "プロジェクトを保存しました",
     projectSaveFailed: "プロジェクトを保存できませんでした",
+    // #389: the shell-side validator refused the document — the
+    // file was never touched, so score + edits stay in memory.
+    projectSaveInvalid:
+      "プロジェクトデータが保存の条件を満たさないため、保存を中止しました（楽譜と編集内容は保持されています）",
     projectSaveUnsupported:
       "この楽譜はプロジェクトとして保存できません（採譜結果のみ保存できます）",
     /** #234: 採譜中は音源・プロジェクトの差し替えを受け付けない。 */

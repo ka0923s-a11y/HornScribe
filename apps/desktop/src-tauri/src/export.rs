@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
+use crate::PROJECT_FILE_SUFFIX;
+
 /// Artifact extensions the export flow may write (§17 formats).
 const EXPORT_EXTENSIONS: [&str; 4] = ["musicxml", "xml", "mid", "pdf"];
 
@@ -433,6 +435,7 @@ pub struct AutosaveInfo {
     pub project_path: Option<String>,
 }
 
+
 /// project_autosave_clear: drop the recovery file — called after a
 /// successful explicit save or when the user declines the restore.
 #[tauri::command]
@@ -446,6 +449,110 @@ pub fn project_autosave_clear(app: tauri::AppHandle) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/* ------------------------- manual project save (#389) ----------------------
+ *
+ * `project_write` is the engine-free counterpart of the worker's
+ * `project.save`: the schema-v1 document arrives already serialized
+ * (the frontend validator mirrors HornScribeProject.from_dict, and the
+ * JSON parse below fails closed before anything touches disk), and the
+ * write protocol mirrors ProjectStore — same-directory `.tmp` file,
+ * fsync, the previous good file kept as a sibling `.recovery`, then the
+ * atomic rename.
+ *
+ * Self-limiting: a fresh save must land in a dir the export model
+ * already allows (picked via `project_save_path`, or under Documents);
+ * re-saving an existing project file is allowed wherever it lives —
+ * the file's presence proves the user pointed at it.
+ */
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWriteResult {
+    pub path: String,
+    pub project_id: String,
+}
+
+/// `project_write`: persist a `.hornscribe.json` document without the
+/// Python worker (#389) so Ctrl+S still lands when the engine is down.
+#[tauri::command]
+pub fn project_write(
+    app: tauri::AppHandle,
+    path: String,
+    contents: String,
+) -> Result<ProjectWriteResult, String> {
+    let target = PathBuf::from(&path);
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !name.ends_with(PROJECT_FILE_SUFFIX) {
+        return Err(format!(
+            "project_write requires a {PROJECT_FILE_SUFFIX} path"
+        ));
+    }
+    // Fail closed on malformed content before any filesystem touch —
+    // the schema check lives in the frontend validator; this only
+    // proves the payload is JSON carrying a projectId.
+    let doc: serde_json::Value = serde_json::from_str(&contents)
+        .map_err(|e| format!("project contents is not JSON: {e}"))?;
+    let project_id = doc
+        .get("projectId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if project_id.is_empty() {
+        return Err("project document carries no projectId".into());
+    }
+    let parent = target
+        .parent()
+        .ok_or("project path has no parent directory")?;
+    if !target.exists() && !dir_allowed(&app, parent) {
+        return Err(format!(
+            "directory not writable for projects: {}",
+            parent.display()
+        ));
+    }
+    write_project_file(&target, &contents)?;
+    Ok(ProjectWriteResult {
+        path: target.to_string_lossy().into_owned(),
+        project_id,
+    })
+}
+
+/// The write half of `project_write`, split out so the protocol is
+/// unit-testable without an AppHandle. Mirrors
+/// `ProjectStore._atomic_write_json`: same-directory `.tmp` write +
+/// fsync, the previous good file becomes `<name>.recovery`, then the
+/// atomic rename (std::fs::rename replaces on Windows too).
+fn write_project_file(target: &Path, contents: &str) -> Result<(), String> {
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("project dir {}: {e}", parent.display()))?;
+    }
+    let tmp = target.with_file_name(format!("{name}.tmp"));
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp)
+            .map_err(|e| format!("write {}: {e}", tmp.display()))?;
+        file.write_all(contents.as_bytes())
+            .map_err(|e| format!("write {}: {e}", tmp.display()))?;
+        file.sync_all()
+            .map_err(|e| format!("fsync {}: {e}", tmp.display()))?;
+    }
+    if target.exists() {
+        let recovery = target.with_file_name(format!("{name}.recovery"));
+        std::fs::rename(&target, &recovery).map_err(|e| {
+            format!("recovery snapshot {}: {e}", recovery.display())
+        })?;
+    }
+    std::fs::rename(&tmp, &target)
+        .map_err(|e| format!("rename {}: {e}", target.display()))
 }
 
 /// Which of the requested artifact names already exist in `dir` —
@@ -931,6 +1038,25 @@ mod tests {
             name: name.to_string(),
             data_base64: b64(body),
         }
+    }
+
+    #[test]
+    fn project_write_roundtrip_and_recovery() {
+        // #389: the shell save mirrors ProjectStore — the write lands
+        // atomically and a re-save keeps the previous body as the
+        // sibling .recovery snapshot.
+        let dir = tmp_dir("project-write");
+        let target = dir.join("take.hornscribe.json");
+        let first = "{\"projectId\":\"prj-0123456789abcdef\"}";
+        write_project_file(&target, first).unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), first);
+        let second = "{\"projectId\":\"prj-ffffffffffffffff\"}";
+        write_project_file(&target, second).unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), second);
+        let recovery = dir.join("take.hornscribe.json.recovery");
+        assert_eq!(std::fs::read_to_string(&recovery).unwrap(), first);
+        assert!(!dir.join("take.hornscribe.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

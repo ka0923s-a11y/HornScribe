@@ -80,6 +80,8 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   buildProjectDocument,
   isSaveableRevision,
+  validateProjectDocument,
+  writeProjectDocument,
 } from "./import/project";
 import { baseName } from "./import/formats";
 import { CaptureController, type CaptureState } from "./capture/controller";
@@ -807,7 +809,15 @@ export default function App() {
         projectId: projectIdRef.current,
         priorSourceAudio: projectSourceRef.current,
       });
-      return project ? JSON.stringify(project) : null;
+      if (!project) return null;
+      // #389: same validator as manual save — a malformed snapshot
+      // must never land in the recovery file. Throwing routes to
+      // the hook's failure path so the persistent warning surfaces.
+      const invalid = validateProjectDocument(project);
+      if (invalid != null) {
+        throw new Error(`autosave snapshot invalid: ${invalid}`);
+      }
+      return JSON.stringify(project);
     },
     write: (contents) =>
       invoke<void>("project_autosave_write", { contents, projectPath }),
@@ -1155,6 +1165,44 @@ export default function App() {
           }
         }
       }
+      /* #389: the worker used to fill a missing sourceAudio.contentHash
+       * at save time — the shell path owns that now via audio_probe, so
+       * a saved project never writes an unlinkable source ref even
+       * with the engine down. Both upstream hashes win first; the
+       * probe is the last resort. */
+      {
+        const refNow = audioForProject?.ref;
+        const refPath =
+          refNow && refNow.kind !== "file" ? refNow.path : undefined;
+        const refHash =
+          refNow && "contentHash" in refNow ? refNow.contentHash : undefined;
+        const canonicalHash = (() => {
+          const c = doc.canonicalDocument?.() as
+            | Record<string, unknown>
+            | undefined;
+          return typeof c?.sourceAudioHash === "string"
+            ? c.sourceAudioHash
+            : null;
+        })();
+        if (refNow && refPath && !canonicalHash && !refHash) {
+          try {
+            const probe = await invoke<{ contentHash?: string } | null>(
+              "audio_probe",
+              { path: refPath },
+            );
+            if (probe?.contentHash) {
+              audioForProject = {
+                ...audioForProject!,
+                ref: { ...refNow, contentHash: probe.contentHash },
+              };
+            }
+          } catch {
+            /* probe failure just keeps the hash empty —
+             * buildProjectDocument then omits sourceAudio instead of
+             * writing one that cannot relink (#243 contract). */
+          }
+        }
+      }
       const project = await buildProjectDocument({
         audio: audioForProject,
         doc,
@@ -1190,7 +1238,23 @@ export default function App() {
               suggestedName: `${suggested}.hornscribe.json`,
             });
       if (!path) return false; // cancelled — no announcement needed
-      const res = await session.saveProject(path, project);
+      /* #389: manual save is engine-free — the worker's project.save
+       * used to re-validate + hash + atomically write; now the shell
+       * owns it: validateProjectDocument mirrors
+       * HornScribeProject.from_dict (fail closed before any write),
+       * project_write does the tmp+fsync+recovery+rename. */
+      const invalid = validateProjectDocument(project);
+      if (invalid != null) {
+        console.error("[project] refusing to save invalid document", invalid);
+        setStatusMessage(ja.notifications.projectSaveInvalid);
+        return false;
+      }
+      const res = await writeProjectDocument(path, project, (p, contents) =>
+        invoke<{ path: string; projectId: string }>("project_write", {
+          path: p,
+          contents,
+        }),
+      );
       const name = res.path.split(/[\\/]/).pop() ?? res.path;
       setRecentProjects(recordRecentProject({ name, path: res.path }));
       // #147: persist the source ref so the Settings badge/delete
@@ -1221,7 +1285,6 @@ export default function App() {
     scoreDocument,
     importState.audio,
     scoreProvenance,
-    session,
     projectPath,
   ]);
 

@@ -25,7 +25,8 @@ mod export;
 const AUDIO_EXTENSIONS: [&str; 5] = ["wav", "mp3", "flac", "m4a", "ogg"];
 
 /// HornScribe project document suffix (python/hornscribe/project/model.py).
-const PROJECT_FILE_SUFFIX: &str = ".hornscribe.json";
+// #389: shared with export.rs's project_write (the shell-side save).
+pub(crate) const PROJECT_FILE_SUFFIX: &str = ".hornscribe.json";
 
 /// 512 MiB — far above any realistic horn recording (~90 MB for 10 min of
 /// PCM16 stereo 44.1 kHz); guards against unbounded reads.
@@ -154,6 +155,7 @@ pub fn run() {
             export::probe_tool_path,
             export::reveal_in_explorer,
             export::project_save_path,
+            export::project_write,
             export::project_autosave_write,
             export::project_autosave_status,
             export::project_autosave_clear,

@@ -73,6 +73,7 @@ function sourceAudioOf(audio: LoadedAudio | null): {
   return null;
 }
 
+const PROJECT_ID_RE = /^prj-[0-9a-f]{16}$/;
 const REVISION_RE = /^rev-[0-9a-f]{16}$/;
 const TRANSCRIPTION_RE = /^tr-[0-9a-f]{16}$/;
 const SCORE_NOTE_RE = /^sn-\d{6}$/;
@@ -231,4 +232,120 @@ export async function buildProjectDocument(
     musicXmlHornF: doc.musicXml("hornF"),
     meta,
   };
+}
+
+/* ---------------------- shell-side validation (#389) ----------------------
+ * Manual save no longer round-trips through the Python worker, so the
+ * shell path carries its own copy of HornScribeProject.from_dict's
+ * checks (model.py): schema version, id regexes, and the required-key
+ * shape of each nested record. Returns a short reason string, or null
+ * when the document is safe to write. Fail closed: any reason aborts
+ * the save before a byte reaches disk. */
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+/** The schema-v1 check shared by manual save and autosave (#389). */
+export function validateProjectDocument(project: unknown): string | null {
+  if (!isRecord(project)) return "project document is not an object";
+  const version = project.schemaVersion;
+  if (version == null) return "missing required field: schemaVersion";
+  if (!Number.isInteger(version)) return "schemaVersion must be an integer";
+  if (version !== 1) return `unsupported schemaVersion ${version}`;
+  const pid = project.projectId;
+  if (typeof pid !== "string" || !PROJECT_ID_RE.test(pid)) {
+    return "projectId is missing or malformed";
+  }
+  const source = project.sourceAudio;
+  if (source != null) {
+    if (!isRecord(source)) return "sourceAudio is malformed";
+    if (
+      typeof source.originalPath !== "string" ||
+      typeof source.contentHash !== "string"
+    ) {
+      return "sourceAudio.originalPath/contentHash are required";
+    }
+  }
+  const transcription = project.transcription;
+  if (transcription != null) {
+    if (!isRecord(transcription)) return "transcription is malformed";
+    if (
+      typeof transcription.backend !== "string" ||
+      typeof transcription.backendVersion !== "string" ||
+      typeof transcription.revision !== "string"
+    ) {
+      return "transcription fields are missing or malformed";
+    }
+    if (!TRANSCRIPTION_RE.test(transcription.revision)) {
+      return "transcription.revision is malformed";
+    }
+  }
+  const score = project.score;
+  if (score != null) {
+    if (!isRecord(score)) return "score is malformed";
+    if (
+      typeof score.revision !== "string" ||
+      !REVISION_RE.test(score.revision)
+    ) {
+      return "score.revision is malformed";
+    }
+  }
+  const userEdits = project.userEdits;
+  if (userEdits != null && !Array.isArray(userEdits)) {
+    return "userEdits must be an array";
+  }
+  for (const e of userEdits ?? []) {
+    if (!isRecord(e)) return "userEdits[] entries must be objects";
+    if (
+      typeof e.id !== "string" ||
+      typeof e.kind !== "string" ||
+      typeof e.scoreRevision !== "string" ||
+      !REVISION_RE.test(e.scoreRevision)
+    ) {
+      return "userEdits[].scoreRevision is malformed";
+    }
+    const ids = e.targetNoteIds;
+    if (!Array.isArray(ids)) {
+      return "userEdits[].targetNoteIds must be an array";
+    }
+    for (const n of ids) {
+      if (typeof n !== "string" || !SCORE_NOTE_RE.test(n)) {
+        return "userEdits[].targetNoteIds contains malformed ID";
+      }
+    }
+  }
+  const decisions = project.reviewDecisions;
+  if (decisions != null && !Array.isArray(decisions)) {
+    return "reviewDecisions must be an array";
+  }
+  for (const d of decisions ?? []) {
+    if (!isRecord(d)) return "reviewDecisions[] entries must be objects";
+    if (
+      typeof d.issueId !== "string" ||
+      typeof d.status !== "string" ||
+      typeof d.scoreRevision !== "string" ||
+      !REVISION_RE.test(d.scoreRevision)
+    ) {
+      return "reviewDecisions[].scoreRevision is malformed";
+    }
+  }
+  return null;
+}
+
+/** Validate then write through the injected seam — the shared
+ *  engine-free save path (#389). `write` is `project_write` in prod;
+ *  an invalid document throws before `write` is ever called (fail
+ *  closed) and the serialized body is the same JSON.stringify contract
+ *  the autosave path writes. */
+export async function writeProjectDocument<R>(
+  path: string,
+  project: Record<string, unknown>,
+  write: (path: string, contents: string) => Promise<R>,
+): Promise<R> {
+  const invalid = validateProjectDocument(project);
+  if (invalid != null) {
+    throw new Error(`invalid project document: ${invalid}`);
+  }
+  return write(path, JSON.stringify(project));
 }

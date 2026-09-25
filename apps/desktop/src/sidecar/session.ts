@@ -257,23 +257,6 @@ export class TranscriptionSession {
   }
 
   /**
-   * `project.save` (#100): persist a .hornscribe.json document through
-   * the engine. Spawns the engine lazily when it is not already up —
-   * the same engine that produced the score normally still serves.
-   */
-  async saveProject(path: string, project: unknown): Promise<{ path: string; projectId: string }> {
-    await this.ensureEngine();
-    const client = this.client;
-    if (!client) {
-      throw new SidecarError(ERR.ENGINE_UNAVAILABLE, "no engine client");
-    }
-    return client.call<{ path: string; projectId: string }>(
-      "project.save",
-      { path, project },
-    );
-  }
-
-  /**
    * `project.open` (#365): the authoritative open path — the worker
    * reads (or decodes), migrates and validates the document, and returns
    * the normalized current-schema dict. `path` covers MRU/disk opens;

@@ -339,6 +339,12 @@ class Worker:
         is computed here so the relink contract stays authoritative.
         Writes go through ProjectStore (atomic tmp+replace + recovery
         snapshot).
+
+        #389: the desktop app no longer routes manual save through this
+        # RPC — `project_write` in the Tauri shell owns the user-facing
+        # path so a dead engine cannot block saving. This handler stays
+        # as the schema/reference implementation the shell validator
+        # mirrors (apps/desktop/src/import/project.ts).
         """
         if not isinstance(payload, dict):
             raise protocol.ProtocolError(
