@@ -217,6 +217,12 @@ export function getScoreRenderer(): Promise<ScoreRenderer> {
   if (!rendererPromise) {
     const renderer = new ScoreRenderer();
     rendererPromise = renderer.init().then(() => renderer);
+    /* #401: a rejected init must not poison the singleton — drop the
+     * cached promise so the error surface's 再試行 gets a fresh init
+     * attempt instead of replaying the same rejection forever. */
+    rendererPromise.catch(() => {
+      rendererPromise = null;
+    });
   }
   return rendererPromise;
 }

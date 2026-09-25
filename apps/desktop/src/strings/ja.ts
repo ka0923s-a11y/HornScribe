@@ -1211,6 +1211,12 @@ export const ja = {
     renderErrorTitle: "楽譜を表示できません",
     renderErrorBody:
       "楽譜データの読み込みに失敗しました。プロジェクトと採譜結果は失われていません。",
+    /* #401: 初期化失敗も同じerror契約 — title=何が失敗 /
+       body=何が保持される / actions=再試行+診断情報。raw例外は
+       診断情報ダイアログ行きで表示面へ出さない。 */
+    initErrorTitle: "楽譜を表示できません",
+    initErrorBody:
+      "楽譜表示機能を初期化できませんでした。採譜結果とプロジェクトは失われていません。",
     viewModeLabel: "表示方法",
     continuous: "連続表示",
     page: "ページ表示",

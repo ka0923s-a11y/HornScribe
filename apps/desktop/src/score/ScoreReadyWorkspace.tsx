@@ -126,6 +126,7 @@ import type {
 } from "./controller";
 import { SegmentedControl } from "../components/primitives/SegmentedControl";
 import { HsButton } from "../components/primitives/Button";
+import { HsDialog } from "../components/primitives/Dialog";
 
 interface Selection {
   exportId: string;
@@ -302,7 +303,14 @@ export function ScoreReadyWorkspace({
   const [selection, setSelection] = useState<Selection | null>(null);
   const [loading, setLoading] = useState(true);
   const [renderError, setRenderError] = useState(false);
+  /* #401: initError holds DIAGNOSTICS text (raw exception + context)
+   *  for the 診断情報 dialog — the visible surface renders only the
+   *  fixed Japanese copy. initDiagOpen/initDiagCopied drive that
+   *  dialog; initAttempt re-arms the init effect for 再試行. */
   const [initError, setInitError] = useState<string | null>(null);
+  const [initDiagOpen, setInitDiagOpen] = useState(false);
+  const [initDiagCopied, setInitDiagCopied] = useState(false);
+  const [initAttempt, setInitAttempt] = useState(0);
   const [followEnabled, setFollowEnabled] = useState(followPlayback);
   const [followSuspended, setFollowSuspended] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -741,9 +749,24 @@ export function ScoreReadyWorkspace({
           synth.sync(s.positionMs, s.isPlaying, s.rate);
         });
       })
-      .catch((e: unknown) =>
-        setInitError(e instanceof Error ? e.message : String(e)),
-      );
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        /* #401: the raw exception is diagnostics-only (JAPANESE_UI_COPY
+         * §7) — it never reaches the visible surface; it is kept here
+         * for the 診断情報 dialog with the document context support
+         * needs. */
+        const err = e instanceof Error ? e : null;
+        setInitError(
+          [
+            "score renderer init failure",
+            `revision: ${scoreDoc.revisionId}`,
+            `message: ${err?.message ?? String(e)}`,
+            err?.stack ? `stack:\n${err.stack}` : "",
+          ]
+            .filter((line) => line !== "")
+            .join("\n"),
+        );
+      });
     return () => {
       cancelled = true;
       clockRef.current?.dispose();
@@ -752,7 +775,7 @@ export function ScoreReadyWorkspace({
       synthRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initAttempt]);
 
   /* ---- media transport handoff (UI-020 → UI-030) ----
    * The media element is the authoritative audio clock once a source is
@@ -1895,6 +1918,24 @@ const setKey = useCallback(
     schedulePagePrefetch(currentPage);
   }, [viewMode, currentPage, loading, ensurePage, schedulePagePrefetch]);
 
+  /* #401: init-failure recovery — 再試行 re-runs the init effect
+   * (the verovio singleton self-heals on rejection, so this is a
+   * fresh attempt); 診断情報 copies the kept diagnostics text. */
+  const retryInit = useCallback(() => {
+    setInitError(null);
+    setInitDiagOpen(false);
+    setInitDiagCopied(false);
+    setInitAttempt((n) => n + 1);
+  }, []);
+  const copyInitDiagnostics = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(initError ?? "");
+      setInitDiagCopied(true);
+    } catch {
+      setInitDiagCopied(false);
+    }
+  }, [initError]);
+
   /* ------------------------------- render -------------------------------- */
 
   const visiblePages =
@@ -1902,11 +1943,48 @@ const setKey = useCallback(
   const s = ja.scoreView;
 
   if (initError) {
+    // #401: same contract as the render-failure surface — fixed
+    // Japanese title/body + recovery actions; the raw exception stays
+    // behind 診断情報 (GUI_UX_SPEC §20, JAPANESE_UI_COPY §7).
     return (
-      <div className="hs-score-error" role="alert">
-        <h2>{s.renderErrorTitle}</h2>
-        <p>{initError}</p>
-      </div>
+      <>
+        <div className="hs-score-error" role="alert">
+          <h2>{s.initErrorTitle}</h2>
+          <p>{s.initErrorBody}</p>
+          <HsButton variant="primary" onClick={retryInit}>
+            {ja.common.retry}
+          </HsButton>
+          <HsButton variant="secondary" onClick={() => setInitDiagOpen(true)}>
+            {ja.common.diagnostics}
+          </HsButton>
+        </div>
+        <HsDialog
+          open={initDiagOpen}
+          onOpenChange={(open) => {
+            setInitDiagOpen(open);
+            if (!open) setInitDiagCopied(false);
+          }}
+          title={ja.diagnostics.title}
+          actions={
+            <>
+              <HsButton
+                variant="secondary"
+                onClick={() => void copyInitDiagnostics()}
+              >
+                {initDiagCopied ? ja.diagnostics.copied : ja.diagnostics.copy}
+              </HsButton>
+              <HsButton
+                variant="primary"
+                onClick={() => setInitDiagOpen(false)}
+              >
+                {ja.diagnostics.close}
+              </HsButton>
+            </>
+          }
+        >
+          <pre className="hs-diagnostics">{initError}</pre>
+        </HsDialog>
+      </>
     );
   }
 
