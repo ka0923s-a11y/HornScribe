@@ -1160,7 +1160,6 @@ export const ja = {
       onset: "開始位置",
       duration: "音の長さ",
       tie: "タイ",
-      canonicalId: "正準ID",
       confidence: "モデル確信度",
     },
     summaryFields: {

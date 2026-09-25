@@ -1026,7 +1026,9 @@ function NoteBody({
         <Row label={f.duration} value={model.durationLabel} />
         <Row label={f.onset} value={model.onsetLabel} />
         {model.tieLabel && <Row label={f.tie} value={model.tieLabel} />}
-        {model.canonicalId && <Row label={f.canonicalId} value={model.canonicalId} />}
+        {/* #382: the canonical sn-* id stays in the model for
+            diagnostics but is never shown — internal identity is not
+            performer-facing information (GUI_UX_SPEC §1). */}
       </dl>
       {model.issues.length > 0 && (
         <>
