@@ -571,6 +571,16 @@ export function ExportDialog({
 
           <h3 className="hs-export__section">{e.midiSection}</h3>
           <div className="hs-export__group">{formatRow("playbackMidi")}</div>
+          {/* #390: the engine is down or the canonical exporter is
+              missing — MIDI still exports, but as the client-side
+              rebuild; disclose the lost facets BEFORE the user runs
+              it, same note pattern as the MuseScore gate. */}
+          {selected.playbackMidi && caps?.playbackMidi === "degraded" ? (
+            <p className="hs-export__note" role="note">
+              <Warning24Regular aria-hidden="true" />
+              <span>{e.midiDegradedNote}</span>
+            </p>
+          ) : null}
 
           <h3 className="hs-export__section">{e.audioSection}</h3>
           <div className="hs-export__group">{formatRow("sourceAudio")}</div>
@@ -649,6 +659,14 @@ export function ExportDialog({
               </li>
             ))}
           </ul>
+          {/* #390: post-run disclosure — MIDI was produced but at
+              reduced quality; never silently. */}
+          {result?.degraded?.includes("playbackMidi") ? (
+            <p className="hs-export__note" role="note">
+              <Warning24Regular aria-hidden="true" />
+              <span>{e.midiDegradedDone}</span>
+            </p>
+          ) : null}
         </div>
       ) : (
         <div className="hs-export">

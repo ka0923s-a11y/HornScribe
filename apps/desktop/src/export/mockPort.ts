@@ -30,6 +30,7 @@ import {
   type ExportPort,
   type ExportRequest,
   type ExportResult,
+  type PlaybackMidiTier,
 } from "./types";
 import type { ExportedFile } from "./types";
 
@@ -74,6 +75,8 @@ export interface MockExportPortOptions {
   ffmpeg?: ToolInfo;
   /** Simulated audioAvailable capability (#87) — default true. */
   audioAvailable?: boolean;
+  /** #390: simulated playbackMidi tier — default canonical. */
+  playbackMidi?: PlaybackMidiTier;
   /** Simulated latency for capabilities()/export(). */
   latencyMs?: number;
   /** Deterministic failure for export() — recovery-path tests. */
@@ -135,6 +138,7 @@ export class MockExportPort implements ExportPort {
       backend: "basic-pitch (mock)",
       museScore: withPathOverride(museScore, overrides?.museScorePath),
       ffmpeg: withPathOverride(ffmpeg, overrides?.ffmpegPath),
+      playbackMidi: this.options.playbackMidi ?? "canonical",
       audioAvailable: this.options.audioAvailable ?? true,
     };
   }

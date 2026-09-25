@@ -249,6 +249,10 @@ export default function App() {
       createDefaultExportPort(
         () => exportSourceRef.current,
         (doc) => session.exportMidi(doc).then((r) => r.midiBase64),
+        // #390: a dead engine must not burn the canonical-MIDI RPC —
+        // the port degrades that format alone instead of the whole
+        // export failing.
+        () => session.getSnapshot().engine === "ready",
       ),
     [session],
   );

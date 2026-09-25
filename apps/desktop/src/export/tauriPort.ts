@@ -133,8 +133,15 @@ export class TauriExportPort implements ExportPort {
   /** #256: canonical MIDI via the engine's playback_midi_bytes — keeps
    *  velocity / pitch bend / swing / tempo map. When absent (or the
    *  document has no canonical payload) the client-side MusicXML→MIDI
-   *  rebuild is used as before. */
+   *  rebuild is used as before. #390: a FAILED engine call degrades
+   *  to that same client-side build instead of aborting the whole
+   *  transaction — MusicXML/PDF never needed the worker. */
   private readonly midiExporter?: (scoreDocument: unknown) => Promise<string>;
+
+  /** #390: engine-liveness probe — false means the canonical MIDI
+   *  RPC would just burn a round trip on a dead worker, so export()
+   *  goes straight to the client-side build and reports degraded. */
+  private readonly engineReady?: () => boolean;
 
   /** Monotonic id source for `export_run`/`export_cancel` pairing —
    *  collision-safe per export attempt (#383). */
@@ -143,8 +150,10 @@ export class TauriExportPort implements ExportPort {
   constructor(
     private readonly source: () => ExportSource | null,
     midiExporter?: (scoreDocument: unknown) => Promise<string>,
+    engineReady?: () => boolean,
   ) {
     this.midiExporter = midiExporter;
+    this.engineReady = engineReady;
   }
 
   async capabilities(
@@ -165,14 +174,23 @@ export class TauriExportPort implements ExportPort {
         overrides?.ffmpegPath,
       ),
     ]);
+    const doc = this.source()?.doc;
+    const canonical = doc?.canonicalDocument?.();
     return {
-      // Client-side export needs no engine — report that honestly
-      // rather than faking a handshake.
+      // Client-side export needs no engine handshake — report that
+      // honestly rather than faking one. #390: the ONE engine-dependent
+      // artifact is the canonical playback MIDI; its tier is reported
+      // separately via playbackMidi below.
       engineInfo: null,
       protocolVersion: null,
       backend: null,
       museScore,
       ffmpeg,
+      playbackMidi: !doc
+        ? "unavailable"
+        : canonical && this.midiExporter && this.engineReady?.() !== false
+          ? "canonical"
+          : "degraded",
       audioAvailable: this.source()?.audioPath != null,
     };
   }
@@ -297,6 +315,9 @@ export class TauriExportPort implements ExportPort {
     // copy (no base64 round-trip for what can be a large file).
     const batch: { name: string; dataBase64: string }[] = [];
     const pdfPayloads: { name: string; musicXml: string }[] = [];
+    // #390: formats that landed at reduced quality — disclosed to
+    // the user via the result, never silently downgraded.
+    const degraded: ExportFormatId[] = [];
     for (const format of request.formats) {
       const name = names.get(format);
       if (!name) continue;
@@ -305,25 +326,39 @@ export class TauriExportPort implements ExportPort {
       } else if (format === "hornMusicxml") {
         batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("hornF")) });
       } else if (format === "playbackMidi") {
-        // #256: prefer the engine's canonical exporter — it carries
-        // velocity / pitch bend / swing / tempo map the MusicXML
-        // rebuild loses. Falls back to the client-side build only
-        // when no canonical payload or no engine hook exists.
+        // #256/#390: prefer the engine's canonical exporter (velocity /
+        // bend / swing / tempo map survive). A dead or failing engine
+        // no longer aborts the transaction — this ONE format degrades
+        // to the client-side MusicXML→MIDI rebuild; the result flags
+        // the downgrade. engineReady()===false skips the doomed RPC.
         const canonical = source.doc.canonicalDocument?.();
-        if (canonical && this.midiExporter) {
-          let midiBase64: string;
+        let producedCanonical = false;
+        if (
+          canonical &&
+          this.midiExporter &&
+          this.engineReady?.() !== false
+        ) {
           try {
-            midiBase64 = await this.midiExporter(canonical);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            throw new ExportError("EXPORT_FAILED", msg);
+            batch.push({
+              name,
+              dataBase64: await this.midiExporter(canonical),
+            });
+            producedCanonical = true;
+          } catch {
+            producedCanonical = false;
           }
-          batch.push({ name, dataBase64: midiBase64 });
-        } else {
+        }
+        if (!producedCanonical) {
           batch.push({
             name,
-            dataBase64: toBase64(buildMidiFile(source.doc.musicXml("concert"))),
+            dataBase64: toBase64(
+              buildMidiFile(source.doc.musicXml("concert")),
+            ),
           });
+          // Only a real canonical path lost counts as degraded — a
+          // document without a canonical payload never had a better
+          // producer to begin with.
+          if (canonical && this.midiExporter) degraded.push("playbackMidi");
         }
       } else if (format === "concertPdf" || format === "hornPdf") {
         pdfPayloads.push({
@@ -374,7 +409,11 @@ export class TauriExportPort implements ExportPort {
         path: byName.get(name) ?? `${dir}\\${name}`,
       });
     }
-    return { destination: dir, files };
+    return {
+      destination: dir,
+      files,
+      degraded: degraded.length > 0 ? degraded : undefined,
+    };
   }
 
   async revealInExplorer(path: string): Promise<boolean> {

@@ -1614,6 +1614,12 @@ export const ja = {
     loading: "書き出しの準備をしています",
     museScoreMissingNote:
       "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。",
+    /* #390: エンジン不在時のMIDI品質差を事前/事後に明示 —
+       silent degraded fallback禁止。 */
+    midiDegradedNote:
+      "エンジンに接続できないため、再生用MIDIは簡易版になります（ベロシティ・ピッチベンド・スイングは含まれません）。",
+    midiDegradedDone:
+      "再生用MIDIは簡易版で書き出しました（ベロシティ・ピッチベンド・スイングは含まれません）。",
     pdfDisabledTooltip: "MuseScoreが見つからないためPDFを書き出せません",
     audioDisabledTooltip: "元の音声がディスク上にないため同梱できません",
     specifyMuseScore: "MuseScoreの場所を指定",

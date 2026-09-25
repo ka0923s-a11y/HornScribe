@@ -66,6 +66,10 @@ export interface FixtureDocumentOverrides {
   /** Review issues from the job result — `[]` honestly means "the engine
    *  found nothing to flag" (never fall back to fixture issues then). */
   readonly issues?: readonly ScoreReviewIssue[];
+  /** Canonical engine payload — present on real job results; needed
+   *  by paths gated on canonicalDocument() (engine edits, canonical
+   *  MIDI export). */
+  readonly canonicalDocument?: unknown;
 }
 
 /**
@@ -85,5 +89,6 @@ export function createFixtureScoreDocument(
     hornXml,
     revisionId: overrides?.revisionId ?? FIXTURE_REVISION,
     issues: overrides?.issues ?? FIXTURE_ISSUES,
+    canonicalDocument: overrides?.canonicalDocument,
   });
 }

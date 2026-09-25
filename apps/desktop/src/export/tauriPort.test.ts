@@ -26,6 +26,17 @@ function port() {
   return new TauriExportPort(source);
 }
 
+function canonicalSource() {
+  return {
+    doc: createFixtureScoreDocument({
+      canonicalDocument: { schemaVersion: 1, notes: [] },
+    }),
+    basename: "take1",
+    audioPath: null,
+    audioName: null,
+  };
+}
+
 describe("TauriExportPort.export", () => {
   beforeEach(() => {
     invokeMock.mockReset();
@@ -240,5 +251,96 @@ describe("TauriExportPort.capabilities", () => {
     const caps = await port().capabilities({ museScorePath: "D:\\nope.exe" });
     expect(caps.museScore.status).toBe("missing");
     expect(caps.museScore.path).toBe("D:\\nope.exe");
+  });
+});
+
+/* #390: a dead/failing canonical-MIDI engine degrades that ONE
+ *  format — the transaction and every other format survives. */
+describe("TauriExportPort MIDI resilience (#390)", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "export_check_existing") return [];
+      if (cmd === "export_run") {
+        return [
+          "C:\\out\\take1_concert.musicxml",
+          "C:\\out\\take1_playback.mid",
+        ];
+      }
+      if (cmd === "detect_tools") {
+        return { museScore: { status: "missing" }, ffmpeg: { status: "missing" } };
+      }
+      throw new Error("unexpected invoke " + cmd);
+    });
+  });
+
+  it("degrades MIDI alone when the engine RPC fails", async () => {
+    const midiExporter = vi.fn(() =>
+      Promise.reject(new Error("engine exploded")),
+    );
+    const p = new TauriExportPort(canonicalSource, midiExporter);
+    const res = await p.export({
+      formats: ["concertMusicxml", "playbackMidi"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "export_run")).toBe(
+      true,
+    );
+    expect(res.files.map((f) => f.format).sort()).toEqual([
+      "concertMusicxml",
+      "playbackMidi",
+    ]);
+    expect(res.degraded).toEqual(["playbackMidi"]);
+    const run = invokeMock.mock.calls.find((c) => c[0] === "export_run");
+    const files = (run?.[1] as { files: { name: string }[] }).files;
+    expect(files.some((f) => f.name.endsWith(".mid"))).toBe(true);
+  });
+
+  it("skips the doomed RPC entirely when the engine is known down (#390)", async () => {
+    const midiExporter = vi.fn(() => Promise.resolve("AAAA"));
+    const p = new TauriExportPort(
+      canonicalSource,
+      midiExporter,
+      () => false,
+    );
+    const res = await p.export({
+      formats: ["playbackMidi"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    expect(midiExporter).not.toHaveBeenCalled();
+    expect(res.degraded).toEqual(["playbackMidi"]);
+  });
+
+  it("produces canonical MIDI without a degraded flag when the engine answers", async () => {
+    const midiExporter = vi.fn(() => Promise.resolve("AAAA"));
+    const p = new TauriExportPort(canonicalSource, midiExporter);
+    const res = await p.export({
+      formats: ["playbackMidi"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    expect(midiExporter).toHaveBeenCalledTimes(1);
+    expect(res.degraded).toBeUndefined();
+  });
+
+  it("reports the playbackMidi capability tier honestly (#390)", async () => {
+    const ready = new TauriExportPort(
+      canonicalSource,
+      () => Promise.resolve("AAAA"),
+      () => true,
+    );
+    expect((await ready.capabilities()).playbackMidi).toBe("canonical");
+
+    const down = new TauriExportPort(
+      canonicalSource,
+      () => Promise.resolve("AAAA"),
+      () => false,
+    );
+    expect((await down.capabilities()).playbackMidi).toBe("degraded");
+
+    const docless = new TauriExportPort(() => null);
+    expect((await docless.capabilities()).playbackMidi).toBe("unavailable");
   });
 });

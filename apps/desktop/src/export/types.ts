@@ -63,6 +63,13 @@ export const EXPORT_FORMAT_IDS: readonly ExportFormatId[] = [
  * handshake plus local tool detection (MuseScore drives PDF availability;
  * FFmpeg is reported for consistency with diagnostics).
  */
+/** #390: playback MIDI quality tier — "canonical" = the engine's
+ *  exporter (velocity / pitch bend / swing / tempo map survive);
+ *  "degraded" = the client-side MusicXML→MIDI rebuild, which drops
+ *  those facets and must be disclosed; "unavailable" = no score
+ *  document at all. */
+export type PlaybackMidiTier = "canonical" | "degraded" | "unavailable";
+
 export interface ExportCapabilities {
   readonly engineInfo: EngineInfo | null;
   readonly protocolVersion: number | null;
@@ -70,6 +77,10 @@ export interface ExportCapabilities {
   readonly backend: string | null;
   readonly museScore: ToolInfo;
   readonly ffmpeg: ToolInfo;
+  /** #390: which MIDI producer the dialog can promise right now —
+   *  an engine outage degrades playbackMidi without blocking the
+   *  MusicXML/PDF formats that never needed the worker. */
+  readonly playbackMidi: PlaybackMidiTier;
   /** True when the loaded audio is backed by a real path and can be
    *  copied into the export bundle (sourceAudio format, #87). */
   readonly audioAvailable: boolean;
@@ -109,6 +120,10 @@ export interface ExportRequest {
 export interface ExportResult {
   readonly destination: string;
   readonly files: readonly ExportedFile[];
+  /** #390: formats written at reduced quality (client-side MIDI
+   *  rebuild instead of the engine exporter) — the dialog discloses
+   *  the downgrade; absent/empty means every file is full quality. */
+  readonly degraded?: readonly ExportFormatId[];
 }
 
 /**
