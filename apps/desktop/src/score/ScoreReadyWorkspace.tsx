@@ -1403,12 +1403,26 @@ export function ScoreReadyWorkspace({
             announce(ja.commandFeedback.rhythmEditFailed);
             return;
           }
+          // #392: snapshot what the engine consumes — the overlay and
+          // the undo depth. Edits the user makes while the RPC is in
+          // flight are the delta that must rebase onto the response,
+          // and the doc-swap commits under them so undo order matches
+          // the user's own action order.
+          const overlayAtRequest = prev.noteEdits;
+          const depthAtRequest = session.undoDepth;
           const result = await onRhythmEdit(canonical, op);
           // #399: the app may have swapped this document out while
           // the engine worked — a late response must not write into
           // a detached document (the mounted workspace owns the new
           // one).
           if (!mountedRef.current) return;
+          // #392: rebase post-request overlay edits onto the engine
+          // result; edits whose target the engine merged away count
+          // as conflicts and surface honestly instead of vanishing.
+          const rebased = scoreDoc.rebasedNoteEdits?.(
+            result.scoreDocument,
+            overlayAtRequest,
+          );
           const next = {
             concertXml: result.musicXmlConcert,
             hornXml: result.musicXmlHornF,
@@ -1417,18 +1431,26 @@ export function ScoreReadyWorkspace({
             // #224: the canonical the engine just consumed already
             // carries the pending edits — only notation-only facets
             // (enharmonic) stay overlaid.
-            noteEdits: scoreDoc.materializedNoteEdits?.(
-              result.scoreDocument,
-            ),
+            // #392: request overlay + in-flight delta -> rebased set.
+            noteEdits: rebased?.edits,
           };
           scoreDoc.replaceContent?.(next);
-          session.commitDocSwap(prev, next);
+          session.commitDocSwap(
+            prev,
+            next,
+            session.undoDepth - depthAtRequest,
+          );
           bumpDoc();
           reloadEditedScore();
           reportInspector();
           announce(
             typeof feedback === "function" ? feedback(result) : feedback,
           );
+          if (rebased && rebased.conflicts > 0) {
+            // The success announce above lands first; this one stays
+            // last so the status bar keeps the conflict visible.
+            announce(ja.commandFeedback.editConflict);
+          }
           after?.();
         } catch {
           announce(ja.commandFeedback.rhythmEditFailed);

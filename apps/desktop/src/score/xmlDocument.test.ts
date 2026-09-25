@@ -301,3 +301,158 @@ describe("XmlScoreDocument canonical edit materialization (#224)", () => {
     expect(out.content.parts[0].notes[0].deleted).toBeUndefined();
   });
 });
+
+// #392: a rhythm edit's engine RPC is async — the user keeps editing
+// while it is in flight. rebasedNoteEdits separates the request-time
+// overlay (already materialized into the engine input) from the
+// in-flight delta (must survive the response), and counts conflicts
+// instead of silently dropping edits on merged-away notes.
+describe("XmlScoreDocument rebasedNoteEdits (#392)", () => {
+  const withNotes = (notes: Record<string, unknown>[]) => ({
+    ...CANONICAL_NOTES,
+    content: { parts: [{ id: "part-1", name: "Horn", notes }] },
+  });
+  const note = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    pitchMidi: 60,
+    startBeat: "0/1",
+    durationBeats: "1/1",
+    ...extra,
+  });
+  const pitch = (d: number) => ({
+    pitchDelta: d,
+    deleted: false,
+    enharmonic: false,
+  });
+
+  it("a pitch edit made while the engine edit is in flight survives", () => {
+    const doc = makeDoc();
+    const requestOverlay = doc.contentSnapshot!().noteEdits;
+    // User pitches sn-000001 up while the RPC is in flight.
+    doc.setNoteEdit("sn-000001", pitch(1));
+    const { edits, conflicts } = doc.rebasedNoteEdits!(
+      CANONICAL_NOTES,
+      requestOverlay,
+    );
+    expect(conflicts).toBe(0);
+    expect(edits.get("sn-000001")?.pitchDelta).toBe(1);
+  });
+
+  it("request-time edits stay materialized — no double-apply", () => {
+    const doc = makeDoc();
+    doc.setNoteEdit("sn-000001", pitch(2));
+    doc.setNoteEdit("sn-000002", {
+      pitchDelta: 0,
+      deleted: false,
+      enharmonic: true,
+    });
+    const requestOverlay = doc.contentSnapshot!().noteEdits;
+    const { edits, conflicts } = doc.rebasedNoteEdits!(
+      CANONICAL_NOTES,
+      requestOverlay,
+    );
+    expect(conflicts).toBe(0);
+    // Pitch materialized into the engine input — overlay drops it.
+    expect(edits.has("sn-000001")).toBe(false);
+    // Enharmonic is notation-only — survives as the sole overlay.
+    expect(edits.get("sn-000002")?.enharmonic).toBe(true);
+  });
+
+  it("an edit cleared in flight stays cleared", () => {
+    const doc = makeDoc();
+    doc.setNoteEdit("sn-000001", pitch(2));
+    const requestOverlay = doc.contentSnapshot!().noteEdits;
+    // The user reverts the pitch while the RPC is in flight — a
+    // neutral set removes the overlay entry entirely.
+    doc.setNoteEdit("sn-000001", pitch(0));
+    const { edits, conflicts } = doc.rebasedNoteEdits!(
+      CANONICAL_NOTES,
+      requestOverlay,
+    );
+    expect(conflicts).toBe(0);
+    expect(edits.has("sn-000001")).toBe(false);
+  });
+
+  it("an edit on a note the engine merged away is a conflict, not a drop", () => {
+    const doc = makeDoc();
+    const requestOverlay = doc.contentSnapshot!().noteEdits;
+    doc.setNoteEdit("sn-000001", pitch(1));
+    // The engine result merged sn-000001 into sn-000002 — the id is
+    // gone from the new canonical doc.
+    const merged = withNotes([note("sn-000002")]);
+    const { edits, conflicts } = doc.rebasedNoteEdits!(
+      merged,
+      requestOverlay,
+    );
+    expect(conflicts).toBe(1);
+    expect(edits.has("sn-000001")).toBe(false);
+  });
+
+  it("a delete made in flight survives on a still-live note", () => {
+    const doc = makeDoc();
+    const requestOverlay = doc.contentSnapshot!().noteEdits;
+    doc.setNoteEdit("sn-000001", {
+      pitchDelta: 0,
+      deleted: true,
+      enharmonic: false,
+    });
+    const { edits, conflicts } = doc.rebasedNoteEdits!(
+      CANONICAL_NOTES,
+      requestOverlay,
+    );
+    expect(conflicts).toBe(0);
+    expect(edits.get("sn-000001")?.deleted).toBe(true);
+  });
+
+  it("an engine-deleted note: matching delete is quiet, other intent conflicts", () => {
+    const doc = makeDoc();
+    const requestOverlay = doc.contentSnapshot!().noteEdits;
+    // User pitches sn-000001 up in flight; user deletes sn-000002.
+    doc.setNoteEdit("sn-000001", pitch(1));
+    doc.setNoteEdit("sn-000002", {
+      pitchDelta: 0,
+      deleted: true,
+      enharmonic: false,
+    });
+    const engineDeleted = withNotes([
+      note("sn-000001", { deleted: true }),
+      note("sn-000002", { deleted: true }),
+    ]);
+    const { edits, conflicts } = doc.rebasedNoteEdits!(
+      engineDeleted,
+      requestOverlay,
+    );
+    // sn-000001: pitch on a removed note would resurrect it later.
+    expect(conflicts).toBe(1);
+    // sn-000002: the delete intent is already canonical — quiet.
+    expect(edits.has("sn-000001")).toBe(false);
+    expect(edits.has("sn-000002")).toBe(false);
+  });
+
+  it("an edit changed in flight rebases the full current intent", () => {
+    const doc = makeDoc();
+    doc.setNoteEdit("sn-000001", {
+      pitchDelta: 0,
+      deleted: false,
+      enharmonic: true,
+    });
+    const requestOverlay = doc.contentSnapshot!().noteEdits;
+    // The user adds a pitch shift on top during flight — setNoteEdit
+    // stores the cumulative intent, enharmonic included.
+    doc.setNoteEdit("sn-000001", {
+      pitchDelta: 1,
+      deleted: false,
+      enharmonic: true,
+    });
+    const { edits, conflicts } = doc.rebasedNoteEdits!(
+      CANONICAL_NOTES,
+      requestOverlay,
+    );
+    expect(conflicts).toBe(0);
+    expect(edits.get("sn-000001")).toEqual({
+      pitchDelta: 1,
+      deleted: false,
+      enharmonic: true,
+    });
+  });
+});

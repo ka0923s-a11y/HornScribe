@@ -191,20 +191,67 @@ export class XmlScoreDocument implements ScoreDocumentPort {
    *  respelling stays overlaid (canonical stores sounding pitch, not
    *  spelling); edits on notes the engine removed are dropped. */
   materializedNoteEdits(newCanonicalDoc: unknown): Map<string, ScoreNoteEdit> {
-    const keep = new Map<string, ScoreNoteEdit>();
+    // #392: the special case of rebasedNoteEdits where the current
+    // overlay IS the request set — no in-flight delta exists, so only
+    // the materialized remainder (enharmonic on live notes) survives.
+    return this.rebasedNoteEdits(newCanonicalDoc, this.edits).edits;
+  }
+
+  // #392: async-edit rebase. requestOverlay is the exact edit set the
+  // engine consumed; the CURRENT this.edits may carry entries the
+  // user added or changed while the RPC was in flight. Those deltas
+  // rebase onto the new canonical doc - a target the engine merged
+  // away is a conflict, never a silent drop. Entries unchanged since
+  // the request use materialized semantics (enharmonic-only on live
+  // notes); entries the user CLEARED in flight stay cleared.
+  rebasedNoteEdits(
+    newCanonicalDoc: unknown,
+    requestOverlay: ReadonlyMap<string, ScoreNoteEdit>,
+  ): { edits: Map<string, ScoreNoteEdit>; conflicts: number } {
     const liveIds = liveNoteIdsOf(newCanonicalDoc);
     const deletedIds = deletedIdsOf(newCanonicalDoc);
-    for (const [id, edit] of this.edits) {
+    const keep = new Map<string, ScoreNoteEdit>();
+    let conflicts = 0;
+    const cleared = new Set<string>();
+    for (const id of requestOverlay.keys()) {
+      if (!this.edits.has(id)) cleared.add(id);
+    }
+    for (const [id, edit] of requestOverlay) {
+      if (cleared.has(id)) continue;
+      const now = this.edits.get(id);
+      const unchanged =
+        now !== undefined &&
+        now.pitchDelta === edit.pitchDelta &&
+        now.deleted === edit.deleted &&
+        (now.enharmonic ?? false) === (edit.enharmonic ?? false);
+      if (!unchanged) continue; // the delta loop owns changed entries
       if (!liveIds.has(id)) continue;
       if (edit.enharmonic && !deletedIds.has(id)) {
-        keep.set(id, {
-          pitchDelta: 0,
-          deleted: false,
-          enharmonic: true,
-        });
+        keep.set(id, { pitchDelta: 0, deleted: false, enharmonic: true });
       }
     }
-    return keep;
+    for (const [id, edit] of this.edits) {
+      const was = requestOverlay.get(id);
+      const unchanged =
+        was !== undefined &&
+        was.pitchDelta === edit.pitchDelta &&
+        was.deleted === edit.deleted &&
+        (was.enharmonic ?? false) === (edit.enharmonic ?? false);
+      if (unchanged) continue; // already materialized, handled above
+      if (!liveIds.has(id)) {
+        conflicts += 1;
+        continue;
+      }
+      if (deletedIds.has(id)) {
+        // The engine itself removed the note - a matching delete is
+        // already materialized; any other intent would resurrect a
+        // merged note on the next materialization, so it conflicts.
+        if (!edit.deleted) conflicts += 1;
+        continue;
+      }
+      keep.set(id, edit);
+    }
+    return { edits: keep, conflicts };
   }
 
   /** Swap XML bodies + revision + canonical payload in place. Meta is

@@ -120,6 +120,13 @@ export class ReviewSession {
     return this.redoStack.length > 0;
   }
 
+  // #392: undo-stack depth — the workspace records it when an async
+  // engine edit starts, so a late response can commit UNDER the
+  // edits the user made while the engine was working.
+  get undoDepth(): number {
+    return this.undoStack.length;
+  }
+
   /**
    * Record a pure decision (accepted / dismissed / back to open).
    * Returns null when the issue is unknown or already in that status —
@@ -231,7 +238,11 @@ export class ReviewSession {
    *  Returns null when the document cannot snapshot (fixture/dev
    *  documents: rhythm edits stay unavailable there, matching the
    *  honest-disabled policy). */
-  commitDocSwap(prev: DocSwap["prev"], next: DocSwap["next"]): ReviewEdit | null {
+  commitDocSwap(
+    prev: DocSwap["prev"],
+    next: DocSwap["next"],
+    insertBelow = 0,
+  ): ReviewEdit | null {
     if (!this.doc.replaceContent) return null;
     const edit: ReviewEdit = {
       issueId: null,
@@ -240,7 +251,15 @@ export class ReviewSession {
       noteChanges: [],
       docSwap: { prev, next },
     };
-    this.push(edit);
+    if (insertBelow > 0) {
+      // #392: a late engine response commits UNDER the edits the user
+      // made while it was in flight — undo order stays user-op order.
+      const idx = Math.max(0, this.undoStack.length - insertBelow);
+      this.undoStack.splice(idx, 0, edit);
+      this.redoStack.length = 0;
+    } else {
+      this.push(edit);
+    }
     return edit;
   }
 

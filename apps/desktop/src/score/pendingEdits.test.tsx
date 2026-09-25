@@ -223,3 +223,208 @@ describe("ScoreReadyWorkspace pending engine edits (#399)", () => {
     expect(announcements).toContain(ja.commandFeedback.rhythmEditFailed);
   });
 });
+
+// #392: the engine RPC is async and the user keeps editing while it
+// is in flight. Post-request overlay edits must rebase onto the
+// response (never silently dropped), vanished targets surface as
+// conflicts, and the doc swap commits under the user's edits so undo
+// stays user-operation order.
+describe("ScoreReadyWorkspace edit race (#392)", () => {
+  // An engine result whose canonical doc keeps the given note ids
+  // live — canonicalNotesOf reads content.parts[].notes[].
+  function liveResult(
+    revision: string,
+    ids: string[],
+  ): ScoreEditResult {
+    return {
+      scoreDocument: {
+        schemaVersion: 1,
+        content: {
+          parts: [{ id: "part-1", notes: ids.map((id) => ({ id })) }],
+        },
+      },
+      scoreRevision: revision,
+      musicXmlConcert: concertXml,
+      musicXmlHornF: hornXml,
+    };
+  }
+
+  async function mountWithAnnounce(
+    onRhythmEdit: (doc: unknown, op: unknown) => Promise<ScoreEditResult>,
+  ): Promise<MountOut & { announcements: string[] }> {
+    const announcements: string[] = [];
+    const doc = new XmlScoreDocument({
+      concertXml,
+      hornXml,
+      revisionId: "rev-test-1",
+      issues: [],
+      canonicalDocument: { schemaVersion: 1, notes: [] },
+    });
+    const states: ScoreWorkspaceState[] = [];
+    const controller = { current: null as ScoreWorkspaceController | null };
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(
+        <ScoreReadyWorkspace
+          document={doc}
+          pitch="concert"
+          onInspectorChange={NOOP}
+          announce={(m) => announcements.push(m)}
+          controllerRef={(c) => {
+            controller.current = c;
+          }}
+          onStateChange={(s) => states.push(s)}
+          onRhythmEdit={onRhythmEdit}
+        />,
+      );
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    return { doc, states, controller, announcements };
+  }
+
+  it("a pitch edit made while the engine edit is in flight survives", async () => {
+    rendererMock.getScoreRenderer.mockResolvedValue(RENDERER_STUB);
+    let release!: (r: ScoreEditResult) => void;
+    const gate = new Promise<ScoreEditResult>((res) => {
+      release = res;
+    });
+    const onRhythmEdit = vi.fn(() => gate);
+    const { controller, doc } = await mount(onRhythmEdit);
+
+    await act(async () => {
+      controller.current!.selectAdjacentNote!(1);
+      controller.current!.requantize!({ divisions: 16 });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(onRhythmEdit).toHaveBeenCalledTimes(1);
+
+    // The user pitches the selected note up WHILE the RPC is in
+    // flight — this delta was never sent to the engine.
+    await act(async () => {
+      controller.current!.editSelectedPitch!(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(doc.noteEdits().get("sn-000001")?.pitchDelta).toBe(1);
+
+    await act(async () => {
+      release(liveResult("rev-test-2", ["sn-000001"]));
+      await controller.current!.waitForPendingEdits!();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    // Before #392 the materialized-remainder logic dropped this edit.
+    expect(doc.noteEdits().get("sn-000001")?.pitchDelta).toBe(1);
+    expect(doc.revisionId).toBe("rev-test-2");
+  });
+
+  it("an edit on a note the engine merged away announces a conflict", async () => {
+    rendererMock.getScoreRenderer.mockResolvedValue(RENDERER_STUB);
+    let release!: (r: ScoreEditResult) => void;
+    const gate = new Promise<ScoreEditResult>((res) => {
+      release = res;
+    });
+    const { controller, doc, announcements } = await mountWithAnnounce(
+      () => gate,
+    );
+
+    await act(async () => {
+      controller.current!.selectAdjacentNote!(1);
+      controller.current!.requantize!({ divisions: 16 });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await act(async () => {
+      controller.current!.editSelectedPitch!(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    await act(async () => {
+      // The engine result merged sn-000001 away — no live id left.
+      release(liveResult("rev-test-2", ["sn-000777"]));
+      await controller.current!.waitForPendingEdits!();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    // The edit cannot rebase — dropped, but never silently.
+    expect(doc.noteEdits().has("sn-000001")).toBe(false);
+    expect(announcements).toContain(ja.commandFeedback.editConflict);
+  });
+
+  it("undo order follows user-op order across the late response", async () => {
+    rendererMock.getScoreRenderer.mockResolvedValue(RENDERER_STUB);
+    let release!: (r: ScoreEditResult) => void;
+    const gate = new Promise<ScoreEditResult>((res) => {
+      release = res;
+    });
+    const { controller, doc } = await mount(() => gate);
+
+    await act(async () => {
+      controller.current!.selectAdjacentNote!(1);
+      controller.current!.requantize!({ divisions: 16 });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await act(async () => {
+      controller.current!.editSelectedPitch!(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await act(async () => {
+      release(liveResult("rev-test-2", ["sn-000001"]));
+      await controller.current!.waitForPendingEdits!();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Undo 1 pops the USER's pitch edit — the doc swap stays applied.
+    await act(async () => {
+      controller.current!.undo();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(doc.noteEdits().get("sn-000001")?.pitchDelta ?? 0).toBe(0);
+    expect(doc.revisionId).toBe("rev-test-2");
+
+    // Undo 2 reaches the doc swap — the request-time state returns.
+    await act(async () => {
+      controller.current!.undo();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(doc.revisionId).toBe("rev-test-1");
+  });
+
+  it("direct edits between two queued engine edits rebase each time", async () => {
+    rendererMock.getScoreRenderer.mockResolvedValue(RENDERER_STUB);
+    const releases: Array<(r: ScoreEditResult) => void> = [];
+    const onRhythmEdit = vi.fn(
+      () =>
+        new Promise<ScoreEditResult>((res) => {
+          releases.push(res);
+        }),
+    );
+    const { controller, doc } = await mount(onRhythmEdit);
+
+    await act(async () => {
+      controller.current!.selectAdjacentNote!(1);
+      controller.current!.requantize!({ divisions: 16 });
+      controller.current!.requantize!({ divisions: 32 });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(onRhythmEdit).toHaveBeenCalledTimes(1);
+
+    // First response commits; the second op then snapshots prev —
+    // a pitch edit during ITS flight must rebase onto response 2.
+    await act(async () => {
+      releases[0](liveResult("rev-a", ["sn-000001"]));
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(onRhythmEdit).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      controller.current!.editSelectedPitch!(1);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await act(async () => {
+      releases[1](liveResult("rev-b", ["sn-000001"]));
+      await controller.current!.waitForPendingEdits!();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(doc.noteEdits().get("sn-000001")?.pitchDelta).toBe(1);
+    expect(doc.revisionId).toBe("rev-b");
+  });
+});

@@ -536,6 +536,11 @@ export const ja = {
     tieToggled: "タイを切り替えました",
     rhythmEditFailed: "この編集は適用できません",
     rhythmEditUnavailable: "この楽譜ではリズム編集を利用できません",
+    // #392: an in-flight rhythm edit merged/deleted a note the user
+    // was editing — the interleaved fix cannot rebase, so say so
+    // instead of letting it vanish quietly.
+    editConflict:
+      "音符の結合・削除と重なったため、一部の修正を適用できませんでした",
     tempoChanged: "テンポを変更しました",
     tempoChangeRemoved: "テンポ変化を削除しました",
     meterChanged: "拍子を変更しました",

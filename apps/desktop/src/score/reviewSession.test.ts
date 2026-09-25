@@ -327,4 +327,26 @@ tempoChanges: [],
     const doc = createFixtureScoreDocument();
     expect(doc.canonicalDocument?.() ?? null).toBeNull();
   });
+
+  it("#392: insertBelow lands the swap under in-flight edits — undo stays user-order", () => {
+    const doc = engineDoc();
+    const session = new ReviewSession(doc);
+    // Request-time snapshots, then the user edits while the RPC flies.
+    const depthAtRequest = session.undoDepth;
+    const prev = doc.contentSnapshot!();
+    session.editNote("sn-000012", { pitchDelta: 1 });
+    const next = { ...prev, revisionId: "rev-edited" };
+    doc.replaceContent!(next);
+    session.commitDocSwap(prev, next, session.undoDepth - depthAtRequest);
+
+    // First undo pops the USER edit (top), not the doc swap.
+    const first = session.undo()!;
+    expect(first.noteChanges).toHaveLength(1);
+    expect(session.noteEditOf("sn-000012").pitchDelta).toBe(0);
+    expect(doc.revisionId).toBe("rev-edited");
+    // Second undo reaches the swap.
+    const second = session.undo()!;
+    expect(second.docSwap).toBeTruthy();
+    expect(doc.revisionId).toBe("rev-base");
+  });
 });

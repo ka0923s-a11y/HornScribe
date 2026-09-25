@@ -102,6 +102,16 @@ export interface ScoreDocumentPort {
    *  canonical payload (enharmonic-only, live notes only) — the
    *  workspace passes these as next.noteEdits after an engine edit. */
   materializedNoteEdits?(newCanonicalDoc: unknown): ReadonlyMap<string, ScoreNoteEdit>;
+  // #392: overlay rebase for ASYNC engine edits — requestOverlay is
+  // the edit set the engine consumed at request time; entries the
+  // user created or changed while the RPC was in flight rebase onto
+  // newCanonicalDoc instead of being dropped as already-materialized.
+  // Edits whose target note the engine merged away count in
+  // conflicts — a silent drop is never acceptable.
+  rebasedNoteEdits?(
+    newCanonicalDoc: unknown,
+    requestOverlay: ReadonlyMap<string, ScoreNoteEdit>,
+  ): { edits: ReadonlyMap<string, ScoreNoteEdit>; conflicts: number };
   /** The current XML bodies + revision — the undo-stack snapshot for
    *  engine-driven content swaps. */
   contentSnapshot?(): {
