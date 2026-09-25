@@ -112,6 +112,7 @@ import {
 } from "./import/transcriptionParams";
 import { stageAudioForEngine } from "./import/staging";
 import { formatTimecode } from "./import/format";
+import { requestRetranscription } from "./import/retranscribe";
 import { HsButton } from "./components/primitives/Button";
 import { HsDialog } from "./components/primitives/Dialog";
 import {
@@ -1275,6 +1276,28 @@ export default function App() {
     ],
   );
 
+  /* #343: Review の quick retranscribe は「採譜オプションへの反映」
+   * と「job 開始」を1つの guarded transaction にする。dirty score で
+   * 未保存確認をキャンセルしても transcriptionOptions / settings は
+   * 一切変わらない — commit は queued closure の中に入る。 */
+  const retranscribeWithOptions = useCallback(
+    (
+      jobOverrides: Partial<TranscriptionOptions>,
+      commitOptions: () => void,
+    ) => {
+      requestRetranscription({
+        audioLoaded: importState.audio != null,
+        dirty: dirtyRef.current,
+        commitOptions,
+        startJob: (skipGuard) => startTranscriptionJob(jobOverrides, skipGuard),
+        queuePending: (action) => setPendingNav(() => action),
+        onNoAudio: () =>
+          setStatusMessage(ja.notifications.transcribeRequiresAudio),
+      });
+    },
+    [importState.audio, startTranscriptionJob],
+  );
+
   const ctx = useMemo<CommandContext>(
     () => ({
       openAudio: () => {
@@ -2069,12 +2092,15 @@ export default function App() {
                       ? () => {
                           /* #148: pin the job to voices AND mirror the choice
                            * into the stored options so the import screen's
-                           * texture select reflects what actually ran. */
-                          setTranscriptionOptions((o) => ({
-                            ...o,
-                            texture: "voices",
-                          }));
-                          startTranscriptionJob({ texture: "voices" });
+                           * texture select reflects what actually ran. #343:
+                           * both happen inside one guarded transaction — a
+                           * dirty-score キャンセル commits nothing. */
+                          retranscribeWithOptions({ texture: "voices" }, () =>
+                            setTranscriptionOptions((o) => ({
+                              ...o,
+                              texture: "voices",
+                            })),
+                          );
                         }
                       : undefined
                   }
@@ -2084,33 +2110,36 @@ export default function App() {
                     // absent without a source so the action hides.
                     importState.audio
                       ? () => {
-                          setTranscriptionOptions((o) => ({
-                            ...o,
-                            texture: "melody",
-                            vocalIsolation: true,
-                          }));
-                          startTranscriptionJob({
-                            texture: "melody",
-                            vocalIsolation: true,
-                          });
+                          retranscribeWithOptions(
+                            {
+                              texture: "melody",
+                              vocalIsolation: true,
+                            },
+                            () =>
+                              setTranscriptionOptions((o) => ({
+                                ...o,
+                                texture: "melody",
+                                vocalIsolation: true,
+                              })),
+                          );
                         }
                       : undefined
                   }
                   onRetranscribeBasicPitch={
                     importState.audio
                       ? () => {
-                          /* #181: mirror the backend switch into settings so
-                           * the 詳細設定 selector reflects what ran, and pin
-                           * the job itself so a stale settings read cannot
-                           * sneak pYIN back in. */
-                          updateSettings({ backend: "basicPitch" });
                           /* #189: a per-job pyin pin would outrank the
-                           * backend arg, so pin the job options too. */
-                          setTranscriptionOptions((o) => ({
-                            ...o,
-                            backend: "basicPitch",
-                          }));
-                          startTranscriptionJob({ backend: "basicPitch" });
+                           * backend arg, so pin the job options too. #343:
+                           * the per-job pin already wins over settings.backend,
+                           * so the global default is no longer touched — a
+                           * one-off retry must not rewrite the user's default
+                           * backend (and a cancelled guard changes nothing). */
+                          retranscribeWithOptions({ backend: "basicPitch" }, () =>
+                            setTranscriptionOptions((o) => ({
+                              ...o,
+                              backend: "basicPitch",
+                            })),
+                          );
                         }
                       : undefined
                   }
