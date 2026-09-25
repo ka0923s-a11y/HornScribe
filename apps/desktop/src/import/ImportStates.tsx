@@ -29,6 +29,7 @@ import { HsProgress } from "../components/primitives/Progress";
 import { HsSelect, type HsSelectOption } from "../components/primitives/Select";
 import type { ScreenState } from "../workspace/screen";
 import { formatBytes, formatDuration } from "./format";
+import { invalidSelectionRange } from "./transcriptionParams";
 import type {
   ImportIssue,
   LoadedAudio,
@@ -293,6 +294,14 @@ function AudioReadyBody({
   const { audio, options } = view;
   const set = (patch: Partial<TranscriptionOptions>) =>
     view.onOptionsChange({ ...options, ...patch });
+  // #346: an empty/inverted 選択範囲 is a field error, not a silent
+  // switch to 全曲採譜 — the field shows the message and 採譜を開始
+  // stays disabled until the pair is valid again (a waveform drag or
+  // corrected numbers both clear it live).
+  const rangeInvalid = invalidSelectionRange(
+    options,
+    audio?.durationSeconds ?? 0,
+  );
   return (
     <div className="hs-empty hs-audio-ready">
       <p className="hs-score__empty-title">{ja.score.empty}</p>
@@ -312,6 +321,7 @@ function AudioReadyBody({
           variant="primary"
           size="large"
           icon={<Play24Regular />}
+          disabled={rangeInvalid}
           onClick={onTranscribe}
         >
           {ja.score.transcribeStart}
@@ -447,6 +457,9 @@ function AudioReadyBody({
                   max={audio.durationSeconds}
                   step={0.5}
                   unit={ja.import.audioOptions.secondsUnit}
+                  error={
+                    rangeInvalid ? ja.import.audioOptions.rangeInvalid : undefined
+                  }
                   onChange={(v) => set({ selectionEndSec: v })}
                 />
               </>

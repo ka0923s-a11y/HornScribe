@@ -96,22 +96,39 @@ export function buildTranscriptionParams(
   if (options.vocalIsolation) params.vocalIsolation = true;
   if (options.range === "selection") {
     params.range = "selection";
-    // The engine requires end > start for selection mode; clamp the
-    // user's seconds into [0, duration] and fall back to the full span
-    // when the pair is empty or inverted.
+    // #346: clamp into [0, duration] but NEVER widen an empty/inverted
+    // pair to the full span — that silently changes the job's meaning.
+    // The UI blocks submission on such input (invalidSelectionRange);
+    // if it ever slips through, the engine's explicit selection error
+    // is the honest outcome.
     const dur = audio?.durationSeconds ?? 0;
     let start = options.selectionStartSec ?? 0;
     let end = options.selectionEndSec ?? dur;
     start = Math.min(Math.max(start, 0), dur);
     end = Math.min(Math.max(end, 0), dur);
-    if (end <= start) {
-      start = 0;
-      end = dur;
-    }
     params.selectionStartSec = start;
     params.selectionEndSec = end;
   }
   return params;
+}
+
+/** #346: is the user's 選択範囲 input invalid — clamped into
+ *  [0, duration] and still empty or inverted? The audioReady form
+ *  marks the field and disables 採譜を開始 while this holds, instead
+ *  of silently transcribing the whole song (#88/#229 range contract).
+ *  Unset fields default to the full span (valid). */
+export function invalidSelectionRange(
+  options: Pick<TranscriptionOptions, "range"> &
+    Partial<
+      Pick<TranscriptionOptions, "selectionStartSec" | "selectionEndSec">
+    >,
+  durationSeconds: number,
+): boolean {
+  if (options.range !== "selection") return false;
+  const dur = Math.max(durationSeconds, 0);
+  const start = Math.min(Math.max(options.selectionStartSec ?? 0, 0), dur);
+  const end = Math.min(Math.max(options.selectionEndSec ?? dur, 0), dur);
+  return end <= start;
 }
 
 /* ------------------------- #264 project settings ------------------------- */

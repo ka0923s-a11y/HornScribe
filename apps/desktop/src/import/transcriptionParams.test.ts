@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTranscriptionParams,
+  invalidSelectionRange,
   transcriptionOptionsFromSettings,
 } from "./transcriptionParams";
 import { DEFAULT_TRANSCRIPTION_OPTIONS } from "./types";
@@ -37,6 +38,57 @@ describe("buildTranscriptionParams", () => {
     const p = buildTranscriptionParams(audio, DEFAULT_TRANSCRIPTION_OPTIONS);
     expect(p.audioPath).toBe("C:/music/song.wav");
     expect(p.displayName).toBe("song.wav");
+  });
+
+  it("#346: an inverted selection is NOT widened to the full span", () => {
+    const p = buildTranscriptionParams(audioOf("take.wav"), {
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      range: "selection",
+      selectionStartSec: 5,
+      selectionEndSec: 2,
+    });
+    // The clamped pair travels as-is — the engine rejects it
+    // explicitly rather than transcribing a different range.
+    expect(p.range).toBe("selection");
+    expect(p.selectionStartSec).toBe(5);
+    expect(p.selectionEndSec).toBe(2);
+  });
+
+  it("#346: clamps each bound into [0, duration] without fixing order", () => {
+    const p = buildTranscriptionParams(audioOf("take.wav"), {
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      range: "selection",
+      selectionStartSec: -3,
+      selectionEndSec: 100,
+    });
+    expect(p.selectionStartSec).toBe(0);
+    expect(p.selectionEndSec).toBe(8);
+  });
+});
+
+describe("invalidSelectionRange (#346)", () => {
+  const sel = (s: number | null, e: number | null) => ({
+    range: "selection" as const,
+    selectionStartSec: s,
+    selectionEndSec: e,
+  });
+
+  it("is false for 全曲 mode and for a valid pair", () => {
+    expect(invalidSelectionRange({ range: "all" }, 8)).toBe(false);
+    expect(invalidSelectionRange(sel(2, 5), 8)).toBe(false);
+  });
+
+  it("is true for inverted, equal, and fully-out-of-span pairs", () => {
+    expect(invalidSelectionRange(sel(5, 2), 8)).toBe(true);
+    expect(invalidSelectionRange(sel(4, 4), 8)).toBe(true);
+    // Both clamp to the same edge (8s file).
+    expect(invalidSelectionRange(sel(9, 20), 8)).toBe(true);
+  });
+
+  it("unset fields default to the full span (valid)", () => {
+    expect(invalidSelectionRange(sel(null, null), 8)).toBe(false);
+    expect(invalidSelectionRange(sel(2, null), 8)).toBe(false);
+    expect(invalidSelectionRange(sel(null, 4), 8)).toBe(false);
   });
 });
 

@@ -931,6 +931,8 @@ export const ja = {
       rangeSelection: "選択範囲",
       rangeStart: "開始",
       rangeEnd: "終了",
+      // #346: field error when the 選択範囲 pair is empty/inverted.
+      rangeInvalid: "終了は開始より後の時刻を指定してください",
       secondsUnit: "秒",
       texture: "音源の種類",
       textureAuto: "自動",

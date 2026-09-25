@@ -12,6 +12,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImportScreenBody, type ImportView } from "./ImportStates";
 import { DEFAULT_TRANSCRIPTION_OPTIONS } from "./types";
+import type { LoadedAudio } from "./types";
 import { ja } from "../strings/ja";
 import type { ScreenState } from "../workspace/screen";
 
@@ -66,6 +67,69 @@ afterEach(async () => {
   host?.remove();
   host = null;
   document.body.innerHTML = "";
+});
+
+const AUDIO: LoadedAudio = {
+  ref: { kind: "path", path: "C:\\audio\\take-03.wav", name: "take-03.wav" },
+  fileName: "take-03.wav",
+  format: "wav",
+  sizeBytes: 14_680_064,
+  durationSeconds: 600,
+  sampleRate: 44_100,
+  peaks: [0.2, 0.5, 0.8, 0.4],
+  mediaSource: { kind: "blob", blob: new Blob() },
+};
+
+function transcribeButton(): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (b) => b.textContent?.trim() === ja.score.transcribeStart,
+  );
+}
+
+describe("audioReady selection validation (#346)", () => {
+  const options = (s: number, e: number) => ({
+    ...DEFAULT_TRANSCRIPTION_OPTIONS,
+    range: "selection" as const,
+    selectionStartSec: s,
+    selectionEndSec: e,
+  });
+
+  it("an inverted 選択範囲 disables 採譜を開始 and flags the end field", async () => {
+    await render("audioReady", view({ audio: AUDIO, options: options(120, 60) }));
+    expect(transcribeButton()?.disabled).toBe(true);
+    // The field error lives in the 採譜オプション popover — open it.
+    const trigger = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent?.trim() === ja.import.audioOptions.label);
+    expect(trigger).toBeTruthy();
+    await click(trigger!);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(document.body.textContent).toContain(
+      ja.import.audioOptions.rangeInvalid,
+    );
+  });
+
+  it("an equal pair is invalid the same way", async () => {
+    await render("audioReady", view({ audio: AUDIO, options: options(60, 60) }));
+    expect(transcribeButton()?.disabled).toBe(true);
+  });
+
+  it("a valid pair keeps 採譜を開始 enabled", async () => {
+    await render("audioReady", view({ audio: AUDIO, options: options(60, 120) }));
+    expect(transcribeButton()?.disabled).toBe(false);
+  });
+
+  it("全曲 mode ignores the stored seconds entirely", async () => {
+    await render(
+      "audioReady",
+      view({
+        audio: AUDIO,
+        options: { ...options(120, 60), range: "all" },
+      }),
+    );
+    expect(transcribeButton()?.disabled).toBe(false);
+  });
 });
 
 describe("EMPTY recents (#364)", () => {
