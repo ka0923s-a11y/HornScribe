@@ -27,6 +27,10 @@ import type { Command, CommandSnapshot } from "./types";
 
 const hasAudio = (s: CommandSnapshot) => s.hasAudio;
 const hasScore = (s: CommandSnapshot) => s.hasScore;
+/* #366: transport falls back to the score clock when no audio is
+ * loaded — the commands must stay reachable in a score-only state
+ * (restored project / SOURCE_MISSING), not just under hasAudio. */
+const canPlay = (s: CommandSnapshot) => s.hasAudio || s.hasScore;
 const canEditScore = (s: CommandSnapshot) => s.hasScore && !s.isTranscribing;
 
 /**
@@ -110,7 +114,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.playPause,
       section: "transport",
       shortcuts: ["Space", "K"],
-      isEnabled: hasAudio,
+      isEnabled: canPlay,
       run: (ctx) => ctx.togglePlayPause(),
     },
     {
@@ -118,7 +122,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.stop,
       section: "transport",
       shortcuts: ["Shift+Space"],
-      isEnabled: hasAudio,
+      isEnabled: canPlay,
       run: (ctx) => ctx.stop(),
     },
     {
@@ -127,7 +131,7 @@ export function createCommandDefinitions(): readonly Command[] {
       section: "transport",
       shortcuts: ["J"],
       allowRepeat: true, // holding J/L scrubs, like video editors
-      isEnabled: hasAudio,
+      isEnabled: canPlay,
       run: (ctx) => ctx.jumpBack(),
     },
     {
@@ -136,7 +140,7 @@ export function createCommandDefinitions(): readonly Command[] {
       section: "transport",
       shortcuts: ["L"],
       allowRepeat: true,
-      isEnabled: hasAudio,
+      isEnabled: canPlay,
       run: (ctx) => ctx.jumpForward(),
     },
     {
@@ -144,7 +148,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.seekStart,
       section: "transport",
       shortcuts: ["Home"],
-      isEnabled: hasAudio,
+      isEnabled: canPlay,
       run: (ctx) => ctx.seekToStart(),
     },
     {
@@ -152,7 +156,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.seekEnd,
       section: "transport",
       shortcuts: ["End"],
-      isEnabled: hasAudio,
+      isEnabled: canPlay,
       run: (ctx) => ctx.seekToEnd(),
     },
     {
@@ -160,7 +164,7 @@ export function createCommandDefinitions(): readonly Command[] {
       title: ja.commands.toggleLoop,
       section: "transport",
       shortcuts: ["Ctrl+L"],
-      isEnabled: hasAudio,
+      isEnabled: canPlay,
       run: (ctx) => ctx.toggleLoop(),
     },
     {

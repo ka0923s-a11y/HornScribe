@@ -223,6 +223,32 @@ describe("command definitions", () => {
     const reviewing: CommandSnapshot = { ...SNAPSHOT_SCORE, reviewOpen: true };
     expect(registry.invoke("score.toggleTie", ctx, reviewing)).toBe(false);
   });
+
+  // #366: the score clock is the fallback transport — these stay
+  // enabled with a score and no audio.
+  it("transport stays enabled score-only", () => {
+    const registry = createCommandRegistry();
+    const scoreOnly: CommandSnapshot = {
+      ...SNAPSHOT_SCORE,
+      hasAudio: false,
+    };
+    for (const id of [
+      "transport.playPause",
+      "transport.stop",
+      "transport.jumpBack",
+      "transport.jumpForward",
+      "transport.seekStart",
+      "transport.seekEnd",
+      "transport.toggleLoop",
+    ]) {
+      expect(registry.get(id)?.isEnabled?.(scoreOnly)).toBe(true);
+    }
+    // Audio-only controls stay gated — source mute means nothing
+    // without a source.
+    expect(
+      registry.get("transport.toggleSourceMute")?.isEnabled?.(scoreOnly),
+    ).toBe(false);
+  });
 });
 
 describe("conflict detection", () => {

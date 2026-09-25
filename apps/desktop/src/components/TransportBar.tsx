@@ -70,8 +70,10 @@ export function TransportBar({
   /** #113: A-B loop armed (media loop or score loop) - pressed state. */
   loopArmed?: boolean;
 }) {
-  // All transport commands share the hasAudio gate (see definitions).
-  const enabled = commands.isEnabled("transport.playPause");
+  // #366: play/stop/seek/loop now reach the score clock too — the
+  // rate and follow controls stay audio-only, so they key off the
+  // still-hasAudio toggleSourceMute gate instead of playPause.
+  const audioOnly = commands.isEnabled("transport.toggleSourceMute");
   const position = live
     ? formatTimecode(live.positionSec)
     : (timeLabel?.split(" / ")[0] ?? ja.time.zero);
@@ -191,7 +193,7 @@ export function TransportBar({
       >
         <ToolbarButton
           aria-label={`${ja.transport.rate} ${rateLabel}`}
-          disabled={!enabled}
+          disabled={!audioOnly}
           onClick={onCycleRate}
         >
           {rateLabel}
@@ -225,7 +227,7 @@ export function TransportBar({
             followSuspended ? ja.scoreView.resumeFollow : ja.transport.follow
           }
           aria-pressed={followEnabled === true && !followSuspended}
-          disabled={!enabled}
+          disabled={!audioOnly}
           onClick={onToggleFollow}
         />
       </Tooltip>
