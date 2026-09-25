@@ -65,6 +65,9 @@ export const ja = {
     retranscribeTooltip: "現在の設定でもう一度採譜する",
     exportTooltip: "MusicXML・PDF・MIDIを書き出し",
     reviewWithCount: "要確認（{count}）",
+    /* #361: open issues are 0 but a decision history exists — the
+     *  review button stays visible as the re-entry point to it. */
+    reviewHistory: "要確認履歴",
   },
 
   pitch: {
@@ -458,9 +461,11 @@ export const ja = {
     reviewDismiss: "対応不要にする",
     reviewPitchUp: "半音上げる",
     reviewPitchDown: "半音下げる",
-    reviewDeleteOrRestore: "削除 / 復元",
-    reviewExit: "要確認を終了",
-    undo: "元に戻す",
+   reviewDeleteOrRestore: "削除 / 復元",
+   reviewExit: "要確認を終了",
+    /* #361: review navigator — the issue-list popover (I キー). */
+    reviewNavigator: "要確認の一覧",
+   undo: "元に戻す",
     redo: "やり直し",
     export: "書き出し",
     openInMuseScore: "MuseScoreで開く",
@@ -1687,7 +1692,22 @@ export const ja = {
     /** モデル確信度は根拠（evidence）としてのみ表示 — 正しい確率とは
      *  書かない (JAPANESE_UI_COPY §6, acceptance criterion). */
     confidence: (percent: number) => `モデル確信度: ${percent}%`,
-    hint: "← → で移動、R で元音源を再生、O で問題なし、Alt+↑↓ で音高修正、Delete で削除、Ctrl+Z で元に戻す、Esc で終了",
+    hint: "← → で移動、R で元音源を再生、O で問題なし、Alt+↑↓ で音高修正、Delete で削除、I で一覧、Ctrl+Z で元に戻す、Esc で終了",
+    /* #361: ReviewNavigator popover — the filterable issue list the
+     *  linear cursor opens with 一覧 / I. */
+    nav: {
+      toggle: "一覧",
+      regionLabel: "要確認の一覧",
+      listLabel: "要確認箇所リスト",
+      openOnly: "未解決のみ",
+      severityLabel: "重要度",
+      reasonLabel: "理由",
+      all: "すべて",
+      filteredCount: (shown: number, total: number) =>
+        `${total}件中 ${shown}件を表示`,
+      notes: (count: number) => `${count}音`,
+      empty: "条件に合う要確認箇所はありません",
+    },
     feedback: {
       accepted: "確認済みにしました",
       dismissed: "対応不要にしました",

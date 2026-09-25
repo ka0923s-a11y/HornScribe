@@ -16,7 +16,11 @@ import { KeyboardDispatcher } from "../keyboard/dispatcher";
 import type { KeyEventLike } from "../keyboard/keys";
 import { createFixtureScoreDocument } from "./fixtureDocument";
 import type { ScoreDocumentPort } from "./document";
-import { openIssues, type ScoreReviewIssue } from "./review";
+import {
+  nextOpenIssueIndex,
+  openIssues,
+  type ScoreReviewIssue,
+} from "./review";
 import { ReviewSession } from "./reviewSession";
 
 function twentyIssues(): readonly ScoreReviewIssue[] {
@@ -57,9 +61,20 @@ class ReviewHarness {
     return this.issues[this.cursor] ?? null;
   }
 
+  /** #361: mirrors ScoreReadyWorkspace.stepReviewOpen — walks the OPEN
+   *  subset only; resolved rows are skipped, none-open is a no-op. */
   next(d: number) {
-    const n = this.issues.length;
-    if (n > 0) this.cursor = ((this.cursor + d) % n + n) % n;
+    const next = nextOpenIssueIndex(this.issues, this.cursor, d > 0 ? 1 : -1);
+    if (next >= 0) this.cursor = next;
+  }
+
+  /** #361: mirrors advanceAfterResolve — a resolved cursor issue hands
+   *  review to the next open one; stays put when it is still open
+   *  (restore) or nothing open remains (all-done). */
+  advance() {
+    if (this.issues[this.cursor]?.status === "open") return;
+    const next = nextOpenIssueIndex(this.issues, this.cursor, 1);
+    if (next >= 0) this.cursor = next;
   }
 
   playSource() {
@@ -69,15 +84,17 @@ class ReviewHarness {
 
   accept() {
     const i = this.issue();
-    if (i) this.session.decide(i.id, "accepted");
+    if (i && this.session.decide(i.id, "accepted")) this.advance();
   }
 
   dismiss() {
     const i = this.issue();
-    if (i) this.session.decide(i.id, "dismissed");
+    if (i && this.session.decide(i.id, "dismissed")) this.advance();
   }
 
   pitch(delta: number) {
+    // #361: pitch fixes intentionally do NOT auto-advance — a second
+    //  Alt+↑↓ must hit the same issue for multi-semitone corrections.
     const i = this.issue();
     if (i) this.session.adjustPitch(i.id, delta);
   }
@@ -85,10 +102,11 @@ class ReviewHarness {
   deleteOrRestore() {
     const i = this.issue();
     if (!i || i.canonicalNoteIds.length === 0) return;
-    this.session.setNoteDeleted(
+    const applied = this.session.setNoteDeleted(
       i.id,
       !this.session.isDeleted(i.canonicalNoteIds[0]),
     );
+    if (applied) this.advance();
   }
 }
 
@@ -132,7 +150,15 @@ function setup(count = 20) {
     exitReview: () => {
       h.open = false;
     },
-    undo: () => session.undo(),
+    // #361: mirrors reviewUndo — undoing a decision jumps the cursor
+    //  back to the issue it reopened.
+    undo: () => {
+      const edit = session.undo();
+      if (h.open && edit?.issueId != null) {
+        const idx = h.issues.findIndex((i) => i.id === edit.issueId);
+        if (idx >= 0) h.cursor = idx;
+      }
+    },
     redo: () => session.redo(),
     openExport: vi.fn(),
     zoomScoreIn: vi.fn(),
@@ -164,6 +190,7 @@ function setup(count = 20) {
     reviewOpen: h.open,
     reviewIssueEditable: (h.issue()?.canonicalNoteIds.length ?? 0) > 0,
     reviewCount: session.pendingCount(),
+    reviewTotal: session.issues().length,
       isRecording: false,
       isRecordingPaused: false,
       auditionEnabled: false,
@@ -207,10 +234,14 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
               : dispatcher.handleKeyDown(key("Delete")).commandId;
       expect(cmd).toMatch(/^review\./);
       expect(session.statusOf(id)).not.toBe("open");
-      // 次へ (→) — direct navigation, always one keypress.
-      expect(dispatcher.handleKeyDown(key("ArrowRight")).commandId).toBe(
-        "review.next",
-      );
+      // #361: accept/dismiss/delete auto-advance to the next open
+      //  issue; the pitch fix is iterative (stays) so it still needs
+      //  an explicit 次へ — direct navigation, always one keypress.
+      if (action === 1) {
+        expect(dispatcher.handleKeyDown(key("ArrowRight")).commandId).toBe(
+          "review.next",
+        );
+      }
     }
     expect(session.pendingCount()).toBe(0);
     expect(h.played).toHaveLength(20);
@@ -222,12 +253,12 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
   it("mixed decisions land correctly: accepted / fixed / dismissed / deleted", () => {
     const { doc, session, h, dispatcher } = setup(20);
     h.open = true;
-    dispatcher.handleKeyDown(key("o")); // ri-000001 accepted
-    dispatcher.handleKeyDown(key("ArrowRight"));
-    dispatcher.handleKeyDown(key("ArrowUp", { altKey: true })); // ri-000002 fixed + pitch
-    dispatcher.handleKeyDown(key("ArrowRight"));
-    dispatcher.handleKeyDown(key("O", { shiftKey: true })); // ri-000003 dismissed
-    dispatcher.handleKeyDown(key("ArrowRight"));
+    // #361: accept/dismiss auto-advance; pitch stays (iterative) and
+    //  ArrowRight steps to the next OPEN issue.
+    dispatcher.handleKeyDown(key("o")); // ri-000001 accepted → cursor auto-advances to ri-000002
+    dispatcher.handleKeyDown(key("ArrowUp", { altKey: true })); // ri-000002 fixed + pitch (stays)
+    dispatcher.handleKeyDown(key("ArrowRight")); // → ri-000003 (ri-000002 is fixed — skipped)
+    dispatcher.handleKeyDown(key("O", { shiftKey: true })); // ri-000003 dismissed → cursor on ri-000004
     dispatcher.handleKeyDown(key("Delete")); // ri-000004 deleted→fixed
     expect(session.statusOf("ri-000001")).toBe("accepted");
     expect(session.statusOf("ri-000002")).toBe("fixed");
@@ -244,9 +275,9 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
   it("Ctrl+Z / Ctrl+Shift+Z undo and redo review actions mid-flow", () => {
     const { session, h, dispatcher } = setup(20);
     h.open = true;
-    dispatcher.handleKeyDown(key("o")); // accept #1
-    dispatcher.handleKeyDown(key("ArrowRight"));
-    dispatcher.handleKeyDown(key("Delete")); // delete #2's note
+    // #361: accepting #1 auto-advances the cursor to #2.
+    dispatcher.handleKeyDown(key("o")); // accept #1 → cursor on #2
+    dispatcher.handleKeyDown(key("Delete")); // delete #2's note → cursor on #3
     expect(session.isDeleted("sn-000002")).toBe(true);
 
     expect(
@@ -254,6 +285,8 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
     ).toBe("edit.undo");
     expect(session.isDeleted("sn-000002")).toBe(false);
     expect(session.statusOf("ri-000002")).toBe("open");
+    // #361: undo returns the cursor to the issue it reopened.
+    expect(h.cursor).toBe(1);
 
     expect(
       dispatcher.handleKeyDown(key("Z", { ctrlKey: true, shiftKey: true }))
@@ -273,6 +306,81 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
     dispatcher.handleKeyDown(key("ArrowRight"));
     dispatcher.handleKeyDown(key("ArrowRight"));
     expect(h.cursor).toBe(2);
+  });
+
+  it("#361: → skips resolved issues — a resumed review never re-passes them", () => {
+    const { session, h, dispatcher } = setup(20);
+    // Simulate a reopened project whose earlier rows are already
+    //  decided (decisions persist in the document, no undo needed).
+    for (const id of ["ri-000002", "ri-000003", "ri-000004"]) {
+      session.decide(id, "accepted");
+    }
+    h.open = true;
+    h.cursor = 0; // openReview lands on the first open issue
+    dispatcher.handleKeyDown(key("ArrowRight"));
+    // ri-000002..4 are accepted — the next open is ri-000005.
+    expect(h.cursor).toBe(4);
+    dispatcher.handleKeyDown(key("ArrowLeft"));
+    expect(h.cursor).toBe(0);
+  });
+
+  it("#361: resolving the last open issue wraps back to earlier open rows", () => {
+    const { session, h, dispatcher } = setup(20);
+    h.open = true;
+    h.cursor = 19;
+    // Resolve the tail — cursor must wrap to the first still-open row.
+    dispatcher.handleKeyDown(key("o")); // ri-000020 accepted
+    expect(session.statusOf("ri-000020")).toBe("accepted");
+    expect(h.cursor).toBe(0);
+  });
+
+  it("#361: resolving the final open issue stays put (all-done, no auto-exit)", () => {
+    const { session, h, dispatcher } = setup(20);
+    h.open = true;
+    for (let i = 0; i < 19; i += 1) dispatcher.handleKeyDown(key("o"));
+    expect(h.cursor).toBe(19);
+    dispatcher.handleKeyDown(key("o")); // last one
+    expect(session.pendingCount()).toBe(0);
+    expect(h.cursor).toBe(19); // stays — the bar shows all-done
+    expect(h.open).toBe(true); // review does not auto-close
+  });
+
+  it("#361: review.open stays enabled for a fully-resolved history", () => {
+    const { session, h, dispatcher } = setup(20);
+    for (let i = 0; i < 20; i += 1) {
+      session.decide(`ri-${String(i + 1).padStart(6, "0")}`, "accepted");
+    }
+    expect(session.pendingCount()).toBe(0);
+    // review.open is gated on reviewTotal, not pending — a resolved
+    //  history must keep the re-entry path alive (registry-level
+    //  predicate check via the real registry).
+    const registry = createCommandRegistry();
+    const resolvedSnapshot = (): CommandSnapshot => ({
+      hasAudio: true,
+      hasScore: true,
+      isTranscribing: false,
+      isPlaying: false,
+      loopEnabled: false,
+      pitch: "concert",
+      canUndo: session.canUndo,
+      canRedo: session.canRedo,
+      hasSelection: false,
+      hasRestSelection: false,
+      hasWaveformSelection: false,
+      reviewOpen: h.open,
+      reviewIssueEditable: false,
+      reviewCount: session.pendingCount(),
+      reviewTotal: session.issues().length,
+      isRecording: false,
+      isRecordingPaused: false,
+      auditionEnabled: false,
+      view: "workspace",
+    });
+    expect(registry.isEnabled("review.open", resolvedSnapshot())).toBe(true);
+    h.open = true; // what ctx.openReview() does once invoked
+    dispatcher.handleKeyDown(key("ArrowRight"));
+    // Nothing is open — the open-only stepper is a no-op, cursor stays.
+    expect(h.cursor).toBe(0);
   });
 
   it("Esc exits the review workspace; review keys disable again", () => {
@@ -295,7 +403,6 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
     h.open = true;
     for (let i = 0; i < 20; i += 1) {
       dispatcher.handleKeyDown(key("o"));
-      dispatcher.handleKeyDown(key("ArrowRight"));
     }
     expect(openIssues(doc.reviewIssues())).toHaveLength(0);
     expect(doc.reviewIssues()).toHaveLength(20);

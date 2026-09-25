@@ -59,6 +59,9 @@ export interface CommandSnapshot {
    *  issues instead of silently doing nothing. */
   readonly reviewIssueEditable: boolean;
   readonly reviewCount: number;
+  /** #361: open + decided issues — review.open stays reachable as the
+   *  history re-entry once reviewCount hits 0. */
+  readonly reviewTotal: number;
   /** FEAT-001: a recording session is in progress (loopback/mic). */
   readonly isRecording: boolean;
   /** FEAT-001 (#80): the recording session is paused. */
@@ -134,6 +137,8 @@ export interface CommandContext {
   reviewPitchDown?(): void;
   reviewDeleteOrRestore?(): void;
   exitReview?(): void;
+  /** #361: toggle the 要確認一覧 navigator popover (I key). */
+  reviewToggleNavigator?(): void;
   undo(): void;
   redo(): void;
   openExport(): void;

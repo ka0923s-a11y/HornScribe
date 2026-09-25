@@ -122,6 +122,8 @@ export interface ScoreWorkspaceController {
   openReview(): void;
   reviewNext(): void;
   reviewPrevious(): void;
+  /** #361: toggle the 要確認一覧 navigator popover (一覧 button / I). */
+  reviewToggleNavigator?(): void;
 
   // ---- review decisions & corrections (UI-050, §12/§13) ----
   /** 問題なし — mark the focused issue accepted. */
@@ -171,6 +173,10 @@ export interface ScoreWorkspaceState {
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly openIssueCount: number;
+  /** #361: total issues this revision (open + decided) — distinguishes
+   *  "nothing to review" from "history exists" for the review.open
+   *  gate, so a fully-resolved project can still re-enter review. */
+  readonly totalIssueCount: number;
   /** FEAT-001: score audition enabled (drives the transport toggle). */
   readonly auditionEnabled: boolean;
   /** #399: in-flight serialized engine edits — >0 means committed

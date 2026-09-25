@@ -13,9 +13,11 @@
  * confidence number (モデル確信度 is shown only as labelled evidence).
  */
 import { ja } from "../strings/ja";
+import type { RefObject } from "react";
 import { HsButton } from "../components/primitives/Button";
 import { HsTooltip } from "../components/primitives/Tooltip";
 import { issueConfidence, type ScoreReviewIssue } from "./review";
+import { List24Regular } from "@fluentui/react-icons";
 
 export interface ReviewBarCopy {
   reasonTitle: string;
@@ -54,9 +56,15 @@ export interface ReviewBarProps {
     readonly tooltip: string;
     run(): void;
   } | null;
-  onPrev(): void;
-  onNext(): void;
-  onPlaySource(): void;
+onPrev(): void;
+onNext(): void;
+  /** #361: the ReviewNavigator popover — 一覧 opens/closes it; the
+   *  button stays a toggle (aria-pressed mirrors the open state). */
+  readonly navigatorOpen: boolean;
+  onToggleNavigator(): void;
+  /** Focus lands back here when the navigator closes (Esc / jump). */
+  readonly navigatorButtonRef?: RefObject<HTMLButtonElement>;
+onPlaySource(): void;
   onAccept(): void;
   onDismiss(): void;
   onPitch(delta: number): void;
@@ -85,6 +93,9 @@ export function ReviewBar({
   action = null,
   onPrev,
   onNext,
+  navigatorOpen,
+  onToggleNavigator,
+  navigatorButtonRef,
   onPlaySource,
   onAccept,
   onDismiss,
@@ -231,6 +242,18 @@ export function ReviewBar({
         <HsTooltip content={withKey(ja.common.next, "→")}>
           <HsButton size="small" disabled={total === 0} onClick={onNext}>
             {ja.common.next}
+          </HsButton>
+        </HsTooltip>
+        <HsTooltip content={withKey(r.nav.toggle, "I")}>
+          <HsButton
+            ref={navigatorButtonRef}
+            size="small"
+            icon={<List24Regular />}
+            disabled={total === 0}
+            onClick={onToggleNavigator}
+            aria-pressed={navigatorOpen}
+          >
+            {r.nav.toggle}
           </HsButton>
         </HsTooltip>
         <span className="hs-score-reviewbar__spacer" />

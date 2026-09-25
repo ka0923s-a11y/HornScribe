@@ -55,6 +55,8 @@ function props(over: Partial<ReviewBarProps> = {}): ReviewBarProps {
     action: null,
     onPrev: vi.fn(),
     onNext: vi.fn(),
+    navigatorOpen: false,
+    onToggleNavigator: vi.fn(),
     onPlaySource: vi.fn(),
     onAccept: vi.fn(),
     onDismiss: vi.fn(),

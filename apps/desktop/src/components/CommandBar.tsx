@@ -73,6 +73,7 @@ export function CommandBar({
   pitch,
   screen,
   reviewCount,
+  reviewTotal,
   compact,
   propertiesOpen,
   onToggleProperties,
@@ -87,6 +88,9 @@ export function CommandBar({
   pitch: PitchView;
   screen: ScreenState;
   reviewCount: number;
+  /** #361: open + decided issues — distinguishes "no issues" from
+   *  "all resolved, history exists" for the review button label. */
+  reviewTotal: number;
   /** <1200px breakpoint — 設定 lives in the overflow menu instead. */
   compact: boolean;
   propertiesOpen: boolean;
@@ -125,7 +129,9 @@ export function CommandBar({
   const reviewLabel =
     reviewCount > 0
       ? ja.commandBar.reviewWithCount.replace("{count}", String(reviewCount))
-      : ja.commandBar.review;
+      : reviewTotal > 0
+        ? ja.commandBar.reviewHistory
+        : ja.commandBar.review;
 
   const overflowItems: HsMenuItem[] = [
     ...(compact

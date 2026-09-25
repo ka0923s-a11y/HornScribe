@@ -1046,6 +1046,13 @@ export default function App() {
         : screen === "reviewing"
           ? 12
           : 0);
+  // #361: decided rows keep review.open reachable — the history
+  //  re-entry needs the TOTAL count, not just the pending one.
+  const reviewTotal =
+    scoreState?.totalIssueCount ??
+    (scoreDocument
+      ? scoreDocument.reviewIssues().length
+      : Math.max(sessionSnap.reviewIssueCount, reviewCount));
 
   // The registry is static: predicates read the snapshot, not React state.
   const registry = useMemo(() => createCommandRegistry(), []);
@@ -1080,6 +1087,7 @@ export default function App() {
       reviewOpen: scoreState?.reviewOpen ?? screen === "reviewing",
       reviewIssueEditable: scoreState?.reviewIssueEditable ?? false,
       reviewCount,
+      reviewTotal,
       view,
       // FEAT-001: recording + audition gates for the command registry.
       isRecording: captureState?.phase === "recording",
@@ -1094,6 +1102,7 @@ export default function App() {
       scoreState,
       pitch,
       reviewCount,
+      reviewTotal,
       view,
       captureState,
       importState.audio,
@@ -1670,6 +1679,9 @@ export default function App() {
       reviewPitchDown: () => scoreCtlRef.current?.reviewPitch(-1),
       reviewDeleteOrRestore: () => scoreCtlRef.current?.reviewDeleteOrRestore(),
       exitReview: () => scoreCtlRef.current?.exitReview(),
+      // #361: 一覧 popover toggle (I キー / 一覧 button).
+      reviewToggleNavigator: () =>
+        scoreCtlRef.current?.reviewToggleNavigator?.(),
       undo: () => {
         const c = scoreCtlRef.current;
         if (c) c.undo();
@@ -2102,6 +2114,7 @@ export default function App() {
                 pitch={pitch}
                 screen={screen}
                 reviewCount={reviewCount}
+                reviewTotal={reviewTotal}
                 compact={layout.breakpoint === "compact"}
                 propertiesOpen={layout.propertiesOpen}
                 onToggleProperties={() =>

@@ -1267,6 +1267,112 @@ body {
 
 /* Scroll surface — continuous mode stacks pages vertically; page mode
    shows one. Score dominates the workspace (§6). */
+/* #361: review navigator — the filterable issue list drawer docked at
+ *  the score workspace's right edge (position:absolute inside
+ *  .hs-score-workspace's relative box, so it overlays the score without
+ *  reflowing the rendered pages). */
+.hs-reviewnav {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(360px, 86%);
+  display: flex;
+  flex-direction: column;
+  background: var(--hs-surface-panel);
+  border-left: 1px solid var(--hs-border-subtle);
+  box-shadow: var(--hs-elevation-popover);
+  z-index: 20;
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-primary);
+}
+.hs-reviewnav__filters {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  flex-wrap: wrap;
+  padding: var(--hs-space-sm) var(--hs-space-ms);
+  border-bottom: 1px solid var(--hs-border-subtle);
+}
+.hs-reviewnav__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-xs);
+  color: var(--hs-text-secondary);
+  white-space: nowrap;
+}
+.hs-reviewnav__count {
+  color: var(--hs-text-secondary);
+  white-space: nowrap;
+}
+.hs-reviewnav__spacer {
+  flex: 1 1 auto;
+}
+.hs-reviewnav__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--hs-space-xs) 0;
+  list-style: none;
+}
+.hs-reviewnav__list:focus-visible {
+  outline: var(--hs-focus-width) solid var(--hs-focus);
+  outline-offset: calc(-1 * var(--hs-focus-width));
+}
+.hs-reviewnav__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  cursor: pointer;
+}
+.hs-reviewnav__item--focus {
+  background: var(--hs-surface-hover);
+}
+/* Selected = the issue the review cursor is on: a leading accent bar
+ *  (fill + weight kept for the text, not color-only). */
+.hs-reviewnav__item--selected {
+  box-shadow: inset 3px 0 0 var(--hs-accent);
+}
+.hs-reviewnav__item--selected .hs-reviewnav__item-reason {
+  font-weight: 600;
+}
+.hs-reviewnav__item-pos {
+  min-width: 2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--hs-text-secondary);
+}
+.hs-reviewnav__item-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--hs-text-secondary);
+  white-space: nowrap;
+}
+.hs-reviewnav__item-reason {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hs-reviewnav__item-meta {
+  color: var(--hs-text-secondary);
+  white-space: nowrap;
+  font-size: var(--hs-font-size-sm);
+}
+.hs-reviewnav__empty {
+  padding: var(--hs-space-md);
+  color: var(--hs-text-secondary);
+  margin: 0;
+}
+.hs-reviewnav__omitted {
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  color: var(--hs-text-secondary);
+  border-top: 1px solid var(--hs-border-subtle);
+  margin: 0;
+}
+
 .hs-score-scroll {
   flex: 1 1 auto;
   min-height: 0;

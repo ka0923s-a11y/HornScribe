@@ -32,6 +32,7 @@ const EMPTY: CommandSnapshot = {
   reviewOpen: false,
   reviewIssueEditable: false,
   reviewCount: 0,
+  reviewTotal: 0,
       isRecording: false,
       isRecordingPaused: false,
       auditionEnabled: false,

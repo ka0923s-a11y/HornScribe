@@ -271,8 +271,12 @@ export function createCommandDefinitions(): readonly Command[] {
       id: "review.open",
       title: ja.commands.openReview,
       section: "review",
-      isEnabled: (s) => s.hasScore && s.reviewCount > 0,
-      isVisible: (s) => s.hasScore && s.reviewCount > 0,
+      // #361: gated on total (open + decided) — a fully-resolved score
+      //  keeps review reachable so the decision history can be
+      //  revisited (and reopened) after save/reopen kills the undo
+      //  stack. The bar's pending count still reads from reviewCount.
+      isEnabled: (s) => s.hasScore && s.reviewTotal > 0,
+      isVisible: (s) => s.hasScore && s.reviewTotal > 0,
       run: (ctx) => ctx.openReview(),
     },
     {
@@ -325,6 +329,19 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewDismiss?.(),
+    },
+    {
+      id: "review.navigator",
+      title: ja.commands.reviewNavigator,
+      section: "review",
+      // #361: I toggles the issue-list popover. allowInModal so the
+      //  same key also closes it while the (role=dialog) panel owns
+      //  focus.
+      shortcuts: ["I"],
+      allowInModal: true,
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewToggleNavigator?.(),
     },
     {
       id: "review.pitchUp",

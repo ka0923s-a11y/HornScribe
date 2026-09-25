@@ -64,6 +64,24 @@ export function openIssues(issues: readonly ScoreReviewIssue[]): ScoreReviewIssu
   return issues.filter((i) => i.status === "open");
 }
 
+/** #361: index of the next still-open issue stepping `dir` from `from`
+ *  (exclusive, wrapping at both ends), or -1 when nothing is open.
+ *  Normal review navigation walks the open subset so a resumed
+ *  project never drags the cursor back through dozens of resolved rows;
+ *  explicit jumps (navigator / history) use the raw list index instead. */
+export function nextOpenIssueIndex(
+  issues: readonly ScoreReviewIssue[],
+  from: number,
+  dir: 1 | -1,
+): number {
+  const n = issues.length;
+  for (let step = 1; step <= n; step += 1) {
+    const i = (((from + dir * step) % n) + n) % n;
+    if (issues[i]?.status === "open") return i;
+  }
+  return -1;
+}
+
 /** All open issues touching `canonicalId` (a note can carry several). */
 export function issuesForCanonical(
   issues: readonly ScoreReviewIssue[],

@@ -81,6 +81,7 @@ import { buildSwingWarp } from "./swingWarp";
 import {
   allIssuesForCanonical,
   markedCanonicalIds,
+  nextOpenIssueIndex,
   numEvidence,
   type ScoreReviewIssue,
 } from "./review";
@@ -99,6 +100,7 @@ import {
   issueHasNoteTargets,
 } from "./reviewActions";
 import { ReviewBar } from "./ReviewBar";
+import { ReviewNavigator } from "./ReviewNavigator";
 import {
   findCanonicalNote,
   formatFraction,
@@ -381,6 +383,10 @@ export function ScoreReadyWorkspace({
   const [followSuspended, setFollowSuspended] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
+  // #361: the review navigator popover — opened from the 一覧 button
+  // or the I key while review is open.
+  const [navOpen, setNavOpen] = useState(false);
+  const navToggleRef = useRef<HTMLButtonElement>(null);
   const [clockSnap, setClockSnap] = useState<ClockSnapshot>({
     positionMs: 0,
     durationMs: 0,
@@ -431,6 +437,7 @@ export function ScoreReadyWorkspace({
   const shownPageRef = useRef(0);
   const reviewIndexRef = useRef(0);
   const reviewOpenRef = useRef(false);
+  const navOpenRef = useRef(false);
   const pendingScrollRef = useRef<{ ratio: number } | null>(null);
   /* Review-audition A-B loop (see reviewLoop.ts): owned by the review
    * session, retargeted on issue navigation, released on exit so it can
@@ -529,6 +536,7 @@ export function ScoreReadyWorkspace({
   pitchRef.current = pitch;
   reviewIndexRef.current = reviewIndex;
   reviewOpenRef.current = reviewOpen;
+  navOpenRef.current = navOpen;
 
   /* ------------------------- DOM-only mark appliers ------------------------- */
 
@@ -1097,9 +1105,11 @@ export function ScoreReadyWorkspace({
   );
 
   /* ------------------------------ review --------------------------------- */
-  /* UI-050: the cursor walks the FULL issue list (resolved issues stay
-   *  reachable so their status/decision can be revisited and undone);
-   *  markers + pendingCount come from the still-open subset. */
+  /* UI-050 + #361: the linear 前へ/次へ cursor walks the OPEN subset
+   *  (resumed projects never re-pass resolved rows). Resolved issues
+   *  stay reachable — the navigator (未解決のみ OFF) and direct
+   *  gotoIssue jumps land on them; markers + pendingCount come from the
+   *  still-open subset. */
 
   const issueAtCursor = useCallback(
     () => allIssues[reviewIndexRef.current] ?? null,
@@ -1162,6 +1172,55 @@ export function ScoreReadyWorkspace({
     [allIssues, selectExportId, sourceControl, announce, reviewLoopPorts],
   );
 
+  /** #361: 前へ/次へ steps between OPEN issues only — decided rows are
+   *  skipped (the navigator's unfiltered list is the explicit history
+   *  path). With nothing left open the cursor stays and the bar shows
+   *  its all-done state. */
+  const stepReviewOpen = useCallback(
+    (dir: 1 | -1) => {
+      const issues = session.issues();
+      if (issues.length === 0) return;
+      const next = nextOpenIssueIndex(issues, reviewIndexRef.current, dir);
+      if (next < 0) {
+        announce(ja.review.allDone);
+        return;
+      }
+      gotoIssue(next);
+    },
+    [session, gotoIssue, announce],
+  );
+
+  /** #361: after a decision resolves the issue under the cursor,
+   *  advance to the next still-open issue (wrapping) so accept/dismiss
+   *  chains cost one key each. Nothing open → stay on the resolved row
+   *  and let the bar show all-done (never auto-close the review). The
+   *  pitch fix intentionally does NOT advance: Alt+↑↓ is iterative — a
+   *  second press must hit the SAME issue or a two-semitone
+   *  correction would silently retune the next note. */
+  const advanceAfterResolve = useCallback(() => {
+    const issues = session.issues();
+    if (issues.length === 0) return;
+    if (issues[reviewIndexRef.current]?.status === "open") return;
+    const next = nextOpenIssueIndex(issues, reviewIndexRef.current, 1);
+    if (next >= 0) gotoIssue(next);
+  }, [session, gotoIssue]);
+
+  /* #361: navigator popover — toggled by the 一覧 button / I command.
+   *  Closing returns focus to the toggle so the keyboard review flow
+   *  resumes exactly where it left off. */
+  const closeNavigator = useCallback((refocus = true) => {
+    navOpenRef.current = false;
+    setNavOpen(false);
+    if (refocus) navToggleRef.current?.focus();
+  }, []);
+  const toggleNavigator = useCallback(() => {
+    if (navOpenRef.current) closeNavigator();
+    else {
+      navOpenRef.current = true;
+      setNavOpen(true);
+    }
+  }, [closeNavigator]);
+
   const openReview = useCallback(() => {
     if (allIssues.length === 0) {
       announce(ja.review.feedback.noIssues);
@@ -1178,6 +1237,10 @@ export function ScoreReadyWorkspace({
   const exitReview = useCallback(() => {
     reviewOpenRef.current = false;
     setReviewOpen(false);
+    // #361: the navigator dies with the review (no refocus — the bar,
+    //  including the toggle button, unmounts together).
+    navOpenRef.current = false;
+    setNavOpen(false);
     // The review-audition loop dies with the review - restore whatever
     // loop the user had before 蜈・浹貅舌ｒ蜀咲函 armed it.
     reviewLoopRef.current = releaseReviewLoop(
@@ -1255,8 +1318,10 @@ export function ScoreReadyWorkspace({
       )
     ) {
       announce(ja.review.feedback.already(ja.reviewStatus.accepted));
+    } else {
+      advanceAfterResolve();
     }
-  }, [issueAtCursor, session, runReviewEdit, announce]);
+  }, [issueAtCursor, session, runReviewEdit, advanceAfterResolve, announce]);
 
   const reviewDismiss = useCallback(() => {
     const issue = issueAtCursor();
@@ -1268,8 +1333,10 @@ export function ScoreReadyWorkspace({
       )
     ) {
       announce(ja.review.feedback.already(ja.reviewStatus.dismissed));
+    } else {
+      advanceAfterResolve();
     }
-  }, [issueAtCursor, session, runReviewEdit, announce]);
+  }, [issueAtCursor, session, runReviewEdit, advanceAfterResolve, announce]);
 
   const reviewPitch = useCallback(
     (delta: number) => {
@@ -1292,14 +1359,17 @@ export function ScoreReadyWorkspace({
     const issue = issueAtCursor();
     if (!issue || issue.canonicalNoteIds.length === 0) return;
     const deleted = session.isDeleted(issue.canonicalNoteIds[0]);
-    runReviewEdit(
+    const applied = runReviewEdit(
       session.setNoteDeleted(issue.id, !deleted),
       deleted
         ? ja.review.feedback.noteRestored
         : ja.review.feedback.noteDeleted,
       { reload: true },
     );
-  }, [issueAtCursor, session, runReviewEdit]);
+    // #361: deleting resolves the issue (fixed) — auto-advance;
+    //  restoring reopens it — the helper sees it still open and stays.
+    if (applied) advanceAfterResolve();
+  }, [issueAtCursor, session, runReviewEdit, advanceAfterResolve]);
 
   /* #114 (spec 10/13): score-workspace note navigation + direct edits.
    *  Arrow keys walk canonical notes in document order; Alt+arrows /
@@ -1387,9 +1457,13 @@ export function ScoreReadyWorkspace({
       if (session.decide(issueId, "fixed")) {
         bumpDoc();
         reportInspector();
+        // #361: a resolved cursor issue hands the review to the next
+        //  open one (remedy buttons land here via applyRhythmEdit's
+        //  async success path — advance only when reviewing).
+        if (reviewOpenRef.current) advanceAfterResolve();
       }
     },
-    [session, bumpDoc, reportInspector],
+    [session, bumpDoc, reportInspector, advanceAfterResolve],
   );
 
   /* #115 (spec 13): engine rhythm edits — duration ladder, onset grid
@@ -1799,8 +1873,22 @@ const setKey = useCallback(
     if (edit.noteChanges.length > 0 || edit.docSwap != null)
       reloadEditedScore();
     reportInspector();
+    // #361: undo reopens the issue — bring the cursor back to it so
+    //  the reopened row is what the user is looking at (auto-advance
+    //  had moved the cursor forward past it).
+    if (reviewOpenRef.current && edit.issueId != null) {
+      const idx = session.issues().findIndex((i) => i.id === edit.issueId);
+      if (idx >= 0) gotoIssue(idx);
+    }
     announce(ja.review.feedback.undone);
-  }, [session, bumpDoc, reloadEditedScore, reportInspector, announce]);
+  }, [
+    session,
+    bumpDoc,
+    reloadEditedScore,
+    reportInspector,
+    announce,
+    gotoIssue,
+  ]);
 
   const reviewRedo = useCallback(() => {
     const edit = session.redo();
@@ -1911,8 +1999,9 @@ const setKey = useCallback(
         );
       },
       openReview: () => openReview(),
-      reviewNext: () => gotoIssue(reviewIndexRef.current + 1),
-      reviewPrevious: () => gotoIssue(reviewIndexRef.current - 1),
+      reviewNext: () => stepReviewOpen(1),
+      reviewPrevious: () => stepReviewOpen(-1),
+      reviewToggleNavigator: () => toggleNavigator(),
       reviewAccept: () => reviewAccept(),
       reviewDismiss: () => reviewDismiss(),
       reviewPlaySource: () => playSource(),
@@ -1962,6 +2051,8 @@ const setKey = useCallback(
     resumeFollow,
     openReview,
     gotoIssue,
+    stepReviewOpen,
+    toggleNavigator,
     reviewAccept,
     reviewDismiss,
     playSource,
@@ -2019,6 +2110,9 @@ const setKey = useCallback(
       canUndo: session.canUndo,
       canRedo: session.canRedo,
       openIssueCount: pendingCount,
+      // #361: decided rows included — review.open stays reachable as
+      //  the history entry point once pending hits 0.
+      totalIssueCount: allIssues.length,
       auditionEnabled,
       // #399: queued engine edits — unsaved work from the app's
       // perspective even before editVersion moves.
@@ -2196,7 +2290,8 @@ const setKey = useCallback(
       </div>
 
       {reviewOpen && (
-        <ReviewBar
+        <>
+          <ReviewBar
           index={Math.min(reviewIndex, Math.max(0, allIssues.length - 1))}
           total={allIssues.length}
           pending={pendingCount}
@@ -2251,8 +2346,11 @@ const setKey = useCallback(
                 : undefined,
             markFixed: markIssueFixed,
           })}
-          onPrev={() => gotoIssue(reviewIndexRef.current - 1)}
-          onNext={() => gotoIssue(reviewIndexRef.current + 1)}
+          onPrev={() => stepReviewOpen(-1)}
+          onNext={() => stepReviewOpen(1)}
+          navigatorOpen={navOpen}
+          onToggleNavigator={toggleNavigator}
+          navigatorButtonRef={navToggleRef}
           onPlaySource={playSource}
           onAccept={reviewAccept}
           onDismiss={reviewDismiss}
@@ -2261,7 +2359,24 @@ const setKey = useCallback(
           onUndo={reviewUndo}
           onRedo={reviewRedo}
           onExit={exitReview}
-        />
+          />
+          {navOpen && (
+            <ReviewNavigator
+              issues={allIssues}
+              activeIndex={Math.min(
+                reviewIndex,
+                Math.max(0, allIssues.length - 1),
+              )}
+              omitted={scoreDoc.meta.omittedIssueCount}
+              copy={copy.review}
+              onJump={(i) => {
+                gotoIssue(i);
+                closeNavigator();
+              }}
+              onClose={() => closeNavigator()}
+            />
+          )}
+        </>
       )}
 
       {loading && <div className="hs-score-loading">{s.loading}</div>}
