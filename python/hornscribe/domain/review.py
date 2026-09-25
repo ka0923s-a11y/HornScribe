@@ -50,6 +50,9 @@ class ReviewReason(Enum):
     VOCAL_ISOLATION_APPLIED = "vocal_isolation_applied"
     # #187: vocal isolation was requested but did not apply — mono
     # source or a failed decode; the backend ran on the raw audio.
+    # #322: also emitted when a voices/chords texture skipped
+    # isolation — stripping the accompaniment would defeat the
+    # multi-voice request (evidence.detail = "polyphonic_texture").
     VOCAL_ISOLATION_UNAVAILABLE = "vocal_isolation_unavailable"
 
 

@@ -236,6 +236,15 @@ function inspectorCopy(): InspectorCopy {
             return ja.reviewEvidence.swingFeel(offbeats, swing);
           }
         }
+        // #322: isolation was skipped because voices/chords keep the
+        // overlapping lines — say so instead of the generic mono/
+        // decode-failure copy.
+        if (
+          issue.reason === "vocal_isolation_unavailable" &&
+          issue.evidence["detail"] === "polyphonic_texture"
+        ) {
+          return ja.reviewEvidence.vocalIsolationPolyphonic;
+        }
         return (REASON_DECK[issue.reason] ?? ja.reviewReasons.other).detail;
       },
       severityLabel: (s) => ja.reviewSeverity[s] ?? ja.reviewSeverity.info,

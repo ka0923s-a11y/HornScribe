@@ -313,12 +313,23 @@ function AudioReadyBody({
             <Checkbox
               label={ja.import.audioOptions.vocalIsolation}
               checked={options.vocalIsolation}
+              disabled={
+                options.texture === "voices" ||
+                options.texture === "chords"
+              }
               onChange={(_e, data) =>
                 set({ vocalIsolation: data.checked === true })
               }
             />
             <p className="hs-audio-options__hint">
-              {ja.import.audioOptions.vocalIsolationHint}
+              {/* #322: voices/chords keep overlapping lines — vocal
+                  isolation strips the accompaniment first, so the
+                  two options contradict. The checkbox disables and
+                  the hint explains why instead of silently ignoring. */}
+              {options.texture === "voices" ||
+              options.texture === "chords"
+                ? ja.import.audioOptions.vocalIsolationPolyphonicHint
+                : ja.import.audioOptions.vocalIsolationHint}
             </p>
             <HsSelect
               label={ja.import.audioOptions.tempo}

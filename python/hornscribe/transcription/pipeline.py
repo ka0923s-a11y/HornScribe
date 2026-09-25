@@ -511,7 +511,14 @@ def run_transcription_job(
         vocal_reason: str | None = None
         vocal_method: str | None = None
         vocal_method_version: str | None = None
-        if params.vocal_isolation:
+        # #322: vocal isolation is a solo-melody preprocess — under
+        # voices/chords the user asked to KEEP the overlapping lines,
+        # so stripping the accompaniment first would silently defeat
+        # the texture. Skip it and report the conflict instead.
+        polyphonic_texture = params.texture in ("voices", "chords")
+        if params.vocal_isolation and polyphonic_texture:
+            vocal_reason = "polyphonic_texture"
+        elif params.vocal_isolation:
             # Isolation covers exactly the backend's span: the
             # selection when one is set, else the whole file. A stray
             # selection_start_sec under range=all must not leak in.
@@ -1128,7 +1135,13 @@ def run_transcription_job(
                     evidence={"stage": vocal_method or "center_extraction"},
                 )
             )
-        elif vocal_reason in ("mono_source", "unavailable"):
+        elif vocal_reason in (
+            "mono_source",
+            "unavailable",
+            # #322: requested but skipped — voices/chords keep the
+            # overlapping lines, so isolation would defeat the texture.
+            "polyphonic_texture",
+        ):
             issues.append(
                 ReviewIssue(
                     id="",

@@ -159,7 +159,7 @@ def test_vocal_isolation_resolves_pyin(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         pipeline,
         "vocal_wav",
-        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs"),
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs", "4.0.1"),
     )
     called: list[str] = []
 
@@ -192,7 +192,7 @@ def test_vocal_isolation_failure_keeps_basic_pitch(
     monkeypatch.setattr(
         pipeline,
         "vocal_wav",
-        lambda *a, **k: (None, "unavailable", False, None),
+        lambda *a, **k: (None, "unavailable", False, None, None),
     )
     called: list[str] = []
 
@@ -218,7 +218,7 @@ def test_vocal_isolation_voices_keeps_polyphonic(
     monkeypatch.setattr(
         pipeline,
         "vocal_wav",
-        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs"),
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs", "4.0.1"),
     )
     called: list[str] = []
     monkeypatch.setattr(
@@ -252,7 +252,7 @@ def test_vocal_isolation_stages_isolated_wav(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         pipeline,
         "vocal_wav",
-        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs"),
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs", "4.0.1"),
     )
     result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
     assert captured["path"] == "/tmp/hs-vocal.wav"
@@ -275,7 +275,7 @@ def test_vocal_isolation_unavailable_reports_reason(
     monkeypatch.setattr(
         pipeline,
         "vocal_wav",
-        lambda *a, **k: (None, "mono_source", False, None),
+        lambda *a, **k: (None, "mono_source", False, None, None),
     )
     result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
     # Fallback: the backend saw the original audio path.

@@ -953,6 +953,11 @@ export const ja = {
       vocalIsolation: "ボーカル分離を使う（ミックス音源向け）",
       vocalIsolationHint:
         "中央定位のボーカルを推定してから採譜します。JPOPなど伴奏付き音源の主旋律抽出に有効ですが、完全な分離ではありません。開発環境で pip install hornscribe[engine-vocal] を入れると、より精度の高い demucs による分離に自動で切り替わります。",
+      /* #322: shown in place of vocalIsolationHint when the texture
+       * is voices/chords — the checkbox is disabled and this explains
+       * why the two options cannot combine. */
+      vocalIsolationPolyphonicHint:
+        "複数声部・和音として採譜する場合、ボーカル分離は使えません（伴奏を取り除くと重なった声部も失われるため）。",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {
@@ -1368,6 +1373,11 @@ export const ja = {
       " 個中 " +
       swing +
       " 個が三連符の3つ目の位置に寄っています",
+    /** #322: vocal isolation was requested with voices/chords — the
+     *  engine skipped it because stripping the accompaniment first
+     *  would defeat the multi-voice texture. */
+    vocalIsolationPolyphonic:
+      "複数声部・和音の採譜とボーカル分離は同時に使えません。重なった音を残すため、元の音源のまま採譜しました",
   },
 
   /* #130 (§14): re-quantize dialog — change the quantization settings

@@ -1735,3 +1735,67 @@ class TestVocalProvenance:
         assert "preprocess" not in res["meta"]
 
 
+
+
+class TestVocalPolyphonicConflict:
+    """#322: voices/chords keep the overlapping lines — vocal
+    isolation would strip the accompaniment first, so the engine
+    skips it and reports the conflict instead of silently ignoring
+    an option the UI also disables."""
+
+    def test_voices_texture_skips_isolation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import hornscribe.transcription.pipeline as pipeline_mod
+
+        called: list[bool] = []
+        monkeypatch.setattr(
+            pipeline_mod,
+            "vocal_wav",
+            lambda *a, **k: called.append(True) or (None, "x", False, None, None),
+        )
+        log = run(
+            tmp_path,
+            make_events([60, 62, 64]),
+            {"vocalIsolation": True, "texture": "voices"},
+        )
+        assert log[-1]["phase"] == "completed"
+        # Isolation never ran — the backend saw the raw mix.
+        assert called == []
+        issues = log[-1]["result"]["reviewIssues"]
+        unavail = [
+            i for i in issues
+            if i["reason"] == "vocal_isolation_unavailable"
+        ]
+        assert unavail and (
+            unavail[0]["evidence"]["detail"] == "polyphonic_texture"
+        )
+        # Provenance records the skipped isolation honestly.
+        pre = log[-1]["result"]["meta"]["preprocess"]
+        assert pre["method"] == "none"
+        assert pre["fallbackReason"] == "polyphonic_texture"
+
+    def test_melody_texture_still_isolates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import hornscribe.transcription.pipeline as pipeline_mod
+
+        staged = tmp_path / "v.wav"
+        staged.write_bytes(b"x")
+        monkeypatch.setattr(
+            pipeline_mod,
+            "vocal_wav",
+            lambda *a, **k: (str(staged), "applied", False, "center_extraction", "1"),
+        )
+        log = run(
+            tmp_path,
+            make_events([60, 62, 64]),
+            {"vocalIsolation": True, "texture": "melody"},
+        )
+        assert log[-1]["phase"] == "completed"
+        issues = log[-1]["result"]["reviewIssues"]
+        assert any(
+            i["reason"] == "vocal_isolation_applied" for i in issues
+        )
+
+
