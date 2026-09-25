@@ -11,6 +11,7 @@ import {
   notesByExportId,
   parseScoreDoc,
   pitchLabel,
+  canonicalNoteOrder,
 } from "./scoreDoc";
 
 const XML = `<?xml version="1.0" encoding="utf-8"?>
@@ -154,6 +155,42 @@ describe("parseScoreDoc", () => {
     ]);
     const byExport = notesByExportId(doc);
     expect(byExport.get("hs-rest-000001")?.isRest).toBe(true);
+  });
+
+  /* #368: ←/→ note navigation walks canonical order — tie fragments
+   * collapse to one step, rests stay out, chord members keep their
+   * own entries. */
+  it("canonicalNoteOrder collapses tie fragments, keeps chords", () => {
+    expect(canonicalNoteOrder(doc)).toEqual([
+      "sn-000001",
+      "sn-000002",
+      "sn-000003",
+    ]);
+
+    const ties = parseScoreDoc(`<?xml version="1.0"?>
+      <score-partwise><part id="P1">
+        <measure number="1">
+          <attributes><divisions>4</divisions></attributes>
+          <note id="hs-sn-000001"><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type></note>
+          <note id="hs-sn-000002"><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><tie type="start"/></note>
+          <note id="hs-sn-000004"><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type></note>
+          <note id="hs-sn-000005" chord="1"><chord/><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type></note>
+        </measure>
+        <measure number="2">
+          <note id="hs-sn-000002-2"><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><tie type="stop"/><tie type="start"/></note>
+        </measure>
+        <measure number="3">
+          <note id="hs-sn-000002-3"><pitch><step>D</step><octave>4</octave></pitch><duration>8</duration><type>half</type><tie type="stop"/></note>
+        </measure>
+      </part></score-partwise>`);
+    // Three MusicXML fragments, one canonical step — and the chord
+    // member is a separate canonical note in order.
+    expect(canonicalNoteOrder(ties)).toEqual([
+      "sn-000001",
+      "sn-000002",
+      "sn-000004",
+      "sn-000005",
+    ]);
   });
 
   it("throws on malformed XML", () => {

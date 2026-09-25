@@ -216,6 +216,24 @@ export function notesByCanonical(doc: ScoreDoc): Map<string, ParsedNote[]> {
   return map;
 }
 
+/** Canonical note order — first occurrence wins, so the 2–3 MusicXML
+ *  fragments of one tied canonical note collapse to a single step while
+ *  chord members (distinct canonicalIds) keep their own entries. Rests
+ *  carry no canonicalId and stay out. This is the order ←/→ note
+ *  navigation walks (#368): without the dedupe, `indexOf` lands on the
+ *  first fragment forever and a tied note can never be stepped past. */
+export function canonicalNoteOrder(doc: ScoreDoc): string[] {
+  const order: string[] = [];
+  const seen = new Set<string>();
+  for (const note of doc.notes) {
+    if (note.canonicalId && !seen.has(note.canonicalId)) {
+      seen.add(note.canonicalId);
+      order.push(note.canonicalId);
+    }
+  }
+  return order;
+}
+
 /** export id → parsed note (includes rests, keyed by their hs-rest-* id). */
 export function notesByExportId(doc: ScoreDoc): Map<string, ParsedNote> {
   const map = new Map<string, ParsedNote>();

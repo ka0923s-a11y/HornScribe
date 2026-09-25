@@ -44,6 +44,7 @@ import {
 } from "./domScore";
 import { canonicalNoteIdFromMusicxml } from "./ids";
 import {
+  canonicalNoteOrder,
   describeNote,
   notesByCanonical,
   notesByExportId,
@@ -1205,9 +1206,10 @@ export function ScoreReadyWorkspace({
     (direction: 1 | -1) => {
       const docs = docsRef.current;
       if (!docs) return;
-      const canonicals = docs.concert.notes
-        .map((n) => n.canonicalId)
-        .filter((id): id is string => id != null);
+      // #368: canonical order, not fragment order — a tied note split
+      // across a barline emits several MusicXML notes under one
+      // canonicalId; walking raw fragments traps ←/→ on the first.
+      const canonicals = canonicalNoteOrder(docs.concert);
       if (canonicals.length === 0) return;
       const cur = selectionRef.current?.canonicalId ?? null;
       let next: string;
