@@ -99,6 +99,11 @@ export interface ImportEvents {
    *  transcription settings into 採譜オプション before the audio
    *  slot resets them to global defaults. */
   onProjectOpened?(project: ProjectSummary): void;
+  /** #367: a SOURCE_MISSING relink verified — audio reattached, the
+   *  live ScoreDocument kept. The summary's `sourcePath` is the new
+   *  verified location: the host updates its source ref and marks the
+   *  project dirty so the path change reaches the file on save. */
+  onProjectRelinked?(project: ProjectSummary): void;
 }
 
 type RecentStorage = Pick<Storage, "getItem" | "setItem"> | null;
@@ -482,7 +487,8 @@ export class ImportController {
         if (!this.isCurrent(gen)) return;
         if (probe) {
           if (probe.contentHash !== sm.project.sourceHash) {
-            this.enterSourceMissing(sm.project, true);
+            // #367: retry card only — the live score stays put.
+            this.enterSourceMissing(sm.project, true, false);
             return;
           }
           const format = audioFormatOf(ref.name) ?? "wav";
@@ -505,7 +511,8 @@ export class ImportController {
       const hash = await this.ports.sha256Hex(blob);
       if (!this.isCurrent(gen)) return;
       if (hash !== sm.project.sourceHash) {
-        this.enterSourceMissing(sm.project, true);
+        // #367: retry card only — the live score stays put.
+        this.enterSourceMissing(sm.project, true, false);
         return;
       }
       const decoded = await this.ports.decodeAudio(blob, ref.name);
@@ -530,7 +537,7 @@ export class ImportController {
       // Candidate unreadable or undecodable after a hash match — stay on
       // the missing-source card; the status line carries what happened
       // (the card itself already offers the retry action).
-      this.enterSourceMissing(sm.project, false);
+      this.enterSourceMissing(sm.project, false, false);
       this.events.announce(ja.import.errors.openFailedBody);
     }
   }
@@ -548,24 +555,30 @@ export class ImportController {
     this.touchRecent(project);
     // #264: relink resumes the same project — restore its saved
     // 採譜 settings before the audio slot resets options.
-    this.events.onProjectOpened?.(project);
+    /* #367: the relink attaches audio ONLY — re-firing
+     * onProjectScoreReady would rebuild the ScoreDocument from the
+     * file's saved extras and silently discard unsaved edits, review
+     * decisions and the undo stack. The live document already holds
+     * the restored score (enterSourceMissing fired it), so the
+     * verified new source path is the only project change here. */
+    const relinkedProject: ProjectSummary = {
+      ...project,
+      sourcePath:
+        audio.ref.kind === "path" ? audio.ref.path : project.sourcePath,
+    };
+    this.events.onProjectOpened?.(relinkedProject);
     this.events.onAudioReady(audio);
-    // #106: the project's saved score (already restored in the
-    // background) can now land — the relinked audio matches the
-    // recorded content hash.
-    if (project.scoreResult != null) {
-      this.events.onProjectScoreReady?.(project.scoreResult, {
-        projectId: project.projectId,
-        path: project.path,
-        sourceHash: project.sourceHash,
-        sourcePath: project.sourcePath,
-        recovered: project.recovered,
-      });
-      this.announceOpened(project);
-    } else {
-      // #391: the restore notice outranks the routine relink one.
-      this.announceOpened(project, ja.import.feedback.sourceRelinked);
+    // The recordings-prune index tracks the path the session actually
+    // uses now; the project file itself catches up on the next save
+    // (the relinked audio ref is what the save serializes).
+    if (project.path) {
+      this.ports.updateSourceRef?.(project.path, relinkedProject.sourcePath);
     }
+    // The host marks the source-path change dirty — a close without a
+    // save would otherwise land back on SOURCE_MISSING next launch.
+    this.events.onProjectRelinked?.(relinkedProject);
+    // #391: the restore notice outranks the routine relink one.
+    this.announceOpened(project, ja.import.feedback.sourceRelinked);
   }
 
   /** 閉じる on AUDIO_ERROR / SOURCE_MISSING → EMPTY; on a kept workspace
@@ -659,7 +672,14 @@ export class ImportController {
     }
   }
 
-  private enterSourceMissing(project: ProjectSummary, mismatch: boolean): void {
+  private enterSourceMissing(
+    project: ProjectSummary,
+    mismatch: boolean,
+    /* #367: a relink retry re-enters this state with the live
+     * ScoreDocument already on screen — re-firing the saved extras
+     * would clobber unsaved edits, so retries pass restoreScore=false. */
+    restoreScore = true,
+  ): void {
     this.setState({
       phase: "sourceMissing",
       openingLabel: null,
@@ -670,7 +690,7 @@ export class ImportController {
     });
     // #106: the score survives a missing/moved source — restore it
     // now; the audio can be relinked afterwards.
-    if (project.scoreResult != null) {
+    if (restoreScore && project.scoreResult != null) {
       this.events.onProjectScoreReady?.(project.scoreResult, {
         projectId: project.projectId,
         path: project.path,

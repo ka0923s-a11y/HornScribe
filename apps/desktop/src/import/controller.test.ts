@@ -64,6 +64,8 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
   const scoreProjectPaths: (string | undefined)[] = [];
   const scoreProjects: { path: string; recovered?: boolean }[] = [];
   const openedProjects: ProjectSummary[] = [];
+  const relinkedProjects: ProjectSummary[] = [];
+  const sourceRefUpdates: [string, string | null][] = [];
   const eventOrder: string[] = [];
   const store = new Map<string, Blob>();
 
@@ -85,6 +87,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
       eventOrder.push("projectOpened");
       openedProjects.push(p);
     },
+    onProjectRelinked: (p) => relinkedProjects.push(p),
   };
 
   const ports: ImportPorts = {
@@ -103,6 +106,9 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     sha256Hex: async (blob) => {
       const text = await blob.text();
       return `hash-${text}`;
+    },
+    updateSourceRef: (projectPath, sourcePath) => {
+      sourceRefUpdates.push([projectPath, sourcePath]);
     },
     ...portOverrides,
   };
@@ -126,6 +132,8 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
     scoreProjectPaths,
     scoreProjects,
     openedProjects,
+    relinkedProjects,
+    sourceRefUpdates,
     eventOrder,
   };
 }
@@ -727,6 +735,66 @@ describe("openProject — engine-routed project.open (#365)", () => {
     const s = h.controller.getState();
     expect(s.phase).toBe("sourceMissing");
     expect(s.sourceMissing?.mismatch).toBe(true);
+  });
+
+  it("SOURCE_MISSING → edit → relink: live score survives, new source path propagates (#367)", async () => {
+    const h = makeHarness();
+    // A score-bearing project whose source is gone — the saved extras
+    // restore the score once, on entry.
+    h.store.set(
+      entry.path,
+      projectJson({
+        score: { revision: "rev-0123456789abcdef" },
+        musicXmlConcert: "<score-partwise/>",
+        musicXmlHornF: "<score-partwise horn/>",
+      }),
+    );
+    await h.controller.openProject(entry);
+    expect(h.controller.getState().phase).toBe("sourceMissing");
+    expect(h.scoreResults).toHaveLength(1);
+
+    // The user edits the restored score, then relinks to the file at
+    // its new location (same content → hash verifies).
+    h.store.set("C:\\elsewhere\\etude.wav", new Blob(["etude"]));
+    await h.controller.relinkWith(pathRef("C:\\elsewhere\\etude.wav"));
+
+    expect(h.controller.getState().phase).toBe("ready");
+    // #367: audio reattached WITHOUT a second scoreResult event —
+    // re-firing used to rebuild the ScoreDocument from the file and
+    // silently discard the unsaved edits above.
+    expect(h.scoreResults).toHaveLength(1);
+    // The host gets the relink event carrying the verified new path.
+    expect(h.relinkedProjects).toHaveLength(1);
+    expect(h.relinkedProjects[0].sourcePath).toBe(
+      "C:\\elsewhere\\etude.wav",
+    );
+    // The recordings-prune index tracks the live path immediately.
+    expect(h.sourceRefUpdates.at(-1)).toEqual([
+      entry.path,
+      "C:\\elsewhere\\etude.wav",
+    ]);
+  });
+
+  it("a failed relink retry does not clobber the live score either (#367)", async () => {
+    const h = makeHarness();
+    h.store.set(
+      entry.path,
+      projectJson({
+        score: { revision: "rev-0123456789abcdef" },
+        musicXmlConcert: "x",
+        musicXmlHornF: "y",
+      }),
+    );
+    await h.controller.openProject(entry);
+    expect(h.scoreResults).toHaveLength(1);
+
+    // Wrong candidate → the retry card re-enters sourceMissing, which
+    // used to re-fire the saved score over the live document.
+    await h.controller.relinkWith(fileRef("nope.wav", "nope"));
+    expect(h.controller.getState().phase).toBe("sourceMissing");
+    expect(h.controller.getState().sourceMissing?.mismatch).toBe(true);
+    expect(h.scoreResults).toHaveLength(1);
+    expect(h.relinkedProjects).toHaveLength(0);
   });
 });
 

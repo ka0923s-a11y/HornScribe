@@ -635,6 +635,23 @@ export default function App() {
                   }
                 : null;
           },
+          onProjectRelinked: (project) => {
+            /* #367: the live ScoreDocument survived the relink — the
+             * only project change is the verified new source path.
+             * Update the recorded source ref and drop the clean
+             * baseline so the path change is a real unsaved edit:
+             * Ctrl+S writes it (the relinked audio ref is what the
+             * save serializes) and a close without saving now hits
+             * the 未保存 guard instead of landing back on
+             * SOURCE_MISSING next launch. */
+            if (project.sourcePath && project.sourceHash) {
+              projectSourceRef.current = {
+                originalPath: project.sourcePath,
+                contentHash: project.sourceHash,
+              };
+            }
+            savedEditVersionRef.current = null;
+          },
         },
         // Recent-project MRU persists in localStorage (web + webview).
         typeof window !== "undefined" ? window.localStorage : null,
