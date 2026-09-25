@@ -12,6 +12,7 @@ import {
   type ImportState,
 } from "./controller";
 import { AudioDecodeError, type DecodedAudio, type ImportPorts } from "./ports";
+import { ja } from "../strings/ja";
 import type { ScreenState } from "../workspace/screen";
 import type {
   AudioFileRef,
@@ -159,6 +160,10 @@ describe("importRefs — EMPTY → OPENING_AUDIO → AUDIO_READY", () => {
       fileRef("other.wav"),
     ]);
     expect(h.readyAudios[0]?.fileName).toBe("real.flac");
+    // #348: the single-file constraint is announced, not silent.
+    expect(h.announcements).toContain(
+      ja.import.feedback.multiFileNotice,
+    );
   });
 
   it("reads bytes through the port for kind:path refs", async () => {

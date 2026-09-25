@@ -132,6 +132,11 @@ export class ImportController {
    */
   async importRefs(refs: readonly AudioFileRef[]): Promise<void> {
     if (refs.length === 0) return;
+    // #348: single-document app — when several files arrive, say so
+    // instead of silently taking the first supported one.
+    if (refs.length > 1) {
+      this.events.announce(ja.import.feedback.multiFileNotice);
+    }
     // A dropped/picked .hornscribe.json is a project open, not an audio
     // import — the dialog's "all files" escape hatch can hand one over.
     const projRef = refs.find((r) => r.name.endsWith(".hornscribe.json"));

@@ -990,6 +990,10 @@ export const ja = {
     /** 状態表示へのアナウンス (notifications / aria-live feedback)。 */
     feedback: {
       loaded: (name: string) => `${name} を読み込みました`,
+      /* #348: single-document app — multi-file drops announce the
+       * constraint instead of silently taking the first file. */
+      multiFileNotice:
+        "一度に開けるのは1ファイルだけです。先頭のファイルを開きます",
       projectOpened: (name: string) => `${name} を開きました`,
       sourceRelinked: "元音源を関連付け直しました",
       transcribeCancelled: "採譜をキャンセルしました",
