@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Field, Input, mergeClasses } from "@fluentui/react-components";
 import { Dismiss16Regular } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
@@ -6,6 +6,7 @@ import { HsIconButton } from "./primitives/IconButton";
 import { HsButton } from "./primitives/Button";
 import { HsNumericField } from "./primitives/NumericField";
 import { HsSelect } from "./primitives/Select";
+import { HsTooltip } from "./primitives/Tooltip";
 import type { InspectorContent } from "../workspace/inspector";
 import { startPointerResize } from "../workspace/layout";
 import {
@@ -55,6 +56,8 @@ export function PropertiesPanel({
   onTempoChangeAt,
   onRemoveTempoChange,
   onMetadataChange,
+  noteActions,
+  noteEngineEdits = true,
 }: {
   content: InspectorContent;
   /** UI-030 feature inspector view-model (note/score/range bodies). */
@@ -111,6 +114,23 @@ export function PropertiesPanel({
     composer?: string;
     arranger?: string;
   }): void;
+  /** #379: note-edit commands for the inspector's editable note body —
+   *  the same score-workspace controller methods the keyboard
+   *  shortcuts run (single command surface; no duplicated logic). */
+  noteActions?: {
+    pitch(delta: number): void;
+    toggleEnharmonic(): void;
+    toggleDeleted(): void;
+    durationScale(power: number): void;
+    shiftOnset(steps: number): void;
+    toggleTie(): void;
+    split(): void;
+    merge(): void;
+    restToNote(): void;
+  };
+  /** #379: false when the document/engine cannot run rhythm edits —
+   *  the affected controls stay visible but self-explain via tooltip. */
+  noteEngineEdits?: boolean;
 }) {
   const body =
     model && model.kind !== "empty" ? model.kind : content.kind;
@@ -150,8 +170,10 @@ export function PropertiesPanel({
             onTempoChangeAt={onTempoChangeAt}
             onRemoveTempoChange={onRemoveTempoChange}
             onMetadataChange={onMetadataChange}
+            noteActions={noteActions}
+            noteEngineEdits={noteEngineEdits}
           />
-          ) : (
+        ) : (
             <p className="hs-properties__placeholder">
               {ja.properties.placeholder}
             </p>
@@ -201,6 +223,8 @@ function InspectorBody({
   onTempoChangeAt,
   onRemoveTempoChange,
   onMetadataChange,
+  noteActions,
+  noteEngineEdits = true,
 }: {
   model: InspectorModel;
   pitch: PitchView;
@@ -230,6 +254,18 @@ function InspectorBody({
     composer?: string;
     arranger?: string;
   }): void;
+  noteActions?: {
+    pitch(delta: number): void;
+    toggleEnharmonic(): void;
+    toggleDeleted(): void;
+    durationScale(power: number): void;
+    shiftOnset(steps: number): void;
+    toggleTie(): void;
+    split(): void;
+    merge(): void;
+    restToNote(): void;
+  };
+  noteEngineEdits?: boolean;
 }) {
   if (model.kind === "score") {
     return (
@@ -249,7 +285,16 @@ function InspectorBody({
       />
     );
   }
-  if (model.kind === "note") return <NoteBody model={model} pitch={pitch} />;
+  if (model.kind === "note") {
+    return (
+      <NoteBody
+        model={model}
+        pitch={pitch}
+        noteActions={noteActions}
+        engineEdits={noteEngineEdits}
+      />
+    );
+  }
   if (model.kind === "range") {
     const f = ja.inspector.fields;
     return (
@@ -1069,16 +1114,81 @@ function PickupField({
   );
 }
 
-/** §22 "Note selected" - pitch, onset, duration, review info. */
+/** #379: one labelled cluster of edit commands inside the note body. */
+function EditGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="hs-properties__editgroup">
+      <span className="hs-properties__editlabel">{label}</span>
+      <div className="hs-properties__editrow">{children}</div>
+    </div>
+  );
+}
+
+/** #379: a compact edit button that names itself fully on hover; an
+ *  engine-off control stays focusable so the tooltip can explain why
+ *  (acceptance: disabled理由を示す). */
+function EditButton({
+  tip,
+  off = false,
+  onClick,
+  children,
+}: {
+  tip: string;
+  off?: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
+  return (
+    <HsTooltip
+      content={off ? tip + " — " + ja.inspector.edit.engineOnly : tip}
+    >
+      <HsButton
+        size="small"
+        disabled={off}
+        disabledFocusable={off}
+        onClick={onClick}
+      >
+        {children}
+      </HsButton>
+    </HsTooltip>
+  );
+}
+
+/** §22 "Note selected" - pitch, onset, duration, review info. #379:
+ *  the same section also carries the note's edit commands so a mouse
+ *  user never travels to the global overflow for a simple fix. */
 function NoteBody({
   model,
   pitch,
+  noteActions,
+  engineEdits = true,
 }: {
   model: NoteInspectorModel;
   pitch: PitchView;
+  noteActions?: {
+    pitch(delta: number): void;
+    toggleEnharmonic(): void;
+    toggleDeleted(): void;
+    durationScale(power: number): void;
+    shiftOnset(steps: number): void;
+    toggleTie(): void;
+    split(): void;
+    merge(): void;
+    restToNote(): void;
+  };
+  engineEdits?: boolean;
 }) {
   const f = ja.inspector.fields;
+  const e = ja.inspector.edit;
+  const c = ja.commands;
   const { primary, secondary } = headlinePitch(model, pitch);
+  const isRest = model.canonicalId === null;
   return (
     <>
       <h3 className="hs-properties__section">{ja.inspector.noteSection}</h3>
@@ -1097,6 +1207,109 @@ function NoteBody({
             diagnostics but is never shown — internal identity is not
             performer-facing information (GUI_UX_SPEC §1). */}
       </dl>
+      {noteActions && (
+        <>
+          <h3 className="hs-properties__section">{e.section}</h3>
+          {isRest ? (
+            <div className="hs-properties__editrow">
+              <EditButton
+                tip={c.restToNote}
+                off={!engineEdits}
+                onClick={noteActions.restToNote}
+              >
+                {e.restToNote}
+              </EditButton>
+            </div>
+          ) : (
+            <>
+              <EditGroup label={f.pitch}>
+                <EditButton
+                  tip={c.notePitchDown}
+                  onClick={() => noteActions.pitch(-1)}
+                >
+                  {e.pitchDown}
+                </EditButton>
+                <EditButton
+                  tip={c.notePitchUp}
+                  onClick={() => noteActions.pitch(1)}
+                >
+                  {e.pitchUp}
+                </EditButton>
+                <EditButton
+                  tip={c.noteEnharmonic}
+                  onClick={noteActions.toggleEnharmonic}
+                >
+                  {e.enharmonic}
+                </EditButton>
+              </EditGroup>
+              <EditGroup label={f.duration}>
+                <EditButton
+                  tip={c.noteShorter}
+                  off={!engineEdits}
+                  onClick={() => noteActions.durationScale(-1)}
+                >
+                  {e.shorter}
+                </EditButton>
+                <EditButton
+                  tip={c.noteLonger}
+                  off={!engineEdits}
+                  onClick={() => noteActions.durationScale(1)}
+                >
+                  {e.longer}
+                </EditButton>
+              </EditGroup>
+              <EditGroup label={f.onset}>
+                <EditButton
+                  tip={c.noteShiftLeft}
+                  off={!engineEdits}
+                  onClick={() => noteActions.shiftOnset(-1)}
+                >
+                  {e.onsetLeft}
+                </EditButton>
+                <EditButton
+                  tip={c.noteShiftRight}
+                  off={!engineEdits}
+                  onClick={() => noteActions.shiftOnset(1)}
+                >
+                  {e.onsetRight}
+                </EditButton>
+              </EditGroup>
+              <EditGroup label={e.groupOther}>
+                <EditButton
+                  tip={c.noteToggleTie}
+                  off={!engineEdits}
+                  onClick={noteActions.toggleTie}
+                >
+                  {e.tie}
+                </EditButton>
+                <EditButton
+                  tip={c.noteSplit}
+                  off={!engineEdits}
+                  onClick={noteActions.split}
+                >
+                  {e.split}
+                </EditButton>
+                <EditButton
+                  tip={c.noteMerge}
+                  off={!engineEdits}
+                  onClick={noteActions.merge}
+                >
+                  {e.merge}
+                </EditButton>
+                <EditButton
+                  tip={c.noteToggleDeleted}
+                  onClick={noteActions.toggleDeleted}
+                >
+                  {e.deleteOrRestore}
+                </EditButton>
+              </EditGroup>
+              {!engineEdits && (
+                <p className="hs-properties__edithint">{e.engineOnlyHint}</p>
+              )}
+            </>
+          )}
+        </>
+      )}
       {model.issues.length > 0 && (
         <>
           <h3 className="hs-properties__section">{ja.inspector.issuesSection}</h3>

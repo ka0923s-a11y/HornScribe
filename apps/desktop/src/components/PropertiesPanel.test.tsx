@@ -12,7 +12,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PropertiesPanel } from "./PropertiesPanel";
-import type { ScoreInspectorModel } from "../score/inspector";
+import type {
+  NoteInspectorModel,
+  ScoreInspectorModel,
+} from "../score/inspector";
 import { installJsdomStubs } from "../quality/testEnv";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -256,5 +259,108 @@ describe("PickupField (mounted)", () => {
       .map((el) => el.textContent);
     expect(rows).toContain("弱起");
     expect(rows).toContain("弱起1拍");
+  });
+});
+
+/* #379: the note body is an editable inspector — the buttons run the
+ *  same score-workspace commands as the keyboard shortcuts. */
+const NOTE_MODEL: NoteInspectorModel = {
+  kind: "note",
+  canonicalId: "sn-000001",
+  measure: 1,
+  concertPitch: "C4",
+  writtenPitch: "G3",
+  durationLabel: "四分音符",
+  onsetLabel: "第1小節",
+  tieLabel: null,
+  issues: [],
+};
+
+function noteActionSpies() {
+  return {
+    pitch: vi.fn(),
+    toggleEnharmonic: vi.fn(),
+    toggleDeleted: vi.fn(),
+    durationScale: vi.fn(),
+    shiftOnset: vi.fn(),
+    toggleTie: vi.fn(),
+    split: vi.fn(),
+    merge: vi.fn(),
+    restToNote: vi.fn(),
+  };
+}
+
+function editButton(label: string): HTMLButtonElement {
+  return [...host!.querySelectorAll("button")].find(
+    (b) => b.textContent === label,
+  )!;
+}
+
+describe("NoteBody edit controls (#379)", () => {
+  it("renders labelled edit groups that invoke the shared commands", () => {
+    const noteActions = noteActionSpies();
+    mount({ model: NOTE_MODEL, noteActions });
+    const labels = [
+      ...host!.querySelectorAll(".hs-properties__editlabel"),
+    ].map((el) => el.textContent);
+    expect(labels).toEqual(["音高", "音の長さ", "開始位置", "操作"]);
+
+    act(() => editButton("＋半音").click());
+    expect(noteActions.pitch).toHaveBeenCalledWith(1);
+    act(() => editButton("−半音").click());
+    expect(noteActions.pitch).toHaveBeenCalledWith(-1);
+    act(() => editButton("異名同音").click());
+    expect(noteActions.toggleEnharmonic).toHaveBeenCalled();
+    act(() => editButton("短く").click());
+    expect(noteActions.durationScale).toHaveBeenCalledWith(-1);
+    act(() => editButton("長く").click());
+    expect(noteActions.durationScale).toHaveBeenCalledWith(1);
+    act(() => editButton("前へ").click());
+    expect(noteActions.shiftOnset).toHaveBeenCalledWith(-1);
+    act(() => editButton("後へ").click());
+    expect(noteActions.shiftOnset).toHaveBeenCalledWith(1);
+    act(() => editButton("タイ").click());
+    expect(noteActions.toggleTie).toHaveBeenCalled();
+    act(() => editButton("分割").click());
+    expect(noteActions.split).toHaveBeenCalled();
+    act(() => editButton("結合").click());
+    expect(noteActions.merge).toHaveBeenCalled();
+    act(() => editButton("削除 / 復元").click());
+    expect(noteActions.toggleDeleted).toHaveBeenCalled();
+  });
+
+  it("engine-off edits stay visible, disabled, and self-explaining", () => {
+    mount({
+      model: NOTE_MODEL,
+      noteActions: noteActionSpies(),
+      noteEngineEdits: false,
+    });
+    // Engine edits (duration/onset/tie/split/merge) are aria-disabled
+    // but keep hover/focus so the tooltip can say why.
+    for (const label of ["短く", "長く", "前へ", "後へ", "タイ", "分割", "結合"]) {
+      const b = editButton(label);
+      expect(b.getAttribute("aria-disabled")).toBe("true");
+    }
+    // Overlay edits (pitch/enharmonic/delete) work on any document.
+    for (const label of ["−半音", "＋半音", "異名同音", "削除 / 復元"]) {
+      const b = editButton(label);
+      expect(b.getAttribute("aria-disabled")).not.toBe("true");
+      expect(b.disabled).toBe(false);
+    }
+    expect(host!.textContent).toContain(
+      "採譜エンジン接続時に利用できます",
+    );
+  });
+
+  it("a rest selection offers only the convert action", () => {
+    const noteActions = noteActionSpies();
+    mount({
+      model: { ...NOTE_MODEL, canonicalId: null },
+      noteActions,
+    });
+    expect(editButton("音符に変換")).toBeTruthy();
+    expect(editButton("＋半音")).toBeUndefined();
+    act(() => editButton("音符に変換").click());
+    expect(noteActions.restToNote).toHaveBeenCalled();
   });
 });

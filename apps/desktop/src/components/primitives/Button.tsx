@@ -43,6 +43,10 @@ export interface HsButtonProps {
   /** Spinner + disabled + aria-busy while keeping the label. */
   loading?: boolean;
   disabled?: boolean;
+  /** #379: keep the disabled control focusable + hoverable so a
+   *  wrapping Tooltip can still explain WHY it is off (Fluent
+   *  disabledFocusable — aria-disabled, clicks suppressed). */
+  disabledFocusable?: boolean;
   size?: "small" | "medium" | "large";
   type?: "button" | "submit";
   onClick?: () => void;
@@ -59,6 +63,7 @@ export const HsButton = forwardRef<HTMLButtonElement, HsButtonProps>(
       icon,
       loading = false,
       disabled = false,
+      disabledFocusable = false,
       size = "medium",
       type = "button",
       onClick,
@@ -85,7 +90,8 @@ export const HsButton = forwardRef<HTMLButtonElement, HsButtonProps>(
           className,
         )}
         icon={loading ? <Spinner size="tiny" /> : icon}
-        disabled={disabled || loading}
+        disabled={(disabled || loading) && !disabledFocusable}
+        disabledFocusable={(disabled || loading) && disabledFocusable}
         aria-busy={loading || undefined}
         aria-label={
           ariaLabel ??

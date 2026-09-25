@@ -1274,6 +1274,28 @@ export const ja = {
       tie: "タイ",
       confidence: "モデル確信度",
     },
+    /* #379: the note body is an editable inspector — the compact
+     *  buttons call the same score-workspace commands as the keyboard
+     *  shortcuts, so mouse and keyboard stay equivalent (GUI §13). */
+    edit: {
+      section: "編集",
+      pitchDown: "−半音",
+      pitchUp: "＋半音",
+      enharmonic: "異名同音",
+      shorter: "短く",
+      longer: "長く",
+      onsetLeft: "前へ",
+      onsetRight: "後へ",
+      tie: "タイ",
+      split: "分割",
+      merge: "結合",
+      deleteOrRestore: "削除 / 復元",
+      restToNote: "音符に変換",
+      groupOther: "操作",
+      engineOnly: "採譜エンジン接続時に利用できます",
+      engineOnlyHint:
+        "音価・位置・タイなどの編集は採譜エンジン接続時に利用できます",
+    },
     summaryFields: {
       title: "タイトル",
       composer: "作曲者",

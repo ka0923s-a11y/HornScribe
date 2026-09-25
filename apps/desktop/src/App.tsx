@@ -2436,6 +2436,31 @@ export default function App() {
                     onMetadataChange={(md) =>
                       scoreCtlRef.current?.setMetadata?.(md)
                     }
+                    /* #379: the inspector's note body is editable —
+                     *  every button runs the same controller method the
+                     *  keyboard shortcut does, so both paths share one
+                     *  command surface and undo stack. */
+                    noteActions={{
+                      pitch: (d) =>
+                        scoreCtlRef.current?.editSelectedPitch?.(d),
+                      toggleEnharmonic: () =>
+                        scoreCtlRef.current?.toggleSelectedEnharmonic?.(),
+                      toggleDeleted: () =>
+                        scoreCtlRef.current?.toggleSelectedDeleted?.(),
+                      durationScale: (p) =>
+                        scoreCtlRef.current?.noteDurationScale?.(p),
+                      shiftOnset: (s) =>
+                        scoreCtlRef.current?.shiftSelectedOnset?.(s),
+                      toggleTie: () =>
+                        scoreCtlRef.current?.toggleSelectedTie?.(),
+                      split: () =>
+                        scoreCtlRef.current?.splitSelectedNote?.(),
+                      merge: () =>
+                        scoreCtlRef.current?.mergeSelectedNotes?.(),
+                      restToNote: () =>
+                        scoreCtlRef.current?.convertSelectedRest?.(),
+                    }}
+                    noteEngineEdits={scoreDocument?.replaceContent != null}
                   />
                 ) : null}
               </div>

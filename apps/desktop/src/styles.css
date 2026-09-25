@@ -1631,6 +1631,30 @@ body {
   color: var(--hs-text-muted);
   font-size: var(--hs-font-size-caption);
 }
+/* #379: note-edit controls inside the inspector — labelled clusters
+ *  of compact buttons, same grid rhythm as the read-only rows so the
+ *  section scans as one surface. */
+.hs-properties__editgroup {
+  display: grid;
+  grid-template-columns: minmax(5.5em, auto) 1fr;
+  gap: var(--hs-space-xs) var(--hs-space-sm);
+  align-items: center;
+  margin-top: var(--hs-space-xs);
+}
+.hs-properties__editlabel {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-compact);
+}
+.hs-properties__editrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-xs);
+}
+.hs-properties__edithint {
+  margin: var(--hs-space-xs) 0 0;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-caption);
+}
 
 /* #145: key-change map editor — one row per boundary plus the add row. */
 .hs-properties__keymap {
