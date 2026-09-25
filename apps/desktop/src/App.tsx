@@ -113,6 +113,7 @@ import {
 import { stageAudioForEngine } from "./import/staging";
 import { formatTimecode } from "./import/format";
 import { requestRetranscription } from "./import/retranscribe";
+import { dirtyFingerprint } from "./score/dirtyFingerprint";
 import { HsButton } from "./components/primitives/Button";
 import { HsDialog } from "./components/primitives/Dialog";
 import {
@@ -321,12 +322,13 @@ export default function App() {
     contentHash: string;
   } | null>(null);
   /* #221: project lifecycle — the file this score saves back to, plus
-   *  the editVersion baseline of the last clean state (open or save).
-   *  dirty = scoreDocument.editVersion !== savedEditVersionRef.current;
-   *  a 500 ms poll mirrors it into state because editVersion is a plain
-   *  counter on the document port, not a reactive store. */
+   *  the CONTENT fingerprint of the last clean state (open or save).
+   *  #338: dirty = dirtyFingerprint(live) !== savedFingerprint — undoing
+   *  every edit back to the saved state compares equal again, where a
+   *  monotonic editVersion baseline never could. A 500 ms poll mirrors
+   *  the flag because the document port is not a reactive store. */
   const [projectPath, setProjectPath] = useState<string | null>(null);
-  const savedEditVersionRef = useRef<number | null>(null);
+  const savedFingerprintRef = useRef<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const dirtyRef = useRef(false);
   /** A queued destructive navigation held behind the 未保存 guard —
@@ -390,10 +392,10 @@ export default function App() {
       const doc = engineDoc ?? createFixtureScoreDocument(handoff);
       setScoreDocument(doc);
       /* #221: a fresh transcription has no clean baseline — the score
-       * is dirty until saved. projectPath survives on purpose: a
+      * is dirty until saved. projectPath survives on purpose: a
        * re-transcription of the same project still saves back to the
        * same file (the projectId is kept for the same reason). */
-      savedEditVersionRef.current = null;
+      savedFingerprintRef.current = null;
       // #240: the completed result is this score's provenance —
       // kept across later job starts so a failed/cancelled
       // re-transcription never loses the transcription record.
@@ -561,7 +563,7 @@ export default function App() {
               // project identity dies with it so the next save picks
               // a fresh path instead of overwriting project A's file.
               setProjectPath(null);
-              savedEditVersionRef.current = null;
+              savedFingerprintRef.current = null;
             }
           },
           onProjectScoreReady: (result, project) => {
@@ -605,7 +607,7 @@ export default function App() {
              * saved) and stays dirty until the first real save. */
             if (pendingRecoveryPathRef.current !== undefined) {
               setProjectPath(pendingRecoveryPathRef.current);
-              savedEditVersionRef.current = null;
+              savedFingerprintRef.current = null;
               pendingRecoveryPathRef.current = undefined;
             } else {
               setProjectPath(project.path || null);
@@ -614,9 +616,18 @@ export default function App() {
                * recovered document back over the unreadable main
                * file (project.save then snapshots the broken file as
                * the next .recovery). */
-              savedEditVersionRef.current = project.recovered
+              savedFingerprintRef.current = project.recovered
                 ? null
-                : doc.editVersion;
+                : dirtyFingerprint({
+                    doc,
+                    projectId: projectIdRef.current,
+                    /* The just-opened baseline: the RECORDED source is
+                     * authoritative — the live audio slot may still
+                     * hold the previous project's ref while this
+                     * project's own source loads. */
+                    audio: null,
+                    priorSource: projectSourceRef.current,
+                  });
             }
             setScreen("scoreReady");
           },
@@ -639,19 +650,16 @@ export default function App() {
           onProjectRelinked: (project) => {
             /* #367: the live ScoreDocument survived the relink — the
              * only project change is the verified new source path.
-             * Update the recorded source ref and drop the clean
-             * baseline so the path change is a real unsaved edit:
-             * Ctrl+S writes it (the relinked audio ref is what the
-             * save serializes) and a close without saving now hits
-             * the 未保存 guard instead of landing back on
-             * SOURCE_MISSING next launch. */
+             * Update the recorded source ref — the path change shows
+             * up inside the live dirty fingerprint, so Ctrl+S writes
+             * it and a close without saving hits the 未保存 guard
+             * instead of landing back on SOURCE_MISSING next launch. */
             if (project.sourcePath && project.sourceHash) {
               projectSourceRef.current = {
                 originalPath: project.sourcePath,
                 contentHash: project.sourceHash,
               };
             }
-            savedEditVersionRef.current = null;
           },
         },
         // Recent-project MRU persists in localStorage (web + webview).
@@ -711,24 +719,35 @@ export default function App() {
     };
   }, []);
 
-  /* #221: dirty tracking — the document port bumps editVersion on every
-   * edit/decision but is not a reactive store, so a slow poll mirrors
-   * the flag. Conservative on purpose: undoing back to the saved state
-   * still reads dirty (baseline is a version, not a hash). */
+  /* #221/#338: dirty tracking — compare the live content fingerprint
+   * to the saved baseline. Undoing back to the saved state compares
+   * equal again → the `*` and the 未保存 guard release honestly. */
   useEffect(() => {
     const tick = () => {
       const doc = scoreDocument;
       const dirty =
         doc != null &&
         isSaveableRevision(doc.revisionId) &&
-        doc.editVersion !== savedEditVersionRef.current;
+        dirtyFingerprint({
+          doc,
+          projectId: projectIdRef.current,
+          audio: importState.audio,
+          priorSource: projectSourceRef.current,
+        }) !== savedFingerprintRef.current;
+      const was = dirtyRef.current;
       dirtyRef.current = dirty;
       setIsDirty(dirty);
+      if (was && !dirty && isTauriRuntime()) {
+        // #338: content is back to the saved baseline — any autosave
+        // recovery snapshot is redundant now, so drop it the same
+        // way a successful save does.
+        void invoke("project_autosave_clear").catch(() => undefined);
+      }
     };
     tick();
     const id = window.setInterval(tick, 500);
     return () => window.clearInterval(id);
-  }, [scoreDocument]);
+  }, [scoreDocument, importState.audio]);
 
   /** #221: run a destructive navigation now, or hold it behind the
    *  未保存 guard when the score has unsaved changes. */
@@ -1095,8 +1114,15 @@ export default function App() {
       }
       /* The serialized snapshot is exactly this editVersion — pinning
        * the clean baseline to it keeps edits made during the async
-       * write dirty instead of silently treating them as saved. */
-      const savedVersion = doc.editVersion;
+       * write dirty instead of silently treating them as saved. #338:
+       * the baseline is now a content fingerprint — captured at the
+       * same point so the semantics are identical, just undo-aware. */
+      const savedFp = dirtyFingerprint({
+        doc,
+        projectId: projectIdRef.current,
+        audio: importState.audio,
+        priorSource: projectSourceRef.current,
+      });
       const fileName = importState.audio?.fileName ?? "score";
       const suggested = fileName.replace(/\.[^.]*$/, "") || "score";
       const path =
@@ -1125,7 +1151,7 @@ export default function App() {
       // #221: the written path is the save target and this version is
       // the clean baseline; the recovery snapshot is now redundant.
       setProjectPath(res.path);
-      savedEditVersionRef.current = savedVersion;
+      savedFingerprintRef.current = savedFp;
       void invoke("project_autosave_clear").catch(() => undefined);
       setStatusMessage(ja.notifications.projectSaved);
       return true;
