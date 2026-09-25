@@ -134,6 +134,7 @@ import {
   type InspectorContent,
 } from "./workspace/inspector";
 import { useWorkspaceLayout } from "./workspace/layout";
+import { useProjectAutosave } from "./workspace/useProjectAutosave";
 import { initWindowGeometryPersistence } from "./workspace/windowGeometry";
 
 type View = "workspace" | "settings";
@@ -759,37 +760,28 @@ export default function App() {
   }, []);
 
   /* #221: autosave — while dirty, a 3 s debounce writes the schema-v1
-   * document to the appData recovery file. editVersion is the change
-   * key: repeated ticks with no new edit skip the serialize+write. */
-  const autosavedVersionRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!isDirty || !scoreDocument || !isTauriRuntime()) return;
-    const id = window.setInterval(() => {
+   * document to the appData recovery file. #408: failures are no
+   * longer silent — the hook reports them and the statusbar keeps a
+   * persistent warning up until a write lands or the score is clean. */
+  const autosaveFailed = useProjectAutosave({
+    enabled: isTauriRuntime(),
+    dirty: isDirty,
+    version: scoreDocument?.editVersion ?? null,
+    snapshot: async () => {
       const doc = scoreDocument;
-      if (doc.editVersion === autosavedVersionRef.current) return;
-      const version = doc.editVersion;
-      void (async () => {
-        try {
-          const project = await buildProjectDocument({
-            audio: importState.audio,
-            doc,
-            result: scoreProvenance,
-            projectId: projectIdRef.current,
-            priorSourceAudio: projectSourceRef.current,
-          });
-          if (!project) return;
-          await invoke("project_autosave_write", {
-            contents: JSON.stringify(project),
-            projectPath,
-          });
-          autosavedVersionRef.current = version;
-        } catch {
-          /* best-effort: a failed autosave never blocks editing */
-        }
-      })();
-    }, 3000);
-    return () => window.clearInterval(id);
-  }, [isDirty, scoreDocument, importState.audio, scoreProvenance, projectPath]);
+      if (!doc) return null;
+      const project = await buildProjectDocument({
+        audio: importState.audio,
+        doc,
+        result: scoreProvenance,
+        projectId: projectIdRef.current,
+        priorSourceAudio: projectSourceRef.current,
+      });
+      return project ? JSON.stringify(project) : null;
+    },
+    write: (contents) =>
+      invoke<void>("project_autosave_write", { contents, projectPath }),
+  });
 
   // FEAT-001: the capture controller pushes recorded audio straight into
   // the import flow — a finished take lands as AUDIO_READY exactly like a
@@ -2336,6 +2328,7 @@ export default function App() {
             detail={shellDetail}
             engineStatus={engineStatusText(sessionSnap.engine)}
             unsaved={isDirty}
+            autosaveFailed={autosaveFailed}
           />
           {/* Re-import failure over a live workspace (§20): the audio session
               is kept, the failure surfaces as a dialog — never a dead end. */}

@@ -913,6 +913,15 @@ body {
   color: var(--hs-status-warning);
   background: var(--hs-status-warning-subtle);
 }
+/* #408: 自動保存失敗バッジ — error色(未保存warningより強い持続警告)。 */
+.hs-statusbar__autosave-failed {
+  flex: 0 0 auto;
+  padding: 1px var(--hs-space-xs);
+  border-radius: 3px;
+  font-size: var(--hs-font-size-caption);
+  color: var(--hs-status-error);
+  background: var(--hs-status-error-subtle);
+}
 
 /* #318: ショートカット一覧ヘルプ — セクション別の2列リスト。 */
 .hs-shortcuts {

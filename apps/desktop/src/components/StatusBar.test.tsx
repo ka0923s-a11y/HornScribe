@@ -41,3 +41,28 @@ describe("StatusBar unsaved badge (#300)", () => {
     expect(host!.querySelector(".hs-statusbar__unsaved")).toBeNull();
   });
 });
+
+describe("StatusBar autosave-failed warning (#408)", () => {
+  async function mountFlag(failed: boolean): Promise<void> {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(<StatusBar message="m" autosaveFailed={failed} />);
+    });
+  }
+
+  it("shows the persistent warning while the recovery write is broken", async () => {
+    await mountFlag(true);
+    const chip = host!.querySelector(".hs-statusbar__autosave-failed");
+    expect(chip?.textContent).toBe(ja.project.autosaveFailedBadge);
+    expect(chip?.getAttribute("title")).toBe(ja.project.autosaveFailedHint);
+  });
+
+  it("is absent while autosave is healthy", async () => {
+    await mountFlag(false);
+    expect(
+      host!.querySelector(".hs-statusbar__autosave-failed"),
+    ).toBeNull();
+  });
+});

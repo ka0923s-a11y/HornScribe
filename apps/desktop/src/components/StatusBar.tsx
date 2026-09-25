@@ -9,6 +9,7 @@ export function StatusBar({
   detail,
   engineStatus,
   unsaved,
+  autosaveFailed,
 }: {
   message: string;
   detail?: string;
@@ -18,6 +19,10 @@ export function StatusBar({
   /** #300: 未保存の変更インジケータ — TitleBar の * だけでは
    *  気づかれにくいので、常時表示のステータスバーにも出す。 */
   unsaved?: boolean;
+  /** #408: persistent warning while the autosave safety net is broken.
+   *  Non-modal (editing continues) but it stays up until a recovery
+   *  write lands or the work is saved another way. */
+  autosaveFailed?: boolean;
 }) {
   return (
     <div
@@ -31,6 +36,14 @@ export function StatusBar({
       {unsaved ? (
         <span className="hs-statusbar__unsaved">
           {ja.project.unsavedBadge}
+        </span>
+      ) : null}
+      {autosaveFailed ? (
+        <span
+          className="hs-statusbar__autosave-failed"
+          title={ja.project.autosaveFailedHint}
+        >
+          {ja.project.autosaveFailedBadge}
         </span>
       ) : null}
       <span className="hs-statusbar__spacer" />

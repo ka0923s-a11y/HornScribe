@@ -1700,6 +1700,11 @@ export const ja = {
     closeDiscardAll: "すべて破棄して終了",
     /** #300: ステータスバーの未保存バッジ。 */
     unsavedBadge: "未保存の変更",
+    /* #408: 自動保存の安全網が切れている間の持続warning —
+       バッジで存在を示し、title属性に次の行動を書く。raw例外は出さない。 */
+    autosaveFailedBadge: "自動保存できません",
+    autosaveFailedHint:
+      "直前の自動保存に失敗しました。Ctrl+Sでプロジェクトを保存してください。",
     /** クラッシュ/強制終了で残った自動保存の復元確認。 */
     autosaveTitle: "自動保存された作業があります",
     autosaveBody: (when: string) =>
