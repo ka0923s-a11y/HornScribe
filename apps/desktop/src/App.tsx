@@ -114,6 +114,7 @@ import { stageAudioForEngine } from "./import/staging";
 import { formatTimecode } from "./import/format";
 import { requestRetranscription } from "./import/retranscribe";
 import { dirtyFingerprint } from "./score/dirtyFingerprint";
+import { closeGuardKind, type PendingCloseKind } from "./workspace/closeGuard";
 import { HsButton } from "./components/primitives/Button";
 import { HsDialog } from "./components/primitives/Dialog";
 import {
@@ -338,7 +339,7 @@ export default function App() {
   /** #301: the OS close request is pending behind the 未保存 guard —
    *  "dirty" when edits are unsaved, "recording" mid-capture. */
   const [pendingClose, setPendingClose] = useState<
-    "dirty" | "recording" | null
+    PendingCloseKind | null
   >(null);
   /** Launch-time autosave recovery: null = no prompt; the info arms the
    *  復元しますか dialog. checked gates the MRU restore so a pending
@@ -876,18 +877,24 @@ export default function App() {
   const recordingActive = captureState?.phase === "recording";
   const recordingActiveRef = useRef(false);
   recordingActiveRef.current = recordingActive;
+  // #400: a running transcription is close-guard worthy too — a
+  // long inference dies with the window and takes its compute time
+  // with it. screen is the job-active signal the guard reads.
+  const transcribingActiveRef = useRef(false);
+  transcribingActiveRef.current = screen === "transcribing";
   useEffect(() => {
     // #301: inside Tauri the window close path is onCloseRequested
     // (below) — beforeunload is unreliable there, so it stays the
     // browser-dev fallback only.
     if (isTauriRuntime()) return;
-    if (!recordingActive && !isDirty) return;
+    const transcribingActive = screen === "transcribing";
+    if (!recordingActive && !isDirty && !transcribingActive) return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [recordingActive, isDirty]);
+  }, [recordingActive, isDirty, screen]);
 
   /* #301: the OS close request is the reliable guard inside Tauri —
    * beforeunload does not always fire on the window close button.
@@ -900,12 +907,14 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     void getCurrentWindow()
       .onCloseRequested((event) => {
-        if (dirtyRef.current) {
+        const kind = closeGuardKind({
+          dirty: dirtyRef.current,
+          recording: recordingActiveRef.current,
+          transcribing: transcribingActiveRef.current,
+        });
+        if (kind) {
           event.preventDefault();
-          setPendingClose("dirty");
-        } else if (recordingActiveRef.current) {
-          event.preventDefault();
-          setPendingClose("recording");
+          setPendingClose(kind);
         }
       })
       .then((u) => {
@@ -1196,6 +1205,15 @@ export default function App() {
       if (saved) void getCurrentWindow().destroy().catch(() => undefined);
     });
   }, [saveProjectFlow]);
+  /* #400: 採譲を中止して終了 — cooperative cancel first (the worker
+   * gets a real job.cancel, not just a killed sidecar), then destroy.
+   * destroy() bypasses onCloseRequested so the confirmed exit never
+   * re-arms this guard. */
+  const confirmCloseAbortJob = useCallback(() => {
+    setPendingClose(null);
+    void session.cancelTranscription().catch(() => undefined);
+    void getCurrentWindow().destroy().catch(() => undefined);
+  }, [session]);
 
   /* #221: autosave recovery — open the snapshot through the normal
    * project path (entry.path stays "" so it never lands in the MRU),
@@ -2350,6 +2368,9 @@ export default function App() {
             title={
               pendingClose === "recording"
                 ? ja.project.closeRecordingTitle
+                : pendingClose === "transcribing" ||
+                    pendingClose === "dirtyTranscribing"
+                  ? ja.project.closeTranscribingTitle
                 : ja.project.unsavedTitle
             }
             onOpenChange={(open) => {
@@ -2371,6 +2392,33 @@ export default function App() {
                     {ja.project.unsavedCancel}
                   </HsButton>
                 </>
+              ) : pendingClose === "transcribing" ? (
+                <>
+                  <HsButton variant="danger" onClick={confirmCloseAbortJob}>
+                    {ja.project.closeTranscribingAbort}
+                  </HsButton>
+                  <HsButton
+                    variant="secondary"
+                    onClick={() => setPendingClose(null)}
+                  >
+                    {ja.project.closeBack}
+                  </HsButton>
+                </>
+              ) : pendingClose === "dirtyTranscribing" ? (
+                <>
+                  <HsButton variant="primary" onClick={confirmCloseSave}>
+                    {ja.project.unsavedSaveAndClose}
+                  </HsButton>
+                  <HsButton variant="danger" onClick={confirmCloseAbortJob}>
+                    {ja.project.closeTranscribingAbort}
+                  </HsButton>
+                  <HsButton
+                    variant="secondary"
+                    onClick={() => setPendingClose(null)}
+                  >
+                    {ja.project.closeBack}
+                  </HsButton>
+                </>
               ) : (
                 <>
                   <HsButton variant="danger" onClick={confirmCloseDiscard}>
@@ -2389,6 +2437,10 @@ export default function App() {
             <p style={{ margin: 0 }}>
               {pendingClose === "recording"
                 ? ja.project.closeRecordingBody
+                : pendingClose === "transcribing"
+                  ? ja.project.closeTranscribingBody
+                  : pendingClose === "dirtyTranscribing"
+                    ? ja.project.closeTranscribingDirtyBody
                 : ja.project.unsavedCloseBody}
             </p>
           </HsDialog>

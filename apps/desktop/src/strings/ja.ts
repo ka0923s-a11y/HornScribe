@@ -1674,6 +1674,14 @@ export const ja = {
       "録音中です。このまま閉じると録音は失われます。",
     closeRecordingTitle: "録音を止めて閉じますか?",
     closeAnyway: "閉じる",
+    /* #400: 採譲中の終了確認 — dirty との複合は専用コピー。 */
+    closeTranscribingTitle: "採譲を中止して終了しますか?",
+    closeTranscribingBody:
+      "採譲処理はまだ完了していません。終了すると採譲は中止されます。保存済みのプロジェクトと楽譜は保持されます。",
+    closeTranscribingDirtyBody:
+      "採譲処理はまだ完了していません。終了すると採譲は中止され、未保存の変更も失われます。保存して終了することもできます。",
+    closeTranscribingAbort: "採譲を中止して終了",
+    closeBack: "戻る",
     /** #300: ステータスバーの未保存バッジ。 */
     unsavedBadge: "未保存の変更",
     /** クラッシュ/強制終了で残った自動保存の復元確認。 */
