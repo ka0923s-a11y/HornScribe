@@ -1501,7 +1501,9 @@ export const ja = {
       concertPdf: "コンサートピッチ PDF",
       hornPdf: "F管ホルン PDF",
       playbackMidi: "再生用MIDI（実音）",
-      sourceAudio: "元の音声ファイル",
+      // #357: framed as an extra copy, not another score format —
+      // the opt-in nature is part of the label.
+      sourceAudio: "参照用に元の音声もコピーする",
     },
     destination: "保存先",
     chooseDestination: "保存先を選ぶ",

@@ -94,8 +94,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   recordingsRetentionDays: 0,
   // #377: the first-run default is every format on; the dialog then
   // persists whatever the user last picked.
+  // #357: source audio stays opt-in — a normal score export must
+  // not silently bundle a potentially-huge copyrighted binary.
   exportFormats: Object.fromEntries(
-    EXPORT_FORMAT_IDS.map((id) => [id, true]),
+    EXPORT_FORMAT_IDS.map((id) => [id, id !== "sourceAudio"]),
   ) as Record<ExportFormatId, boolean>,
 };
 
