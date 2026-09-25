@@ -1500,6 +1500,84 @@ body {
   text-decoration-style: solid;
 }
 
+/* #406: command palette — the Ctrl+K quick-launch surface. A fixed
+ *  overlay centered under the command bar (an app-level surface, not
+ *  docked to a region like the review navigator's drawer). */
+.hs-palette {
+  position: fixed;
+  top: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 92vw);
+  max-height: min(480px, 70vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--hs-surface-panel);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-modal);
+  box-shadow: var(--hs-elevation-popover);
+  z-index: 60;
+  font-size: var(--hs-font-size-compact);
+  color: var(--hs-text-primary);
+}
+.hs-palette__input {
+  flex: 0 0 auto;
+  margin: var(--hs-space-sm);
+  padding: var(--hs-space-xs) var(--hs-space-sm);
+  font: inherit;
+  color: inherit;
+  background: var(--hs-surface-app);
+  border: 1px solid var(--hs-border-strong);
+  border-radius: var(--hs-radius-input);
+}
+.hs-palette__input:focus-visible {
+  outline: var(--hs-focus-width) solid var(--hs-focus);
+  outline-offset: -1px;
+}
+.hs-palette__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 0 var(--hs-space-xs);
+  list-style: none;
+}
+.hs-palette__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hs-space-sm);
+  padding: var(--hs-space-xs) var(--hs-space-ms);
+  cursor: pointer;
+}
+.hs-palette__item--focus {
+  background: var(--hs-accent-subtle);
+}
+.hs-palette__item--disabled {
+  color: var(--hs-text-secondary);
+  cursor: default;
+}
+.hs-palette__section {
+  flex: 0 0 auto;
+  min-width: 4.5em;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-caption);
+}
+.hs-palette__name {
+  flex: 1 1 auto;
+}
+.hs-palette__kbd {
+  font-family: inherit;
+  font-size: var(--hs-font-size-caption);
+  color: var(--hs-text-secondary);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: 3px;
+  padding: 0 var(--hs-space-xs);
+}
+.hs-palette__empty {
+  padding: var(--hs-space-md);
+  color: var(--hs-text-secondary);
+}
+
 .hs-score-scroll {
   flex: 1 1 auto;
   min-height: 0;

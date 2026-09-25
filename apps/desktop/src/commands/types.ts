@@ -189,6 +189,9 @@ export interface CommandContext {
   openSettings(): void;
   /** Opens the 診断情報 sheet (§19 — separated from the normal UI). */
   openDiagnostics(): void;
+  /** #406: toggles the command palette (Ctrl+K quick-launch surface).
+   *  Optional like the other late-binding commands; absent = no-op. */
+  openCommandPalette?(): void;
   /** #318: opens the keyboard-shortcuts help overlay (F1). */
   openShortcutsHelp?(): void;
   /** F6 region navigation — implemented by focus/zones. */

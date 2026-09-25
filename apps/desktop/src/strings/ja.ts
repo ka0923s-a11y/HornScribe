@@ -33,6 +33,15 @@ export const ja = {
       app: "アプリ",
     },
   },
+  /** #406: コマンドパレット (Ctrl+K) — レジストリ全体のクイック起動面。 */
+  commandPalette: {
+    title: "コマンドパレット",
+    regionLabel: "コマンドパレット",
+    inputLabel: "コマンドを検索",
+    placeholder: "コマンドを検索…",
+    listLabel: "コマンド一覧",
+    empty: "一致するコマンドはありません",
+  },
 
   common: {
     cancel: "キャンセル",
@@ -521,6 +530,8 @@ export const ja = {
     scoreOctaveDown: "全曲を1オクターブ下げる",
     /* #318: F1 keyboard-shortcuts help (matches ja.shortcutsHelp.title). */
     help: "キーボードショートカット",
+    /* #406: Ctrl+K command palette (matches ja.commandPalette.title). */
+    commandPalette: "コマンドパレット",
   },
 
   /**

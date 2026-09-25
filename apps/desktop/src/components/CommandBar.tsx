@@ -27,6 +27,7 @@ import {
   Save24Regular,
   SaveEdit24Regular,
   DocumentBulletList24Regular,
+  Search24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -245,6 +246,13 @@ export function CommandBar({
         ]
       : []),
     { key: "overflow-divider", divider: true },
+    // #406: command palette — the quick-launch surface; menu entry for
+    // discoverability (Ctrl+K does the real work).
+    {
+      key: "palette",
+      label: commands.title("app.commandPalette"),
+      icon: <Search24Regular />,
+    },
     // #318: keyboard-shortcuts help — discoverability for the ~40
     // bindings the palette/tooltips can't surface at once.
     {
@@ -506,6 +514,7 @@ export function CommandBar({
         onSelect={(key) => {
           if (key === "settings") commands.invoke("app.settings");
           else if (key === "shortcuts") onShortcutsHelp?.();
+          else if (key === "palette") commands.invoke("app.commandPalette");
           else if (key === "properties") onToggleProperties();
           else if (key === "save") commands.invoke("project.save");
           else if (key === "save-as") commands.invoke("project.saveAs");

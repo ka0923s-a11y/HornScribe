@@ -651,5 +651,17 @@ export function createCommandDefinitions(): readonly Command[] {
       shortcuts: ["F1"],
       run: (ctx) => ctx.openShortcutsHelp?.(),
     },
+    {
+      // #406: the command palette — quick-launch surface over this same
+      // registry. It opts back into modal + text-input scopes so Ctrl+K
+      // toggles it shut again from inside its own search field.
+      id: "app.commandPalette",
+      title: ja.commands.commandPalette,
+      section: "app",
+      shortcuts: ["Ctrl+K"],
+      allowInModal: true,
+      allowInTextInput: true,
+      run: (ctx) => ctx.openCommandPalette?.(),
+    },
   ];
 }

@@ -31,6 +31,7 @@ import { TranscriptionView } from "./components/TranscriptionView";
 import { TranscriptionErrorView } from "./components/TranscriptionErrorView";
 import { ExportDialog } from "./export/ExportDialog";
 import { DiagnosticsSheet } from "./diagnostics/DiagnosticsSheet";
+import { CommandPalette } from "./components/CommandPalette";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { createDefaultExportPort } from "./export/port";
 import type { ExportSource } from "./export/tauriPort";
@@ -244,6 +245,8 @@ export default function App() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   // #318: keyboard-shortcuts help overlay (F1 / overflow menu).
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  // #406: command palette overlay (Ctrl+K / overflow menu).
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<
     SettingsCategory | undefined
   >(undefined);
@@ -1832,6 +1835,9 @@ export default function App() {
       openDiagnostics: () => setDiagnosticsOpen(true),
       // #318: F1 / overflow menu → keyboard-shortcuts help overlay.
       openShortcutsHelp: () => setShortcutsHelpOpen(true),
+      // #406: Ctrl+K / overflow menu → command palette. Toggle semantics
+      // so a second Ctrl+K inside the palette's own field closes it.
+      openCommandPalette: () => setPaletteOpen((open) => !open),
       // F6 / Shift+F6 region cycling (§22) — owned by focus/zones.ts; these
       // are the only fully-working transport-independent commands so far.
       focusNextRegion: () => {
@@ -2868,6 +2874,17 @@ export default function App() {
             onOpenChange={setShortcutsHelpOpen}
             commands={registry.listVisible(snapshot)}
           />
+          {/* #406: Ctrl+K / overflow → quick-launch over the same live
+              registry snapshot — disabled commands stay listed but
+              non-invokable, dimmed like menu items. */}
+          {paletteOpen && (
+            <CommandPalette
+              commands={registry.listVisible(snapshot)}
+              isEnabled={(id) => commands.isEnabled(id)}
+              invoke={(id) => commands.invoke(id)}
+              onClose={() => setPaletteOpen(false)}
+            />
+          )}
           {/* #130 (spec 14): quantization settings on the finished
               score — seeded from the canonical payload's stored
               quantizationSettings; apply goes through the undoable
