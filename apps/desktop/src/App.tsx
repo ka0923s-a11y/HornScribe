@@ -1189,7 +1189,7 @@ export default function App() {
    * their own path. #148: overrides pin job options (voices retry)
    * without a stale transcriptionOptions read. */
   const startTranscriptionJob = useCallback(
-    (overrides?: Partial<TranscriptionOptions>) => {
+    (overrides?: Partial<TranscriptionOptions>, skipGuard = false) => {
       if (!importState.audio) {
         // #219: a source-missing score can be viewed but not
         // re-transcribed — the relink banner is the way back.
@@ -1201,8 +1201,15 @@ export default function App() {
        * closure re-runs this same callback; the audio check above
        * already passed, so the deferred run drops straight into the
        * job start. */
-      if (dirtyRef.current) {
-        setPendingNav(() => () => startTranscriptionJob(overrides));
+      /* #347: the queued action re-enters this callback — without
+       * skipGuard it would re-guard itself forever (dirtyRef stays
+       * true until the 500 ms poll, and a discard never clears it).
+       * The pending closure carries the confirmation so both
+       * "保存せずに続ける" and "保存して続ける" proceed. */
+      if (dirtyRef.current && !skipGuard) {
+        setPendingNav(
+          () => () => startTranscriptionJob(overrides, true),
+        );
         return;
       }
       // #234: pin the job to the audio identity that started it — a
