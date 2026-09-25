@@ -1682,6 +1682,16 @@ export const ja = {
       "採譲処理はまだ完了していません。終了すると採譲は中止され、未保存の変更も失われます。保存して終了することもできます。",
     closeTranscribingAbort: "採譲を中止して終了",
     closeBack: "戻る",
+    /* #301: dirty + 録音中の複合終了確認 — 両方の喪失を明示し、
+       録音の扱いをユーザーが選べるようにする。録音の保存先は
+       recordings フォルダの WAV(録音停止 = take 確定)で、
+       楽譜はプロジェクトへ保存される。 */
+    closeDirtyRecordingTitle: "未保存の楽譜と録音中のテイクがあります",
+    closeDirtyRecordingBody:
+      "楽譜への変更と録音中のテイクは、どちらもまだ保存されていません。録音を保存する場合はテイクを確定してから終了します。",
+    closeSaveAllAndExit: "録音と楽譜を保存して終了",
+    closeSaveScoreOnly: "楽譜だけ保存し、録音を破棄して終了",
+    closeDiscardAll: "すべて破棄して終了",
     /** #300: ステータスバーの未保存バッジ。 */
     unsavedBadge: "未保存の変更",
     /** クラッシュ/強制終了で残った自動保存の復元確認。 */

@@ -337,7 +337,8 @@ export default function App() {
    *  保存せずに続ける / 保存して続ける. */
   const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
   /** #301: the OS close request is pending behind the 未保存 guard —
-   *  "dirty" when edits are unsaved, "recording" mid-capture. */
+   *  "dirty" when edits are unsaved, "recording" mid-capture,
+   *  "dirtyRecording" when BOTH are live (one combined dialog). */
   const [pendingClose, setPendingClose] = useState<
     PendingCloseKind | null
   >(null);
@@ -1214,6 +1215,42 @@ export default function App() {
     void session.cancelTranscription().catch(() => undefined);
     void getCurrentWindow().destroy().catch(() => undefined);
   }, [session]);
+  /* #301: dirty+recording combined resolution — the score save runs
+   * BEFORE capture.stop() because stopping finalizes the take and
+   * hands it to the importer, which replaces the score document. A
+   * failed save therefore leaves both the dirty score and the live
+   * take untouched. Once the write lands, stop() commits the WAV to
+   * the recordings folder, then destroy() skips onCloseRequested so
+   * the confirmed exit never re-arms the guard. */
+  const confirmCloseSaveAll = useCallback(() => {
+    setPendingClose(null);
+    void (async () => {
+      const saved = await saveProjectFlow();
+      if (!saved) return;
+      await capture.stop().catch(() => undefined);
+      void getCurrentWindow().destroy().catch(() => undefined);
+    })();
+  }, [capture, saveProjectFlow]);
+  /* #301: keep the score, drop the take — cancel() runs only after
+   * the save lands so a failed write never strands the user with
+   * neither artifact. */
+  const confirmCloseSaveOnly = useCallback(() => {
+    setPendingClose(null);
+    void (async () => {
+      const saved = await saveProjectFlow();
+      if (!saved) return;
+      await capture.cancel().catch(() => undefined);
+      void getCurrentWindow().destroy().catch(() => undefined);
+    })();
+  }, [capture, saveProjectFlow]);
+  /* #301: discard-everything exit — cancel releases the take
+   * cleanly before the window dies instead of orphaning a partial
+   * recording. */
+  const confirmCloseDiscardAll = useCallback(() => {
+    setPendingClose(null);
+    void capture.cancel().catch(() => undefined);
+    void getCurrentWindow().destroy().catch(() => undefined);
+  }, [capture]);
 
   /* #221: autosave recovery — open the snapshot through the normal
    * project path (entry.path stays "" so it never lands in the MRU),
@@ -2368,10 +2405,12 @@ export default function App() {
             title={
               pendingClose === "recording"
                 ? ja.project.closeRecordingTitle
-                : pendingClose === "transcribing" ||
-                    pendingClose === "dirtyTranscribing"
-                  ? ja.project.closeTranscribingTitle
-                : ja.project.unsavedTitle
+                : pendingClose === "dirtyRecording"
+                  ? ja.project.closeDirtyRecordingTitle
+                  : pendingClose === "transcribing" ||
+                      pendingClose === "dirtyTranscribing"
+                    ? ja.project.closeTranscribingTitle
+                    : ja.project.unsavedTitle
             }
             onOpenChange={(open) => {
               if (!open) setPendingClose(null);
@@ -2419,6 +2458,24 @@ export default function App() {
                     {ja.project.closeBack}
                   </HsButton>
                 </>
+              ) : pendingClose === "dirtyRecording" ? (
+                <>
+                  <HsButton variant="primary" onClick={confirmCloseSaveAll}>
+                    {ja.project.closeSaveAllAndExit}
+                  </HsButton>
+                  <HsButton variant="secondary" onClick={confirmCloseSaveOnly}>
+                    {ja.project.closeSaveScoreOnly}
+                  </HsButton>
+                  <HsButton variant="danger" onClick={confirmCloseDiscardAll}>
+                    {ja.project.closeDiscardAll}
+                  </HsButton>
+                  <HsButton
+                    variant="secondary"
+                    onClick={() => setPendingClose(null)}
+                  >
+                    {ja.project.unsavedCancel}
+                  </HsButton>
+                </>
               ) : (
                 <>
                   <HsButton variant="danger" onClick={confirmCloseDiscard}>
@@ -2437,11 +2494,13 @@ export default function App() {
             <p style={{ margin: 0 }}>
               {pendingClose === "recording"
                 ? ja.project.closeRecordingBody
-                : pendingClose === "transcribing"
-                  ? ja.project.closeTranscribingBody
-                  : pendingClose === "dirtyTranscribing"
-                    ? ja.project.closeTranscribingDirtyBody
-                : ja.project.unsavedCloseBody}
+                : pendingClose === "dirtyRecording"
+                  ? ja.project.closeDirtyRecordingBody
+                  : pendingClose === "transcribing"
+                    ? ja.project.closeTranscribingBody
+                    : pendingClose === "dirtyTranscribing"
+                      ? ja.project.closeTranscribingDirtyBody
+                      : ja.project.unsavedCloseBody}
             </p>
           </HsDialog>
           <HsDialog

@@ -36,13 +36,20 @@ describe("closeGuardKind (#400)", () => {
     ).toBe("dirtyTranscribing");
   });
 
-  it("dirty beats recording when both hold", () => {
+  it("dirty + recording is ONE combined confirmation — the take", () => {
+    // #301 re-review: a dirty-only dialog would silently destroy the
+    // live take on 保存して閉じる / 保存せずに閉じる alike.
     expect(
       closeGuardKind({ dirty: true, recording: true, transcribing: false }),
-    ).toBe("dirty");
+    ).toBe("dirtyRecording");
+  });
+
+  it("all three hazards still resolve to the recording-owning dialog", () => {
+    // A take cannot be re-captured; a transcription can be re-run, so
+    // dirtyRecording owns the close even while a job is in flight.
     expect(
       closeGuardKind({ dirty: true, recording: true, transcribing: true }),
-    ).toBe("dirtyTranscribing");
+    ).toBe("dirtyRecording");
   });
 
   it("recording beats a bare transcribing guard", () => {
@@ -51,4 +58,3 @@ describe("closeGuardKind (#400)", () => {
     ).toBe("recording");
   });
 });
-
