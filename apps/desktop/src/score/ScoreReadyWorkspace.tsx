@@ -1234,6 +1234,19 @@ export function ScoreReadyWorkspace({
     gotoIssue(firstOpen >= 0 ? firstOpen : 0);
   }, [allIssues, gotoIssue, announce]);
 
+  // #376: waveform-marker jump — open the review if needed and land
+  //  the shared cursor on the clicked issue (score selection + source
+  //  seek come free with gotoIssue).
+  const openReviewAt = useCallback(
+    (index: number) => {
+      if (allIssues.length === 0) return;
+      reviewOpenRef.current = true;
+      setReviewOpen(true);
+      gotoIssue(index);
+    },
+    [allIssues, gotoIssue],
+  );
+
   const exitReview = useCallback(() => {
     reviewOpenRef.current = false;
     setReviewOpen(false);
@@ -2010,6 +2023,7 @@ const setKey = useCallback(
         );
       },
       openReview: () => openReview(),
+      openReviewAt: (i) => openReviewAt(i),
       reviewNext: () => stepReviewOpen(1),
       reviewPrevious: () => stepReviewOpen(-1),
       reviewToggleNavigator: () => toggleNavigator(),
@@ -2061,6 +2075,7 @@ const setKey = useCallback(
     exitReview,
     resumeFollow,
     openReview,
+    openReviewAt,
     gotoIssue,
     stepReviewOpen,
     toggleNavigator,

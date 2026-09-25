@@ -417,6 +417,99 @@ body {
   background: var(--hs-status-error);
   pointer-events: none;
 }
+
+/* #376: review-issue markers — shaped ticks on the strip's top edge so
+ *  severity reads without color (warning ▼ triangle / caution ◆ diamond
+ *  / info ○ ring). The container is click-through; each tick re-enables
+ *  pointer events. A cluster shows its member count next to the tick. */
+.hs-waveform__markers {
+  position: absolute;
+  inset: 0 0 6px;
+  pointer-events: none;
+  z-index: 3;
+}
+.hs-waveform--minimap .hs-waveform__markers {
+  inset: 0 0 20px;
+}
+.hs-waveform__markers:focus-visible {
+  outline: var(--hs-focus-width, 2px) solid var(--hs-focus, var(--hs-accent));
+  outline-offset: -2px;
+}
+.hs-waveform__marker {
+  position: absolute;
+  top: 0;
+  width: 14px;
+  height: 13px;
+  margin-left: -7px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.hs-waveform__marker--warning { color: var(--hs-status-error); }
+.hs-waveform__marker--caution { color: var(--hs-status-warning); }
+.hs-waveform__marker--info { color: var(--hs-status-info); }
+.hs-waveform__marker::before {
+  content: "";
+  display: block;
+  flex: 0 0 auto;
+}
+.hs-waveform__marker--warning::before {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 7px solid currentColor;
+}
+.hs-waveform__marker--caution::before {
+  width: 6px;
+  height: 6px;
+  margin-top: 1px;
+  transform: rotate(45deg);
+  background: currentColor;
+}
+.hs-waveform__marker--info::before {
+  width: 5px;
+  height: 5px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  background: transparent;
+}
+.hs-waveform__marker:hover,
+.hs-waveform__marker--active {
+  background: var(--hs-surface-hover, rgba(255, 255, 255, 0.12));
+  outline: 1px solid currentColor;
+  border-radius: 2px;
+}
+.hs-waveform__marker-count {
+  position: absolute;
+  left: 10px;
+  top: -1px;
+  font-size: var(--hs-font-size-caption, 9px);
+  line-height: 1;
+  color: currentColor;
+  font-variant-numeric: tabular-nums;
+}
+/* Minimap issue ticks — full-height warning bar, shorter caution,
+ *  shortest info: the distribution reads at a glance, still without
+ *  relying on hue alone. */
+.hs-waveform__minimap-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: currentColor;
+  pointer-events: none;
+}
+.hs-waveform__minimap-marker.hs-waveform__marker--caution {
+  top: 18%;
+  bottom: 18%;
+}
+.hs-waveform__minimap-marker.hs-waveform__marker--info {
+  top: 38%;
+  bottom: 38%;
+}
 .hs-waveform__placeholder {
   pointer-events: none;
 }

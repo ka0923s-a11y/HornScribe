@@ -89,6 +89,65 @@ function peaksInView(
   return peaks.slice(lo, hi);
 }
 
+/** #376: a review-issue marker on the strip — index is the jump
+ *  target the workspace's review cursor understands, label the
+ *  accessible option name (reason title + source time). */
+export interface WaveformMarker {
+  readonly index: number;
+  readonly startSec: number;
+  readonly severity: "warning" | "caution" | "info";
+  readonly label: string;
+}
+
+interface MarkerCluster {
+  /** 0..1 position inside the current view window. */
+  pos: number;
+  severity: WaveformMarker["severity"];
+  items: WaveformMarker[];
+  label: string;
+}
+
+const SEVERITY_RANK: Record<WaveformMarker["severity"], number> = {
+  warning: 0,
+  caution: 1,
+  info: 2,
+};
+
+/** Merge markers whose view positions sit closer than gapRatio —
+ *  dense issue clusters stay a single reachable tick instead of a row
+ *  of un-clickable slivers (acceptance #376). The cluster keeps the
+ *  highest severity and jumps to its earliest issue. */
+export function clusterMarkers(
+  markers: readonly WaveformMarker[],
+  view: ViewRange,
+  gapRatio: number,
+): MarkerCluster[] {
+  const span = view.endSec - view.startSec;
+  if (span <= 0) return [];
+  const placed = markers
+    .map((m) => ({ m, pos: (m.startSec - view.startSec) / span }))
+    .filter((x) => x.pos >= 0 && x.pos <= 1)
+    .sort((a, b) => a.pos - b.pos);
+  const out: MarkerCluster[] = [];
+  for (const { m, pos } of placed) {
+    const last = out[out.length - 1];
+    if (last && pos - last.pos < gapRatio) {
+      last.items.push(m);
+      if (SEVERITY_RANK[m.severity] < SEVERITY_RANK[last.severity]) {
+        last.severity = m.severity;
+      }
+    } else {
+      out.push({ pos, severity: m.severity, items: [m], label: m.label });
+    }
+  }
+  for (const c of out) {
+    if (c.items.length > 1) {
+      c.label = ja.waveform.markerCluster(c.items.length, c.items[0].label);
+    }
+  }
+  return out;
+}
+
 /**
  * Waveform / timeline region (GUI_UX_SPEC 2, 8).
  * Height is user-resizable: 64px minimum up to ~35% of the work area, and
@@ -128,6 +187,8 @@ export function WaveformView({
   onLoopSelection,
   onPlaySelection,
   onClearSelection,
+  markers,
+  onMarkerClick,
 }: {
   height: number;
   min: number;
@@ -160,6 +221,11 @@ export function WaveformView({
   onPlaySelection?(range: SelectionRange): void;
   /** #113: context action / Esc - drop the committed selection. */
   onClearSelection?(): void;
+  /** #376: open review issues as strip markers — startSec in source
+   *  seconds; click/Enter jumps to the issue (single selection
+   *  source: the workspace's review cursor). */
+  markers?: readonly WaveformMarker[];
+  onMarkerClick?(index: number): void;
 }) {
   const duration = audio?.durationSeconds ?? 0;
 
@@ -232,6 +298,41 @@ export function WaveformView({
     [audio, view, duration],
   );
   const path = useMemo(() => peaksPath(visiblePeaks), [visiblePeaks]);
+
+  // #376: review-issue markers — clustered so dense detections stay
+  //  one reachable tick each (listbox semantics: ←→ moves, Enter jumps).
+  const markerClusters = useMemo(
+    () => clusterMarkers(markers ?? [], view, 0.012),
+    [markers, view],
+  );
+  const [markerActive, setMarkerActive] = useState(-1);
+  const activeMarker = Math.min(markerActive, markerClusters.length - 1);
+  const onMarkersKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const n = markerClusters.length;
+    if (n === 0) return;
+    let next = activeMarker;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      next = activeMarker < 0 ? 0 : Math.min(n - 1, activeMarker + 1);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      next = activeMarker < 0 ? n - 1 : Math.max(0, activeMarker - 1);
+    } else if (e.key === "Home") {
+      next = 0;
+    } else if (e.key === "End") {
+      next = n - 1;
+    } else if (e.key === "Enter" || e.key === " ") {
+      if (activeMarker >= 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        onMarkerClick?.(markerClusters[activeMarker].items[0].index);
+      }
+      return;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    setMarkerActive(next);
+  };
 
   const span = view.endSec - view.startSec;
   const ratio =
@@ -565,6 +666,59 @@ export function WaveformView({
               aria-hidden="true"
             />
           ) : null}
+          {/* #376: open review issues — a listbox strip of ticks along
+              the top edge; Enter/click jumps via the workspace's own
+              review cursor (one selection source). */}
+          {markerClusters.length > 0 ? (
+            <div
+              className="hs-waveform__markers"
+              role="listbox"
+              aria-label={ja.waveform.reviewMarkers}
+              aria-orientation="horizontal"
+              aria-activedescendant={
+                activeMarker >= 0
+                  ? `hs-wavemarker-${activeMarker}`
+                  : undefined
+              }
+              tabIndex={0}
+              onKeyDown={onMarkersKey}
+            >
+              {markerClusters.map((c, i) => (
+                <div
+                  key={i}
+                  id={`hs-wavemarker-${i}`}
+                  role="option"
+                  aria-selected={i === activeMarker}
+                  aria-label={c.label}
+                  title={c.label}
+                  className={[
+                    "hs-waveform__marker",
+                    `hs-waveform__marker--${c.severity}`,
+                    i === activeMarker
+                      ? "hs-waveform__marker--active"
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  style={{ left: `${c.pos * 100}%` }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => {
+                    setMarkerActive(i);
+                    onMarkerClick?.(c.items[0].index);
+                  }}
+                >
+                  {c.items.length > 1 ? (
+                    <span
+                      className="hs-waveform__marker-count"
+                      aria-hidden="true"
+                    >
+                      {c.items.length}
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
           <span className="hs-waveform__name" aria-hidden="true">
             {audio.fileName}
           </span>
@@ -697,6 +851,21 @@ export function WaveformView({
               aria-hidden="true"
             />
           ) : null}
+          {/* #376: issue ticks on the minimap too — the whole-clip
+              problem distribution stays visible while zoomed. These
+              are display-only; the minimap keeps its own slider nav. */}
+          {markers != null && duration > 0
+            ? markers.map((m, i) =>
+                m.startSec >= 0 && m.startSec <= duration ? (
+                  <div
+                    key={i}
+                    className={`hs-waveform__minimap-marker hs-waveform__marker--${m.severity}`}
+                    style={{ left: `${(m.startSec / duration) * 100}%` }}
+                    aria-hidden="true"
+                  />
+                ) : null,
+              )
+            : null}
         </div>
       ) : null}
       <div

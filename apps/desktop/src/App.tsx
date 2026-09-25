@@ -14,7 +14,10 @@ import { useThemeMode } from "./theme/useThemeMode";
 import { AppShell } from "./components/AppShell";
 import { TitleBar } from "./components/TitleBar";
 import { CommandBar } from "./components/CommandBar";
-import { WaveformView } from "./components/WaveformView";
+import {
+  WaveformView,
+  type WaveformMarker,
+} from "./components/WaveformView";
 import { ScoreWorkspace } from "./components/ScoreWorkspace";
 import { PropertiesPanel } from "./components/PropertiesPanel";
 import {
@@ -192,6 +195,14 @@ function zoneName(id: string): string {
   const names: Record<string, string> = ja.commandFeedback.zoneNames;
   return names[id] ?? id;
 }
+
+/* #376: reason → Japanese title for the waveform markers — the same
+ *  deck the review copy uses, indexed loosely so newer engine codes
+ *  land on other (mirrors ScoreReadyWorkspace's REASON_DECK). */
+const REVIEW_REASON_DECK: Record<
+  string,
+  { readonly title: string; readonly detail: string }
+> = ja.reviewReasons;
 
 /** Engine connection line for the status bar (解析エンジン: …). */
 function engineStatusText(engine: EngineStatus): string {
@@ -1055,6 +1066,34 @@ export default function App() {
     (scoreDocument
       ? scoreDocument.reviewIssues().length
       : Math.max(sessionSnap.reviewIssueCount, reviewCount));
+
+  // #376: open issues with a source range → waveform markers. Index
+  //  stays the workspace's review-cursor position (the FULL list —
+  //  resolved rows keep their slots so jumps land correctly). Computed
+  //  each render like reviewCount — decisions change the open set.
+  const reviewMarkers: WaveformMarker[] | undefined = scoreDocument
+    ? scoreDocument
+        .reviewIssues()
+        .flatMap((issue, i) =>
+          issue.status === "open" && issue.timeRange != null
+            ? [
+                {
+                  index: i,
+                  startSec: issue.timeRange.startSec,
+                  severity: issue.severity,
+                  label: ja.waveform.reviewMarker(
+                    i + 1,
+                    (
+                      REVIEW_REASON_DECK[issue.reason] ??
+                      ja.reviewReasons.other
+                    ).title,
+                    formatTimecode(issue.timeRange.startSec),
+                  ),
+                },
+              ]
+            : [],
+        )
+    : undefined;
 
   // The registry is static: predicates read the snapshot, not React state.
   const registry = useMemo(() => createCommandRegistry(), []);
@@ -2206,6 +2245,13 @@ export default function App() {
                     setWaveformSelection(null);
                     setTranscriptionOptions(optionsAfterWaveformClear);
                   }}
+                  // #376: open review issues as source-second ticks —
+                  //  a marker jump opens the review AND lands score +
+                  //  source cursor via the workspace's own gotoIssue.
+                  markers={reviewMarkers}
+                  onMarkerClick={(i) =>
+                    scoreCtlRef.current?.openReviewAt?.(i)
+                  }
                 />
               ) : null}
               <div className="hs-main">

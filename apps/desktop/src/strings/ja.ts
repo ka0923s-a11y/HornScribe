@@ -91,6 +91,13 @@ export const ja = {
     zoomedLabel: "ズーム中",
     /* #116 (spec 8): 長尺音源の全体図ストリップ */
     minimap: "全体図（クリック・矢印キーで移動）",
+    /* #376: review-issue markers on the strip — the listbox group
+     *  label, one option's name, and a dense cluster's name. */
+    reviewMarkers: "要確認マーカー（←→で移動、Enterでジャンプ）",
+    reviewMarker: (n: number, title: string, time: string) =>
+      `第${n}件 ${title} ${time}`,
+    markerCluster: (count: number, firstLabel: string) =>
+      `${count}件の要確認（最初: ${firstLabel}）`,
   },
 
   score: {

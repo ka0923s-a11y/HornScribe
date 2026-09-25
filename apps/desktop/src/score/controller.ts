@@ -124,6 +124,10 @@ export interface ScoreWorkspaceController {
   reviewPrevious(): void;
   /** #361: toggle the 要確認一覧 navigator popover (一覧 button / I). */
   reviewToggleNavigator?(): void;
+  /** #376: jump straight to the issue at index — opens the review bar
+   *  when closed, then lands the shared cursor (score selection +
+   *  source seek) on the issue. The waveform markers use this. */
+  openReviewAt?(index: number): void;
 
   // ---- review decisions & corrections (UI-050, §12/§13) ----
   /** 問題なし — mark the focused issue accepted. */
