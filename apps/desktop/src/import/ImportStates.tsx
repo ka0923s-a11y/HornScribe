@@ -15,6 +15,7 @@ import {
   Dismiss16Regular,
   ErrorCircle24Regular,
   FolderOpen24Regular,
+  DocumentBulletList24Regular,
   History24Regular,
   Play24Regular,
   Mic24Regular,
@@ -53,6 +54,10 @@ export interface ImportView {
   recentProjects: readonly RecentProjectEntry[];
   options: TranscriptionOptions;
   onOpenAudio(): void;
+  // #369: dedicated project picker — the EMPTY screen offers it as a
+  // secondary action so resuming saved work never hides inside the
+  // audio picker's all-files escape hatch.
+  onPickProject(): void;
   onOpenProject(entry: RecentProjectEntry): void;
   /** #364: 履歴から削除 — drops the path from the MRU (list entries and
    *  the projectOpenFailed card both use it). Never touches the file. */
@@ -107,6 +112,16 @@ function EmptyStateBody({ view }: { view: ImportView }) {
         {ja.emptyState.open}
       </HsButton>
       <p className="hs-empty__formats">{ja.emptyState.formats}</p>
+      {/* #369: secondary project-open affordance — quiet next to the
+          audio CTA, but always reachable from EMPTY; sits below the
+          formats note so that hint stays coupled to the audio path. */}
+      <HsButton
+        variant="secondary"
+        icon={<DocumentBulletList24Regular />}
+        onClick={view.onPickProject}
+      >
+        {ja.emptyState.openProject}
+      </HsButton>
       {/* FEAT-001: 録音による取り込み — ファイルを持たない入力経路。 */}
       {view.onStartCapture ? (
         <div className="hs-empty__capture">

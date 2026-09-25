@@ -26,6 +26,7 @@ import {
   ArrowSwap24Regular,
   Save24Regular,
   SaveEdit24Regular,
+  DocumentBulletList24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -334,6 +335,21 @@ export function CommandBar({
         >
           <span className="hs-commandbar__label">{ja.commandBar.openLabel}</span>
         </ToolbarButton>
+      </Tooltip>
+      {/* #369: project open is a first-class action — resuming saved
+          work must not hide inside the audio picker's all-files
+          escape hatch. */}
+      <Tooltip
+        content={ja.commandBar.openProjectTooltip}
+        relationship="label"
+      >
+        <ToolbarButton
+          icon={<DocumentBulletList24Regular />}
+          disabled={!commands.isEnabled("file.openProject")}
+          aria-keyshortcuts="Control+Shift+O"
+          aria-label={ja.commands.openProject}
+          onClick={() => commands.invoke("file.openProject")}
+        />
       </Tooltip>
       {loaded ? (
         <Tooltip content={transcribeTooltip} relationship="label">

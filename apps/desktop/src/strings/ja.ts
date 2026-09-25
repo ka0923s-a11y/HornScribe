@@ -60,6 +60,7 @@ export const ja = {
     overflow: "その他の操作",
     openLabel: "開く",
     openTooltip: "音声ファイルを開く（Ctrl+O）",
+    openProjectTooltip: "プロジェクトを開く（Ctrl+Shift+O）",
     transcribeTooltip: "採譜を開始する",
     retranscribeTooltip: "現在の設定でもう一度採譜する",
     exportTooltip: "MusicXML・PDF・MIDIを書き出し",
@@ -144,6 +145,7 @@ export const ja = {
     title: "ここに音声ファイルをドロップ",
     or: "または",
     open: "音声ファイルを開く",
+    openProject: "プロジェクトを開く",
     formats: "WAV・MP3・FLAC・M4A・OGG",
     privacy: "すべての解析はこのPC上で実行されます。",
     /* FEAT-001 (#60): 録音による取り込み */
@@ -434,6 +436,7 @@ export const ja = {
    */
   commands: {
     openAudio: "音声ファイルを開く",
+    openProject: "プロジェクトを開く",
     transcribe: "採譜",
     retranscribe: "採譜し直す",
     cancelTranscription: "採譜をキャンセル",

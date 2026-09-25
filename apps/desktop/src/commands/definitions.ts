@@ -50,6 +50,17 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => !s.isRecording,
       run: (ctx) => ctx.openAudio(),
     },
+    {
+      // #369: project open is its own command — resuming saved work
+      // must be discoverable, not buried in the audio picker's
+      // all-files escape hatch.
+      id: "file.openProject",
+      title: ja.commands.openProject,
+      section: "file",
+      shortcuts: ["Ctrl+Shift+O"],
+      isEnabled: (s) => !s.isRecording,
+      run: (ctx) => ctx.openProject(),
+    },
 
     // ---- score ----
     {

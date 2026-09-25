@@ -54,6 +54,7 @@ function mockContext(): CommandContext & { calls: string[] } {
   return {
     calls,
     openAudio: spy("openAudio"),
+    openProject: spy("openProject"),
     transcribe: spy("transcribe"),
     togglePlayPause: spy("togglePlayPause"),
     stop: spy("stop"),

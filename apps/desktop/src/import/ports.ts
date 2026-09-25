@@ -33,6 +33,11 @@ export interface ImportPorts {
    * error and never surfaces copy.
    */
   pickAudio(): Promise<AudioFileRef | null>;
+  // #369: the dedicated project picker — filters to HornScribe project
+  // files (`.hornscribe.json`, plus future portable packages) so
+  // opening saved work never hides inside the audio filter. Same
+  // cancel contract as `pickAudio`.
+  pickProject(): Promise<AudioFileRef | null>;
   /** Bytes of a `kind:"path"` ref (Rust `read_audio_bytes` command). */
   readAudioBytes(path: string): Promise<Blob>;
   /** Bytes of a `.hornscribe.json` project file (`read_project_file`). */

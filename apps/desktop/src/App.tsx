@@ -1440,6 +1440,15 @@ export default function App() {
         // hold it behind the 未保存 guard when edits are unsaved.
         guardDiscard(() => void importer.openViaDialog());
       },
+      openProject: () => {
+        // #369: same gates as openAudio — a running job owns the
+        // audio slot, and an unsaved score gets the 未保存 guard.
+        if (screen === "transcribing") {
+          setStatusMessage(ja.notifications.importWhileTranscribing);
+          return;
+        }
+        guardDiscard(() => void importer.openProjectViaDialog());
+      },
       transcribe: (overrides) => startTranscriptionJob(overrides),
       cancelTranscription: () => {
         // Cooperative job.cancel — the terminal `cancelled` event is the
@@ -1930,6 +1939,15 @@ export default function App() {
         }
         // #221: 未保存の変更がある時は破棄確認を挟む。
         guardDiscard(() => void importer.openViaDialog());
+      },
+      // #369: the EMPTY-screen secondary CTA takes the same guard
+      // funnel as the command — one behavior, two entry points.
+      onPickProject: () => {
+        if (screen === "transcribing") {
+          setStatusMessage(ja.notifications.importWhileTranscribing);
+          return;
+        }
+        guardDiscard(() => void importer.openProjectViaDialog());
       },
       onOpenProject: (entry) => {
         if (screen === "transcribing") {

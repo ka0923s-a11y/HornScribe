@@ -1344,6 +1344,7 @@ Initial defaults:
 | Zoom out | - |
 | Fit score | Ctrl+0 |
 | Open audio | Ctrl+O |
+| Open project | Ctrl+Shift+O |
 | Export | Ctrl+E |
 | Settings | Ctrl+, |
 

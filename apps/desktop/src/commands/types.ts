@@ -76,6 +76,8 @@ export interface CommandSnapshot {
  */
 export interface CommandContext {
   openAudio(): void;
+  // #369: dedicated project open — never hides inside the audio picker.
+  openProject(): void;
   /** Start a transcription job. #148: callers may pin option overrides
    *  (e.g. the review bar's voices-texture retry) without mutating the
    *  stored settings first — avoids a stale-options race. */

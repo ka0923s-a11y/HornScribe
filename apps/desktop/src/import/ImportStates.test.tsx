@@ -33,6 +33,7 @@ function view(overrides: Partial<ImportView>): ImportView {
     recentProjects: [],
     options: DEFAULT_TRANSCRIPTION_OPTIONS,
     onOpenAudio: NOOP,
+    onPickProject: NOOP,
     onOpenProject: NOOP,
     onRemoveRecent: NOOP,
     onPickRelink: NOOP,
@@ -171,6 +172,19 @@ describe("EMPTY recents (#364)", () => {
       (e) => e.textContent,
     );
     expect(dirs).toEqual(["C:\\one", "D:\\two"]);
+  });
+});
+
+describe("EMPTY project-open affordance (#369)", () => {
+  it("the secondary CTA invokes onPickProject", async () => {
+    const picked = vi.fn();
+    await render("empty", view({ onPickProject: picked }));
+    const btn = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === ja.emptyState.openProject,
+    );
+    expect(btn).toBeTruthy();
+    await click(btn!);
+    expect(picked).toHaveBeenCalledTimes(1);
   });
 });
 

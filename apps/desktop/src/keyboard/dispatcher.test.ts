@@ -45,6 +45,7 @@ function mockContext() {
   const spy = (name: string) => vi.fn(() => calls.push(name));
   const ctx: CommandContext = {
     openAudio: spy("openAudio"),
+    openProject: spy("openProject"),
     transcribe: spy("transcribe"),
     togglePlayPause: spy("togglePlayPause"),
     stop: spy("stop"),

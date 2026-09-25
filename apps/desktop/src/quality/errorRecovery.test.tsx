@@ -52,6 +52,7 @@ function view(overrides: Partial<ImportView>): ImportView {
     recentProjects: [],
     options: DEFAULT_TRANSCRIPTION_OPTIONS,
     onOpenAudio: NOOP,
+    onPickProject: NOOP,
     onOpenProject: NOOP,
     onRemoveRecent: NOOP,
     onPickRelink: NOOP,

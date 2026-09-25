@@ -58,16 +58,48 @@ async function pickViaDialog(): Promise<AudioFileRef | null> {
   return { kind: "path", path: selected, name: baseName(selected) };
 }
 
+// #369: the project-only picker — separate command from 音声を開く so
+// resuming saved work is discoverable, not guessed. The all-files
+// escape hatch stays so a misnamed project file still opens (the
+// engine's project validation gives the honest error either way);
+// #356's portable package extension joins this same filter list.
+async function pickViaProjectDialog(): Promise<AudioFileRef | null> {
+  const selected = await openDialog({
+    multiple: false,
+    directory: false,
+    filters: [
+      {
+        name: ja.import.dialog.projectFilter,
+        extensions: ["json"],
+      },
+      { name: ja.import.dialog.allFiles, extensions: ["*"] },
+    ],
+  });
+  if (typeof selected !== "string" || selected === "") return null;
+  return { kind: "path", path: selected, name: baseName(selected) };
+}
+
 /**
  * Browser-dev fallback picker. `cancel` is observable on Chrome-family
  * browsers; the window-focus timer covers engines without the event.
  */
 function pickViaFileInput(): Promise<AudioFileRef | null> {
+  return pickViaFileInputAccept(
+    AUDIO_EXTENSIONS.map((e) => `.${e}`).join(",") + ",.json",
+  );
+}
+
+function pickProjectViaFileInput(): Promise<AudioFileRef | null> {
+  return pickViaFileInputAccept(".json");
+}
+
+function pickViaFileInputAccept(
+  accept: string,
+): Promise<AudioFileRef | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept =
-      AUDIO_EXTENSIONS.map((e) => `.${e}`).join(",") + ",.json";
+    input.accept = accept;
     let settled = false;
     const done = (ref: AudioFileRef | null) => {
       if (settled) return;
@@ -188,6 +220,8 @@ export function createImportPorts(
   return {
     inspectProject: options?.inspectProject,
     pickAudio: () => (isTauri() ? pickViaDialog() : pickViaFileInput()),
+    pickProject: () =>
+      isTauri() ? pickViaProjectDialog() : pickProjectViaFileInput(),
     readAudioBytes: (path) => invokeBytes("read_audio_bytes", path),
     readProjectBytes: (path) => invokeBytes("read_project_file", path),
     decodeAudio: (blob) => decodeWithWebAudio(blob),

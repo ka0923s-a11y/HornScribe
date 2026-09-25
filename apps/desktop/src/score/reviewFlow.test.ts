@@ -107,6 +107,7 @@ function setup(count = 20) {
 
   const ctx: CommandContext = {
     openAudio: vi.fn(),
+    openProject: vi.fn(),
     transcribe: vi.fn(),
     togglePlayPause: vi.fn(),
     stop: vi.fn(),

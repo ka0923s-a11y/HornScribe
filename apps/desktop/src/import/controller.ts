@@ -139,6 +139,32 @@ export class ImportController {
     await this.importRefs([ref]);
   }
 
+  // #369: `file.openProject` (Ctrl+Shift+O / プロジェクトを開く) —
+  // the dedicated picker. A picked file always takes the project-open
+  // funnel (migrate + validate + source verify); a non-project JSON
+  // surfaces the honest projectOpenFailed card rather than guessing.
+  async openProjectViaDialog(): Promise<void> {
+    let ref: AudioFileRef | null;
+    try {
+      ref = await this.ports.pickProject();
+    } catch {
+      // A picker failure is not a file error — surface the generic
+      // open-failure issue rather than an unhandled rejection.
+      this.fail({ kind: "openFailed" });
+      return;
+    }
+    if (!ref) return; // cancel is silent — not an error
+    const bytes = ref.kind === "file" ? ref.file : undefined;
+    await this.openProject(
+      {
+        name: projectDisplayName(ref.name),
+        path: ref.kind === "path" ? ref.path : "",
+        openedAt: Date.now(),
+      },
+      bytes,
+    );
+  }
+
   /**
    * Drag&drop / dialog entry point. With several files the first supported
    * one wins (single-document app); zero supported → honest format error.

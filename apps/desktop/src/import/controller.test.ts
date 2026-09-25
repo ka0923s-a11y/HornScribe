@@ -92,6 +92,7 @@ function makeHarness(portOverrides: Partial<ImportPorts> = {}) {
 
   const ports: ImportPorts = {
     pickAudio: async () => null,
+    pickProject: async () => null,
     readAudioBytes: async (path) => {
       const b = store.get(path);
       if (!b) throw new Error(`missing file: ${path}`);
@@ -827,6 +828,58 @@ describe("openViaDialog", () => {
     expect(h.states).toHaveLength(0);
     expect(h.screens).toHaveLength(0);
     expect(h.announcements).toHaveLength(0);
+  });
+});
+
+describe("openProjectViaDialog (#369)", () => {
+  it("cancel is silent — no state change, no announcement", async () => {
+    const h = makeHarness();
+    await h.controller.openProjectViaDialog();
+    expect(h.states).toHaveLength(0);
+    expect(h.screens).toHaveLength(0);
+    expect(h.announcements).toHaveLength(0);
+  });
+
+  it("a picked project opens through the same verify funnel as recents", async () => {
+    const path = "C:\\p\\etude.hornscribe.json";
+    const h = makeHarness({
+      pickProject: async () => pathRef(path, "etude.hornscribe.json"),
+    });
+    h.store.set(path, projectJson());
+    h.store.set("C:\\audio\\etude.wav", new Blob(["etude"]));
+
+    await h.controller.openProjectViaDialog();
+
+    expect(h.screens).toEqual(["openingAudio", "audioReady"]);
+    expect(h.readyAudios[0]?.fileName).toBe("etude.wav");
+    // The picked project becomes the MRU head, same as a recents open.
+    expect(h.recents.at(-1)?.[0]?.path).toBe(path);
+  });
+
+  it("picker rejection surfaces the open-failure issue, not a rejection", async () => {
+    const h = makeHarness({
+      pickProject: async () => {
+        throw new Error("dialog broke");
+      },
+    });
+    await h.controller.openProjectViaDialog();
+    expect(h.controller.getState().issue).toMatchObject({
+      kind: "openFailed",
+    });
+  });
+
+  it("a picked non-project JSON gets the honest projectOpenFailed card", async () => {
+    const path = "C:\\p\\not-a-project.json";
+    const h = makeHarness({
+      pickProject: async () => pathRef(path, "not-a-project.json"),
+    });
+    h.store.set(path, new Blob(["{}"]));
+
+    await h.controller.openProjectViaDialog();
+
+    const s = h.controller.getState();
+    expect(s.phase).toBe("error");
+    expect(s.issue).toMatchObject({ kind: "projectOpenFailed" });
   });
 });
 
