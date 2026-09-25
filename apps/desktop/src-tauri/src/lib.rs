@@ -149,6 +149,7 @@ pub fn run() {
             export::export_default_dir,
             export::export_check_existing,
             export::export_run,
+            export::export_cancel,
             export::detect_tools,
             export::probe_tool_path,
             export::reveal_in_explorer,

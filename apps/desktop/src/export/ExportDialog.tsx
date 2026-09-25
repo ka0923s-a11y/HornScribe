@@ -106,6 +106,9 @@ export function ExportDialog({
   // Stale-response guard: a probe/export finishing after close or a newer
   // attempt must not overwrite the current phase.
   const generation = useRef(0);
+  // #383: the running export's abort handle — cancel means cancel, so
+  // closing (button or X/Esc) flips this instead of hiding live work.
+  const abortRef = useRef<AbortController | null>(null);
 
   const e = ja.exportSheet;
   const errs = ja.errors;
@@ -149,13 +152,28 @@ export function ExportDialog({
   }, [open, port, defaultDestination, toolOverrides, suggestedBasename]);
 
   const close = useCallback(() => {
+    if (phase === "running") {
+      // A running export aborts for real — the rejection lands the
+      // dialog back on the form; nothing here closes over live work.
+      abortRef.current?.abort();
+      return;
+    }
+    if (phase === "collision") {
+      // Same user semantics as the running cancel: the pending
+      // prompt resolves as cancelled, the export rejects, and the
+      // dialog lands back on the form — not a closed window over an
+      // aborted write (#383).
+      collision?.resolve("cancel");
+      setCollision(null);
+      return;
+    }
     generation.current += 1;
     // #231: a pending collision prompt must not keep the export
     // promise alive past close — resolve it as cancelled.
     collision?.resolve("cancel");
     setCollision(null);
     onOpenChange(false);
-  }, [onOpenChange, collision]);
+  }, [onOpenChange, collision, phase]);
 
   // #231: the collision prompt's three policies — overwrite keeps
   // the planned names, rename re-stems the set to <basename>_N,
@@ -194,6 +212,10 @@ export function ExportDialog({
   const submit = useCallback(async () => {
     const gen = ++generation.current;
     setPhase("running");
+    // #383: every attempt gets a fresh controller — the cancel
+    // button and dialog-close both flip it.
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const res = await port.export({
         formats: effectiveFormats,
@@ -213,7 +235,7 @@ export function ExportDialog({
             setCollision({ names, resolve });
             setPhase("collision");
           }),
-      });
+      }, controller.signal);
       if (generation.current !== gen) return;
       setResult(res);
       setPhase("done");
@@ -237,6 +259,8 @@ export function ExportDialog({
               : "failed",
       );
       setPhase("error");
+    } finally {
+      abortRef.current = null;
     }
   }, [effectiveFormats, port, destination, basename, onAnnounce]);
 

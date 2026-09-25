@@ -131,6 +131,52 @@ describe("TauriExportPort.export", () => {
     ).rejects.toMatchObject({ code: "MUSESCORE_UNAVAILABLE" });
     expect(invokeMock.mock.calls.some((c) => c[0] === "export_run")).toBe(false);
   });
+
+  it("abort during the run fires export_cancel with the matching exportId (#383)", async () => {
+    let runId = "";
+    invokeMock.mockImplementation(async (cmd: string, args: unknown) => {
+      if (cmd === "export_check_existing") return [];
+      if (cmd === "export_run") {
+        runId = (args as { exportId: string }).exportId;
+        // The Rust side notices the flag and rejects cancelled —
+        // simulate the same outcome the real command produces.
+        await new Promise((r) => setTimeout(r, 20));
+        throw new Error("EXPORT_CANCELLED");
+      }
+      if (cmd === "export_cancel") return null;
+      throw new Error("unexpected " + cmd);
+    });
+    const controller = new AbortController();
+    const pending = port().export(
+      { formats: ["concertMusicxml"], destination: "C:\\out" },
+      controller.signal,
+    );
+    // Wait until the transactional call is actually in flight.
+    for (let i = 0; i < 100 && !runId; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({
+      code: "EXPORT_CANCELLED",
+    });
+    const cancel = invokeMock.mock.calls.find((c) => c[0] === "export_cancel");
+    expect(runId).not.toBe("");
+    expect(cancel?.[1]).toEqual({ exportId: runId });
+  });
+
+  it("a pre-aborted signal rejects EXPORT_CANCELLED without the bridge (#383)", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      port().export(
+        { formats: ["concertMusicxml"], destination: "C:\\out" },
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({ code: "EXPORT_CANCELLED" });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "export_run")).toBe(
+      false,
+    );
+  });
 });
 
 describe("TauriExportPort.capabilities", () => {

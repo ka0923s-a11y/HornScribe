@@ -145,8 +145,16 @@ export class MockExportPort implements ExportPort {
     return "C:\\Users\\user\\Documents\\HornScribe";
   }
 
-  async export(request: ExportRequest): Promise<ExportResult> {
+  async export(
+    request: ExportRequest,
+    signal?: AbortSignal,
+  ): Promise<ExportResult> {
     await this.delay();
+    // #383: honour the same cancel surface as the real port —
+    // dev/testing sees the aborted run, not a silent completion.
+    if (signal?.aborted) {
+      throw new ExportError("EXPORT_CANCELLED", "export cancelled");
+    }
     const failure = this.options.failure;
     if (failure) {
       throw new ExportError(failure, `mock export failure: ${failure}`);

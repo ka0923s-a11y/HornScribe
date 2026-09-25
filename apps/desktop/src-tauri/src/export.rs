@@ -10,9 +10,11 @@
 //! (.musicxml/.xml/.mid/.pdf) and may not contain path separators, so
 //! the command can never escape the destination directory.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
@@ -27,6 +29,45 @@ const AUDIO_EXTENSIONS: [&str; 5] = ["wav", "mp3", "flac", "m4a", "ogg"];
 /// Directories the user explicitly picked via `export_pick_dir` this
 /// session — the write side of the self-limiting model.
 static GRANTED_DIRS: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+
+/// A live `export_run` — the cancel flag flips from `export_cancel`,
+/// and the in-flight MuseScore child is killed on cancel (#383).
+struct ExportHandle {
+    cancelled: AtomicBool,
+    child: Mutex<Option<std::process::Child>>,
+}
+
+/// exportId -> live export. Entries are removed when `export_run`
+/// returns; a cancel for an unknown/finished id is a no-op.
+static EXPORT_RUNS: Mutex<Option<HashMap<String, Arc<ExportHandle>>>> =
+    Mutex::new(None);
+
+fn export_runs() -> std::sync::MutexGuard<'static, Option<HashMap<String, Arc<ExportHandle>>>> {
+    EXPORT_RUNS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn export_cancelled(handle: Option<&ExportHandle>) -> bool {
+    handle.is_some_and(|h| h.cancelled.load(Ordering::SeqCst))
+}
+
+/// `export_cancel` — flip the flag and kill the MuseScore child if one
+/// is in flight. The run itself notices at its next checkpoint and
+/// tears the staging dir down without committing anything (#383).
+#[tauri::command]
+pub fn export_cancel(export_id: String) -> Result<(), String> {
+    let handle = {
+        let guard = export_runs();
+        guard.as_ref().and_then(|m| m.get(&export_id).cloned())
+    };
+    if let Some(h) = handle {
+        h.cancelled.store(true, Ordering::SeqCst);
+        if let Some(mut child) = h.child.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    Ok(())
+}
 
 fn grant_dir(dir: PathBuf) {
     let mut guard = GRANTED_DIRS.lock().unwrap_or_else(|e| e.into_inner());
@@ -468,12 +509,39 @@ pub fn export_run(
     files: Vec<ExportFile>,
     pdfs: Vec<ExportRunPdf>,
     musescore_path: Option<String>,
+    export_id: String,
 ) -> Result<Vec<String>, String> {
     let dir_path = PathBuf::from(&dir);
     if !dir_allowed(&app, &dir_path) {
         return Err("PERMISSION_DENIED".to_string());
     }
-    run_export(&dir_path, audio, files, pdfs, musescore_path)
+    // #383: register before any work so a cancel arriving early still
+    // lands — the run checkpoints between every stage.
+    let handle = Arc::new(ExportHandle {
+        cancelled: AtomicBool::new(false),
+        child: Mutex::new(None),
+    });
+    {
+        let mut guard = export_runs();
+        guard
+            .get_or_insert_with(HashMap::new)
+            .insert(export_id.clone(), handle.clone());
+    }
+    let result = run_export(
+        &dir_path,
+        audio,
+        files,
+        pdfs,
+        musescore_path,
+        Some(&handle),
+    );
+    {
+        let mut guard = export_runs();
+        if let Some(m) = guard.as_mut() {
+            m.remove(&export_id);
+        }
+    }
+    result
 }
 
 /// The transactional body of `export_run`, split from the AppHandle
@@ -484,7 +552,18 @@ fn run_export(
     files: Vec<ExportFile>,
     pdfs: Vec<ExportRunPdf>,
     musescore_path: Option<String>,
+    handle: Option<&ExportHandle>,
 ) -> Result<Vec<String>, String> {
+    // #383: cancel checkpoints — the flag is cheap to read, so every
+    // stage boundary honours a cancel; once the commit loop starts it
+    // runs to completion (a half-committed set is worse than a
+    // finished one), so the last gate sits right before it.
+    let check = |h: Option<&ExportHandle>| -> Result<(), String> {
+        if export_cancelled(h) {
+            return Err("EXPORT_CANCELLED".to_string());
+        }
+        Ok(())
+    };
     // Validate everything before touching the filesystem — a bad name
     // must not leave a half-staged directory behind.
     for f in &files {
@@ -524,16 +603,19 @@ fn run_export(
     let staging =
         std::env::temp_dir().join(format!("hornscribe-export-{}-{}", std::process::id(), uniq));
     let result = (|| -> Result<Vec<String>, String> {
+        check(handle)?;
         std::fs::create_dir_all(&staging)
             .map_err(|e| format!("stage {}: {e}", staging.display()))?;
         let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
         if let Some(a) = &audio {
+            check(handle)?;
             let src = PathBuf::from(&a.src);
             let tmp = staging.join(&a.name);
             std::fs::copy(&src, &tmp).map_err(|e| format!("copy {}: {e}", tmp.display()))?;
             staged.push((tmp, dir_path.join(&a.name)));
         }
         for f in &files {
+            check(handle)?;
             let bytes = decode_base64(&f.data_base64).map_err(|e| format!("{}: {e}", f.name))?;
             let tmp = staging.join(&f.name);
             std::fs::write(&tmp, &bytes).map_err(|e| format!("write {}: {e}", tmp.display()))?;
@@ -541,17 +623,15 @@ fn run_export(
         }
         if let Some(exe) = &exe {
             for p in &pdfs {
+                check(handle)?;
                 let tmp_xml = staging.join(format!("{}.musicxml", p.name));
                 std::fs::write(&tmp_xml, p.music_xml.as_bytes())
                     .map_err(|e| format!("stage {}: {e}", tmp_xml.display()))?;
                 let tmp_pdf = staging.join(&p.name);
-                let status = std::process::Command::new(exe)
-                    .args(["-o"])
-                    .arg(&tmp_pdf)
-                    .arg(&tmp_xml)
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
+                // #383: spawn + poll instead of blocking .status() —
+                // export_cancel flips the flag AND kills the child,
+                // and the poll loop notices either way.
+                let status = wait_render(exe, &tmp_pdf, &tmp_xml, handle);
                 let _ = std::fs::remove_file(&tmp_xml);
                 match status {
                     Ok(s) if s.success() && tmp_pdf.is_file() => {}
@@ -559,12 +639,16 @@ fn run_export(
                         return Err(format!("MuseScore exited with {s}"));
                     }
                     Err(e) => {
-                        return Err(format!("spawn {}: {e}", exe.display()));
+                        return Err(e);
                     }
                 }
                 staged.push((tmp_pdf, dir_path.join(&p.name)));
             }
         }
+        // Last cancel gate: once the commit loop starts it runs to
+        // completion — a half-committed artifact set is worse than a
+        // finished one the user can simply delete.
+        check(handle)?;
         let mut out = Vec::with_capacity(staged.len());
         for (tmp, dest) in staged {
             if dest.exists() {
@@ -584,6 +668,77 @@ fn run_export(
     })();
     let _ = std::fs::remove_dir_all(&staging);
     result
+}
+
+/// Spawn one MuseScore PDF render and wait for it — killable (#383).
+/// With a live export handle the child parks in the handle's slot so
+/// `export_cancel` can take+kill it while the poll loop also watches
+/// the flag; without a handle (unit tests) it waits inline, the same
+/// semantics the old blocking `.status()` had.
+fn wait_render(
+    exe: &Path,
+    tmp_pdf: &Path,
+    tmp_xml: &Path,
+    handle: Option<&ExportHandle>,
+) -> Result<std::process::ExitStatus, String> {
+    let spawned = std::process::Command::new(exe)
+        .args(["-o"])
+        .arg(tmp_pdf)
+        .arg(tmp_xml)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let mut child = match spawned {
+        Ok(c) => c,
+        Err(e) => return Err(format!("spawn {}: {e}", exe.display())),
+    };
+    let Some(h) = handle else {
+        return child
+            .wait()
+            .map_err(|e| format!("wait {}: {e}", exe.display()));
+    };
+    {
+        let mut slot = h.child.lock().unwrap_or_else(|e| e.into_inner());
+        *slot = Some(child);
+    }
+    let status = loop {
+        if h.cancelled.load(Ordering::SeqCst) {
+            // Flagged but the child may still be ours — take+kill it.
+            let mut slot = h.child.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(mut c) = slot.take() {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
+            drop(slot);
+            return Err("EXPORT_CANCELLED".to_string());
+        }
+        let done: Option<std::process::ExitStatus> = {
+            let mut slot = h.child.lock().unwrap_or_else(|e| e.into_inner());
+            match slot.as_mut() {
+                Some(c) => match c.try_wait() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        drop(slot);
+                        return Err(format!("wait {}: {e}", exe.display()));
+                    }
+                },
+                // export_cancel already took+killed the child.
+                None => {
+                    drop(slot);
+                    return Err("EXPORT_CANCELLED".to_string());
+                }
+            }
+        };
+        if let Some(s) = done {
+            break s;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    {
+        let mut slot = h.child.lock().unwrap_or_else(|e| e.into_inner());
+        *slot = None;
+    }
+    Ok(status)
 }
 
 /// `open_in_musescore`: stage the score as a temp MusicXML and launch the
@@ -758,6 +913,7 @@ mod tests {
             ],
             vec![],
             None,
+            None,
         )
         .unwrap();
         assert_eq!(out.len(), 3);
@@ -789,6 +945,7 @@ mod tests {
             ],
             vec![],
             None,
+            None,
         )
         .unwrap_err();
         assert!(err.contains("take_playback.mid"));
@@ -810,10 +967,41 @@ mod tests {
                 music_xml: "<xml/>".into(),
             }],
             None,
+            None,
         )
         .unwrap_err();
         assert_eq!(err, "MUSESCORE_UNAVAILABLE");
         assert!(!dir.join("take_concert.musicxml").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_export_pre_cancelled_writes_nothing() {
+        // #383: a cancelled run commits no artifacts — the flag is
+        // checked at every stage boundary.
+        let dir = tmp_dir("cancel");
+        std::fs::create_dir_all(&dir).unwrap();
+        let handle = ExportHandle {
+            cancelled: AtomicBool::new(true),
+            child: Mutex::new(None),
+        };
+        let err = run_export(
+            &dir,
+            None,
+            vec![file("take_concert.musicxml", "<xml/>")],
+            vec![],
+            None,
+            Some(&handle),
+        )
+        .unwrap_err();
+        assert_eq!(err, "EXPORT_CANCELLED");
+        assert!(!dir.join("take_concert.musicxml").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn export_cancel_unknown_id_is_noop() {
+        // A stale/late cancel must not fail — the run already finished.
+        assert!(export_cancel("hornscribe-export-nope".to_string()).is_ok());
     }
 }

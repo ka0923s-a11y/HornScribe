@@ -173,7 +173,7 @@ export interface ExportPort {
    * typed {@link ExportError} whose code drives the §20 recovery surface —
    * raw engine output/stack traces stay behind the port.
    */
-  export(request: ExportRequest): Promise<ExportResult>;
+  export(request: ExportRequest, signal?: AbortSignal): Promise<ExportResult>;
   /**
    * Reveal a directory in the OS file manager (エクスプローラーで表示).
    * Resolves false where the bridge cannot do that — the caller announces

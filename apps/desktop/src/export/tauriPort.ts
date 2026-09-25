@@ -102,6 +102,9 @@ function mapInvokeError(err: unknown): ExportError {
   if (msg.includes("MUSESCORE_UNAVAILABLE")) {
     return new ExportError("MUSESCORE_UNAVAILABLE", msg);
   }
+  if (msg.includes("EXPORT_CANCELLED")) {
+    return new ExportError("EXPORT_CANCELLED", msg);
+  }
   return new ExportError("EXPORT_FAILED", msg);
 }
 
@@ -115,6 +118,10 @@ export class TauriExportPort implements ExportPort {
    *  document has no canonical payload) the client-side MusicXML→MIDI
    *  rebuild is used as before. */
   private readonly midiExporter?: (scoreDocument: unknown) => Promise<string>;
+
+  /** Monotonic id source for `export_run`/`export_cancel` pairing —
+   *  collision-safe per export attempt (#383). */
+  private exportSeq = 0;
 
   constructor(
     private readonly source: () => ExportSource | null,
@@ -171,7 +178,18 @@ export class TauriExportPort implements ExportPort {
     }
   }
 
-  async export(request: ExportRequest): Promise<ExportResult> {
+  async export(
+    request: ExportRequest,
+    signal?: AbortSignal,
+  ): Promise<ExportResult> {
+    // #383: a cancelled run throws EXPORT_CANCELLED — the dialog treats
+    // it as a quiet abort, never an error surface.
+    const throwIfAborted = () => {
+      if (signal?.aborted) {
+        throw new ExportError("EXPORT_CANCELLED", "export cancelled");
+      }
+    };
+    throwIfAborted();
     const source = this.source();
     if (!source?.doc) {
       throw new ExportError("EXPORT_FAILED", "no score document to export");
@@ -298,17 +316,32 @@ export class TauriExportPort implements ExportPort {
 
     // #258: one transactional call — audio + files + PDFs are staged
     // and committed together; a failure anywhere writes nothing.
-    const paths = await invoke<string[]>("export_run", {
-      dir,
-      audio: wantsAudio
-        ? { name: names.get("sourceAudio"), src: source.audioPath }
-        : null,
-      files: batch,
-      pdfs: pdfPayloads,
-      musescorePath: museScorePath,
-    }).catch((err) => {
-      throw mapInvokeError(err);
-    });
+    // #383: the run is cancellable end-to-end — exportId pairs with
+    // export_cancel, which flips the Rust-side flag and kills the
+    // MuseScore child; staging then tears down without committing.
+    const exportId = `hornscribe-export-${Date.now()}-${++this.exportSeq}`;
+    const onAbort = () => {
+      void invoke("export_cancel", { exportId }).catch(() => undefined);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    let paths: string[];
+    try {
+      throwIfAborted();
+      paths = await invoke<string[]>("export_run", {
+        dir,
+        audio: wantsAudio
+          ? { name: names.get("sourceAudio"), src: source.audioPath }
+          : null,
+        files: batch,
+        pdfs: pdfPayloads,
+        musescorePath: museScorePath,
+        exportId,
+      }).catch((err) => {
+        throw mapInvokeError(err);
+      });
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
 
     // export_run returns staged-commit order: audio, files, then PDFs —
     // map back onto formats by name for the result list.
