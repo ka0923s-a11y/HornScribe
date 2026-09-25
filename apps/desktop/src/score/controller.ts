@@ -136,6 +136,12 @@ export interface ScoreWorkspaceController {
   // ---- undo/redo (§14: review decisions and corrections are commands) ----
   undo(): void;
   redo(): void;
+
+  // ---- pending engine edits (#399) ----
+  /** Engine edits are async — resolves once every queued score.edit
+   *  has landed (or failed), so a snapshotting caller (Ctrl+S) saves
+   *  the document in the user's true action order. */
+  waitForPendingEdits?(): Promise<void>;
 }
 
 /** Live workspace state mirrored up to the app for command predicates and
@@ -163,4 +169,8 @@ export interface ScoreWorkspaceState {
   readonly openIssueCount: number;
   /** FEAT-001: score audition enabled (drives the transport toggle). */
   readonly auditionEnabled: boolean;
+  /** #399: in-flight serialized engine edits — >0 means committed
+   *  content trails the user's actions; guards must treat this as
+   *  unsaved work even though editVersion has not bumped yet. */
+  readonly pendingEdits: number;
 }

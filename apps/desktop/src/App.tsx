@@ -333,6 +333,11 @@ export default function App() {
   const savedFingerprintRef = useRef<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const dirtyRef = useRef(false);
+  /* #399: engine edits commit asynchronously — an in-flight
+   *  score.edit is unsaved work even before editVersion moves.
+   *  Mirrored from the workspace's ScoreWorkspaceState so the
+   *  unsaved guards engage without waiting for the 500 ms poll. */
+  const pendingEditsRef = useRef(0);
   /** A queued destructive navigation held behind the 未保存 guard —
    *  the closure re-runs the refused action once the user chooses
    *  保存せずに続ける / 保存して続ける. */
@@ -728,15 +733,19 @@ export default function App() {
   useEffect(() => {
     const tick = () => {
       const doc = scoreDocument;
+      // #399: a document swap drops the workspace that owned the
+      // pending count — never let a stale >0 pin the guards.
+      if (!doc) pendingEditsRef.current = 0;
       const dirty =
-        doc != null &&
-        isSaveableRevision(doc.revisionId) &&
-        dirtyFingerprint({
-          doc,
-          projectId: projectIdRef.current,
-          audio: importState.audio,
-          priorSource: projectSourceRef.current,
-        }) !== savedFingerprintRef.current;
+        pendingEditsRef.current > 0 ||
+        (doc != null &&
+          isSaveableRevision(doc.revisionId) &&
+          dirtyFingerprint({
+            doc,
+            projectId: projectIdRef.current,
+            audio: importState.audio,
+            priorSource: projectSourceRef.current,
+          }) !== savedFingerprintRef.current);
       const was = dirtyRef.current;
       dirtyRef.current = dirty;
       setIsDirty(dirty);
@@ -1079,6 +1088,10 @@ export default function App() {
       return false;
     }
     try {
+      /* #399: engine edits are async — wait out the serialized queue
+       * so an edit→Ctrl+S sequence snapshots the post-edit document,
+       * matching the user's real action order. */
+      await scoreCtlRef.current?.waitForPendingEdits?.();
       /* #132: a recording-backed source gets copied into the managed
        * sources/ area before the project is written — the saved
        * originalPath then points outside the retention sweep, so
@@ -2129,7 +2142,14 @@ export default function App() {
                   initialViewMode={settings.scoreInitialView}
                   followPlayback={settings.followPlayback}
                   onInspectorChange={setInspectorModel}
-                  onScoreStateChange={setScoreState}
+                  onScoreStateChange={(s) => {
+                    // #399: pending engine edits are unsaved work —
+                    // mirror eagerly so the 未保存 guards engage
+                    // before the 500 ms poll catches up.
+                    pendingEditsRef.current = s.pendingEdits;
+                    if (s.pendingEdits > 0) dirtyRef.current = true;
+                    setScoreState(s);
+                  }}
                   scoreControllerRef={(c) => {
                     scoreCtlRef.current = c;
                   }}
@@ -2329,6 +2349,7 @@ export default function App() {
             engineStatus={engineStatusText(sessionSnap.engine)}
             unsaved={isDirty}
             autosaveFailed={autosaveFailed}
+            scoreUpdating={(scoreState?.pendingEdits ?? 0) > 0}
           />
           {/* Re-import failure over a live workspace (§20): the audio session
               is kept, the failure surfaces as a dialog — never a dead end. */}

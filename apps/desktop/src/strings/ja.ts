@@ -1208,6 +1208,8 @@ export const ja = {
   scoreView: {
     regionLabel: "楽譜",
     loading: "楽譜を読み込んでいます…",
+    /* #399: engine editがqueueで実行中 — statusbarの小さなbusy表示。 */
+    updating: "楽譜を更新しています…",
     renderErrorTitle: "楽譜を表示できません",
     renderErrorBody:
       "楽譜データの読み込みに失敗しました。プロジェクトと採譜結果は失われていません。",

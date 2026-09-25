@@ -428,6 +428,19 @@ export function ScoreReadyWorkspace({
    *  chain so a fast key repeat builds on the newest content instead of
    *  racing two score.edit calls against the same revision. */
   const rhythmQueueRef = useRef<Promise<void>>(Promise.resolve());
+  /* #399: queued engine edits count as unsaved work from enqueue,
+   *  not from engine response — the app mirrors this count into its
+   *  dirty/close guards so an in-flight edit is never dropped
+   *  silently. mountedRef keeps a late engine response from mutating
+   *  a document the app already swapped out. */
+  const [pendingEdits, setPendingEdits] = useState(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const allIssues = useMemo(
     () => session.issues(),
@@ -1330,20 +1343,28 @@ export function ScoreReadyWorkspace({
         return;
       }
       // Serialize engine edits: each call must see the newest content.
+      // #399: the edit is pending work from THIS point — guards and
+      // Ctrl+S see it before the engine answers.
+      setPendingEdits((n) => n + 1);
       rhythmQueueRef.current = rhythmQueueRef.current.then(async () => {
-        const canonical = scoreDoc.canonicalDocument?.();
-        const prev = scoreDoc.contentSnapshot?.();
-        if (canonical == null || !prev) {
-          announce(ja.commandFeedback.rhythmEditUnavailable);
-          return;
-        }
-        const op = buildOp(canonical);
-        if (!op) {
-          announce(ja.commandFeedback.rhythmEditFailed);
-          return;
-        }
         try {
+          const canonical = scoreDoc.canonicalDocument?.();
+          const prev = scoreDoc.contentSnapshot?.();
+          if (canonical == null || !prev) {
+            announce(ja.commandFeedback.rhythmEditUnavailable);
+            return;
+          }
+          const op = buildOp(canonical);
+          if (!op) {
+            announce(ja.commandFeedback.rhythmEditFailed);
+            return;
+          }
           const result = await onRhythmEdit(canonical, op);
+          // #399: the app may have swapped this document out while
+          // the engine worked — a late response must not write into
+          // a detached document (the mounted workspace owns the new
+          // one).
+          if (!mountedRef.current) return;
           const next = {
             concertXml: result.musicXmlConcert,
             hornXml: result.musicXmlHornF,
@@ -1367,6 +1388,11 @@ export function ScoreReadyWorkspace({
           after?.();
         } catch {
           announce(ja.commandFeedback.rhythmEditFailed);
+        } finally {
+          // #399: every exit path (success, failure, bail-out,
+          // unmount) releases the pending count — a stuck >0 would
+          // pin the app's unsaved guards forever.
+          setPendingEdits((n) => Math.max(0, n - 1));
         }
       });
     },
@@ -1793,6 +1819,10 @@ const setKey = useCallback(
       exitReview: () => exitReview(),
       undo: () => reviewUndo(),
       redo: () => reviewRedo(),
+      // #399: callers that snapshot the document (Ctrl+S) wait out
+      // the serialized engine queue so their write lands after the
+      // user's last edit, not before it.
+      waitForPendingEdits: () => rhythmQueueRef.current,
       // #114: score-workspace navigation + direct note edits (spec 10/13).
       selectAdjacentNote: (direction) => selectAdjacentNote(direction),
       editSelectedPitch: (delta) => editSelectedPitch(delta),
@@ -1886,6 +1916,9 @@ const setKey = useCallback(
       canRedo: session.canRedo,
       openIssueCount: pendingCount,
       auditionEnabled,
+      // #399: queued engine edits — unsaved work from the app's
+      // perspective even before editVersion moves.
+      pendingEdits,
     });
   }, [
     selection,
@@ -1901,6 +1934,7 @@ const setKey = useCallback(
     pendingCount,
     docVersion,
     auditionEnabled,
+    pendingEdits,
   ]);
 
   // Initial inspector = score summary (§22 "Nothing selected").

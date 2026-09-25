@@ -10,6 +10,7 @@ export function StatusBar({
   engineStatus,
   unsaved,
   autosaveFailed,
+  scoreUpdating,
 }: {
   message: string;
   detail?: string;
@@ -23,6 +24,10 @@ export function StatusBar({
    *  Non-modal (editing continues) but it stays up until a recovery
    *  write lands or the work is saved another way. */
   autosaveFailed?: boolean;
+  /** #399: engine edits in flight — a subdued busy marker so the
+   *  自動保存できません warning is never the only signal that work
+   *  is mid-commit. */
+  scoreUpdating?: boolean;
 }) {
   return (
     <div
@@ -36,6 +41,11 @@ export function StatusBar({
       {unsaved ? (
         <span className="hs-statusbar__unsaved">
           {ja.project.unsavedBadge}
+        </span>
+      ) : null}
+      {scoreUpdating ? (
+        <span className="hs-statusbar__updating">
+          {ja.scoreView.updating}
         </span>
       ) : null}
       {autosaveFailed ? (
