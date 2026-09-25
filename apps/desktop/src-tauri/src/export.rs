@@ -207,6 +207,26 @@ fn which_exists(exe: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// `probe_tool_path`: verify a user-specified tool path (設定 → ツール)
+/// actually points at a file. The settings/diagnostics surfaces used to
+/// mark any non-empty override "found" until the export subprocess
+/// failed — this lets them probe the real path up front (#363).
+#[tauri::command]
+pub fn probe_tool_path(path: String) -> ToolProbe {
+    let trimmed = path.trim();
+    if !trimmed.is_empty() && Path::new(trimmed).is_file() {
+        ToolProbe {
+            status: "found".into(),
+            path: Some(trimmed.to_string()),
+        }
+    } else {
+        ToolProbe {
+            status: "missing".into(),
+            path: None,
+        }
+    }
+}
+
 /// `reveal_in_explorer`: open a directory in the OS file manager.
 #[tauri::command]
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {

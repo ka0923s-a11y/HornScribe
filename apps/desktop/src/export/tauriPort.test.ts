@@ -133,3 +133,36 @@ describe("TauriExportPort.export", () => {
   });
 });
 
+describe("TauriExportPort.capabilities", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "detect_tools") {
+        return { museScore: { status: "missing" }, ffmpeg: { status: "missing" } };
+      }
+      if (cmd === "probe_tool_path") return { status: "found", path: "D:\\ms.exe" };
+      throw new Error("unexpected invoke " + cmd);
+    });
+  });
+
+  it("a verified override reports found (#363)", async () => {
+    const caps = await port().capabilities({ museScorePath: "D:\\ms.exe" });
+    expect(caps.museScore).toEqual({ status: "found", path: "D:\\ms.exe" });
+    expect(invokeMock).toHaveBeenCalledWith("probe_tool_path", {
+      path: "D:\\ms.exe",
+    });
+  });
+
+  it("a bogus override reports missing instead of a blind 検出済み (#363)", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "detect_tools") {
+        return { museScore: { status: "missing" }, ffmpeg: { status: "missing" } };
+      }
+      if (cmd === "probe_tool_path") return { status: "missing" };
+      throw new Error("unexpected invoke " + cmd);
+    });
+    const caps = await port().capabilities({ museScorePath: "D:\\nope.exe" });
+    expect(caps.museScore.status).toBe("missing");
+    expect(caps.museScore.path).toBe("D:\\nope.exe");
+  });
+});

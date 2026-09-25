@@ -150,6 +150,7 @@ pub fn run() {
             export::export_check_existing,
             export::export_run,
             export::detect_tools,
+            export::probe_tool_path,
             export::reveal_in_explorer,
             export::project_save_path,
             export::project_autosave_write,

@@ -5,9 +5,16 @@
  * tool-path overrides as the export port.
  */
 
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MockDiagnosticsPort } from "./mockPort";
+import { ShellDiagnosticsPort } from "./port";
 import { withPathOverride } from "./types";
+
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}));
 
 describe("MockDiagnosticsPort.collect", () => {
   it("populates the full §19 surface", async () => {
@@ -39,6 +46,51 @@ describe("MockDiagnosticsPort.collect", () => {
     const port = new MockDiagnosticsPort({ latencyMs: 0 });
     await expect(port.openLogFolder()).resolves.toBe(false);
     await expect(port.restartEngine()).resolves.toBe(true);
+  });
+});
+
+describe("ShellDiagnosticsPort.collect", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "shell_info") return { version: "1.2.3" };
+      if (cmd === "detect_tools") {
+        return {
+          museScore: { status: "found", path: "MuseScore4" },
+          ffmpeg: { status: "missing" },
+        };
+      }
+      if (cmd === "probe_tool_path") return { status: "missing" };
+      throw new Error("unexpected invoke " + cmd);
+    });
+  });
+
+  it("reports real detect_tools results instead of blanket unknown", async () => {
+    const info = await new ShellDiagnosticsPort().collect();
+    expect(info.appVersion).toBe("1.2.3");
+    expect(info.tools.museScore).toEqual({
+      status: "found",
+      path: "MuseScore4",
+    });
+    expect(info.tools.ffmpeg).toEqual({ status: "missing" });
+  });
+
+  it("a bogus user override reports missing — not a blind 検出済み (#363)", async () => {
+    const info = await new ShellDiagnosticsPort().collect({
+      ffmpegPath: "D:\\nope\\ffmpeg.exe",
+    });
+    expect(info.tools.ffmpeg.status).toBe("missing");
+    expect(info.tools.ffmpeg.path).toBe("D:\\nope\\ffmpeg.exe");
+  });
+
+  it("detect_tools failure degrades to unknown, never rejects", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "shell_info") return { version: "1.2.3" };
+      throw new Error("no probe");
+    });
+    const info = await new ShellDiagnosticsPort().collect();
+    expect(info.tools.museScore.status).toBe("unknown");
+    expect(info.tools.ffmpeg.status).toBe("unknown");
   });
 });
 

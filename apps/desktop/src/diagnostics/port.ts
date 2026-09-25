@@ -18,6 +18,7 @@
 
 import { getShellInfo, isTauriRuntime } from "../tauri/bridge";
 import { MockDiagnosticsPort } from "./mockPort";
+import { detectTools, resolveToolWithOverride } from "./toolProbe";
 import type { DiagnosticsInfo, ToolPathOverrides } from "./types";
 
 export interface DiagnosticsPort {
@@ -45,16 +46,29 @@ export interface DiagnosticsPort {
  * for everything that needs the missing engine/fs bridge.
  */
 export class ShellDiagnosticsPort implements DiagnosticsPort {
-  async collect(): Promise<DiagnosticsInfo> {
+  async collect(overrides?: ToolPathOverrides): Promise<DiagnosticsInfo> {
     const shell = await getShellInfo();
+    // Real detection exists (export.detect_tools) — report it instead
+    // of the old blanket "unknown"; overrides verified via #363 probe.
+    const tools = await detectTools();
+    const [museScore, ffmpeg] = await Promise.all([
+      resolveToolWithOverride(
+        tools?.museScore ?? { status: "unknown" },
+        overrides?.museScorePath,
+      ),
+      resolveToolWithOverride(
+        tools?.ffmpeg ?? { status: "unknown" },
+        overrides?.ffmpegPath,
+      ),
+    ]);
     return {
       appVersion: shell?.version ?? null,
       engine: null,
       protocolVersion: null,
       backend: null,
       tools: {
-        ffmpeg: { status: "unknown" },
-        museScore: { status: "unknown" },
+        ffmpeg,
+        museScore,
         verovio: { status: "unknown" },
         wavesurfer: { status: "unknown" },
       },

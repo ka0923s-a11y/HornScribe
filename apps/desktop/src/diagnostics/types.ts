@@ -66,8 +66,10 @@ export interface ToolPathOverrides {
 
 /**
  * Merges a probed {@link ToolInfo} with a user-specified path: a non-empty
- * override wins (the user told us where the tool lives — the real probe
- * verifies it; until then the UI reports the override as the location).
+ * override wins and is reported as found. This is the *unverified* merge —
+ * inside the Tauri webview prefer `resolveToolWithOverride` (toolProbe.ts),
+ * which probes the path for real (#363). This remains for the browser mock
+ * and as the no-bridge fallback.
  */
 export function withPathOverride(
   probed: ToolInfo,

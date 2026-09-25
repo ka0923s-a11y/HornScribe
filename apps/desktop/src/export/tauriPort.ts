@@ -11,10 +11,12 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import {
-  withPathOverride,
-  type ToolInfo,
   type ToolPathOverrides,
 } from "../diagnostics/types";
+import {
+  detectTools,
+  resolveToolWithOverride,
+} from "../diagnostics/toolProbe";
 import type { ScoreDocumentPort } from "../score/document";
 import { buildMidiFile } from "./midi";
 import {
@@ -50,21 +52,6 @@ export interface ExportSource {
    readonly audioPath: string | null;
   /** Original audio file name (extension kept) for the bundle copy. */
    readonly audioName: string | null;
-}
-
-interface DetectedToolWire {
-  status: string;
-  path?: string;
-}
-interface DetectedToolsWire {
-  museScore: DetectedToolWire;
-  ffmpeg: DetectedToolWire;
-}
-
-function toToolInfo(wire: DetectedToolWire): ToolInfo {
-  return wire.status === "found"
-    ? { status: "found", path: wire.path }
-    : { status: "missing" };
 }
 
 /** UTF-8-safe base64 (btoa chokes on multibyte; chunk to stay under the
@@ -140,17 +127,20 @@ export class TauriExportPort implements ExportPort {
     overrides?: ToolPathOverrides,
   ): Promise<ExportCapabilities> {
     this.overrides = overrides;
-    const tools = await invoke<DetectedToolsWire>("detect_tools").catch(
-      () => null,
-    );
-    const museScore = withPathOverride(
-      tools ? toToolInfo(tools.museScore) : { status: "missing" },
-      overrides?.museScorePath,
-    );
-    const ffmpeg = withPathOverride(
-      tools ? toToolInfo(tools.ffmpeg) : { status: "missing" },
-      overrides?.ffmpegPath,
-    );
+    const tools = await detectTools();
+    // #363: a user-set override is probed against the filesystem — a
+    // bad path reports missing (with the path kept) instead of a blind
+    // 検出済み that only fails at export time.
+    const [museScore, ffmpeg] = await Promise.all([
+      resolveToolWithOverride(
+        tools?.museScore ?? { status: "missing" },
+        overrides?.museScorePath,
+      ),
+      resolveToolWithOverride(
+        tools?.ffmpeg ?? { status: "missing" },
+        overrides?.ffmpegPath,
+      ),
+    ]);
     return {
       // Client-side export needs no engine — report that honestly
       // rather than faking a handshake.
