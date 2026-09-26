@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Tooltip } from "@fluentui/react-components";
 import {
   ArrowRepeatAll24Regular,
+  MusicNote2Regular,
   Play24Regular,
   ZoomIn24Regular,
   Dismiss24Regular,
   ZoomFit24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
+import type { WaveformNote } from "../score/noteOverlay";
 import {
   readWaveformView,
   resizeKeyDelta,
@@ -189,6 +191,7 @@ export function WaveformView({
   onClearSelection,
   markers,
   onMarkerClick,
+  overlayNotes,
 }: {
   height: number;
   min: number;
@@ -226,15 +229,21 @@ export function WaveformView({
    *  source: the workspace's review cursor). */
   markers?: readonly WaveformMarker[];
   onMarkerClick?(index: number): void;
+  /** #402: canonical notes drawn over the peaks as a piano-roll strip
+   *  (sounding seconds — swing-warped the same way the audition is). */
+  overlayNotes?: readonly WaveformNote[];
 }) {
   const duration = audio?.durationSeconds ?? 0;
 
   // spec 15: the zoom window lives inside the strip - it resets whenever a
   // different clip loads (identity change), never mid-gesture.
   const [view, setView] = useState<ViewRange>(() => fullView(duration));
-  const audioRef = useRef(audio);
-  if (audioRef.current !== audio) {
-    audioRef.current = audio;
+  // The "previous audio" tracker is state, not a ref: a ref mutation
+  // during render survives a discarded concurrent render, so the guard
+  // would never re-fire and the view could stay stuck at {0,0}.
+  const [prevAudio, setPrevAudio] = useState(audio);
+  if (prevAudio !== audio) {
+    setPrevAudio(audio);
     // §26 session restore: reopening the same clip brings back the
     // zoomed window the user left; a different clip starts full.
     const restored =
@@ -467,6 +476,46 @@ export function WaveformView({
       ? Math.min(1, Math.max(0, positionSec / duration))
       : null;
 
+  /* #402: canonical-note overlay — a piano-roll lane grid over the
+   *  peaks so the detected notes stay auditable against the source
+   *  audio. Span x positions use the same view window as the peaks. */
+  const [overlayVisible, setOverlayVisible] = useState(true);
+  const overlayLanes = useMemo(() => {
+    if (!overlayNotes || overlayNotes.length === 0 || !overlayVisible) {
+      return null;
+    }
+    if (!(span > 0)) return null;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const n of overlayNotes) {
+      if (n.midi < lo) lo = n.midi;
+      if (n.midi > hi) hi = n.midi;
+    }
+    // Pad a narrow melody so lanes stay readable (min 12 semitones).
+    const pad = Math.max(2, Math.ceil((12 - (hi - lo)) / 2));
+    lo -= pad;
+    hi += pad;
+    const span2 = hi - lo;
+    const out: { id: string; left: number; width: number; top: number; height: number; partIndex: number }[] = [];
+    for (const n of overlayNotes) {
+      if (n.endSec <= view.startSec || n.startSec >= view.endSec) continue;
+      const l = Math.max(0, (n.startSec - view.startSec) / span);
+      const r = Math.min(1, (n.endSec - view.startSec) / span);
+      if (r <= l) continue;
+      const lane = (hi - n.midi) / span2; // higher pitch -> higher lane
+      out.push({
+        id: n.id,
+        left: l,
+        width: r - l,
+        top: lane * 100,
+        height: Math.max(4, 100 / span2),
+        partIndex: n.partIndex,
+      });
+      if (out.length >= 4000) break; // perf guard — pathological scores
+    }
+    return out;
+  }, [overlayNotes, overlayVisible, view, span]);
+
   const onMinimapDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!audio || duration <= 0 || e.button !== 0) return;
     e.stopPropagation();
@@ -554,6 +603,9 @@ export function WaveformView({
         .join(" ")}
       role="region"
       aria-label={ja.waveform.regionLabel}
+      data-view-start={view.startSec}
+      data-view-end={view.endSec}
+      data-audio-duration={duration}
       data-hs-focus-zone="waveform"
       tabIndex={0}
       style={{ height }}
@@ -722,6 +774,44 @@ export function WaveformView({
           <span className="hs-waveform__name" aria-hidden="true">
             {audio.fileName}
           </span>
+          {/* #402: piano-roll lanes of canonical notes over the peaks.
+              Click-through so selection/seek gestures pass underneath. */}
+          {overlayLanes ? (
+            <div
+              className="hs-waveform__notes"
+              data-note-count={overlayLanes.length}
+              aria-hidden="true"
+            >
+              {overlayLanes.map((n) => (
+                <div
+                  key={n.id}
+                  className={`hs-waveform__note${n.partIndex > 0 ? " hs-waveform__note--extra" : ""}`}
+                  style={{
+                    left: `${n.left * 100}%`,
+                    width: `${n.width * 100}%`,
+                    top: `${n.top}%`,
+                    height: `${n.height}%`,
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+          {overlayNotes && overlayNotes.length > 0 ? (
+            <Tooltip content={ja.waveform.noteOverlay} relationship="label">
+              <button
+                type="button"
+                className={`hs-waveform__notes-toggle${overlayVisible ? " hs-waveform__notes-toggle--on" : ""}`}
+                data-overlay-notes={overlayNotes?.length ?? 0}
+                data-overlay-lanes={overlayLanes?.length ?? -1}
+                aria-pressed={overlayVisible}
+                aria-label={ja.waveform.noteOverlay}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setOverlayVisible((v) => !v)}
+              >
+                <MusicNote2Regular />
+              </button>
+            </Tooltip>
+          ) : null}
           {/* #113: context actions for the committed selection (spec 8). */}
           {committedBand && !liveBand ? (
             <div

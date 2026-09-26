@@ -107,6 +107,8 @@ export const ja = {
       `第${n}件 ${title} ${time}`,
     markerCluster: (count: number, firstLabel: string) =>
       `${count}件の要確認（最初: ${firstLabel}）`,
+    /* #402: canonical-note overlay — toggle button on the strip */
+    noteOverlay: "音符オーバーレイの表示切替",
   },
 
   score: {

@@ -25,8 +25,12 @@ body {
 
 /* UI-009 latent bug, fixed for the real shell (UI-011): FluentProvider
    renders a wrapper div between #root and the shell; without a definite
-   height the `height:100%` grid below collapsed to content height. */
-.hs-provider {
+   height the grid below collapsed to content height.
+   Scoped to the app root: Fluent portal nodes (tooltips, popovers,
+   menus) mount as siblings of #root and inherit the provider class
+   chain — a 100%-height portal wrapper becomes an invisible
+   full-viewport overlay that swallows clicks while a tooltip is open. */
+#root > .hs-provider {
   height: 100%;
 }
 
@@ -354,6 +358,65 @@ body {
   color: var(--hs-text-muted);
   font-size: var(--hs-font-size-caption);
   pointer-events: none;
+}
+
+/* #402: canonical-note overlay — piano-roll lanes over the peaks.
+ *  Higher pitch sits higher; a second+ voice switches hue so a
+ *  harmony line reads apart from the lead. Click-through layer. */
+.hs-waveform__notes {
+  position: absolute;
+  inset: 4px 0 6px;
+  pointer-events: none;
+  z-index: 1;
+}
+.hs-waveform--minimap .hs-waveform__notes {
+  inset: 4px 0 20px;
+}
+.hs-waveform__note {
+  position: absolute;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--hs-accent) 40%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--hs-accent) 75%, transparent);
+}
+.hs-waveform__note--extra {
+  background: color-mix(in srgb, var(--hs-status-warning) 40%, transparent);
+  border-top-color: color-mix(
+    in srgb,
+    var(--hs-status-warning) 75%,
+    transparent
+  );
+}
+.hs-waveform__notes-toggle {
+  position: absolute;
+  right: var(--hs-space-sm);
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: 4px;
+  background: var(--hs-surface-panel);
+  color: var(--hs-text-secondary);
+  cursor: pointer;
+  z-index: 5;
+}
+.hs-waveform--minimap .hs-waveform__notes-toggle {
+  bottom: 24px;
+}
+.hs-waveform__notes-toggle:hover {
+  background: var(--hs-surface-hover, rgba(255, 255, 255, 0.08));
+  color: var(--hs-text-primary);
+}
+.hs-waveform__notes-toggle--on {
+  color: var(--hs-accent);
+  border-color: color-mix(in srgb, var(--hs-accent) 60%, transparent);
+}
+.hs-waveform__notes-toggle svg {
+  width: 16px;
+  height: 16px;
 }
 /* #116 (spec 8): minimap strip — whole-clip overview docked at the
    strip's bottom edge. The --minimap modifier lifts the main layers so

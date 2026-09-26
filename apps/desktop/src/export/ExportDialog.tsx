@@ -382,11 +382,22 @@ export function ExportDialog({
       setSelected((s) => ({ ...s, [key]: d.checked === true }));
 
   // #377: persist the last-used set — the next open restores it.
-  // Fires once on mount with the seeded value too; the write is
-  // idempotent so that echo is harmless.
+  // The callback prop may be an unstable inline closure whose body
+  // setStates the parent — depending on it directly loops
+  // update→render→update ("Maximum update depth exceeded"). The latest
+  // callback rides a ref and the effect only fires on a real selection
+  // change; the mount echo is skipped because the seeded value is what
+  // settings already holds.
+  const selectionChangeRef = useRef(onSelectionChange);
   useEffect(() => {
-    onSelectionChange?.(selected);
-  }, [selected, onSelectionChange]);
+    selectionChangeRef.current = onSelectionChange;
+  });
+  const lastReported = useRef(selected);
+  useEffect(() => {
+    if (lastReported.current === selected) return;
+    lastReported.current = selected;
+    selectionChangeRef.current?.(selected);
+  }, [selected]);
 
   const title =
     phase === "done"
