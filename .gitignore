@@ -30,3 +30,6 @@ apps/desktop/measurements/
 
 # #83: built frozen engine binary (rebuilt via scripts/build_engine.py)
 apps/desktop/src-tauri/resources/engine/hornscribe-engine*
+
+# vite dev-server scratch logs
+vite-*.log
