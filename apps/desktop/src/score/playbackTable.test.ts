@@ -10,6 +10,8 @@ import {
   buildPlaybackTable,
   canonicalsInRange,
   nearestCanonicalAt,
+  nextOnsetOrEnd,
+  remapLoopRange,
   segmentAt,
 } from "./playbackTable";
 
@@ -99,5 +101,43 @@ describe("nearestCanonicalAt", () => {
     expect(nearestCanonicalAt(table, 1900)).toBe("sn-000004");
     // Past the document end the scan falls back to the latest onset.
     expect(nearestCanonicalAt(table, 3100)).toBe("sn-000004");
+  });
+});
+
+describe("remapLoopRange (#335)", () => {
+  it("a note anchor re-derives the span through the new table", () => {
+    // Same anchor on a tempo-shifted table: the loop must land on the
+    // note's NEW ms position, not the stale range.
+    const shifted = buildPlaybackTable(
+      TIMEMAP.map((e) => ({ ...e, tstamp: e.tstamp * 2 })),
+    );
+    expect(remapLoopRange(shifted, "sn-000002")).toEqual({
+      kind: "range",
+      startMs: 1000,
+      endMs: 2000,
+    });
+  });
+
+  it("the note-span end is the next onset or the document end", () => {
+    expect(nextOnsetOrEnd(table, 0)).toBe(500);
+    // Fragments group under one canonical — 2500 belongs to sn-000004
+    // (onset 2000), so after 2000 the next thing is the document end.
+    expect(nextOnsetOrEnd(table, 2000)).toBe(3000);
+  });
+
+  it("'full' re-arms to the rebuilt duration", () => {
+    const shifted = buildPlaybackTable(
+      TIMEMAP.map((e) => ({ ...e, tstamp: e.tstamp * 2 })),
+    );
+    expect(remapLoopRange(shifted, "full")).toEqual({
+      kind: "range",
+      startMs: 0,
+      endMs: 6000,
+    });
+  });
+
+  it("a vanished anchor drops the loop; null keeps the ms range", () => {
+    expect(remapLoopRange(table, "sn-gone-999").kind).toBe("drop");
+    expect(remapLoopRange(table, null).kind).toBe("keep");
   });
 });

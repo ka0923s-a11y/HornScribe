@@ -172,3 +172,43 @@ export function nearestCanonicalAt(table: PlaybackTable, ms: number): string | n
   }
   return bestId;
 }
+
+/** Next distinct canonical onset after `onsetMs`, or the document end —
+ *  the end bound of a note-span loop. */
+export function nextOnsetOrEnd(
+  table: PlaybackTable,
+  onsetMs: number,
+): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (const t of table.onsetMsByCanonical.values()) {
+    if (t > onsetMs && t < best) best = t;
+  }
+  return Number.isFinite(best) ? best : table.durationMs;
+}
+
+/** #335: an armed loop anchors to a PASSAGE — after a table rebuild the
+ *  ms range must be re-derived or the loop drifts onto other notes. */
+export type RemappedLoop =
+  | { readonly kind: "keep" } // un-anchored — caller keeps the ms range
+  | { readonly kind: "drop" } // anchor note gone — caller clears the loop
+  | { readonly kind: "range"; readonly startMs: number; readonly endMs: number };
+
+/** Re-map an armed loop through a rebuilt table. `anchor` is the
+ *  canonical id the loop was armed over, "full" for a whole-score loop,
+ *  or null for an un-anchored/programmatic range (review-owned etc.). */
+export function remapLoopRange(
+  table: PlaybackTable,
+  anchor: string | "full" | null,
+): RemappedLoop {
+  if (anchor === "full") {
+    return { kind: "range", startMs: 0, endMs: table.durationMs };
+  }
+  if (anchor == null) return { kind: "keep" };
+  const onset = table.onsetMsByCanonical.get(anchor);
+  if (onset == null) return { kind: "drop" };
+  return {
+    kind: "range",
+    startMs: onset,
+    endMs: nextOnsetOrEnd(table, onset),
+  };
+}
