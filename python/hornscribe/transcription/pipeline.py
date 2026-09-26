@@ -779,6 +779,7 @@ def run_transcription_job(
         meter = params.meter_segment()
         meter_estimated = False
         meter_uncertain = False
+        meter_est_label: str | None = None
         pulse_unit_ql: Fraction | None = None
         # #385: counted sub-steps — beat track (when needed), meter
         # estimate (auto only), tempo estimate.
@@ -808,15 +809,26 @@ def run_transcription_job(
             # replaces the warp; the accent evidence is still real).
             # The same track feeds the tempo warp when tempo is auto.
             meter_est = estimate_meter(beat_times or (), strengths)
+            meter_est_label = meter_est.meter
+            # #24 contract fix: an uncertain estimate never writes its
+            # guess — the estimator contract (meter.py) says the caller
+            # falls back to 4/4 and lets the meter_conflict review
+            # issue carry the rejected label, so the user overrides a
+            # readable score instead of living under a coin flip.
+            label = "4/4" if meter_est.uncertain else meter_est.meter
             meter = MeterSegment(
                 start_ql=Fraction(0),
-                numerator=int(meter_est.meter.split("/")[0]),
-                denominator=int(meter_est.meter.split("/")[1]),
+                numerator=int(label.split("/")[0]),
+                denominator=int(label.split("/")[1]),
             )
             meter_estimated = True
             meter_uncertain = meter_est.uncertain
             meter_confidence = meter_est.confidence
-            if meter_est.tracked_eighths:
+            # The eighth-note pulse anchor only applies when the
+            # compound-meter read was trusted — an uncertain guess must
+            # not re-denominate the tracked beat (that is exactly how a
+            # misread 6/8 printed "37.45" for a ~108 bpm source).
+            if meter_est.tracked_eighths and not meter_est.uncertain:
                 pulse_unit_ql = Fraction(4, meter.denominator)
             rhythm_done += 1
             step(3, rhythm_done, rhythm_total)
@@ -1111,7 +1123,11 @@ def run_transcription_job(
                     reason=ReviewReason.METER_CONFLICT,
                     severity=Severity.CAUTION,
                     evidence={
-                        "estimatedMeter": f"{meter.numerator}/{meter.denominator}",
+                        # The rejected guess, not the written 4/4 —
+                        # the user needs to see what the estimator
+                        # nearly picked to judge the fallback.
+                        "estimatedMeter": meter_est_label
+                        or f"{meter.numerator}/{meter.denominator}",
                         "meterConfidence": round(meter_confidence, 3),
                     },
                 )
