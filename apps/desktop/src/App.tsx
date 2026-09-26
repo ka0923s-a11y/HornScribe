@@ -866,7 +866,14 @@ export default function App() {
       if (invalid != null) {
         throw new Error(`autosave snapshot invalid: ${invalid}`);
       }
-      return JSON.stringify(project);
+      /* #337: the save-target path rides INSIDE the snapshot as an
+       * extra top-level key (the v1 validator ignores it). The legacy
+       * .meta.json sidecar could pair new content with a stale path —
+       * a restore would then re-point saves at the wrong file. */
+      return JSON.stringify({
+        ...project,
+        autosaveProjectPath: projectPath ?? null,
+      });
     },
     write: (contents) =>
       invoke<void>("project_autosave_write", { contents, projectPath }),
