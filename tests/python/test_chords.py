@@ -146,6 +146,120 @@ class TestChordsPipeline:
         parts = result["scoreDocument"]["content"]["parts"]
         assert len(parts) == 2
 
+    def test_max_voices_allows_four_parts(self, tmp_path) -> None:
+        """#355: maxVoices=4 keeps a four-part sonority as four parts —
+        the default cap would drop the fourth line."""
+        import threading
+        from array import array
+
+        from hornscribe.transcription.options import TranscriptionParams
+        from hornscribe.transcription.pipeline import run_transcription_job
+
+        rev = TranscriptionRevisionId("tr-000004")
+
+        def ev(i: int, pitch: int, onset: float, offset: float):
+            return RawNoteEvent(
+                id=RawNoteEventId(f"rne-4-{i:04d}"),
+                transcription_revision=rev,
+                pitch_midi=float(pitch),
+                onset_sec=onset,
+                offset_sec=offset,
+                confidence=0.9,
+                velocity=80,
+                source="test",
+            )
+
+        # Four simultaneous quarter-note lines at 120bpm (0.5s beats).
+        events = tuple(
+            ev(i, pitch, beat * 0.5, (beat + 1) * 0.5)
+            for i, pitch in enumerate((72, 67, 64, 60))
+            for beat in (0, 1)
+        )
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected: list[dict] = []
+
+        def emit(phase: str, **kw) -> None:
+            collected.append({"phase": phase, **kw})
+
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                "texture": "voices",
+                "maxVoices": 4,
+            }
+        )
+        run_transcription_job(
+            job_id="j",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=lambda _p: events,
+            loader=lambda _p: (array("f", [0.0] * (22050 * 5)), 22050),
+        )
+        assert collected[-1]["phase"] == "completed"
+        parts = collected[-1]["result"]["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 4
+
+    def test_default_cap_still_drops_the_fourth_voice(
+        self, tmp_path
+    ) -> None:
+        """#355: without maxVoices the fourth simultaneous line still
+        falls to dropped_beyond_voices (behaviour unchanged)."""
+        import threading
+        from array import array
+
+        from hornscribe.transcription.options import TranscriptionParams
+        from hornscribe.transcription.pipeline import run_transcription_job
+
+        rev = TranscriptionRevisionId("tr-000003")
+
+        def ev(i: int, pitch: int, onset: float, offset: float):
+            return RawNoteEvent(
+                id=RawNoteEventId(f"rne-3-{i:04d}"),
+                transcription_revision=rev,
+                pitch_midi=float(pitch),
+                onset_sec=onset,
+                offset_sec=offset,
+                confidence=0.9,
+                velocity=80,
+                source="test",
+            )
+
+        events = tuple(
+            ev(i, pitch, beat * 0.5, (beat + 1) * 0.5)
+            for i, pitch in enumerate((72, 67, 64, 60))
+            for beat in (0, 1)
+        )
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected: list[dict] = []
+
+        def emit(phase: str, **kw) -> None:
+            collected.append({"phase": phase, **kw})
+
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                "texture": "voices",
+            }
+        )
+        run_transcription_job(
+            job_id="j",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=lambda _p: events,
+            loader=lambda _p: (array("f", [0.0] * (22050 * 5)), 22050),
+        )
+        assert collected[-1]["phase"] == "completed"
+        parts = collected[-1]["result"]["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 3
+
 
 def _qn(n: int, pitch: int, start: str, dur: str, **kw: object) -> QuantizedNote:
     return QuantizedNote(

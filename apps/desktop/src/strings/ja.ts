@@ -985,6 +985,8 @@ export const ja = {
           : texture === "chords"
             ? "同時に鳴る音を1パートの和音として残します。1人で演奏する譜面ではありません。"
             : "1人のF管奏者がそのまま演奏できる譜面を作ります。",
+      /* #355: voice cap field shown for the voices/chords textures. */
+      maxVoices: "最大声部数（2〜8）",
       /* #189: per-job engine override — "auto" inherits 設定→詳細設定. */
       backend: "採譜エンジン",
       backendAuto: "自動（設定に従う）",

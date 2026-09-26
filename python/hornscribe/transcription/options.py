@@ -25,9 +25,14 @@ Wire contract (camelCase, additive-optional; see PROTOCOL.md):
   ``"auto"`` resolves to the engine that fits the declared texture —
   pYIN (#175, the monophonic librosa tracker) for a declared-mono
   source, Basic Pitch otherwise. ``"pyin"`` pins the monophonic
-  tracker explicitly. The raw selector value is echoed in
-  ``meta.settings`` while ``meta.backend`` reports the resolved
-  engine.
+   tracker explicitly. The raw selector value is echoed in
+   ``meta.settings`` while ``meta.backend`` reports the resolved
+   engine.
+* ``maxVoices`` — integer 2..8 (default 3); the voice cap for the
+  ``voices``/``chords`` textures (#355). Four-part harmony and
+  larger sonorities are ordinary in chord-oriented sources, so the
+  split is no longer hard-wired to three — the cap travels with the
+  job and is echoed in ``meta.settings`` like every other option.
 """
 
 from __future__ import annotations
@@ -85,11 +90,15 @@ class TranscriptionParams:
     """Source texture hint: ``mono`` keeps first-come clipping for
     single-instrument sources; ``melody`` keeps the highest voice on
     overlaps and widens the detection band (JPOP/mix melody extraction);
-    ``voices`` keeps up to three detected lines as separate score parts;
-    ``chords`` keeps the same lines but merges them into one part so
-    same-rhythm simultaneities render as in-part chords (#155);
+    ``voices`` keeps up to ``max_voices`` detected lines as separate
+    score parts; ``chords`` keeps the same lines but merges them into
+    one part so same-rhythm simultaneities render as in-part chords
+    (#155);
     ``auto`` cleans monophonically first and falls back to top-voice
     when the overlap evidence says the source is a mix."""
+    max_voices: int = 3
+    """Voice cap for ``voices``/``chords`` (#355): 2..8, default 3
+    keeps the long-standing behaviour while larger sonorities opt in."""
     # #187: opt-in vocal isolation — the backend runs on a
     # center-extracted vocal estimate instead of the raw mix.
     vocal_isolation: bool = False
@@ -130,6 +139,7 @@ class TranscriptionParams:
         deadline_ms = cls._opt_float(raw, "deadlineMs", None, lo=1.0, hi=3_600_000.0)
         backend = cls._opt_choice(raw, "backend", "auto", _BACKENDS)
         texture = cls._opt_choice(raw, "texture", "auto", _TEXTURES)
+        max_voices = cls._opt_int(raw, "maxVoices", 3, lo=2, hi=8)
         vocal_isolation = raw.get("vocalIsolation", False) is True
         display_name = cls._opt_str(raw, "displayName")
         return cls(
@@ -145,6 +155,7 @@ class TranscriptionParams:
             deadline_ms=deadline_ms,
             backend=backend,
             texture=texture,
+            max_voices=max_voices,
             vocal_isolation=vocal_isolation,
             display_name=display_name,
         )
@@ -192,6 +203,7 @@ class TranscriptionParams:
             "selectionEndSec": self.selection_end_sec,
             "backend": self.backend,
             "texture": self.texture,
+            "maxVoices": self.max_voices,
             "vocalIsolation": self.vocal_isolation,
         }
 
@@ -232,3 +244,21 @@ class TranscriptionParams:
             return None
         stripped = value.strip()[:255]
         return stripped or None
+
+    @staticmethod
+    def _opt_int(
+        raw: dict[str, Any], name: str, default: int, *, lo: int, hi: int
+    ) -> int:
+        """Optional integer field -> bounded int.
+
+        Booleans and non-numeric values are rejected outright; a float
+        with a fractional part is rejected too (4.0 is fine, 4.5 is
+        not a voice count).
+        """
+        value = raw.get(name, default)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"params.{name} must be an integer")
+        ivalue = int(value)
+        if ivalue != value or not lo <= ivalue <= hi:
+            raise ValueError(f"params.{name} must be an integer in [{lo}, {hi}]")
+        return ivalue

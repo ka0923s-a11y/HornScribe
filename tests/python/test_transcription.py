@@ -183,6 +183,24 @@ class TestParams:
         with pytest.raises(ValueError, match="texture"):
             TranscriptionParams.from_payload({"audioPath": "a", "texture": "chord"})
 
+    def test_max_voices_parsed_validated_and_echoed(self) -> None:
+        # #355: the voice cap travels with the job and lands in the
+        # settings echo like every other option.
+        p = TranscriptionParams.from_payload(
+            {"audioPath": "a", "maxVoices": 4}
+        )
+        assert p.max_voices == 4
+        assert p.settings_dict()["maxVoices"] == 4
+        assert (
+            TranscriptionParams.from_payload({"audioPath": "a"}).max_voices
+            == 3
+        )
+        for bad in (1, 9, 4.5, "four", True):
+            with pytest.raises(ValueError, match="maxVoices"):
+                TranscriptionParams.from_payload(
+                    {"audioPath": "a", "maxVoices": bad}
+                )
+
 
 class TestClean:
     def test_clips_overlap_to_next_onset(self) -> None:

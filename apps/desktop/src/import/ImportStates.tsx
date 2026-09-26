@@ -365,6 +365,26 @@ function AudioReadyBody({
                 set({ texture: v as TranscriptionOptions["texture"] })
               }
             />
+            {/* #355: the voice cap only applies to the polyphonic
+                textures — 4-part harmony needs 4+. */}
+            {options.texture === "voices" ||
+            options.texture === "chords" ? (
+              <HsNumericField
+                label={ja.import.audioOptions.maxVoices}
+                value={options.maxVoices}
+                min={2}
+                max={8}
+                step={1}
+                onChange={(v) =>
+                  set({
+                    maxVoices: Math.min(
+                      8,
+                      Math.max(2, Math.round(v ?? 3)),
+                    ),
+                  })
+                }
+              />
+            ) : null}
             <HsSelect
               label={ja.import.audioOptions.backend}
               options={BACKEND_OPTIONS}

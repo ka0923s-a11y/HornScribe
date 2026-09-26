@@ -705,11 +705,13 @@ def run_transcription_job(
         )
         voice_split = None
         if params.texture in ("voices", "chords"):
-            # #85: keep up to three detected lines as separate parts —
-            # a triad survives as three voices instead of dropping the
-            # lowest note.  #155: the chords texture splits the same
-            # way, then merges the voices into one part at build time.
-            voice_split = split_voices(ranged, max_voices=3)
+            # #85: keep detected lines as separate parts — a chord
+            # survives as voices instead of dropping the lowest note.
+            # #155: the chords texture splits the same way, then merges
+            # the voices into one part at build time.  #355: the cap is
+            # the job's maxVoices (default 3, up to 8) — four-part
+            # harmony is ordinary in chord-oriented sources.
+            voice_split = split_voices(ranged, max_voices=params.max_voices)
             clean_total = len(voice_split.voices)
             cleaned = clean_monophonic(
                 voice_split.voices[0], merge_gap_sec=clean_merge_gap
