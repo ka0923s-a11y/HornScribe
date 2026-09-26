@@ -145,6 +145,9 @@ export interface TranscriptionOptions {
   /** 音源の種類 — mono=単旋律楽器, melody=メロディ優先(ミックス/JPOP),
       auto=重なりの多さからエンジンが自動判定。 */
   texture: "auto" | "mono" | "melody" | "voices" | "chords";
+  /** #355: voice cap for the voices/chords textures (engine maxVoices,
+   *  2..8). 3 keeps the long-standing default; 4-part harmony needs 4+. */
+  maxVoices: number;
   /** #189: per-job engine override. "auto" inherits the global
    *  設定→詳細設定 backend; an explicit choice pins this job only. */
   backend: "auto" | "basicPitch" | "pyin";
@@ -165,6 +168,7 @@ export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   simplicity: "standard",
   range: "all",
   texture: "auto",
+  maxVoices: 3,
   backend: "auto",
   vocalIsolation: false,
   selectionStartSec: null,

@@ -6,7 +6,7 @@ import {
   transcriptionOptionsFromSettings,
 } from "./transcriptionParams";
 import { DEFAULT_TRANSCRIPTION_OPTIONS } from "./types";
-import type { LoadedAudio } from "./types";
+import type { LoadedAudio, TranscriptionOptions } from "./types";
 
 function audioOf(fileName: string): LoadedAudio {
   return {
@@ -117,6 +117,7 @@ describe("transcriptionOptionsFromSettings", () => {
       simplicity: "detailed",
       range: "selection",
       texture: "melody",
+      maxVoices: 3,
       backend: "basicPitch",
       vocalIsolation: true,
       selectionStartSec: 12.5,
@@ -185,5 +186,51 @@ describe("transcriptionOptionsFromSettings", () => {
     expect(transcriptionOptionsFromSettings(null)).toEqual(
       DEFAULT_TRANSCRIPTION_OPTIONS,
     );
+  });
+
+  it("#355: maxVoices restores inside 2..8, else falls back to 3", () => {
+    expect(
+      transcriptionOptionsFromSettings({ maxVoices: 4 }).maxVoices,
+    ).toBe(4);
+    for (const bad of [1, 9, 4.5, "four", null]) {
+      expect(
+        transcriptionOptionsFromSettings({ maxVoices: bad }).maxVoices,
+      ).toBe(3);
+    }
+  });
+});
+
+describe("buildTranscriptionParams #355 maxVoices", () => {
+  const voices = (
+    maxVoices: number,
+    texture: TranscriptionOptions["texture"] = "voices",
+  ) => ({
+    ...DEFAULT_TRANSCRIPTION_OPTIONS,
+    texture,
+    maxVoices,
+  });
+
+  it("emits the cap for voices/chords when it differs from the default", () => {
+    expect(
+      buildTranscriptionParams(audioOf("a.wav"), voices(4)).maxVoices,
+    ).toBe(4);
+    expect(
+      buildTranscriptionParams(
+        audioOf("a.wav"),
+        voices(6, "chords"),
+      ).maxVoices,
+    ).toBe(6);
+  });
+
+  it("omits the cap for default 3 and for non-polyphonic textures", () => {
+    expect(
+      buildTranscriptionParams(audioOf("a.wav"), voices(3)).maxVoices,
+    ).toBeUndefined();
+    for (const texture of ["auto", "mono", "melody"] as const) {
+      expect(
+        buildTranscriptionParams(audioOf("a.wav"), voices(8, texture))
+          .maxVoices,
+      ).toBeUndefined();
+    }
   });
 });

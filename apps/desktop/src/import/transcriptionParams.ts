@@ -49,6 +49,8 @@ export interface TranscriptionJobParams {
   selectionEndSec?: number;
   backend?: string;
   texture?: string;
+  /** #355: voice cap for voices/chords (engine param, 2..8). */
+  maxVoices?: number;
   /** #187: opt-in vocal isolation (center extraction) for the job. */
   vocalIsolation?: boolean;
 }
@@ -91,6 +93,15 @@ export function buildTranscriptionParams(
   // "auto" is the engine default; pin mono/melody explicitly so the
   // choice is recorded in the job settings echo.
   if (options.texture !== "auto") params.texture = options.texture;
+  // #355: the voice cap only means something to the polyphonic
+  // textures — emit it there and only when it differs from the
+  // engine default so the settings echo stays honest.
+  if (
+    (options.texture === "voices" || options.texture === "chords") &&
+    options.maxVoices !== DEFAULT_TRANSCRIPTION_OPTIONS.maxVoices
+  ) {
+    params.maxVoices = options.maxVoices;
+  }
   // #187: opt-in vocal isolation — false is the engine default; only
   // an explicit on reaches the job so provenance stays honest.
   if (options.vocalIsolation) params.vocalIsolation = true;
@@ -192,6 +203,14 @@ export function transcriptionOptionsFromSettings(
     simplicity: pick("simplicity", ["standard", "simple", "detailed"] as const, "standard"),
     range: pick("range", ["all", "selection"] as const, "all"),
     texture: pick("texture", ["auto", "mono", "melody", "voices", "chords"] as const, "auto"),
+    // Engine bounds are 2..8 — an out-of-range echo falls back to the
+    // default rather than pinning an impossible cap on re-transcribe.
+    maxVoices: (() => {
+      const v = num("maxVoices");
+      return v != null && Number.isInteger(v) && v >= 2 && v <= 8
+        ? v
+        : DEFAULT_TRANSCRIPTION_OPTIONS.maxVoices;
+    })(),
     backend: pick("backend", ["auto", "basicPitch", "pyin"] as const, "auto"),
     vocalIsolation: s.vocalIsolation === true,
     // Selection seconds are source-relative; keep them verbatim so a
