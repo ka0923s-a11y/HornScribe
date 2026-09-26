@@ -102,6 +102,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
+/** 録音保持日数の提供値 — 設定UIのセレクトと同じセット
+ *  (#354: a stored value outside the list renders as a dead select,
+ *  so parse validates membership, not just range). */
+export const RECORDINGS_RETENTION_DAYS = [0, 7, 30, 90] as const;
 const METERS: readonly MeterSetting[] = [
   "auto",
   "4/4",
@@ -137,6 +141,11 @@ function oneOf<T extends string>(v: unknown, list: readonly T[]): T | null {
     ? (v as T)
     : null;
 }
+function oneOfNum(v: unknown, list: readonly number[]): number | null {
+  return typeof v === "number" && (list as readonly number[]).includes(v)
+    ? v
+    : null;
+}
 
 /** Parse + validate the stored blob; unknown/invalid fields get defaults. */
 export function parseSettings(raw: string | null): AppSettings {
@@ -151,7 +160,10 @@ export function parseSettings(raw: string | null): AppSettings {
   }
   const d = DEFAULT_SETTINGS;
   return {
-    playbackRate: num(o.playbackRate, 0.25, 4) ?? d.playbackRate,
+    // #354: select-driven fields validate against the OFFERED set, not
+    // a loose range — a foreign value would survive a range check but
+    // render as a dead select with no matching option.
+    playbackRate: oneOfNum(o.playbackRate, RATES) ?? d.playbackRate,
     skipSeconds: num(o.skipSeconds, 1, 60) ?? d.skipSeconds,
     followPlayback: bool(o.followPlayback) ?? d.followPlayback,
     tempoMode: oneOf(o.tempoMode, ["auto", "manual"]) ?? d.tempoMode,
@@ -165,7 +177,8 @@ export function parseSettings(raw: string | null): AppSettings {
     ffmpegPath: str(o.ffmpegPath) ?? d.ffmpegPath,
     backend: oneOf(o.backend, BACKENDS) ?? d.backend,
     recordingsRetentionDays:
-      num(o.recordingsRetentionDays, 0, 3650) ?? d.recordingsRetentionDays,
+      oneOfNum(o.recordingsRetentionDays, RECORDINGS_RETENTION_DAYS) ??
+      d.recordingsRetentionDays,
     // #377: per-format booleans — unknown ids are dropped, missing
     // ones fall back to the default so a stale blob never unchecks
     // a format the user never saw.
