@@ -67,6 +67,8 @@ import {
 import {
   buildPlaybackTable,
   canonicalsInRange,
+  nextOnsetOrEnd,
+  remapLoopRange,
   segmentAt,
   type PlaybackTable,
 } from "./playbackTable";
@@ -414,6 +416,14 @@ export function ScoreReadyWorkspace({
   const selectionRef = useRef<Selection | null>(null);
   const activeRef = useRef<ReadonlySet<string>>(EMPTY_SET);
   const loopCanonicalsRef = useRef<ReadonlySet<string>>(EMPTY_SET);
+  /* #335: a user-armed loop marks a PASSAGE (canonical notes), not a
+   *  clock window — remember its anchor so a table rebuild (tempo /
+   *  swing / onset edits) can re-map it instead of drifting onto
+   *  neighbouring notes. null = full-score loop or review-owned. */
+  const loopAnchorRef = useRef<string | "full" | null>(null);
+  /* #335: playback-table generation — bumps on every rebuild so the
+   *  loop-passage marks recompute even when the ms range is unchanged. */
+  const [tableGen, setTableGen] = useState(0);
   const followRef = useRef(true);
   const suspendedRef = useRef(false);
   const zoomRef = useRef(sessionViewRef.current.zoomPct ?? 100);
@@ -941,7 +951,10 @@ export function ScoreReadyWorkspace({
       loopCanonicalsRef.current = set;
       applyLoopDom(set);
     }
-  }, [clockSnap.loop, applyLoopDom]);
+    // #335: tableGen forces a recompute after every table rebuild — a
+    // tempo edit can leave the ms range identical while the covered
+    // canonicals changed.
+  }, [clockSnap.loop, applyLoopDom, tableGen]);
 
   /* --------------------------- selection -------------------------------- */
 
@@ -1294,6 +1307,34 @@ export function ScoreReadyWorkspace({
         bendsByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
       );
       clockRef.current?.setDuration(tableRef.current.durationMs);
+      /* #335: an armed loop marks a PASSAGE — re-map it through the
+       *  rebuilt table. Tempo/swing/onset edits move note onsets, so
+       *  the old ms range would silently loop a different passage (and
+       *  the LOOP_CLASS marks never recomputed). Review-owned loops are
+       *  left to reviewLoop's own lifecycle. */
+      const clock = clockRef.current;
+      const rebuilt = tableRef.current;
+      if (
+        clock?.loopRange() &&
+        rebuilt &&
+        !reviewLoopRef.current.armed
+      ) {
+        const remapped = remapLoopRange(rebuilt, loopAnchorRef.current);
+        if (remapped.kind === "range") {
+          clock.setLoop({
+            startMs: remapped.startMs,
+            endMs: remapped.endMs,
+          });
+        } else if (remapped.kind === "drop") {
+          // The anchored note is gone — drop the loop rather than
+          // looping a passage that no longer exists.
+          clock.setLoop(null);
+        }
+      }
+      // The marks effect derives the loop's canonicals from the table —
+      // bump a generation so a rebuild with an unchanged ms range still
+      // recomputes against the new onsets.
+      setTableGen((g) => g + 1);
     }
   }, [scoreDoc, renderScore]);
 
@@ -1978,8 +2019,10 @@ const setKey = useCallback(
       toggleLoop: () => {
         const c = clockRef.current;
         if (!c) return;
-        if (c.loopRange()) c.setLoop(null);
-        else {
+        if (c.loopRange()) {
+          c.setLoop(null);
+          loopAnchorRef.current = null;
+        } else {
           // No waveform range selection yet (UI-020) — arm the loop over
           // the selected note's span when possible so Ctrl+L is honest.
           const sel = selectionRef.current;
@@ -1989,9 +2032,11 @@ const setKey = useCallback(
             if (onset != null) {
               const next = nearestOffset(table, onset);
               c.setLoop({ startMs: onset, endMs: next });
+              loopAnchorRef.current = sel.canonicalId;
             }
           } else {
             c.setLoop({ startMs: 0, endMs: c.durationMs() });
+            loopAnchorRef.current = "full";
           }
         }
       },
@@ -2446,13 +2491,7 @@ const setKey = useCallback(
 
 /** Offset ms for a canonical id — the next distinct onset after its own,
  *  or the document end. Used to arm a note-span loop. */
-function nearestOffset(table: PlaybackTable, onsetMs: number): number {
-  let best = Number.POSITIVE_INFINITY;
-  for (const t of table.onsetMsByCanonical.values()) {
-    if (t > onsetMs && t < best) best = t;
-  }
-  return Number.isFinite(best) ? best : table.durationMs;
-}
+const nearestOffset = nextOnsetOrEnd;
 
 /** The source range an issue auditions over: its explicit timeRange, or
  *  the first canonical note's notated span (onset -> next onset) when the
