@@ -196,3 +196,54 @@ describe("WaveformView review markers (#376)", () => {
     ).toBeNull();
   });
 });
+
+describe("WaveformView note overlay (#402)", () => {
+  const NOTES = [
+    { id: "sn-1", startSec: 10, endSec: 12, midi: 60, partIndex: 0 },
+    { id: "sn-2", startSec: 12, endSec: 13.5, midi: 64, partIndex: 0 },
+    { id: "sn-3", startSec: 12, endSec: 14, midi: 55, partIndex: 1 },
+  ];
+
+  it("renders one bar per in-view note, second voice marked", async () => {
+    await mount({ overlayNotes: NOTES });
+    const bars = [
+      ...document.querySelectorAll(".hs-waveform__note"),
+    ] as HTMLElement[];
+    expect(bars).toHaveLength(3);
+    // 120s clip, full view: 10s in = 8.33%
+    expect(parseFloat(bars[0].style.left)).toBeCloseTo((10 / 120) * 100, 3);
+    // midi window 55..64 padded to 53..66 -> lane = (66-60)/13 ≈ 46.2%
+    expect(parseFloat(bars[0].style.top)).toBeCloseTo(600 / 13, 1);
+    expect(bars[1].className).not.toContain("extra");
+    expect(bars[2].className).toContain("hs-waveform__note--extra");
+  });
+
+  it("toggle hides and re-shows the lane layer", async () => {
+    await mount({ overlayNotes: NOTES });
+    const btn = document.querySelector(
+      ".hs-waveform__notes-toggle",
+    ) as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.querySelectorAll(".hs-waveform__note")).toHaveLength(0);
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => {
+      btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.querySelectorAll(".hs-waveform__note")).toHaveLength(3);
+  });
+
+  it("shows no toggle when there is nothing to overlay", async () => {
+    await mount({});
+    expect(
+      document.querySelector(".hs-waveform__notes-toggle"),
+    ).toBeNull();
+    await mount({ overlayNotes: [] });
+    expect(
+      document.querySelector(".hs-waveform__notes-toggle"),
+    ).toBeNull();
+  });
+});

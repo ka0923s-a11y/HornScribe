@@ -6,7 +6,7 @@
  * fix, no raw engine detail in the body, and the transactional kept
  * state stated explicitly.
  */
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExportDialog } from "./ExportDialog";
@@ -193,3 +193,58 @@ describe("export error surfaces (#384)", () => {
   });
 });
 
+describe("selection persistence (#377)", () => {
+  it("survives an unstable onSelectionChange prop without render-looping", async () => {
+    // Regression: the persist effect keyed on the callback prop, so an
+    // inline parent closure that setStates on every call looped
+    // update→render→update (Maximum update depth exceeded). The effect
+    // now keys on the selection alone and reads the latest callback
+    // through a ref.
+    const calls: Array<Record<ExportFormatId, boolean>> = [];
+    function Harness() {
+      // Merge-style state mirrors useAppSettings: every update returns
+      // a new object → parent re-render → fresh inline closure — the
+      // exact prop-identity churn that caused the storm.
+      const [settings, setSettings] = useState({
+        exportFormats: ALL_SELECTED,
+      });
+      return (
+        <ExportDialog
+          open={true}
+          onOpenChange={NOOP}
+          port={new MockExportPort({ latencyMs: 0 })}
+          defaultDestination="C:\\out"
+          onOpenSettings={NOOP}
+          onOpenDiagnostics={NOOP}
+          onAnnounce={NOOP}
+          initialSelected={settings.exportFormats}
+          onSelectionChange={(sel) => {
+            calls.push(sel);
+            setSettings((prev) => ({ ...prev, exportFormats: sel }));
+          }}
+          suggestedBasename="take1"
+        />
+      );
+    }
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(<Harness />);
+    });
+    await flush(); // loading → form
+    // No mount echo: the seeded set is what settings already holds.
+    expect(calls.length).toBe(0);
+    // A real toggle persists exactly once — then settles, no storm.
+    const checkbox = document.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    );
+    expect(checkbox, "a format checkbox on the export form").toBeTruthy();
+    await act(async () => {
+      checkbox!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+    expect(calls.length).toBe(1);
+    expect(calls[0].concertMusicxml).toBe(false);
+  });
+});

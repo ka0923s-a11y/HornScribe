@@ -136,3 +136,17 @@ export function buildSwingWarp(canonicalDocument: unknown): ScoreTimeWarp | null
     return beatToMs(Math.floor(beat) + swung);
   };
 }
+
+/** beat -> written ms for a canonical scoreDocument dict, or null when
+ *  the tempo map / head meter is missing. Shared by the swing warp and
+ *  the waveform note overlay (#402). */
+export function buildBeatToMs(
+  canonicalDocument: unknown,
+): ((beat: number) => number) | null {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  if (!content) return null;
+  const bounds = beatBoundaries(content);
+  if (!bounds || bounds.length === 0) return null;
+  return makeBeatToMs(bounds);
+}

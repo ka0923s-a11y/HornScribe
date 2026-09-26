@@ -35,7 +35,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { createDefaultExportPort } from "./export/port";
 import type { ExportSource } from "./export/tauriPort";
-import { exportErrorCode } from "./export/types";
+import { exportErrorCode, type ExportFormatId } from "./export/types";
 import { createDefaultDiagnosticsPort } from "./diagnostics/port";
 import { useAppSettings, type SettingsCategory } from "./settings/store";
 import type { PitchView } from "./components/PitchSegmented";
@@ -53,6 +53,7 @@ import type {
   ScoreWorkspaceState,
 } from "./score/controller";
 import { openIssues } from "./score/review";
+import { waveformNoteOverlay } from "./score/noteOverlay";
 import { formatTimecode as formatScoreTimecode } from "./score/timecode";
 import {
   createCommandRegistry,
@@ -309,6 +310,14 @@ export default function App() {
       ffmpegPath: settings.ffmpegPath || undefined,
     }),
     [settings.museScorePath, settings.ffmpegPath],
+  );
+  // #377: a stable identity matters here — ExportDialog keys its
+  // persist effect off this prop, so an inline closure would retrigger
+  // it on every render (update→render→update loop).
+  const onExportSelectionChange = useCallback(
+    (selected: Record<ExportFormatId, boolean>) =>
+      updateSettings({ exportFormats: selected }),
+    [updateSettings],
   );
   const [statusMessage, setStatusMessage] = useState<string>(ja.status.ready);
   const [shellDetail, setShellDetail] = useState<string | undefined>(
@@ -1119,8 +1128,20 @@ export default function App() {
                 },
               ]
             : [],
-        )
+      )
     : undefined;
+
+  /* #402: canonical notes -> waveform piano-roll overlay (sounding
+   *  seconds via the shared tempo map + swing warp). Recomputed when
+   *  the edit version bumps so note edits move their bars. */
+  const waveformNotes = useMemo(
+    () =>
+      scoreDocument
+        ? waveformNoteOverlay(scoreDocument.canonicalDocument?.() ?? null)
+        : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- editVersion is the port's mutation counter
+    [scoreDocument, scoreDocument?.editVersion],
+  );
 
   // The registry is static: predicates read the snapshot, not React state.
   const registry = useMemo(() => createCommandRegistry(), []);
@@ -2279,6 +2300,7 @@ export default function App() {
                   //  a marker jump opens the review AND lands score +
                   //  source cursor via the workspace's own gotoIssue.
                   markers={reviewMarkers}
+                  overlayNotes={waveformNotes}
                   onMarkerClick={(i) =>
                     scoreCtlRef.current?.openReviewAt?.(i)
                   }
@@ -2837,9 +2859,7 @@ export default function App() {
             // #377: the dialog restores the last-used format set and
             // persists every change back into settings.
             initialSelected={settings.exportFormats}
-            onSelectionChange={(selected) =>
-              updateSettings({ exportFormats: selected })
-            }
+            onSelectionChange={onExportSelectionChange}
             // #362: seed the editable basename — an edited score
             // title wins over the mechanical source stem.
             suggestedBasename={
