@@ -30,6 +30,66 @@ def _note_ons(mid: mido.MidiFile) -> list[mido.Message]:
     ]
 
 
+def _bend_score(entries) -> object:
+    """Single-part score whose notes may carry canonical bend curves.
+
+    ``entries``: ``(pitch_midi, start_beat, duration_beats, bends)``
+    where ``bends`` is ``[(normalized_time, semitones), ...]`` or None.
+    """
+    from hornscribe.domain.events import PitchBendPoint
+    from hornscribe.domain.ids import (
+        IdAllocator,
+        ScoreNoteId,
+        derive_project_id,
+    )
+    from hornscribe.domain.score import (
+        KeySignature,
+        Part,
+        QuantizedNote,
+        ScoreDocument,
+        ScoreRevisionPayload,
+        TempoSegment,
+        TimeSignature,
+    )
+
+    alloc = IdAllocator("sn")
+    qnotes = tuple(
+        QuantizedNote(
+            id=ScoreNoteId(alloc.allocate()),
+            source_event_ids=(),
+            pitch_midi=pitch,
+            start_beat=Fraction(start),
+            duration_beats=Fraction(dur),
+            velocity=80,
+            pitch_bends=tuple(
+                PitchBendPoint(time_sec=t, bend_semitones=s)
+                for t, s in (bends or ())
+            ),
+        )
+        for pitch, start, dur, bends in entries
+    )
+    payload = ScoreRevisionPayload(
+        tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=120.0),),
+        time_signature=TimeSignature(4, 4),
+        key_signature=KeySignature(0, "major"),
+        pickup_beats=Fraction(0),
+        parts=(Part(id="part-1", name="Horn in F", notes=qnotes),),
+        quantization_settings={"grid": "1/16"},
+    )
+    return ScoreDocument(
+        project_id=derive_project_id({"fixture": "test"}),
+        payload=payload,
+        title="Bends",
+    )
+
+
+def _track_messages_at_ticks(track: mido.MidiTrack):
+    t = 0
+    for m in track:
+        t += m.time
+        yield t, m
+
+
 def test_playback_mid_contains_concert_pitches() -> None:
     """Golden: horn source pitches are written as sounding/concert in MIDI."""
     score = make_score([(60, 0, 1), (66, 1, 1), (58, 2, 1)])
@@ -121,6 +181,91 @@ def test_export_filename_prefix() -> None:
 def test_write_playback_midi(tmp_path) -> None:
     out = write_playback_midi(make_score(), tmp_path / "playback.mid")
     assert out.read_bytes()[:4] == b"MThd"
+
+
+def test_overlapping_bends_get_separate_channels() -> None:
+    # #333: simultaneous bent notes cannot share a channel — a bend is
+    # channel-scoped, so sharing detunes whichever note does not own it.
+    score = _bend_score(
+        [
+            (60, 0, 2, [(0.0, 0.5), (1.0, -0.5)]),
+            (67, 0, 2, [(0.0, -1.0), (1.0, 0.0)]),
+        ]
+    )
+    mid = _parse(playback_midi_bytes(score))
+    ons = [m for m in mid.tracks[1] if m.type == "note_on" and m.velocity > 0]
+    assert len(ons) == 2
+    assert ons[0].channel != ons[1].channel
+    wheels = [m for m in mid.tracks[1] if m.type == "pitchwheel"]
+    assert {m.channel for m in wheels} == {ons[0].channel, ons[1].channel}
+    # every channel that plays a note also gets its program
+    progs = {m.channel for m in mid.tracks[1] if m.type == "program_change"}
+    assert progs == {ons[0].channel, ons[1].channel}
+
+
+def test_straight_note_moves_off_a_claimed_channel() -> None:
+    # #333: a straight note overlapping a bend must not be detuned —
+    # it leaves the claimed channel instead of sharing it.
+    score = _bend_score(
+        [
+            (60, 0, 2, [(0.5, 1.0)]),
+            (65, 0, 1, None),
+        ]
+    )
+    mid = _parse(playback_midi_bytes(score))
+    ons = [m for m in mid.tracks[1] if m.type == "note_on" and m.velocity > 0]
+    bent = next(m for m in ons if m.note == 60)
+    straight = next(m for m in ons if m.note == 65)
+    wheels = [m for m in mid.tracks[1] if m.type == "pitchwheel"]
+    assert wheels
+    assert all(m.channel == bent.channel for m in wheels)
+    assert straight.channel != bent.channel
+
+
+def test_sequential_bends_share_channel_when_safe() -> None:
+    # Back-to-back bends keep the old behaviour — the wheel resets
+    # between notes so the base channel stays usable (#333).
+    score = _bend_score(
+        [
+            (60, 0, 1, [(0.5, 0.5)]),
+            (62, 1, 1, [(0.5, -0.5)]),
+        ]
+    )
+    mid = _parse(playback_midi_bytes(score))
+    ons = [m for m in mid.tracks[1] if m.type == "note_on" and m.velocity > 0]
+    assert {m.channel for m in ons} == {0}
+    wheels = [m for m in mid.tracks[1] if m.type == "pitchwheel"]
+    assert wheels and all(m.channel == 0 for m in wheels)
+    # the wheel returns to centre between the notes (mido: centre = 0)
+    assert any(m.pitch == 0 for m in wheels)
+
+
+def test_bend_at_onset_is_a_pre_bend() -> None:
+    # A bend point at time 0 must set the wheel BEFORE the note sounds,
+    # not a tick late (#333).
+    score = _bend_score([(64, 0, 1, [(0.0, 1.0), (1.0, 0.0)])])
+    mid = _parse(playback_midi_bytes(score))
+    seq = [
+        (t, m.type)
+        for t, m in _track_messages_at_ticks(mid.tracks[1])
+        if m.type in ("note_on", "pitchwheel", "note_off")
+    ]
+    bend_idx = seq.index((0, "pitchwheel"))
+    on_idx = seq.index((0, "note_on"))
+    assert bend_idx < on_idx
+
+
+def test_bend_pool_exhaustion_drops_bends_not_notes() -> None:
+    # Past fifteen simultaneous bends the pool runs out — the extra
+    # note still plays, just without its curve (#333).
+    score = _bend_score([(48 + i, 0, 4, [(0.5, 0.5)]) for i in range(16)])
+    mid = _parse(playback_midi_bytes(score))
+    ons = [m for m in mid.tracks[1] if m.type == "note_on" and m.velocity > 0]
+    assert len(ons) == 16
+    assert len({m.channel for m in ons}) == 15
+    wheels = [m for m in mid.tracks[1] if m.type == "pitchwheel"]
+    # 15 claimed channels, one bend value + one centre reset each
+    assert len(wheels) == 30
 
 
 def test_no_gui_dependency() -> None:

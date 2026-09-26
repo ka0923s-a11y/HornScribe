@@ -28,16 +28,119 @@ GM_PROGRAM_HORN = 60
 
 _DEFAULT_VELOCITY = 64
 
-# MIDI pitch-bend is a 14-bit value 0..16383 centered at 8192; the
-# canonical curve is in semitones over the standard +/-2 range.
+# MIDI pitch-bend is a 14-bit value centered at 8192; mido exposes it
+# signed (-8192..8191), so emission code works in the signed domain.
+# The canonical curve is in semitones over the standard +/-2 range.
 _BEND_CENTER = 8192
 _BEND_UNITS_PER_SEMITONE = 4096
 
+# #333: MIDI pitch bend is channel-scoped — a bend active on a
+# channel detunes EVERY note sounding there, so a bent note needs
+# its channel to itself for the bend's span. Channel 9 is the GM
+# drum kit; bend-capable channels are the remaining fifteen.
+_DRUM_CHANNEL = 9
+_FREE_CHANNELS = tuple(c for c in range(16) if c != _DRUM_CHANNEL)
+
+def _any_overlap(
+    spans: tuple[tuple[Fraction, Fraction], ...] | list[tuple[Fraction, Fraction]],
+    span: tuple[Fraction, Fraction],
+) -> bool:
+    return any(span[0] < s[1] and s[0] < span[1] for s in spans)
+
+
+def _assign_channels(
+    parts: tuple,
+) -> tuple[list[int], list[dict[int, int]], list[set[int]]]:
+    """Per-note channel assignment for the whole file (#333).
+
+    Returns (bases, channels, drops):``bases[i]`` is part *i* 's home
+    channel; ``channels[i][j]`` the channel note *j* of part *i*
+    actually plays on; ``drops[i]`` holds indexes of bent notes that
+    could not get an exclusive channel (their bends are skipped —
+    only possible past fifteen simultaneously sounding bends).
+
+    Rules:
+    * a bent note takes the first channel with NO note sounding over
+      its span — it detunes everything else there, so the channel
+      must be exclusive for that span (a "claim");
+    * a straight note takes the first channel with no bend claim
+      over its span — ordinary polyphony on a channel is fine, only
+      bend claims poison it;
+    * channel order is the part's base first, then the free pool —
+      conflict-free scores keep today's exact bytes.
+    """
+    claimed: dict[int, list[tuple[Fraction, Fraction]]] = {}
+    occupied: dict[int, list[tuple[Fraction, Fraction]]] = {}
+
+    def span_of(n) -> tuple[Fraction, Fraction]:
+        return (n.start_beat, n.start_beat + n.duration_beats)
+
+    # Skip the GM drum channel for part homes — a horn part landing on
+    # channel 9 would play as percussion (part 10+ hit this before).
+    bases = [_FREE_CHANNELS[min(i, len(_FREE_CHANNELS) - 1)] for i in range(len(parts))]
+    others = [
+        [c for c in _FREE_CHANNELS if c != base] for base in bases
+    ]
+    channels: list[dict[int, int]] = [dict() for _ in parts]
+    drops: list[set[int]] = [set() for _ in parts]
+
+    # Pass 1 (file-wide): bent notes claim exclusive channels.
+    for pi, part in enumerate(parts):
+        base, pool = bases[pi], others[pi]
+        for i, n in sorted(
+            enumerate(part.notes), key=lambda e: e[1].start_beat
+        ):
+            if not n.pitch_bends:
+                continue
+            span = span_of(n)
+            ch = next(
+                (
+                    c
+                    for c in (base, *pool)
+                    if not _any_overlap(occupied.get(c, ()), span)
+                ),
+                None,
+            )
+            if ch is None:
+                drops[pi].add(i)
+                ch = base
+                # The note still SOUNDS on the base channel — mark it
+                # occupied so a later bend cannot claim the channel and
+                # detune it.
+                occupied.setdefault(ch, []).append(span)
+            else:
+                claimed.setdefault(ch, []).append(span)
+                occupied.setdefault(ch, []).append(span)
+            channels[pi][i] = ch
+
+    # Pass 2 (file-wide): straight notes avoid claimed channels
+    # over their own span — a claim would detune them.
+    for pi, part in enumerate(parts):
+        base, pool = bases[pi], others[pi]
+        for i, n in sorted(
+            enumerate(part.notes), key=lambda e: e[1].start_beat
+        ):
+            if n.pitch_bends:
+                continue
+            span = span_of(n)
+            ch = next(
+                (
+                    c
+                    for c in (base, *pool)
+                    if not _any_overlap(claimed.get(c, ()), span)
+                ),
+                base,
+            )
+            channels[pi][i] = ch
+            occupied.setdefault(ch, []).append(span)
+
+    return bases, channels, drops
+
 
 def _bend_value(semitones: float) -> int:
-    """Canonical bend semitones -> 14-bit MIDI pitch-bend value."""
+    """Canonical bend semitones -> mido pitchwheel value (-8192..8191)."""
     v = int(round(_BEND_CENTER + semitones * _BEND_UNITS_PER_SEMITONE))
-    return max(0, min(16383, v))
+    return max(-_BEND_CENTER, min(_BEND_CENTER - 1, v - _BEND_CENTER))
 
 # fifths -> MIDI key-signature meta-event key names (mido vocabulary).
 _MAJOR_KEYS = {
@@ -173,13 +276,32 @@ def playback_midi_bytes(
         conductor.append(msg)
         last = tick
 
+    # #333: channel-scoped bends need exclusivity — assign real
+    # channels before emitting so a bend never detunes a neighbour.
+    bases, note_channels, bend_drops = _assign_channels(payload.parts)
     for part_index, part in enumerate(payload.parts):
         track = mido.MidiTrack()
         mid.tracks.append(track)
-        channel = min(part_index, 15)
+        base = bases[part_index]
         events: list[tuple[int, int, mido.Message]] = []
-        events.append((0, 0, mido.Message("program_change", channel=channel, program=gm_program)))
-        for n in part.notes:
+        used_channels = sorted({base, *note_channels[part_index].values()})
+        for ch in used_channels:
+            events.append(
+                (
+                    0,
+                    0,
+                    mido.Message(
+                        "program_change", channel=ch, program=gm_program
+                    ),
+                )
+            )
+        # Emit in start order: a prior note's wheel reset (order key 1,
+        # insertion order) must land before the next note's pre-bend at
+        # the same tick even when part.notes is not time-sorted.
+        for ni, n in sorted(
+            enumerate(part.notes), key=lambda e: e[1].start_beat
+        ):
+            channel = note_channels[part_index].get(ni, base)
             # #206: swung scores shift offbeat onsets/offsets just like
             # the audition does — otherwise the exported MIDI plays
             # straight against a score marked Swing.
@@ -212,20 +334,23 @@ def playback_midi_bytes(
             note_off = mido.Message(
                 "note_off", channel=channel, note=n.pitch_midi, velocity=0
             )
-            # note_off sorts before note_on at the same tick (order key 1 < 2)
+            # Tick order: prev note_off (0) -> prev wheel-center and
+            # this note's bends (1, insertion order keeps the reset
+            # first) -> note_on (2): a bend at the onset is a pre-bend
+            # instead of landing a tick late.
             events.append((on_tick, 2, note_on))
-            events.append((off_tick, 1, note_off))
+            events.append((off_tick, 0, note_off))
             # #174: emit the performed bend curve (normalized 0..1 across
             # the note's span) as pitch_bend messages, then return the
             # wheel to center so the next note starts clean.
-            if n.pitch_bends:
+            if n.pitch_bends and ni not in bend_drops[part_index]:
                 span_ticks = off_tick - on_tick
                 for b in n.pitch_bends:
                     btick = on_tick + int(round(b.time_sec * span_ticks))
                     events.append(
                         (
                             btick,
-                            2,
+                            1,
                             mido.Message(
                                 "pitchwheel",
                                 channel=channel,
@@ -236,9 +361,9 @@ def playback_midi_bytes(
                 events.append(
                     (
                         off_tick,
-                        3,
+                        1,
                         mido.Message(
-                            "pitchwheel", channel=channel, pitch=_BEND_CENTER
+                            "pitchwheel", channel=channel, pitch=0
                         ),
                     )
                 )
