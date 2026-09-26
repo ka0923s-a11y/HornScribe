@@ -345,7 +345,20 @@ pub fn project_save_path(
  *
  * A sibling .meta.json records the path the autosave was taken
  * against, so a restore of an already-saved project keeps saving to
- * the original file instead of the recovery location. */
+ * the original file instead of the recovery location.
+ *
+ * #337 write contract — いつ・何を・どこへ:
+ *   when:  the frontend writes while the score is dirty, debounced 3 s,
+ *          one write in flight; a clean transition clears the slot.
+ *   what:  the schema-v1 project document (same validator as manual
+ *          save) plus 'autosaveProjectPath' embedded top-level — the
+ *          path the snapshot was taken against travels WITH the data
+ *          so content and provenance can never diverge (a stale meta
+ *          once paired new content with an old save target, and a
+ *          restore would have pointed saves at the wrong file).
+ *   where: appDataDir/autosave.hornscribe.json, tmp+rename atomic.
+ *          .meta.json is still written for legacy readers but status
+ *          prefers the embedded key; it only answers pre-change files. */
 
 fn autosave_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app
@@ -357,6 +370,27 @@ fn autosave_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn autosave_meta_path(data_path: &Path) -> PathBuf {
     data_path.with_file_name("autosave.hornscribe.meta.json")
+}
+
+/// #337: resolve the save-target path for a recovery file. The
+/// embedded 'autosaveProjectPath' is authoritative — present-but-null
+/// means "never saved" (NOT a stale meta hit). Only when the key is
+/// absent entirely (pre-#337 autosaves) does the legacy sidecar answer.
+fn autosave_project_path(data: &str, meta: Option<&str>) -> Option<String> {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+        if let Some(p) = v.get("autosaveProjectPath") {
+            return p.as_str().map(str::to_owned);
+        }
+    }
+    meta.and_then(|m| {
+        serde_json::from_str::<serde_json::Value>(m)
+            .ok()
+            .and_then(|v| {
+                v.get("projectPath")
+                    .and_then(|p| p.as_str())
+                    .map(str::to_owned)
+            })
+    })
 }
 
 /// project_autosave_write: persist the recovery snapshot. The content
@@ -405,16 +439,14 @@ pub fn project_autosave_status(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    // The saved-against path rides in the sidecar; an unreadable or
-    // absent meta degrades to "restore as an unsaved project".
-    let project_path = std::fs::read_to_string(autosave_meta_path(&path))
-        .ok()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| {
-            v.get("projectPath")
-                .and_then(|p| p.as_str())
-                .map(str::to_owned)
-        });
+    // The saved-against path rides inside the document; the sidecar
+    // only answers autosaves written before the key existed.
+    let data = std::fs::read_to_string(&path).ok();
+    let meta_body = std::fs::read_to_string(autosave_meta_path(&path)).ok();
+    let project_path = autosave_project_path(
+        data.as_deref().unwrap_or(""),
+        meta_body.as_deref(),
+    );
     Ok(Some(AutosaveInfo {
         path: path.to_string_lossy().into_owned(),
         modified_sec: modified,
@@ -1181,5 +1213,42 @@ mod tests {
     fn export_cancel_unknown_id_is_noop() {
         // A stale/late cancel must not fail — the run already finished.
         assert!(export_cancel("hornscribe-export-nope".to_string()).is_ok());
+    }
+
+    #[test]
+    fn autosave_project_path_prefers_embedded_over_meta() {
+        // #337: the path embedded in the document wins even when the
+        // legacy sidecar names a different (stale) file — restoring
+        // must never re-point saves at a foreign project.
+        let data = r#"{"schemaVersion":1,"autosaveProjectPath":"C:/new.hornscribe.json"}"#;
+        let meta = r#"{"projectPath":"C:/old.hornscribe.json"}"#;
+        assert_eq!(
+            autosave_project_path(data, Some(meta)),
+            Some("C:/new.hornscribe.json".to_string())
+        );
+    }
+
+    #[test]
+    fn autosave_project_path_null_embedded_is_never_saved() {
+        // Present-but-null means "never saved" — it must NOT fall
+        // through to the sidecar, which would re-point at a stale path.
+        let data = r#"{"schemaVersion":1,"autosaveProjectPath":null}"#;
+        let meta = r#"{"projectPath":"C:/old.hornscribe.json"}"#;
+        assert_eq!(autosave_project_path(data, Some(meta)), None);
+    }
+
+    #[test]
+    fn autosave_project_path_falls_back_to_meta_for_legacy_files() {
+        // Pre-#337 autosaves carry no embedded key — the sidecar
+        // still answers so old recovery files restore correctly.
+        let data = r#"{"schemaVersion":1,"projectId":"pj-1"}"#;
+        let meta = r#"{"projectPath":"C:/old.hornscribe.json"}"#;
+        assert_eq!(
+            autosave_project_path(data, Some(meta)),
+            Some("C:/old.hornscribe.json".to_string())
+        );
+        // Neither source -> restore as an unsaved project.
+        assert_eq!(autosave_project_path(data, None), None);
+        assert_eq!(autosave_project_path("not json", Some(meta)), Some("C:/old.hornscribe.json".to_string()));
     }
 }

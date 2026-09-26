@@ -83,6 +83,30 @@ score.json, concert.musicxml, horn_in_f.musicxml
 - **Cache is never authoritative** — deleting `cache/` must lose nothing
   that cannot be recomputed.
 
+### Autosave / crash recovery (#221, #337, #408)
+
+- **When**: while the score has unsaved changes, a 3 s-debounced write
+  persists a snapshot; one write in flight, edits that arrive mid-write
+  are picked up by the next tick. Tauri runtime only.
+- **What**: the full schema-v1 project document — same validator as a
+  manual save, so a malformed snapshot can never reach disk. The
+  save-target path travels inside the document as `autosaveProjectPath`
+  (a validator-ignored extra key), so content and provenance cannot
+  diverge; a present-but-null value means "never saved". Legacy autosaves
+  keep the path in `autosave.hornscribe.meta.json`, which `status` only
+  consults when the embedded key is absent.
+- **Where**: `appDataDir/autosave.hornscribe.json`, written tmp+rename —
+  one slot for the whole app (single-document UI: the latest dirty
+  session owns it).
+- **Restore**: only through the launch prompt — presence of the slot
+  arms the 復元 dialog, never a silent load. A restore opens the
+  snapshot as an unsaved copy and re-points saves at
+  `autosaveProjectPath`. Clean transitions (manual save, undo-to-
+  baseline, decline, successful open) clear the slot.
+- **Recording-only sessions need no autosave**: a finished take is
+  already a persisted WAV under `recordings/`; an in-progress take is
+  guarded by the 録音中 close confirmation instead.
+
 ## 5. What this does NOT cover (yet)
 
 - Undo/redo stack semantics (M6)
