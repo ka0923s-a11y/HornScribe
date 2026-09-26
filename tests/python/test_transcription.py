@@ -1980,3 +1980,86 @@ class TestOmittedIssues:
         log = run(tmp_path, make_events([60, 62, 64, 65]))
         assert log[-1]["phase"] == "completed"
         assert log[-1]["result"]["omittedReviewIssues"] == []
+
+
+class TestAutoMeterFallback:
+    """#24: an uncertain auto-meter estimate must never be written —
+    the meter.py contract is 4/4 fallback + a meter_conflict issue
+    carrying the rejected guess (a misread 6/8 once printed
+    "♩=37.45" for a ~108 bpm source)."""
+
+    def _run_with_meter_est(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        meter_est: Any,
+    ) -> list[dict[str, Any]]:
+        import hornscribe.transcription.pipeline as pipeline_mod
+
+        monkeypatch.setattr(
+            pipeline_mod,
+            "_track_beats",
+            lambda _s, _sr: (
+                tuple(i * 0.55 for i in range(8)),
+                tuple(1.0 for _ in range(8)),
+            ),
+        )
+        monkeypatch.setattr(
+            pipeline_mod,
+            "estimate_meter",
+            lambda _b, _s: meter_est,
+        )
+        return run(
+            tmp_path,
+            make_events([60, 62, 64, 65, 67, 69, 71, 72], beat_sec=0.5),
+            {"meter": "auto"},
+        )
+
+    def test_uncertain_guess_writes_4_4_and_reports_guess(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hornscribe.transcription.meter import MeterEstimate
+
+        log = self._run_with_meter_est(
+            tmp_path,
+            monkeypatch,
+            MeterEstimate(
+                meter="6/8",
+                confidence=0.0,
+                tracked_eighths=True,
+                uncertain=True,
+            ),
+        )
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        # The score keeps the readable default; the rejected guess
+        # survives only as review evidence.
+        assert result["meta"]["meter"] == "4/4"
+        ts = result["scoreDocument"]["content"]["timeSignature"]
+        assert (ts["beatsPerMeasure"], ts["beatUnit"]) == (4, 4)
+        conflicts = [
+            i for i in result["reviewIssues"] if i["reason"] == "meter_conflict"
+        ]
+        assert conflicts, "uncertain auto meter must surface meter_conflict"
+        assert conflicts[0]["evidence"]["estimatedMeter"] == "6/8"
+
+    def test_trusted_compound_meter_still_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hornscribe.transcription.meter import MeterEstimate
+
+        log = self._run_with_meter_est(
+            tmp_path,
+            monkeypatch,
+            MeterEstimate(
+                meter="6/8",
+                confidence=0.8,
+                tracked_eighths=True,
+                uncertain=False,
+            ),
+        )
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        assert result["meta"]["meter"] == "6/8"
+        ts = result["scoreDocument"]["content"]["timeSignature"]
+        assert (ts["beatsPerMeasure"], ts["beatUnit"]) == (6, 8)
