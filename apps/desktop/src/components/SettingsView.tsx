@@ -24,6 +24,7 @@ import type { DiagnosticsInfo, ToolInfo } from "../diagnostics/types";
 import {
   SETTINGS_CATEGORIES,
   playbackRateOptions,
+  RECORDINGS_RETENTION_DAYS,
   type AppSettings,
   type SettingsCategory,
 } from "../settings/store";
@@ -391,7 +392,7 @@ export function SettingsView({
             <HsSelect
               label={s.recordingsRetention}
               value={String(settings.recordingsRetentionDays)}
-              options={[0, 7, 30, 90].map((d) => ({
+              options={RECORDINGS_RETENTION_DAYS.map((d) => ({
                 value: String(d),
                 label:
                   d === 0

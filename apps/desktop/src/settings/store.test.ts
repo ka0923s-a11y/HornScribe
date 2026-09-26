@@ -58,6 +58,26 @@ describe("parseSettings", () => {
     };
     expect(parseSettings(JSON.stringify(custom))).toEqual(custom);
   });
+
+  it("#354: select-driven fields reject values outside the offered set", () => {
+    // A hand-edited/future blob at 3x would survive a range check but
+    // render as a dead select — membership validation falls back to 1.
+    expect(
+      parseSettings(JSON.stringify({ playbackRate: 3 })).playbackRate,
+    ).toBe(DEFAULT_SETTINGS.playbackRate);
+    expect(
+      parseSettings(JSON.stringify({ playbackRate: 1.25 })).playbackRate,
+    ).toBe(1.25);
+    // Same contract for 保持日数 — only the UI's offered set survives.
+    expect(
+      parseSettings(JSON.stringify({ recordingsRetentionDays: 14 }))
+        .recordingsRetentionDays,
+    ).toBe(DEFAULT_SETTINGS.recordingsRetentionDays);
+    expect(
+      parseSettings(JSON.stringify({ recordingsRetentionDays: 30 }))
+        .recordingsRetentionDays,
+    ).toBe(30);
+  });
 });
 
 describe("storage guards", () => {
@@ -115,5 +135,4 @@ describe("exportFormats persistence (#377)", () => {
     ).toEqual(DEFAULT_SETTINGS);
   });
 });
-
 
