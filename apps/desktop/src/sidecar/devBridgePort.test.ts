@@ -101,10 +101,28 @@ describe("DevBridgeSidecarPort", () => {
 
     // SSE stream opened before the spawn POST (no lost early output).
     expect(FakeEventSource.instances).toHaveLength(1);
-    expect(calls.map((c) => c.url)).toEqual([
+    expect(calls.map((c) => c.url.split("?")[0])).toEqual([
       "/__engine/health",
       "/__engine/spawn",
     ]);
+    // #23: the spawn carries the same client id as the SSE listener
+    // so the bridge can tell our subscription from another session's.
+    const spawnUrl = calls.find((c) => c.url.startsWith(
+      "/__engine/spawn",
+    ));
+    const esUrl = FakeEventSource.instances[0].url;
+    const spawnClient = new URL(
+      "http://x/" + (spawnUrl?.url ?? ""),
+    ).searchParams.get(
+      "client",
+    );
+    const esClient = new URL(
+      "http://x/" + esUrl,
+    ).searchParams.get(
+      "client",
+    );
+    expect(spawnClient).toBeTruthy();
+    expect(spawnClient).toBe(esClient);
 
     const es = FakeEventSource.instances[0];
     es.emit({ kind: "line", line: '{"v":1}' });

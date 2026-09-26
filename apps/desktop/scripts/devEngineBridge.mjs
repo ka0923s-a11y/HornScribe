@@ -9,8 +9,11 @@
  *
  * This plugin exposes a tiny localhost HTTP surface on the same origin:
  *   GET  /__engine/health      -> {ok, python}      (port probe)
- *   POST /__engine/spawn       -> spawn the worker (409 when running)
+ *   POST /__engine/spawn       -> spawn the worker (409 only while
+ *                                 another session's SSE is attached;
+ *                                 ?client=<id> tags the requester)
  *   GET  /__engine/events      -> SSE {kind:line|stderr|exit}
+ *                                 (?client=<id> tags the listener)
  *   POST /__engine/write       -> {line} appended to worker stdin
  *   POST /__engine/stdin-close -> close worker stdin (graceful EOF)
  *   POST /__engine/kill        -> terminate the worker
@@ -19,6 +22,11 @@
  *                                 reach the real engine too
  *
  * Python resolution mirrors engine.rs: HORNSCRIBE_PYTHON -> repo-local
+ *
+ * #23 lifecycle: a worker whose last SSE listener disconnects is an
+ * orphan (its output reaches nobody) — it is reaped after a ~5 s grace
+ * window, which a page reload out-runs by reconnecting first. The
+ * worker is also killed when the dev server itself exits.
  * .venv* (bp envs first) -> PATH. PYTHONPATH points at <repo>/python
  * unless HORNSCRIBE_PYTHONPATH overrides it.
  */
@@ -156,22 +164,53 @@ export function devEngineBridge() {
   /** @type {import("node:child_process").ChildProcess | null} */
   let child = null;
   let stdoutBuf = "";
+
+  /** SSE subscribers carry the requesting client id so spawn can tell
+   *  its own listener apart from another session's (#23). */
   const sseClients = new Set();
 
   const broadcast = (obj) => {
-    const data = "data: " + JSON.stringify(obj) + "\n\n";
-    for (const res of [...sseClients]) {
+   const data = "data: " + JSON.stringify(obj) + "\n\n";
+    for (const entry of [...sseClients]) {
       try {
-        res.write(data);
+        entry.res.write(data);
       } catch {
-        sseClients.delete(res);
+        sseClients.delete(entry);
       }
     }
   };
 
-  const fireExit = (code) => {
+  // #23: exits bind to the process object they came from — a
+  // recycled worker's late exit must not clear the replacement's slot.
+  const fireExit = (code, proc) => {
+    if (proc && child !== proc) return;
     child = null;
     broadcast({ kind: "exit", code });
+  };
+
+  // #23: when no browser session listens, a running worker's output
+  // has no consumer — the job is orphaned. Reap it after a grace
+  // window so a page reload (SSE closes then reopens ~a second
+  // later) can reattach without losing the in-flight job.
+  const ORPHAN_GRACE_MS = 5000;
+  let orphanTimer = null;
+  const reapOrphan = () => {
+    if (sseClients.size !== 0 || !child) return;
+    const stale = child;
+    child = null;
+    try {
+      stale.kill();
+    } catch {
+      /* already gone */
+    }
+  };
+  const onSseClose = () => {
+    if (sseClients.size !== 0 || !child) return;
+    if (orphanTimer) clearTimeout(orphanTimer);
+    orphanTimer = setTimeout(() => {
+      orphanTimer = null;
+      reapOrphan();
+    }, ORPHAN_GRACE_MS);
   };
 
   const spawnWorker = () => {
@@ -203,8 +242,8 @@ export function devEngineBridge() {
         if (line) broadcast({ kind: "stderr", line });
       }
     });
-    proc.on("exit", (code) => fireExit(code));
-    proc.on("error", () => fireExit(null));
+    proc.on("exit", (code) => fireExit(code, proc));
+    proc.on("error", () => fireExit(null, proc));
     return resolved;
   };
 
@@ -225,13 +264,45 @@ export function devEngineBridge() {
           "cache-control": "no-cache",
           connection: "keep-alive",
         });
-        res.write("retry: 1000\n\n");
-        sseClients.add(res);
-        req.on("close", () => sseClients.delete(res));
+       res.write("retry: 1000\n\n");
+        // #23: tag the subscriber with the requesting client id so a
+        // later spawn can tell its own listener from another session's.
+        const entry = { res, client: url.searchParams.get("client") };
+        sseClients.add(entry);
+        // A fresh listener cancels the pending orphan reap — a page
+        // reload reattached in time.
+        if (orphanTimer) {
+          clearTimeout(orphanTimer);
+          orphanTimer = null;
+        }
+        req.on("close", () => {
+          sseClients.delete(entry);
+          onSseClose();
+        });
         return;
       }
-      if (url.pathname === "/__engine/spawn" && req.method === "POST") {
-        if (child) return json(res, 409, { error: "ENGINE_ALREADY_RUNNING" });
+     if (url.pathname === "/__engine/spawn" && req.method === "POST") {
+        if (child) {
+          // #23: a dead handle is reaped silently; a live worker with
+          // no OTHER session still attached is an orphan from a closed
+          // browser — recycle it instead of wedging the session at 409.
+          const alive = child.exitCode === null && !child.killed;
+          const me = url.searchParams.get("client");
+          const othersAttached = [...sseClients].some((e) =>
+            me == null ? true : e.client !== me,
+          );
+          if (alive && othersAttached) {
+            return json(res, 409, { error: "ENGINE_ALREADY_RUNNING" });
+          }
+          const stale = child;
+          child = null;
+          stdoutBuf = "";
+          try {
+            if (alive) stale.kill();
+          } catch {
+            /* already gone */
+          }
+        }
         const resolved = spawnWorker();
         return json(res, 200, { ok: true, python: resolved.exe });
       }
@@ -269,9 +340,30 @@ export function devEngineBridge() {
     }
   };
 
-  return {
-    name: "hornscribe-dev-engine-bridge",
+ return {
+   name: "hornscribe-dev-engine-bridge",
     configureServer(server) {
+      // #23: the worker must not outlive the dev server — a vite
+      // restart would otherwise orphan it (spawned python stays
+      // running detached and the next bridge spawns a duplicate).
+      const shutdown = () => {
+        if (child) {
+          try {
+            child.kill();
+          } catch {
+            /* already gone */
+          }
+          child = null;
+        }
+      };
+      server.httpServer?.once("close", shutdown);
+      for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+        try {
+          process.once(sig, shutdown);
+        } catch {
+          /* unavailable on this platform */
+        }
+      }
       server.middlewares.use((req, res, next) => {
         if (req.url && req.url.startsWith("/__engine/")) {
           void handle(req, res);

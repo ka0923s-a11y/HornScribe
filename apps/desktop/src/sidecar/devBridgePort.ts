@@ -40,6 +40,13 @@ export class DevBridgeSidecarPort implements SidecarPort {
   private events: EventSource | null = null;
   private exitFired = false;
   private running = false;
+  /** #23: a per-port id tags this session's SSE listener so the
+   *  bridge can tell our spawn apart from another tab's still-open
+   *  session when it decides whether a running worker is orphaned. */
+  private readonly clientId =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : "dev-" + Math.random().toString(36).slice(2);
 
   async start(): Promise<void> {
     if (!(await this.bridgeUp())) {
@@ -61,7 +68,9 @@ export class DevBridgeSidecarPort implements SidecarPort {
 
     // Subscribe to the SSE stream before spawning so no early worker
     // output (handshake line) can be lost between the two requests.
-    const events = new EventSource("/__engine/events");
+    const events = new EventSource(
+      "/__engine/events?client=" + encodeURIComponent(this.clientId),
+    );
     this.events = events;
     events.onmessage = (ev) => {
       let msg: DevBridgeEvent;
@@ -88,7 +97,10 @@ export class DevBridgeSidecarPort implements SidecarPort {
     };
 
     try {
-      const res = await fetch("/__engine/spawn", { method: "POST" });
+      const res = await fetch(
+        "/__engine/spawn?client=" + encodeURIComponent(this.clientId),
+        { method: "POST" },
+      );
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           error?: string;
