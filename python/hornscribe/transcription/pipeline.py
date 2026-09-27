@@ -53,7 +53,7 @@ from hornscribe.domain.review import (
     Severity,
     TimeRange,
 )
-from hornscribe.domain.score import KeyChange, QuantizedNote
+from hornscribe.domain.score import ChordSymbol, KeyChange, QuantizedNote
 from hornscribe.export.musicxml import (
     export_concert_musicxml,
     export_horn_in_f_musicxml,
@@ -1194,6 +1194,7 @@ def run_transcription_job(
         # empty map rather than sinking the job (enhancement layer).
         prefer_flats = key.fifths < 0
         chord_map: tuple[ChordEstimate, ...] = ()
+        chord_symbols: tuple[ChordSymbol, ...] = ()
         try:
             half_beats = measure_len_ql / (2 * beat_ql)
             bounds: set[Fraction] = {Fraction(0)}
@@ -1201,6 +1202,11 @@ def run_transcription_job(
                 bounds.add(ms + half_beats)
                 bounds.add(ms + measure_len_ql / beat_ql)
             ordered_bounds = sorted(bounds)
+            # Segment defs keep the canonical BEAT bounds next to the
+            # audio seconds - estimate_chords consumes the seconds,
+            # and the beat bounds tag the returned estimates one-to-
+            # one as ScoreDocument chord symbols (#44).
+            seg_beats: list[tuple[Fraction, Fraction]] = []
             seg_secs: list[tuple[float, float]] = []
             for lo_b, hi_b in pairwise(ordered_bounds):
                 lo_s = (
@@ -1212,6 +1218,7 @@ def run_transcription_job(
                     - selection_offset_sec
                 )
                 if hi_s > lo_s:
+                    seg_beats.append((lo_b, hi_b))
                     seg_secs.append((lo_s, hi_s))
             chord_map = tuple(
                 replace(
@@ -1227,8 +1234,23 @@ def run_transcription_job(
                     prefer_flats=prefer_flats,
                 )
             )
+            chord_symbols = tuple(
+                ChordSymbol(
+                    start_beat=lo_b,
+                    end_beat=hi_b,
+                    root_pc=est.root_pc,
+                    quality=est.quality,
+                    confidence=est.confidence,
+                    margin=est.margin,
+                    label=est.label(prefer_flats),
+                )
+                for (lo_b, hi_b), est in zip(
+                    seg_beats, chord_map, strict=True
+                )
+            )
         except Exception:  # noqa: BLE001 - enhancement layer
             chord_map = ()
+            chord_symbols = ()
         build_done += 1
         step(5, build_done, build_total)
         tempo_map = tempo_map_from_estimate(estimate, meter)
@@ -1324,6 +1346,9 @@ def run_transcription_job(
                     for evs in evidence_parts
                 ],
             },
+            # #44: the chord map rides along as document-level
+            # analysis - MusicXML export renders it as <harmony>.
+            chord_symbols=chord_symbols,
         )
         build_done += 1
         step(5, build_done, build_total)

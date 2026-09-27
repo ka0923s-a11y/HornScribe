@@ -28,7 +28,7 @@ emitted tree so exported documents are deterministic and identity-bearing:
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from itertools import groupby
 from pathlib import Path
@@ -45,9 +45,11 @@ from hornscribe.domain.ids import (
     musicxml_rest_id,
 )
 from hornscribe.domain.score import (
+    ChordSymbol,
     PitchSpace,
     ScoreDocument,
     ScoreRevisionPayload,
+    beat_ql_of,
     measure_spans,
 )
 from hornscribe.instruments import horn_f
@@ -82,7 +84,7 @@ def export_musicxml(
     m21_score = build_music21_score(score, presentation)
     raw = GeneralObjectExporter().parse(m21_score)
     text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
-    return _normalize_musicxml(text, presentation, score.payload.swing_feel)
+    return _normalize_musicxml(text, presentation, score)
 
 
 def export_concert_musicxml(score: ScoreDocument) -> str:
@@ -116,7 +118,7 @@ _STEP_PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 def _normalize_musicxml(
     xml_text: str,
     presentation: PitchSpace,
-    swing_feel: Fraction | None = None,
+    score: ScoreDocument,
 ) -> str:
     root = ET.fromstring(xml_text)
     if root.tag != "score-partwise":
@@ -126,8 +128,10 @@ def _normalize_musicxml(
     _strip_volatile_metadata(root)
     _normalize_part_and_instrument_ids(root)
     _assign_note_ids(root)
+    swing_feel = score.payload.swing_feel
     if swing_feel is not None:
         _insert_swing_direction(root, swing_feel)
+    _insert_harmony_symbols(root, score, presentation)
 
     if presentation is PitchSpace.WRITTEN_HORN_F:
         for part_el in root.findall("part"):
@@ -177,6 +181,206 @@ def _insert_swing_direction(root: ET.Element, swing_feel: Fraction) -> None:
         measure.insert(insert_at, direction)
 
 
+# ---------------------------------------------------------------------------
+# chord symbols (#44)
+# ---------------------------------------------------------------------------
+
+# Reliability gate mirrors transcription.chord's review thresholds -
+# a segment weak enough to raise ``chord_uncertain`` is not baked
+# into exported notation.
+_HARMONY_MIN_CONFIDENCE = 0.35
+_HARMONY_MIN_MARGIN = 0.04
+
+# quality key -> (MusicXML <kind>, kind@text). The text override keeps
+# the JPOP spelling ("m7-5") instead of a reader's default glyph
+# (half-diminished would otherwise print as a slash-circle).
+_QUALITY_KIND: dict[str, tuple[str, str]] = {
+    "maj": ("major", ""),
+    "min": ("minor", "m"),
+    "7": ("dominant", "7"),
+    "maj7": ("major-seventh", "maj7"),
+    "m7": ("minor-seventh", "m7"),
+    "m7b5": ("half-diminished", "m7-5"),
+    "dim": ("diminished", "dim"),
+    "aug": ("augmented", "aug"),
+    "sus4": ("suspended-fourth", "sus4"),
+}
+
+# pitch class -> (root-step, root-alter), keyed by spelling policy.
+_PC_SHARP: tuple[tuple[str, int], ...] = (
+    ("C", 0), ("C", 1), ("D", 0), ("D", 1), ("E", 0), ("F", 0),
+    ("F", 1), ("G", 0), ("G", 1), ("A", 0), ("A", 1), ("B", 0),
+)
+_PC_FLAT: tuple[tuple[str, int], ...] = (
+    ("C", 0), ("D", -1), ("D", 0), ("E", -1), ("E", 0), ("F", 0),
+    ("G", -1), ("G", 0), ("A", -1), ("A", 0), ("B", -1), ("B", 0),
+)
+
+
+def _insert_harmony_symbols(
+    root: ET.Element, score: ScoreDocument, presentation: PitchSpace
+) -> None:
+    """Emit ``<harmony>`` chord symbols on the first part (top staff).
+
+    Symbols below the review-confidence floor are skipped - exported
+    notation carries only calls the estimator stands behind. Runs of
+    the same chord on truly contiguous segments collapse so a symbol
+    prints once at the change, not twice per measure; a gap (a filtered
+    or missing segment) breaks the run so the resuming chord restates.
+    """
+    printable = tuple(
+        s
+        for s in score.chord_symbols
+        if s.confidence >= _HARMONY_MIN_CONFIDENCE
+        and s.margin >= _HARMONY_MIN_MARGIN
+        and s.quality in _QUALITY_KIND
+    )
+    if not printable:
+        return
+    part_el = root.find("part")
+    if part_el is None:
+        return
+    measures = part_el.findall("measure")
+    payload = score.payload
+    spans = measure_spans(payload)
+    beat_ql = beat_ql_of(payload)
+    # Written-pitch parts carry transposed symbols, matching the notes
+    # the player reads - a written G on the staff sits under the chord
+    # it harmonizes in the part's own key.
+    shift = (
+        horn_f.HORN_F_CONCERT_TO_WRITTEN_SEMITONES
+        if presentation is PitchSpace.WRITTEN_HORN_F
+        else 0
+    )
+    # Same flat/sharp policy the pipeline used (head key signature).
+    names = _PC_FLAT if payload.key_signature.fifths < 0 else _PC_SHARP
+
+    # music21 emits divisions per-quarter once and reuses them; track
+    # the running value so later measures inherit correctly.
+    divisions = Fraction(1)
+    measure_divisions: list[Fraction] = []
+    for measure_el in measures:
+        text = measure_el.findtext("attributes/divisions")
+        if text:
+            divisions = Fraction(int(text))
+        measure_divisions.append(divisions)
+
+    # Merge contiguous same-chord segments into print spans.
+    print_spans: list[tuple[Fraction, ChordSymbol]] = []
+    for sym in printable:
+        if (
+            print_spans
+            and print_spans[-1][1].root_pc == sym.root_pc
+            and print_spans[-1][1].quality == sym.quality
+            and print_spans[-1][1].end_beat == sym.start_beat
+        ):
+            prev = print_spans[-1][1]
+            print_spans[-1] = (
+                print_spans[-1][0],
+                replace(prev, end_beat=sym.end_beat),
+            )
+            continue
+        print_spans.append((sym.start_beat, sym))
+
+    by_measure: dict[int, list[tuple[Fraction, ChordSymbol]]] = {}
+    for start, sym in print_spans:
+        idx = next(
+            (
+                i
+                for i, s in enumerate(spans)
+                if s.start_beat <= start < s.end_beat
+            ),
+            None,
+        )
+        if idx is None or idx >= len(measures):
+            continue
+        by_measure.setdefault(idx, []).append(
+            (start - spans[idx].start_beat, sym)
+        )
+
+    for idx, entries in sorted(by_measure.items()):
+        measure_el = measures[idx]
+        div = measure_divisions[idx]
+        anchors, final_cursor = _measure_anchors(measure_el)
+        inserts: list[tuple[int, ET.Element]] = []
+        for pos_beats, sym in sorted(entries, key=lambda e: e[0]):
+            pos_div = pos_beats * beat_ql * div
+            anchor_i = len(list(measure_el))
+            anchor_pos = final_cursor
+            for i, cur in anchors:
+                if cur >= pos_div:
+                    anchor_i, anchor_pos = i, cur
+                    break
+            offset = pos_div - anchor_pos
+            harmony = _harmony_element(sym, names, shift, offset)
+            if harmony is not None:
+                inserts.append((anchor_i, harmony))
+        # Right-to-left so earlier anchors stay index-valid.
+        for i, el in sorted(inserts, key=lambda t: -t[0]):
+            measure_el.insert(i, el)
+
+
+def _measure_anchors(
+    measure_el: ET.Element,
+) -> tuple[list[tuple[int, Fraction]], Fraction]:
+    """(child index, cursor divisions) anchors a ``<harmony>`` may sit
+    before, plus the cursor at measure end.
+
+    Anchors are non-chord ``<note>`` children plus ``<direction>`` and
+    ``<barline>`` - elements whose appearance marks a score-time
+    position. ``<backup>``/``<forward>`` move the cursor without
+    anchoring (a multi-voice measure's harmony still lands on the
+    primary timeline)."""
+    anchors: list[tuple[int, Fraction]] = []
+    cursor = Fraction(0)
+    for i, ch in enumerate(measure_el):
+        if ch.tag == "note":
+            if ch.find("chord") is None:
+                anchors.append((i, cursor))
+                dur = ch.findtext("duration")
+                if dur:
+                    cursor += Fraction(int(dur))
+        elif ch.tag == "backup":
+            dur = ch.findtext("duration")
+            if dur:
+                cursor -= Fraction(int(dur))
+        elif ch.tag == "forward":
+            dur = ch.findtext("duration")
+            if dur:
+                cursor += Fraction(int(dur))
+        elif ch.tag in ("direction", "barline"):
+            anchors.append((i, cursor))
+    return anchors, cursor
+
+
+def _harmony_element(
+    sym: ChordSymbol,
+    names: tuple[tuple[str, int], ...],
+    shift: int,
+    offset_div: Fraction,
+) -> ET.Element | None:
+    kind_text = _QUALITY_KIND.get(sym.quality)
+    if kind_text is None:
+        return None
+    kind, text_attr = kind_text
+    step, alter = names[(sym.root_pc + shift) % 12]
+    harmony = ET.Element("harmony")
+    root_el = ET.SubElement(harmony, "root")
+    ET.SubElement(root_el, "root-step").text = step
+    if alter:
+        ET.SubElement(root_el, "root-alter").text = str(alter)
+    kind_el = ET.SubElement(harmony, "kind")
+    if text_attr:
+        kind_el.set("text", text_attr)
+    kind_el.text = kind
+    if offset_div:
+        off = ET.SubElement(harmony, "offset")
+        off.text = (
+            str(offset_div.numerator)
+            if offset_div.denominator == 1
+            else str(float(offset_div))
+        )
+    return harmony
 def _strip_volatile_metadata(root: ET.Element) -> None:
     """Remove content that would break byte-determinism (encoding-date)."""
     for encoding in root.iter("encoding"):

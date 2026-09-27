@@ -31,7 +31,7 @@ MusicXML エクスポートが MuseScore で正しく再読込されるかの検
 
 ## 既知の非対象
 
-- コードシンボル(`<harmony>`): 現状エクスポートしていない(#3 の chordProgression を将来接続する候補)
+ - コードシンボル(`<harmony>`): #44 でエクスポート済み。`ScoreDocument.chordSymbols`(採譜ジョブの和音マップ)が存在し、かつ confidence/margin が `chord_uncertain` の閾値を上回る区間のみ出力される。F管版は記譜音と同じく五度上の書き下ろしコード名になる。round-trip 検証時は小節頭のシンボル表示と `<offset>` による小節途中の配置も確認対象
 - 強弱記号・スラー等の表情記号: 採譜出力には含めていない
 
 ## 記録ルール
