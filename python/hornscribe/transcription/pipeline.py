@@ -1179,15 +1179,25 @@ def run_transcription_job(
             pos += measure_len_ql / beat_ql
         # #352: one analysis produces the key map AND the uncertainty
         # evidence — segmentation guards live inside analyze_key.
-        key_analysis = analyze_key(
-            tuple(key_pitches),
-            tuple(key_onsets),
-            tuple(key_durations),
-            tuple(measure_starts),
-        )
-        key = key_analysis.key
-        key_changes = key_analysis.changes
-        key_confidence = key_analysis.confidence
+        # #53: a user-pinned key replaces the analysis entirely —
+        # spelling, chord priors and the signature all take the hint,
+        # and no key_uncertain issue can fire on a user attestation.
+        key_hint_sig = params.key_signature_hint()
+        key_analysis = None
+        if key_hint_sig is not None:
+            key = key_hint_sig
+            key_changes: tuple[KeyChange, ...] = ()
+            key_confidence = 1.0
+        else:
+            key_analysis = analyze_key(
+                tuple(key_pitches),
+                tuple(key_onsets),
+                tuple(key_durations),
+                tuple(measure_starts),
+            )
+            key = key_analysis.key
+            key_changes = key_analysis.changes
+            key_confidence = key_analysis.confidence
         # #419: chord map — half-measure segments snapped to the
         # canonical beat grid, chroma-matched then Viterbi-smoothed
         # under the key prior. Runs on the slice; a failure leaves an
@@ -1489,7 +1499,11 @@ def run_transcription_job(
         # #352: a wrong key ripples into the signature, enharmonic
         # spelling and the Horn-in-F transposition — never write a
         # low-confidence or two-candidate estimate silently.
-        key_uncertain = key_uncertainty(key_analysis)
+        # #53: a pinned key is user attestation — certainty by
+        # definition, so no uncertainty issue can fire.
+        key_uncertain = (
+            key_uncertainty(key_analysis) if key_analysis is not None else None
+        )
         if key_uncertain is not None:
             issues.append(
                 ReviewIssue(
@@ -1801,6 +1815,9 @@ def run_transcription_job(
                     "keyFifths": key.fifths,
                     "keyMode": key.mode,
                     "keyConfidence": round(key_confidence, 3),
+                    # #53: True when the user pinned the key — an
+                    # estimate and an attestation must not read alike.
+                    "keyHinted": key_hint_sig is not None,
                     # #419: measure-segmented chord map - consecutive
                     # same-chord spans merged for readability.
                     "chordProgression": _merged_chord_dicts(

@@ -959,6 +959,11 @@ export const ja = {
       tempoBpm: "テンポ（手動）",
       meter: "拍子",
       meterAuto: "自動",
+      /* #53: user-attested key — pins signature, spelling, chord prior. */
+      keyHint: "調",
+      keyHintAuto: "自動判定",
+      keyHintHint:
+        "曲の調が分かっているときに指定すると、音名の表記と調号がその調で確定します。自動判定では解析結果を使います。",
       minDuration: "最小音価",
       minDuration8: "8分音符",
       minDuration16: "16分音符",

@@ -912,6 +912,55 @@ class TestKeyUncertainty:
         reasons = {i["reason"] for i in log[-1]["result"]["reviewIssues"]}
         assert "key_uncertain" not in reasons
 
+    def test_key_hint_pins_signature(self, tmp_path: Path) -> None:
+        # #53: a user-attested key must land on the score verbatim —
+        # signature, mode, confidence and the chord prior all take the
+        # hint, and no uncertainty review can fire on it.
+        log = run(
+            tmp_path,
+            make_events([63, 65, 66, 68, 70, 63, 66, 68]),  # Eb-ish line
+            {"keyHint": "Ebm"},
+        )
+        result = log[-1]["result"]
+        meta = result["meta"]
+        assert meta["keyFifths"] == -6
+        assert meta["keyMode"] == "minor"
+        assert meta["keyConfidence"] == 1.0
+        assert meta["keyHinted"] is True
+        assert meta["settings"]["keyHint"] == "Ebm"
+        sig = result["scoreDocument"]["content"]["keySignature"]
+        assert sig["fifths"] == -6
+        assert sig["mode"] == "minor"
+        # No key changes were detected — the hint pins the whole song.
+        assert result["scoreDocument"]["content"].get("keyChanges", []) == []
+        reasons = {i["reason"] for i in result["reviewIssues"]}
+        assert "key_uncertain" not in reasons
+
+    def test_key_hint_auto_unchanged(self, tmp_path: Path) -> None:
+        log = run(tmp_path, make_events([60, 62, 64, 65, 67, 69, 71, 72]))
+        meta = log[-1]["result"]["meta"]
+        assert meta["keyHinted"] is False
+        assert meta["settings"]["keyHint"] == "auto"
+
+    def test_key_hint_rejects_unknown_names(self) -> None:
+        with pytest.raises(ValueError, match="keyHint"):
+            TranscriptionParams.from_payload(
+                {"audioPath": "a", "keyHint": "H#"}
+            )
+        p = TranscriptionParams.from_payload(
+            {"audioPath": "a", "keyHint": "F#"}
+        )
+        sig = p.key_signature_hint()
+        assert sig is not None
+        assert (sig.fifths, sig.mode) == (6, "major")
+        # "auto" resolves to None — analysis runs as before.
+        assert (
+            TranscriptionParams.from_payload(
+                {"audioPath": "a"}
+            ).key_signature_hint()
+            is None
+        )
+
 
 class TestSwing:
     """#134: offbeat onset census -> swing_feel review issue."""

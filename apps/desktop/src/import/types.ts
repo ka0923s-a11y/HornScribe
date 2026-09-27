@@ -162,10 +162,24 @@ export interface TranscriptionOptions {
   /** #187: opt-in vocal isolation — the backend runs on a
    *  center-extracted vocal estimate instead of the raw mix. */
   vocalIsolation: boolean;
+  /** #53: user-attested key ("auto" or a tonic name like "Ebm") —
+   *  pinning it fixes enharmonic spelling, the signature and the
+   *  chord prior; analysis and the key_uncertain review are skipped. */
+  keyHint: string;
   /** 範囲指定時の開始/終了（秒）。null = 音声の端まで。 */
   selectionStartSec: number | null;
   selectionEndSec: number | null;
 }
+
+/** #53: accepted keyHint values (mirrors the engine's _KEY_HINTS —
+ *  both enharmonic spellings listed where fifths differ). "auto" is
+ *  the engine default and never reaches the wire. */
+export const KEY_HINT_VALUES: readonly string[] = [
+  "auto",
+  "C", "Db", "D", "Eb", "E", "F", "Gb", "F#", "G", "Ab", "A", "Bb", "B",
+  "Cm", "C#m", "Dm", "D#m", "Ebm", "Em", "Fm", "F#m", "Gm", "G#m",
+  "Abm", "Am", "Bbm", "Bm",
+];
 
 export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   tempo: "auto",
@@ -179,6 +193,7 @@ export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   maxVoices: 3,
   backend: "auto",
   vocalIsolation: false,
+  keyHint: "auto",
   selectionStartSec: null,
   selectionEndSec: null,
 };

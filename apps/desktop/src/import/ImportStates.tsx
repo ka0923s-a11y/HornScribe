@@ -268,6 +268,18 @@ const METER_OPTIONS: readonly HsSelectOption[] = [
   { value: "9/8", label: "9/8" },
   { value: "12/8", label: "12/8" },
 ];
+/* #53: key hint — tonic names in pitch-class order, both enharmonic
+ *  spellings where they differ (Gb vs F#, D#m vs Ebm, G#m vs Abm),
+ *  mirroring the engine's _KEY_HINTS table. */
+const KEY_HINT_OPTIONS: readonly HsSelectOption[] = [
+  { value: "auto", label: ja.import.audioOptions.keyHintAuto },
+  ...["C", "Db", "D", "Eb", "E", "F", "Gb", "F#", "G", "Ab", "A", "Bb", "B"].map(
+    (k) => ({ value: k, label: k }),
+  ),
+  ...["Cm", "C#m", "Dm", "D#m", "Ebm", "Em", "Fm", "F#m", "Gm", "G#m", "Abm", "Am", "Bbm", "Bm"].map(
+    (k) => ({ value: k, label: k }),
+  ),
+];
 const MIN_DURATION_OPTIONS: readonly HsSelectOption[] = [
   { value: "8", label: ja.import.audioOptions.minDuration8 },
   { value: "16", label: ja.import.audioOptions.minDuration16 },
@@ -457,6 +469,15 @@ function AudioReadyBody({
               options={METER_OPTIONS}
               value={options.meter}
               onChange={(v) => set({ meter: v })}
+            />
+            {/* #53: 調を知っているユーザーはここで確定できる —
+                音名表記・調号・コード事前分布がこの調に揃う。 */}
+            <HsSelect
+              label={ja.import.audioOptions.keyHint}
+              options={KEY_HINT_OPTIONS}
+              value={options.keyHint}
+              hint={ja.import.audioOptions.keyHintHint}
+              onChange={(v) => set({ keyHint: v })}
             />
             <HsSelect
               label={ja.import.audioOptions.minDuration}
