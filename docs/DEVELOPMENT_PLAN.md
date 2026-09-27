@@ -887,7 +887,8 @@ Python music domain と desktop frontend をdirectory levelでも分離する。
 - [ ] mypy または pyright
 - [ ] logging
 - [ ] config
-- [ ] GitHub Actions lightweight CI
+- [x] ~~GitHub Actions lightweight CI~~ → Actions 不採用(#2)。
+      ローカル検証ゲートが代替(docs/RELEASE.md)
 - [ ] dependency groups
 - [ ] `hornscribe doctor`
 
@@ -898,6 +899,7 @@ Python music domain と desktop frontend をdirectory levelでも分離する。
 - domain/project fixtureをserialize→deserializeできる
 - canonical note IDとscore revisionの意味が文書化されている
 - CIがモデルダウンロードなしのdeterministic testsで成功
+  (Actions不使用方針のため、役割はローカル検証ゲートが担う — docs/RELEASE.md)
 
 ---
 
@@ -1237,14 +1239,17 @@ Horn:
 
 GitHub Actionsでは重いモデル推論を毎回行わない。
 
-PR / push:
+本リポジトリは GitHub Actions を使用しない(#2 決定 — ホステッド
+CI/CD 不採用。`.github/workflows/` は移行時に削除済み)。検証と
+リリースはローカルで完結させる:`docs/RELEASE.md` が runbook。
+ローカル検証ゲート(全パス必須):
 
 - lint
 - type check
 - unit tests
 - MusicXML pure tests
 
-ローカルintegration:
+ローカルintegration(モデル/外部ツール依存はこちら側):
 
 - Basic Pitch model
 - MuseScore
