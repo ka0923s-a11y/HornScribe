@@ -82,6 +82,19 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.transcribe(),
     },
     {
+      // #55: open the transcription-options dialog from the score
+      // screen — the popover only exists on AUDIO_READY, so after a
+      // transcription there was no way to change 調/meter/etc. and
+      // retry. Score-only visibility: AUDIO_READY already has the
+      // popover next to 採譜を開始.
+      id: "score.transcribeOptions",
+      title: ja.commands.transcribeOptions,
+      section: "score",
+      isEnabled: (s) => s.hasAudio && !s.isTranscribing && !s.isRecording,
+      isVisible: (s) => s.hasScore,
+      run: (ctx) => ctx.openTranscribeOptions?.(),
+    },
+    {
       id: "score.cancelTranscription",
       title: ja.commands.cancelTranscription,
       section: "score",

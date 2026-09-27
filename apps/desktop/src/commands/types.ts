@@ -123,6 +123,8 @@ export interface CommandContext {
   openQueue?(): void;
   /** #18: ファイルピッカーで音源をキューに追加する。 */
   enqueueAudio?(): void;
+  /** #55: スコア画面から採譜オプション dialog を開く。 */
+  openTranscribeOptions?(): void;
   /** 元音源のミュート切替(#72)。楽譜の演奏だけを聴く用途。 */
   toggleSourceMute?(): void;
   setPitchView(view: PitchViewSetting): void;
