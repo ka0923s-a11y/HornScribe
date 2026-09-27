@@ -4,6 +4,7 @@ import {
   parseRegionLabels,
   regionLabelsFingerprint,
   serializeRegionLabels,
+  updateRegionLabel,
 } from "./regionLabels";
 
 describe("regionLabels (#12)", () => {
@@ -62,5 +63,45 @@ describe("regionLabels (#12)", () => {
     expect(regionLabelsFingerprint([a])).not.toBe(
       regionLabelsFingerprint([c]),
     );
+  });
+
+  it("updateRegionLabel renames in place (#51)", () => {
+    const a = makeRegionLabel("Aメロ", 0, 30)!;
+    const b = makeRegionLabel("サビ", 30, 60)!;
+    const next = updateRegionLabel([a, b], a.id, { label: "  イントロ  " });
+    expect(next[0].label).toBe("イントロ");
+    expect(next[1].label).toBe("サビ");
+  });
+
+  it("updateRegionLabel re-ranges and keeps time order (#51)", () => {
+    const a = makeRegionLabel("Aメロ", 30, 60)!;
+    const b = makeRegionLabel("サビ", 60, 90)!;
+    // Move サビ earlier than Aメロ — result re-sorts by startSec.
+    const next = updateRegionLabel([a, b], b.id, {
+      startSec: 5,
+      endSec: 10,
+    });
+    expect(next[0].label).toBe("サビ");
+    expect(next[0].startSec).toBe(5);
+    expect(next[0].endSec).toBe(10);
+    expect(next[1].label).toBe("Aメロ");
+  });
+
+  it("updateRegionLabel normalizes inverted ranges (#51)", () => {
+    const a = makeRegionLabel("Aメロ", 0, 30)!;
+    const next = updateRegionLabel([a], a.id, { startSec: 50, endSec: 40 });
+    expect(next[0].startSec).toBe(40);
+    expect(next[0].endSec).toBe(50);
+  });
+
+  it("updateRegionLabel swallows invalid patches (#51)", () => {
+    const a = makeRegionLabel("Aメロ", 0, 30)!;
+    const renamed = updateRegionLabel([a], a.id, { label: "   " });
+    expect(renamed[0].label).toBe("Aメロ");
+    const flat = updateRegionLabel([a], a.id, { startSec: 10, endSec: 10 });
+    expect(flat[0].startSec).toBe(0);
+    expect(flat[0].endSec).toBe(30);
+    const negative = updateRegionLabel([a], a.id, { startSec: -5, endSec: 4 });
+    expect(negative[0].startSec).toBe(0);
   });
 });

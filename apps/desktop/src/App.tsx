@@ -135,6 +135,7 @@ import {
   makeRegionLabel,
   serializeRegionLabels,
   type RegionLabel,
+  updateRegionLabel,
 } from "./workspace/regionLabels";
 import { RegionLabelsBar } from "./components/RegionLabelsBar";
 import { closeGuardKind, type PendingCloseKind } from "./workspace/closeGuard";
@@ -1839,6 +1840,22 @@ export default function App() {
   const removeRegionLabel = useCallback((id: string) => {
     setRegionLabels((ls) => ls.filter((l) => l.id !== id));
   }, []);
+  // #51: 名前の変更/範囲の付け直し — 正規化と時間順ソートは
+  // updateRegionLabel が担う(不正値はそのまま握りつぶす)。
+  const renameRegionLabel = useCallback((id: string, name: string) => {
+    setRegionLabels((ls) => updateRegionLabel(ls, id, { label: name }));
+  }, []);
+  const applySelectionToLabel = useCallback(
+    (id: string, range: SelectionRange) => {
+      setRegionLabels((ls) =>
+        updateRegionLabel(ls, id, {
+          startSec: range.startSec,
+          endSec: range.endSec,
+        }),
+      );
+    },
+    [],
+  );
   // チップをクリック → その区間を波形バンドに戻す(ループ/再生は
   // 既存の選択操作がそのまま効く)。
   const pickRegionLabel = useCallback((l: RegionLabel) => {
@@ -2598,6 +2615,8 @@ export default function App() {
                   onAdd={addRegionLabel}
                   onPick={pickRegionLabel}
                   onRetranscribe={retranscribeRegionLabel}
+                  onRename={renameRegionLabel}
+                  onApplySelection={applySelectionToLabel}
                   onRemove={removeRegionLabel}
                 />
               ) : null}

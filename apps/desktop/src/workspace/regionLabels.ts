@@ -42,6 +42,29 @@ export function makeRegionLabel(
   };
 }
 
+/** #51: rename / re-range an existing label in place — the same
+ *  normalization rules as makeRegionLabel (trim + cap, min/max swap,
+ *  non-empty, end > start). An invalid patch leaves the label
+ *  unchanged; the result stays time-sorted like parse/add. */
+export function updateRegionLabel(
+  labels: readonly RegionLabel[],
+  id: string,
+  patch: { label?: string; startSec?: number; endSec?: number },
+): readonly RegionLabel[] {
+  const next = labels.map((l) => {
+    if (l.id !== id) return l;
+    const label =
+      patch.label !== undefined
+        ? patch.label.trim().slice(0, REGION_LABEL_MAX_LEN)
+        : l.label;
+    const start = Math.min(patch.startSec ?? l.startSec, patch.endSec ?? l.endSec);
+    const end = Math.max(patch.startSec ?? l.startSec, patch.endSec ?? l.endSec);
+    if (label === "" || !(end > start) || !(start >= 0)) return l;
+    return { ...l, label, startSec: start, endSec: end };
+  });
+  return next.sort((a, b) => a.startSec - b.startSec || a.endSec - b.endSec);
+}
+
 /** プロジェクト extras → RegionLabel[](壊れた行は捨てる — 読めない
  *  extra で開く操作全体を落とさない)。 */
 export function parseRegionLabels(raw: unknown): readonly RegionLabel[] {

@@ -2077,6 +2077,10 @@ export const ja = {
     needSelection: "先に波形で範囲を選んでください",
     retranscribe: "この区間を再採譜",
     remove: "ラベルを削除",
+    // #51: inline edit affordances on each chip
+    edit: "ラベルを編集",
+    editConfirm: "変更",
+    applySelection: "選択している範囲をこのラベルに適用",
   },
 } as const;
 
