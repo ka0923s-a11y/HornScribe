@@ -333,4 +333,73 @@ describe("buildReviewAction", () => {
     );
     expect(a).toBeNull();
   });
+
+  it("#423: merge flag offers mergeNotes on the first note", () => {
+    const applyEdit = vi.fn();
+    const h = handlers({ applyEdit });
+    const a = buildReviewAction(
+      issue({
+        reason: "boundary_uncertain",
+        canonicalNoteIds: ["sn-000001", "sn-000002"],
+        evidence: { suggestedKind: "merge", boundarySec: 1.0 },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.mergeBoundary);
+    expect(a?.tooltip).toBe(ja.review.mergeBoundaryTip);
+    a?.run();
+    const [op, feedback, onApplied] = applyEdit.mock.calls[0];
+    expect(op()).toEqual({ kind: "mergeNotes", noteId: "sn-000001" });
+    expect(feedback).toBe(ja.commandFeedback.notesMerged);
+    onApplied();
+    expect(h.markFixed).toHaveBeenCalledWith("ri-000001");
+  });
+
+  it("#423: split flag lands splitNote on the heard onset", () => {
+    const applyEdit = vi.fn();
+    const h = handlers({ applyEdit });
+    const a = buildReviewAction(
+      issue({
+        reason: "boundary_uncertain",
+        evidence: {
+          suggestedKind: "split",
+          boundarySec: 1.0,
+          suggestedSplitBeat: "2",
+        },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.splitBoundary);
+    expect(a?.tooltip).toBe(ja.review.splitBoundaryTip);
+    a?.run();
+    const [op, feedback] = applyEdit.mock.calls[0];
+    expect(op()).toEqual({
+      kind: "splitNote",
+      noteId: "sn-000001",
+      startBeat: "2",
+    });
+    expect(feedback).toBe(ja.commandFeedback.noteSplit);
+  });
+
+  it("#423: uncertain flag and missing split beat offer no fix", () => {
+    const h = handlers();
+    expect(
+      buildReviewAction(
+        issue({
+          reason: "boundary_uncertain",
+          evidence: { suggestedKind: "uncertain" },
+        }),
+        h,
+      ),
+    ).toBeNull();
+    expect(
+      buildReviewAction(
+        issue({
+          reason: "boundary_uncertain",
+          evidence: { suggestedKind: "split" },
+        }),
+        h,
+      ),
+    ).toBeNull();
+  });
 });

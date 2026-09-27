@@ -36,6 +36,7 @@ export type ReviewReason =
   | "vocal_isolation_unavailable"
   | "key_uncertain"
   | "pickup_uncertain"
+  | "boundary_uncertain"
   | "onset_uncertain"
   | "pitch_uncertain"
   | "multiple_candidates"

@@ -322,6 +322,18 @@ function inspectorCopy(): InspectorCopy {
             });
           }
         }
+        // #423: boundary-uncertainty — name the suggested fix kind
+        // (merge/split/uncertain) with the expert's score so the
+        // detail matches the action button the bar offers.
+        if (issue.reason === "boundary_uncertain") {
+          const kind = issue.evidence["suggestedKind"];
+          if (typeof kind === "string") {
+            return ja.reviewEvidence.boundaryUncertain({
+              kind,
+              score: numEvidence(issue, "boundaryScore"),
+            });
+          }
+        }
         // #322: isolation was skipped because voices/chords keep the
         // overlapping lines — say so instead of the generic mono/
         // decode-failure copy.

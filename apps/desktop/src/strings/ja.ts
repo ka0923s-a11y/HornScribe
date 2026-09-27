@@ -1500,6 +1500,16 @@ export const ja = {
       detail:
         "曲頭の弱起の推定が曖昧です。プロパティの弱起フィールドで確認・修正してください（小節線の位置が全体的に直ります）。",
     },
+    // #423: a note edge the audio evidence cannot back up — the
+    // suggestedKind evidence names merge (two written notes sound
+    // like one), split (a held note hides a re-articulation), or
+    // uncertain (a hairline edge with no attack). The action button
+    // carries the merge/split fix; uncertain asks the user to listen.
+    boundary_uncertain: {
+      title: "音符の区切りを確認してください",
+      detail:
+"音源の音量やピッチの変化から、音符の切れ目が楽譜とずれている可能性のある箇所が見つかりました。提案された修正を適用するか、そのままにするか確認してください。",
+    },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
       detail: "音の開始位置が曖昧です。",
@@ -1642,6 +1652,25 @@ export const ja = {
       }
       return clauses.join("。") + "。";
     },
+    // #423: boundary-uncertainty evidence — names the suggested
+    // fix (merge the pair / split at the heard onset / listen and
+    // decide) with its score so the user can judge before tapping.
+    boundaryUncertain: (p: {
+      readonly kind: string;
+      readonly score: number | null;
+    }) => {
+      const scoreTxt =
+        p.score != null
+          ? `（確からしさ ${Math.round(p.score * 100)}%）`
+          : "";
+      if (p.kind === "merge") {
+        return `隣り合う同じ高さの2音ですが、音源には切れ目の証拠が見つかりません${scoreTxt}。1つの音にまとめることを検討してください。`;
+      }
+      if (p.kind === "split") {
+        return `ひとつの音の途中に、別の発音らしき立ち上がりが検出されています${scoreTxt}。その位置で分割することを検討してください。`;
+      }
+      return `この区切りには確かな発音の証拠が見つかりません${scoreTxt}。元音源と聴き比べて確認してください。`;
+    },
   },
 
   /* #130 (§14): re-quantize dialog — change the quantization settings
@@ -1726,6 +1755,14 @@ export const ja = {
       "推定された弱起を修正します（全ての小節線が直り、音符の長さは変わりません）",
     openPickupEditorTip:
       "プロパティパネルを開いて弱起を選び直します",
+    /** #423: boundary_uncertain remedies — mergeNotes for a phantom
+     *  edge, splitNote at the heard onset for a missed re-articulation. */
+    mergeBoundary: "2音を1つにまとめる",
+    mergeBoundaryTip:
+      "音源ではひとつの音に聞こえるため、2つの音符を結合します",
+    splitBoundary: "この位置で音を分ける",
+    splitBoundaryTip:
+      "音源から検出された発音位置で音符を2つに分割します",
     applyAlternativeTip:
       "エンジンが次点として残した音符配置に差し替えます",
     applyTripletTip:

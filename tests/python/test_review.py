@@ -53,6 +53,8 @@ def test_all_master_plan_reasons_exist() -> None:
             "key_uncertain",
             # #358: anacrusis-inference uncertainty contract.
             "pickup_uncertain",
+            # #423: audio-evidence boundary re-scoring contract.
+            "boundary_uncertain",
         }
     assert {r.value for r in ReviewReason} == expected
 

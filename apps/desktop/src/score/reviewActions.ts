@@ -193,6 +193,46 @@ export function buildReviewAction(
       };
     }
   }
+  // #423: boundary_uncertain — the audio-evidence second opinion on
+  // note edges. A "merge" flag means one held note was written as
+  // two: mergeNotes on the first id rejoins the pair. A "split"
+  // flag carries the missed onset's beat: splitNote lands there
+  // instead of the midpoint. "uncertain" flags get no auto-fix —
+  // highlighting both notes IS the answer.
+  if (issue.reason === "boundary_uncertain" && handlers.applyEdit) {
+    const kind = issue.evidence["suggestedKind"];
+    const firstId = issue.canonicalNoteIds[0];
+    if (kind === "merge" && firstId) {
+      return {
+        label: r.mergeBoundary,
+        tooltip: r.mergeBoundaryTip,
+        run: () =>
+          handlers.applyEdit?.(
+            () => ({ kind: "mergeNotes", noteId: firstId }),
+            ja.commandFeedback.notesMerged,
+            () => handlers.markFixed?.(issue.id),
+          ),
+      };
+    }
+    const splitBeat = issue.evidence["suggestedSplitBeat"];
+    if (kind === "split" && firstId && typeof splitBeat === "string") {
+      return {
+        label: r.splitBoundary,
+        tooltip: r.splitBoundaryTip,
+        run: () =>
+          handlers.applyEdit?.(
+            () => ({
+              kind: "splitNote",
+              noteId: firstId,
+              startBeat: splitBeat,
+            }),
+            ja.commandFeedback.noteSplit,
+            () => handlers.markFixed?.(issue.id),
+          ),
+      };
+    }
+  }
+
 
   // #208: ambiguous quantization -> swap in the runner-up spans.
   if (
