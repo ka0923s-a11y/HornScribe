@@ -8,7 +8,7 @@ import { Checkbox } from "@fluentui/react-components";
 import { ja } from "../strings/ja";
 import { HsNumericField } from "../components/primitives/NumericField";
 import { HsSelect, type HsSelectOption } from "../components/primitives/Select";
-import { invalidSelectionRange } from "./transcriptionParams";
+import { invalidManualTempo, invalidSelectionRange } from "./transcriptionParams";
 import type { TranscriptionOptions } from "./types";
 
 const TEMPO_OPTIONS: readonly HsSelectOption[] = [
@@ -91,6 +91,8 @@ export function TranscriptionOptionsFields({
   // #346: an empty/inverted 選択範囲 is a field error — the caller also
   // uses this to gate its primary action.
   const rangeInvalid = invalidSelectionRange(options, durationSec);
+  // #61: 手動 tempo with no BPM would silently fall back to auto.
+  const tempoInvalid = invalidManualTempo(options);
   return (
     <div className="hs-audio-options">
       {title ? (
@@ -169,6 +171,11 @@ export function TranscriptionOptionsFields({
           max={300}
           step={1}
           unit="BPM"
+          error={
+            tempoInvalid
+              ? ja.import.audioOptions.tempoBpmRequired
+              : undefined
+          }
           onChange={(v) => set({ tempoBpm: v })}
         />
       ) : null}

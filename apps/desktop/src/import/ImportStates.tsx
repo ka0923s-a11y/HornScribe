@@ -28,7 +28,7 @@ import { HsProgress } from "../components/primitives/Progress";
 import type { ScreenState } from "../workspace/screen";
 import { formatBytes, formatDuration } from "./format";
 import { TranscriptionOptionsFields } from "./TranscriptionOptionsFields";
-import { invalidSelectionRange } from "./transcriptionParams";
+import { invalidTranscriptionOptions } from "./transcriptionParams";
 import type {
   ImportIssue,
   LoadedAudio,
@@ -259,11 +259,10 @@ function AudioReadyBody({
   onTranscribe(): void;
 }) {
   const { audio, options } = view;
-  // #346: an empty/inverted 選択範囲 is a field error, not a silent
-  // switch to 全曲採譜 — the field shows the message and 採譜を開始
-  // stays disabled until the pair is valid again (a waveform drag or
-  // corrected numbers both clear it live).
-  const rangeInvalid = invalidSelectionRange(
+  // #346/#61: field-level option errors — an inverted 選択範囲 or a
+  // 手動 tempo with no BPM keep 採譜を開始 disabled until the input is
+  // valid again (a waveform drag or corrected numbers clear it live).
+  const optionsInvalid = invalidTranscriptionOptions(
     options,
     audio?.durationSeconds ?? 0,
   );
@@ -286,7 +285,7 @@ function AudioReadyBody({
           variant="primary"
           size="large"
           icon={<Play24Regular />}
-          disabled={rangeInvalid}
+          disabled={optionsInvalid}
           onClick={onTranscribe}
         >
           {ja.score.transcribeStart}
@@ -296,7 +295,7 @@ function AudioReadyBody({
         {view.onEnqueueQueue ? (
           <HsButton
             variant="secondary"
-            disabled={rangeInvalid}
+            disabled={optionsInvalid}
             onClick={() => view.onEnqueueQueue?.()}
           >
             {ja.queue.addCurrent}

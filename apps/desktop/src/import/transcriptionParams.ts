@@ -149,6 +149,31 @@ export function invalidSelectionRange(
   return end <= start;
 }
 
+/** #61: is the 手動 tempo choice missing its BPM — tempo="manual" with
+ *  no tempoBpm? Params would omit the value and the engine silently
+ *  falls back to auto beat-tracking, ignoring the explicit choice.
+ *  Same contract as invalidSelectionRange: flag the field, gate the
+ *  primary action. */
+export function invalidManualTempo(
+  options: Pick<TranscriptionOptions, "tempo"> &
+    Partial<Pick<TranscriptionOptions, "tempoBpm">>,
+): boolean {
+  return options.tempo === "manual" && options.tempoBpm == null;
+}
+
+/** Every form-level option error, in one call — both the AUDIO_READY
+ *  popover and the score-screen options dialog gate their primary
+ *  action on this (#346 selection range, #61 manual tempo). */
+export function invalidTranscriptionOptions(
+  options: TranscriptionOptions,
+  durationSeconds: number,
+): boolean {
+  return (
+    invalidSelectionRange(options, durationSeconds) ||
+    invalidManualTempo(options)
+  );
+}
+
 /* ------------------------- #264 project settings ------------------------- */
 
 /** Engine `settings_dict()` keys -> 採譜オプション state. The saved

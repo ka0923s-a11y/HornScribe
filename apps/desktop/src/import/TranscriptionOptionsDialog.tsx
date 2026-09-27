@@ -14,7 +14,7 @@ import { ja } from "../strings/ja";
 import { HsButton } from "../components/primitives/Button";
 import { HsDialog } from "../components/primitives/Dialog";
 import { TranscriptionOptionsFields } from "./TranscriptionOptionsFields";
-import { invalidSelectionRange } from "./transcriptionParams";
+import { invalidTranscriptionOptions } from "./transcriptionParams";
 import type { TranscriptionOptions } from "./types";
 
 export function TranscriptionOptionsDialog({
@@ -45,9 +45,9 @@ export function TranscriptionOptionsDialog({
     setSeeded(false);
   }
 
-  // #346: same invalid-range gate as AUDIO_READY — an empty/inverted
-  // 選択範囲 must not start a job.
-  const invalid = invalidSelectionRange(draft, durationSec);
+  // #346/#61: same field-error gate as AUDIO_READY — an empty/inverted
+  // 選択範囲 or a 手動 tempo with no BPM must not start a job.
+  const invalid = invalidTranscriptionOptions(draft, durationSec);
 
   return (
     <HsDialog
