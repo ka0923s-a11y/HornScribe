@@ -1,6 +1,6 @@
 # MuseScore ラウンドトリップ検証手順
 
-MusicXML エクスポートが MuseScore で正しく再読込されるかの検証手順。自動テスト(`tests/python/test_musicxml_roundtrip.py`)は music21 インポータで同じ partwise 文法の往復を常時検証している。本書は MuseScore 本体での確認点をまとめたもの(検証ホストに MuseScore が無いため、手動確認は本書に委ねる)。
+MusicXML エクスポートが MuseScore で正しく再読込されるかの検証手順。自動テスト(`tests/python/test_musicxml_roundtrip.py`)は music21 インポータで同じ partwise 文法の往復を常時検証している。本書は MuseScore 本体での確認点をまとめたもの。
 
 ## 前提
 
@@ -15,6 +15,21 @@ MusicXML エクスポートが MuseScore で正しく再読込されるかの検
 - 途中の調号変化・テンポ変化が正しい小節に入る
 - スウィング表示(「Swing」テキスト + `<sound><swing>` ヒント)がパース後も残る
 - 複数パート・F管移調記述(書き下ろし↔実音の往復)
+
+## ヘッドレス一括検証(自動化済み — #15)
+
+実機の MuseScore バイナリがある環境では `scripts/musescore_roundtrip.py` が
+全ゴールデンの import → .mscz → MusicXML 再書き出しを一括で回し、小節数・
+音価付き音符数・(ピッチ,音価) 集合の一致まで検証する:
+
+```powershell
+python scripts/musescore_roundtrip.py path/to/MuseScore4.exe
+```
+
+2026-09-28 実施結果: MuseScore 4.7.5 で 18/18 clean(全 shape で往復一致)。
+このスクリプトでカバーされる「インポート可否 + 構造的往復一致」は手動
+再確認不要。残るのは GUI 目視項目(Swing 表示の見え方・パレット警告・
+臨時記号の見た目)のみ。
 
 ## 手動確認チェックリスト(MuseScore GUI)
 
