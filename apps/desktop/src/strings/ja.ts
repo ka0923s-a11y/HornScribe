@@ -1223,6 +1223,8 @@ export const ja = {
       backend: "採譜エンジン",
       ffmpeg: "FFmpeg",
       musescore: "MuseScore",
+      // #10: vocal-separation engine — engine-reported, not shell-probed
+      demucs: "demucs（ボーカル分離）",
       verovio: "Verovio",
       wavesurfer: "wavesurfer",
       cachePath: "キャッシュの場所",

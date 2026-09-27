@@ -188,6 +188,12 @@ export interface EngineCapabilities {
   cancellationFallback?: string;
   progressEvents?: boolean;
   basicPitchAvailable?: boolean;
+  /** #10: optional heavier vocal-separation engine present in the
+   *  worker env (pip install hornscribe[engine-vocal]). */
+  demucsAvailable?: boolean;
+  /** #10: ffmpeg visible on the worker's PATH — the shell prepends
+   *  bundled tools/ dirs so this agrees with audio_probe. */
+  ffmpegAvailable?: boolean;
   [key: string]: unknown;
 }
 

@@ -229,6 +229,9 @@ def test_handshake_reports_version_engine_and_capabilities(spawn: Any) -> None:
     assert "demoLongTask" in caps["jobKinds"]
     assert caps["cooperativeCancel"] is True
     assert caps["cancellationFallback"] == "terminate+restart"
+    # #10: engine-view tool status — booleans, never missing keys.
+    assert isinstance(caps["demucsAvailable"], bool)
+    assert isinstance(caps["ffmpegAvailable"], bool)
 
 
 def test_ping_echoes_and_correlates_ids(spawn: Any) -> None:

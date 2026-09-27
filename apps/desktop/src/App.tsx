@@ -308,6 +308,9 @@ export default function App() {
             engineInfo: s.engineInfo,
             protocolVersion: s.protocolVersion,
             backend: typeof meta?.backend === "string" ? meta.backend : null,
+            // #10: demucs/ffmpeg visibility rows come from the handshake
+            // capabilities, not a second probe.
+            capabilities: s.capabilities ?? null,
           };
         },
         restartEngine: () => session.restartEngine(),
@@ -322,6 +325,13 @@ export default function App() {
     }),
     [settings.museScorePath, settings.ffmpegPath],
   );
+  // #10: audio_probe honors the same ffmpeg override — a ref keeps the
+  // getter current without rebuilding importPorts (and with it the
+  // ImportController) on every settings change.
+  const ffmpegPathRef = useRef(settings.ffmpegPath);
+  useEffect(() => {
+    ffmpegPathRef.current = settings.ffmpegPath;
+  }, [settings.ffmpegPath]);
   // #377: a stable identity matters here — ExportDialog keys its
   // persist effect off this prop, so an inline closure would retrigger
   // it on every render (update→render→update loop).
@@ -665,6 +675,7 @@ export default function App() {
     () =>
       createImportPorts({
         inspectProject: (ref) => session.inspectProject(ref),
+        ffmpegPath: () => ffmpegPathRef.current || undefined,
       }),
     [session],
   );

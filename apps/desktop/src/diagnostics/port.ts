@@ -18,12 +18,14 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import pkg from "../../package.json";
+import type { EngineCapabilities } from "../sidecar/protocol";
 import { getShellInfo, isTauriRuntime } from "../tauri/bridge";
 import { MockDiagnosticsPort } from "./mockPort";
 import { detectTools, resolveToolWithOverride } from "./toolProbe";
 import type {
   DiagnosticsInfo,
   EngineInfo,
+  ToolInfo,
   ToolPathOverrides,
   WorkerStatus,
 } from "./types";
@@ -68,6 +70,9 @@ export interface DiagnosticsSessionView {
   /** Last completed job's result meta backend id; null before the first
    *  transcription. */
   readonly backend: string | null;
+  /** Engine handshake capabilities (#10) — demucs/ffmpeg visibility
+   *  from inside the worker; null when the engine has not handshaken. */
+  readonly capabilities?: EngineCapabilities | null;
 }
 
 export interface ShellDiagnosticsDeps {
@@ -129,6 +134,15 @@ function toEngineInfo(
 // can report found instead of unknown (#403).
 const VEROVIO_VERSION = pkg.dependencies.verovio;
 
+/** #10: demucs row from the engine handshake — found/missing when the
+ *  worker answered, unknown when it hasn't (or predates the cap). */
+function demucsInfo(caps: EngineCapabilities | null | undefined): ToolInfo {
+  const v = caps?.demucsAvailable;
+  if (v === true) return { status: "found" };
+  if (v === false) return { status: "missing" };
+  return { status: "unknown" };
+}
+
 /**
  * Shell port: app-shell truth (version, tool probes, cache/log paths)
  * plus whatever the wired session honestly reports. Every bridge call
@@ -162,6 +176,9 @@ export class ShellDiagnosticsPort implements DiagnosticsPort {
       tools: {
         ffmpeg,
         museScore,
+        // #10: demucs lives inside the engine env, so only the
+        // handshake can say whether neural separation is available.
+        demucs: demucsInfo(view?.capabilities),
         verovio: { status: "found", version: VEROVIO_VERSION },
         // The waveform is a custom SVG renderer — no wavesurfer dep to
         // report, so unknown stays the honest answer.

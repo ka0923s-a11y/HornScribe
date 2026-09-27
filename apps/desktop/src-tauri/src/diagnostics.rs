@@ -14,12 +14,8 @@ pub struct DiagnosticsPaths {
 }
 
 fn app_dir(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join(name);
+    // #11: portable installs report paths under <exe>/data/.
+    let dir = crate::tools::data_dir(app)?.join(name);
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     Ok(dir)
 }

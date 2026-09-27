@@ -99,7 +99,13 @@ pub struct AudioProbeResult {
 /// FLAC playback gets a normalized WAV cache (WebView2 codec support
 /// is not guaranteed); MP3/M4A/OGG stream the original file.
 #[tauri::command]
-pub fn audio_probe(app: tauri::AppHandle, path: String) -> Result<AudioProbeResult, String> {
+pub fn audio_probe(
+    app: tauri::AppHandle,
+    path: String,
+    // 設定 → ツール のユーザー指定 ffmpeg(#10):明示オーバーライドは
+    // すべての ffmpeg 消費箇所で同じ優先度を持つ。
+    ffmpeg_path: Option<String>,
+) -> Result<AudioProbeResult, String> {
     let ext = Path::new(&path)
         .extension()
         .and_then(|e| e.to_str())
@@ -122,10 +128,10 @@ pub fn audio_probe(app: tauri::AppHandle, path: String) -> Result<AudioProbeResu
             Ok(p) => p,
             // Odd-but-valid WAVs (extensible, float, unusual chunking)
             // still open via the ffmpeg fallback.
-            Err(e) => probe_ffmpeg(&path).map_err(|_| e)?,
+            Err(e) => probe_ffmpeg(&app, &path, ffmpeg_path.as_deref()).map_err(|_| e)?,
         }
     } else {
-        probe_ffmpeg(&path)?
+        probe_ffmpeg(&app, &path, ffmpeg_path.as_deref())?
     };
 
     // FLAC: WebView2 codec support is not guaranteed — normalize once
@@ -133,7 +139,7 @@ pub fn audio_probe(app: tauri::AppHandle, path: String) -> Result<AudioProbeResu
     let mut play_path = PathBuf::from(&path);
     let mut mime = mime_of(&ext);
     if ext == "flac" {
-        if let Some(wav) = flac_to_wav(&app, &path, &content_hash) {
+        if let Some(wav) = flac_to_wav(&app, &path, &content_hash, ffmpeg_path.as_deref()) {
             play_path = wav;
             mime = "audio/wav";
         }
@@ -342,22 +348,21 @@ fn sample_value(bytes: &[u8], tag: u16, bits: u16) -> f32 {
 
 /* ------------------------------ ffmpeg probe ----------------------------- */
 
-fn find_ffmpeg() -> Option<String> {
-    let ok = std::process::Command::new("where")
-        .arg("ffmpeg")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    ok.then(|| "ffmpeg".to_string())
+/// ffmpeg の解決は tools::resolve_ffmpeg に一本化(#10): 明示オーバーライド →
+/// HORNSCRIBE_FFMPEG → 同梱 tools/ → PATH。診断の検出結果と実行時が必ず一致する。
+fn find_ffmpeg(app: &tauri::AppHandle, explicit: Option<&str>) -> Option<String> {
+    crate::tools::resolve_ffmpeg(app, explicit)
 }
 
 /// Decode any ffmpeg-supported file to s16le stereo 48 kHz on stdout,
 /// streamed — peaks/duration come from the decoded frames themselves,
 /// the source sample rate is parsed from stderr's Stream line.
-fn probe_ffmpeg(path: &str) -> Result<Probed, String> {
-    let ffmpeg = find_ffmpeg().ok_or("ffmpeg not found")?;
+fn probe_ffmpeg(
+    app: &tauri::AppHandle,
+    path: &str,
+    explicit: Option<&str>,
+) -> Result<Probed, String> {
+    let ffmpeg = find_ffmpeg(app, explicit).ok_or("ffmpeg not found")?;
     let mut child = std::process::Command::new(ffmpeg)
         .args([
             "-hide_banner",
@@ -476,20 +481,21 @@ fn downsample_peaks(sub: &[f32]) -> Vec<f32> {
 
 /// FLAC → normalized WAV cache under appDataDir/cache/, keyed by content
 /// hash so re-probing the same file is free.
-fn flac_to_wav(app: &tauri::AppHandle, path: &str, content_hash: &str) -> Option<PathBuf> {
-    use tauri::Manager;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .ok()?
-        .join("cache");
+fn flac_to_wav(
+    app: &tauri::AppHandle,
+    path: &str,
+    content_hash: &str,
+    explicit: Option<&str>,
+) -> Option<PathBuf> {
+    // #11: portable installs redirect this under <exe>/data/cache.
+    let dir = crate::tools::data_dir(app).ok()?.join("cache");
     std::fs::create_dir_all(&dir).ok()?;
     let out = dir.join(format!("{}.wav", &content_hash[..16]));
     if out.is_file() {
         return Some(out);
     }
     let tmp = dir.join(format!("{}.part.wav", &content_hash[..16]));
-    let status = std::process::Command::new(find_ffmpeg()?)
+    let status = std::process::Command::new(find_ffmpeg(app, explicit)?)
         .args([
             "-y",
             "-v",

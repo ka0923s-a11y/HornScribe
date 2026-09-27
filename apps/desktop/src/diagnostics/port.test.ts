@@ -121,12 +121,40 @@ describe("ShellDiagnosticsPort.collect", () => {
         engineInfo: { name: "hornscribe-engine", version: "0.4.0" },
         protocolVersion: 1,
         backend: "basicPitch",
+        capabilities: { demucsAvailable: true, ffmpegAvailable: false },
       }),
     }).collect();
     expect(info.engine?.name).toBe("hornscribe-engine");
     expect(info.protocolVersion).toBe(1);
     expect(info.backend).toBe("basicPitch");
     expect(info.workerStatus).toBe("running");
+    // #10: demucs is an engine-side capability — the row tracks the
+    // handshake, not a shell probe.
+    expect(info.tools.demucs.status).toBe("found");
+  });
+
+  it("demucs row: missing when the engine says so, unknown without caps (#10)", async () => {
+    const missing = await new ShellDiagnosticsPort({
+      sessionSnapshot: () => ({
+        engine: "ready",
+        engineInfo: null,
+        protocolVersion: 1,
+        backend: null,
+        capabilities: { demucsAvailable: false },
+      }),
+    }).collect();
+    expect(missing.tools.demucs.status).toBe("missing");
+
+    const noCaps = await new ShellDiagnosticsPort({
+      sessionSnapshot: () => ({
+        engine: "ready",
+        engineInfo: null,
+        protocolVersion: 1,
+        backend: null,
+        capabilities: null,
+      }),
+    }).collect();
+    expect(noCaps.tools.demucs.status).toBe("unknown");
   });
 
   it("a supervised-but-idle or crashed engine maps to stopped", async () => {
