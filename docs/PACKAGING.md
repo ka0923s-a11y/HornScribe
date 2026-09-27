@@ -43,9 +43,11 @@ audio probe, FLAC transcode, `detect_tools` diagnostics):
   resource dir, its `resources/` child, and the exe dir
 - PATH
 
-To ship a static ffmpeg: place it at `resources/tools/ffmpeg.exe`, add
-`"resources/tools/*": "tools/"` to `tauri.bundled.json`, or drop a
-`tools/` folder beside the portable exe (no installer needed). The
+To ship a static ffmpeg: place it at `resources/tools/ffmpeg.exe` — the
+`"resources/tools/*": "tools/"` mapping is pre-wired in
+`tauri.bundled.json`, so the bundled build picks it up automatically
+(see `resources/tools/README.txt`). For the portable zip, drop a
+`tools/` folder beside the exe instead (no installer needed). The
 engine child gets every bundled `tools/` dir prepended to PATH, so
 Python-side audioread/demucs resolve the same binary.
 
