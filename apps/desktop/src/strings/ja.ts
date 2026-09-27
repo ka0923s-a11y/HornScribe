@@ -96,6 +96,9 @@ export const ja = {
     playSelection: "選択範囲を再生",
     zoomSelection: "選択範囲へズーム",
     clearSelection: "選択を解除",
+    /* #57: スコア画面の選択バンドからの区間再採譜 (review.retranscribe
+     * と同じ表記 — 波形のコンテキストアクション名)。 */
+    retranscribeSelection: "この区間を再採譜",
     resetZoom: "全体表示に戻す",
     zoomedLabel: "ズーム中",
     /* #116 (spec 8): 長尺音源の全体図ストリップ */

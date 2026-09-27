@@ -2603,6 +2603,32 @@ export default function App() {
                     setWaveformSelection(null);
                     setTranscriptionOptions(optionsAfterWaveformClear);
                   }}
+                  /* #57: 「この区間を再採譜」— score screens only
+                     (#345 hook). An explicit commit gesture: the band
+                     becomes the stored selection range AND the job
+                     override, so the options dialog + the next plain
+                     採譜し直す agree on what just ran. Clearing the
+                     band resets range via optionsAfterWaveformClear.
+                     Absent on AUDIO_READY where the drag itself is
+                     already the range choice. */
+                  onRetranscribeSelection={
+                    snapshot.hasScore && !snapshot.isRecording
+                      ? (range) => {
+                          const overrides: Partial<TranscriptionOptions> =
+                            {
+                              range: "selection",
+                              selectionStartSec: range.startSec,
+                              selectionEndSec: range.endSec,
+                            };
+                          retranscribeWithOptions(overrides, () =>
+                            setTranscriptionOptions((o) => ({
+                              ...o,
+                              ...overrides,
+                            })),
+                          );
+                        }
+                      : undefined
+                  }
                   // #376: open review issues as source-second ticks —
                   //  a marker jump opens the review AND lands score +
                   //  source cursor via the workspace's own gotoIssue.
