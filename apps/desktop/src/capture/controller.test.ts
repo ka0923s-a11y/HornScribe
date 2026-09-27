@@ -390,3 +390,122 @@ describe("CaptureController", () => {
     }
   });
 });
+
+describe("starting phase (pre-session)", () => {
+  /** Promise 制御で port.start() の応答を遅らせる — getUserMedia の
+   *  許可待ちや遅いドライバ応答を再現する。 */
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const p = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { p, resolve };
+  }
+
+  const info: CaptureSessionInfo = {
+    source: "microphone",
+    deviceName: "dev",
+    sampleRate: 48000,
+    channels: 2,
+  };
+
+  it("reports 'starting', not 'recording', until the device opens",
+    async () => {
+      const d = deferred<CaptureSessionInfo>();
+      const port = makePort({ start: vi.fn(() => d.p) });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      const pending = c.start("microphone");
+      expect(c.getState().phase).toBe("starting");
+      d.resolve(info);
+      await pending;
+      expect(c.getState().phase).toBe("recording");
+    },
+  );
+
+  it("pause/resume are inert during starting (no phantom pause)",
+    async () => {
+      const d = deferred<CaptureSessionInfo>();
+      const port = makePort({
+        start: vi.fn(() => d.p),
+        pause: vi.fn(async () => {}),
+        resume: vi.fn(async () => {}),
+      });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      const pending = c.start("microphone");
+      await c.pause();
+      expect(c.getState().paused).toBe(false);
+      expect(port.pause).not.toHaveBeenCalled();
+      await c.resume();
+      expect(port.resume).not.toHaveBeenCalled();
+      d.resolve(info);
+      await pending;
+      expect(c.getState().phase).toBe("recording");
+    },
+  );
+
+  it("cancel during starting still closes a late-opened session",
+    async () => {
+      const d = deferred<CaptureSessionInfo>();
+      const port = makePort({ start: vi.fn(() => d.p) });
+      const { events, completed } = makeEvents();
+      const c = new CaptureController(port, events);
+      const pending = c.start("microphone");
+      await c.cancel();
+      expect(c.getState().phase).toBe("idle");
+      // The device opens after the user already left — the session
+      // must be closed, not left recording with nobody watching.
+      d.resolve(info);
+      await pending;
+      expect(port.cancel).toHaveBeenCalledTimes(2);
+      expect(c.getState().phase).toBe("idle");
+      expect(completed).toHaveLength(0);
+    },
+  );
+
+  it("stop during starting is cancel (nothing to import yet)",
+    async () => {
+      const d = deferred<CaptureSessionInfo>();
+      const port = makePort({ start: vi.fn(() => d.p) });
+      const { events, completed } = makeEvents();
+      const c = new CaptureController(port, events);
+      const pending = c.start("microphone");
+      await c.stop();
+      expect(c.getState().phase).toBe("idle");
+      d.resolve(info);
+      await pending;
+      expect(port.cancel).toHaveBeenCalledTimes(2);
+      expect(completed).toHaveLength(0);
+    },
+  );
+
+  it("a second start during starting is refused", async () => {
+    const d = deferred<CaptureSessionInfo>();
+    const port = makePort({ start: vi.fn(() => d.p) });
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+    const pending = c.start("microphone");
+    await c.start("loopback"); // inert — already starting
+    expect(port.start).toHaveBeenCalledTimes(1);
+    d.resolve(info);
+    await pending;
+    expect(c.getState().phase).toBe("recording");
+    expect(c.getState().source).toBe("microphone");
+  });
+
+  it("dispose during starting marks idle so a late session is cleaned",
+    async () => {
+      const d = deferred<CaptureSessionInfo>();
+      const port = makePort({ start: vi.fn(() => d.p) });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      const pending = c.start("microphone");
+      c.dispose();
+      d.resolve(info);
+      await pending;
+      expect(port.cancel).toHaveBeenCalled();
+      expect(c.getState().phase).toBe("idle");
+    },
+  );
+});

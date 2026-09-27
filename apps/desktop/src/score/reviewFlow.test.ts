@@ -191,9 +191,10 @@ function setup(count = 20) {
     reviewIssueEditable: (h.issue()?.canonicalNoteIds.length ?? 0) > 0,
     reviewCount: session.pendingCount(),
     reviewTotal: session.issues().length,
-      isRecording: false,
-      isRecordingPaused: false,
-      auditionEnabled: false,
+     isRecording: false,
+     isRecordingPaused: false,
+      isRecordingStarting: false,
+     auditionEnabled: false,
     view: "workspace",
   });
 
@@ -373,6 +374,7 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
       reviewTotal: session.issues().length,
       isRecording: false,
       isRecordingPaused: false,
+      isRecordingStarting: false,
       auditionEnabled: false,
       view: "workspace",
     });

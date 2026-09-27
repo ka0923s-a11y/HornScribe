@@ -392,6 +392,10 @@ export function CommandBar({
     },
   ];
   const recording = captureState?.phase === "recording";
+  // "starting" — port.start() の await 中。セッションはまだ無いので
+  // 一時停止は出さないが、中止は押せる(開始待ちを断つ)。
+  const starting = captureState?.phase === "starting";
+  const captureActive = recording || starting;
   const captureLabel =
     recording && captureState?.source === "loopback"
       ? ja.transport.recordingLoopbackLabel
@@ -452,7 +456,7 @@ export function CommandBar({
 
       {/* FEAT-001: 録音ソース — EMPTY/READY どちらでも新しい音源を取り込める。
           録音中は「停止して取り込む」「やめる」の 2 操作に切り替わる。 */}
-      {!recording ? (
+      {!captureActive ? (
         <HsMenu
           trigger={
             <ToolbarButton icon={<Mic24Regular />} aria-label={captureLabel}>
@@ -499,17 +503,21 @@ export function CommandBar({
               onClick={() => commands.invoke("media.stopCapture")}
             >
               <span className="hs-commandbar__label">
-                {commands.title("media.stopCapture")}
-                {captureState?.elapsedSeconds != null
-                  ? ` ${formatElapsed(captureState.elapsedSeconds)}`
-                  : ""}
-                {captureState?.paused ? ` — ${ja.capture.pausedLabel}` : ""}
+                {starting
+                  ? ja.capture.startingLabel
+                  : `${commands.title("media.stopCapture")}${
+                      captureState?.elapsedSeconds != null
+                        ? ` ${formatElapsed(captureState.elapsedSeconds)}`
+                        : ""
+                    }${captureState?.paused ? ` — ${ja.capture.pausedLabel}` : ""}`}
               </span>
             </ToolbarButton>
           </Tooltip>
           {/* #80: 一時停止/再開 — paused 中はアイコンと対象コマンドが
               切り替わる。停止・中止は paused 中もそのまま使える。 */}
-          {captureState?.paused ? (
+          {/* starting の間は一時停止系を出さない — 実セッションが
+              無いので押しても何も起きない(幽霊操作の排除)。 */}
+          {starting ? null : captureState?.paused ? (
             <Tooltip content={commands.title("media.resumeCapture")} relationship="label">
               <ToolbarButton
                 icon={<Play24Regular />}

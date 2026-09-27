@@ -263,7 +263,8 @@ export function createCommandDefinitions(): readonly Command[] {
       id: "media.pauseCapture",
       title: ja.commands.pauseCapture,
       section: "file",
-      isEnabled: (s) => s.isRecording && !s.isRecordingPaused,
+      isEnabled: (s) =>
+        s.isRecording && !s.isRecordingPaused && !s.isRecordingStarting,
       isVisible: (s) => s.isRecording,
       run: (ctx) => ctx.pauseCapture?.(),
     },

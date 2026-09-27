@@ -2051,6 +2051,8 @@ export const ja = {
     pausedLabel: "一時停止中",
     pausedAnnounce: "録音を一時停止しました。再開するまで音は記録されません。",
     resumedAnnounce: "録音を再開しました",
+    /** デバイスを開いている間の表示(pre-session 開始中)。 */
+    startingLabel: "開始しています…",
     /** #79: 録音中にデバイスが切断・拒否された時の説明。 */
     interruptedAnnounce:
       "録音デバイスとの接続が切れました。録音をやり直してください。",
