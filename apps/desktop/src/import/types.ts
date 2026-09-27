@@ -110,6 +110,14 @@ export interface ProjectSummary {
    *  file was unreadable — the host announces the restore and keeps the
    *  document dirty so Ctrl+S repairs the main file. */
   recovered?: boolean;
+  /** #12: saved 区間ラベル extras — the host restores them into the
+   *  waveform labels strip so saved annotations survive reopen. */
+  regionLabels?: readonly {
+    id: string;
+    label: string;
+    startSec: number;
+    endSec: number;
+  }[];
 }
 
 /** SOURCE_MISSING context: which project lost its audio, and whether the

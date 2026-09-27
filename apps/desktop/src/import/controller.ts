@@ -26,6 +26,7 @@ import {
   recordRecentProject,
   loadRecentProjects,
 } from "./recentProjects";
+import { parseRegionLabels } from "../workspace/regionLabels";
 import type {
   AudioFileRef,
   AudioFormat,
@@ -92,6 +93,14 @@ export interface ImportEvents {
        *  — the host keeps the restored doc dirty so the next save
        *  repairs the unreadable main file. */
       recovered?: boolean;
+      /** #12: the saved 区間ラベル extras — the host restores them
+       *  and seeds the clean baseline with the same set. */
+      regionLabels?: readonly {
+        id: string;
+        label: string;
+        startSec: number;
+        endSec: number;
+      }[];
     },
   ): void;
   /** Optional (#264): a project document was opened (or relinked) —
@@ -723,6 +732,7 @@ export class ImportController {
         sourceHash: project.sourceHash,
         sourcePath: project.sourcePath,
         recovered: project.recovered,
+        regionLabels: project.regionLabels,
       });
     }
     // #391: a .recovery restore has no card of its own — the status
@@ -779,6 +789,7 @@ export class ImportController {
         sourceHash: project.sourceHash,
         sourcePath: project.sourcePath,
         recovered: project.recovered,
+        regionLabels: project.regionLabels,
       });
       this.announceOpened(project);
     } else {
@@ -915,8 +926,10 @@ function projectSummaryFromDocument(
       source && typeof source.contentHash === "string"
         ? source.contentHash
         : null,
-   scoreResult: scoreResultFromProject(data),
+    scoreResult: scoreResultFromProject(data),
     transcriptionSettings: transcriptionSettingsFromProject(data),
+    // #12: 区間ラベル extras を復元(壊れた行は parse 側で捨てる)。
+    regionLabels: parseRegionLabels(data.regionLabels),
     recovered: recovered || undefined,
   };
 }

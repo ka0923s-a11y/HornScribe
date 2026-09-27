@@ -732,6 +732,50 @@ body {
   gap: var(--hs-space-xs);
   flex-shrink: 0;
 }
+/* #12: 区間ラベルバー — 波形直下のチップ一覧。 */
+.hs-labels {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--hs-space-xs);
+  padding: var(--hs-space-micro) var(--hs-space-sm);
+  min-height: 28px;
+}
+.hs-labels__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-sm);
+  background: var(--hs-accent-subtle);
+  padding-right: 2px;
+}
+.hs-labels__pick {
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--hs-text-primary);
+  padding: 2px var(--hs-space-xs);
+  cursor: pointer;
+  border-radius: var(--hs-radius-sm);
+}
+.hs-labels__pick:hover {
+  background: var(--hs-control-hover);
+}
+.hs-labels__editor {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-xs);
+}
+.hs-labels__input {
+  font: inherit;
+  color: var(--hs-text-primary);
+  background: var(--hs-bg-canvas, Canvas);
+  border: 1px solid var(--hs-border-strong);
+  border-radius: var(--hs-radius-input);
+  padding: 3px var(--hs-space-xs);
+  width: 10em;
+}
 @keyframes hs-recording-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }

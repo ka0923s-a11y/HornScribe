@@ -193,6 +193,29 @@ describe("buildProjectDocument", () => {
     });
     expect(docOld!.omittedReviewIssues).toBe(deferred);
   });
+
+  it("#12: persists 区間ラベル as a validator-ignored extra", async () => {
+    const labels = [
+      { label: "Aメロ", startSec: 0, endSec: 30 },
+      { label: "サビ", startSec: 30, endSec: 60 },
+    ];
+    const doc = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc(),
+      result: RESULT,
+      regionLabels: labels,
+    });
+    expect(doc!.regionLabels).toEqual(labels);
+    // extras はバリデータの対象外 — 検証が落ちないこと。
+    expect(validateProjectDocument(doc)).toBeNull();
+    // 省略時は空配列。
+    const bare = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc(),
+      result: RESULT,
+    });
+    expect(bare!.regionLabels).toEqual([]);
+  });
 });
 
 describe("#222/#243: identity + source hash", () => {
