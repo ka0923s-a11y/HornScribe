@@ -29,6 +29,23 @@ from pathlib import Path
 HANDSHAKE_TIMEOUT_S = 120.0
 JOB_TIMEOUT_S = 300.0
 
+# #65: every method the shell invokes must exist inside the frozen
+# engine — a stale binary still answers handshake + transcription, so
+# the smoke test would pass while project.save/score.edit fail in the
+# shipped app. Keep this set in sync with worker.py's _methods (the
+# debug.* hooks are spike-only and intentionally not required).
+REQUIRED_METHODS = {
+    "engine.handshake",
+    "engine.ping",
+    "engine.shutdown",
+    "job.start",
+    "job.cancel",
+    "project.save",
+    "project.open",
+    "score.edit",
+    "export.midi",
+}
+
 
 def _write_fixture(path: Path) -> None:
     """A440 sine with harmonics — enough pitched content for the
@@ -109,6 +126,15 @@ def main() -> int:
         caps = payload.get("capabilities") or {}
         info = payload.get("engineInfo") or {}
         print(f"handshake ok: {info}")
+        methods = set(caps.get("methods") or [])
+        missing = sorted(REQUIRED_METHODS - methods)
+        if missing:
+            print(
+                f"engine is missing required methods: {missing} "
+                "(stale binary? rebuild via scripts/build_engine.py)",
+                file=sys.stderr,
+            )
+            return 1
         if not caps.get("basicPitchAvailable"):
             print("basic_pitch not importable inside the frozen engine",
                   file=sys.stderr)
