@@ -11,6 +11,10 @@
  */
 import type { ScoreDocumentPort } from "./document";
 import type { LoadedAudio } from "../import/types";
+import {
+  regionLabelsFingerprint,
+  type RegionLabel,
+} from "../workspace/regionLabels";
 
 export interface DirtySourceIdentity {
   readonly originalPath: string;
@@ -43,8 +47,10 @@ export function dirtyFingerprint(input: {
   readonly projectId: string | null;
   readonly audio: LoadedAudio | null;
   readonly priorSource: DirtySourceIdentity | null;
+  /** #12: 区間ラベル — ラベルの追加/削除/改名も未保存差分。 */
+  readonly labels?: readonly RegionLabel[];
 }): string {
-  const { doc, projectId, audio, priorSource } = input;
+  const { doc, projectId, audio, priorSource, labels } = input;
   // Overlay edits sorted by canonical id — insertion order is an
   // undo-history detail, not content.
   const edits = [...doc.noteEdits()]
@@ -75,5 +81,6 @@ export function dirtyFingerprint(input: {
     // dirty; relinking back to the saved path is honestly clean.
     src: source?.originalPath ?? null,
     projectId: projectId ?? null,
+    labels: regionLabelsFingerprint(labels ?? []),
   });
 }

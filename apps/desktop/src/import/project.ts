@@ -29,6 +29,10 @@ export interface ProjectSaveInput {
     originalPath: string;
     contentHash: string;
   } | null;
+  /** #12: 区間ラベル — 波形区間の構造ラベル(Aメロ/サビ/ソロ)。
+   *  extras として永続化される(バリデータは extras を無視し、
+   *  Python 側 model.py も未知キーを extras に残す)。 */
+  readonly regionLabels?: Record<string, unknown>[];
 }
 
 /** `prj-<16hex>` — deterministic content-derived id (ids.py contract). */
@@ -239,6 +243,8 @@ export async function buildProjectDocument(
     musicXmlConcert: doc.musicXml("concert"),
     musicXmlHornF: doc.musicXml("hornF"),
     meta,
+    // #12: 区間ラベル — extras 領域に載せて開き直しで復元する。
+    regionLabels: input.regionLabels ?? [],
   };
 }
 

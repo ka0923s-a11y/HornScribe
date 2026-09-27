@@ -2063,7 +2063,18 @@ export const ja = {
     openResult: "開く",
     entryDone: "{name} の採譜が完了しました",
     runFinished: "キューの採譜が終了しました",
-    addedToQueue: "{name} をキューに追加しました",
+   addedToQueue: "{name} をキューに追加しました",
+  },
+  /** #12: 区間ラベル(波形直下のチップバー)。 */
+  regionLabels: {
+    title: "区間ラベル",
+    add: "ラベル",
+    addConfirm: "追加",
+    namePlaceholder: "例: サビ",
+    nameAria: "ラベル名",
+    needSelection: "先に波形で範囲を選んでください",
+    retranscribe: "この区間を再採譜",
+    remove: "ラベルを削除",
   },
 } as const;
 

@@ -131,6 +131,12 @@ import {
   optionsAfterWaveformClear,
   optionsAfterWaveformSelect,
 } from "./workspace/waveformSelection";
+import {
+  makeRegionLabel,
+  serializeRegionLabels,
+  type RegionLabel,
+} from "./workspace/regionLabels";
+import { RegionLabelsBar } from "./components/RegionLabelsBar";
 import { closeGuardKind, type PendingCloseKind } from "./workspace/closeGuard";
 import { HsButton } from "./components/primitives/Button";
 import { HsDialog } from "./components/primitives/Dialog";
@@ -557,6 +563,12 @@ export default function App() {
    *  retranscribe (#345 reuses this band). */
   const [waveformSelection, setWaveformSelection] =
     useState<SelectionRange | null>(null);
+  /* #12: 区間ラベル — 音源時間軸の構造ラベル。プロジェクト extras
+   *  (regionLabels) に永続化し、開き直しで復元する。参照は ref でも
+   *  ミラーして dirty ポーリング/保存が常に最新を読む。 */
+  const [regionLabels, setRegionLabels] = useState<readonly RegionLabel[]>([]);
+  const regionLabelsRef = useRef<readonly RegionLabel[]>([]);
+  regionLabelsRef.current = regionLabels;
   // #264: a project open carries its saved transcription.settings —
   // the audio-slot reset below must prefer them over global defaults
   // so 採譜し直す reproduces the project's own conditions. Keyed by
@@ -688,6 +700,9 @@ export default function App() {
               projectIdRef.current = null;
               projectSourceRef.current = null;
               scoreAudioIdentityRef.current = null;
+              // #12: ラベルは前の音源の時間軸に付いたもの — 新しい
+              // 音源には持ち越さない。
+              setRegionLabels([]);
               // #221: a different source owns the slot — the score's
               // project identity dies with it so the next save picks
               // a fresh path instead of overwriting project A's file.
@@ -727,6 +742,10 @@ export default function App() {
                     contentHash: project.sourceHash,
                   }
                 : null;
+            // #12: restore the saved 区間ラベル — fires on the
+            // scoreReady path AND the sourceMissing path
+            // (onProjectOpened only covers the happy open).
+            setRegionLabels(project.regionLabels ?? []);
             scoreAudioIdentityRef.current = project.sourceHash
               ? `hash:${project.sourceHash}`
               : (audioIdentityRef.current ?? "?");
@@ -757,6 +776,10 @@ export default function App() {
                      * project's own source loads. */
                     audio: null,
                     priorSource: projectSourceRef.current,
+                    // #12: the baseline carries the file's saved
+                    // labels — the poll compares against the same
+                    // set, so a reopened project stays clean.
+                    labels: project.regionLabels ?? [],
                   });
             }
             setScreen("scoreReady");
@@ -776,6 +799,9 @@ export default function App() {
                     ),
                   }
                 : null;
+            // #12: restore the saved 区間ラベル — extras that arrived
+            // with the project document.
+            setRegionLabels(project.regionLabels ?? []);
           },
           onProjectRelinked: (project) => {
             /* #367: the live ScoreDocument survived the relink — the
@@ -867,6 +893,7 @@ export default function App() {
             projectId: projectIdRef.current,
             audio: importState.audio,
             priorSource: projectSourceRef.current,
+            labels: regionLabelsRef.current,
           }) !== savedFingerprintRef.current);
       const was = dirtyRef.current;
       dirtyRef.current = dirty;
@@ -1374,6 +1401,8 @@ export default function App() {
         // #265: SOURCE_MISSING save — keep the recorded source ref
         // instead of writing sourceAudio:null over the relink target.
         priorSourceAudio: projectSourceRef.current,
+        // #12: 区間ラベルを extras として永続化。
+        regionLabels: serializeRegionLabels(regionLabelsRef.current),
       });
       if (!project) {
         setStatusMessage(ja.notifications.projectSaveUnsupported);
@@ -1389,6 +1418,7 @@ export default function App() {
         projectId: projectIdRef.current,
         audio: importState.audio,
         priorSource: projectSourceRef.current,
+        labels: regionLabelsRef.current,
       });
       const fileName = importState.audio?.fileName ?? "score";
       const suggested = fileName.replace(/\.[^.]*$/, "") || "score";
@@ -1781,6 +1811,42 @@ export default function App() {
       );
     },
     [guardDiscard, importState.audio, importer, applyCompletedResult],
+  );
+
+  /* #12: 区間ラベル操作 — 波形選択に名前を付け、チップから区間選択
+   * や区間再採譜を起動する。 */
+  const addRegionLabel = useCallback(
+    (range: SelectionRange, name: string) => {
+      const made = makeRegionLabel(name, range.startSec, range.endSec);
+      if (!made) return;
+      setRegionLabels((ls) =>
+        [...ls, made].sort((a, b) => a.startSec - b.startSec),
+      );
+    },
+    [],
+  );
+  const removeRegionLabel = useCallback((id: string) => {
+    setRegionLabels((ls) => ls.filter((l) => l.id !== id));
+  }, []);
+  // チップをクリック → その区間を波形バンドに戻す(ループ/再生は
+  // 既存の選択操作がそのまま効く)。
+  const pickRegionLabel = useCallback((l: RegionLabel) => {
+    setWaveformSelection({ startSec: l.startSec, endSec: l.endSec });
+  }, []);
+  // ↻: ラベル区間だけを再採譜 — 既存のオプション反映+ガード経路
+  // (retranscribeWithOptions)を使い回す。
+  const retranscribeRegionLabel = useCallback(
+    (l: RegionLabel) => {
+      const overrides: Partial<TranscriptionOptions> = {
+        range: "selection",
+        selectionStartSec: l.startSec,
+        selectionEndSec: l.endSec,
+      };
+      retranscribeWithOptions(overrides, () =>
+        setTranscriptionOptions((o) => ({ ...o, ...overrides })),
+      );
+    },
+    [retranscribeWithOptions],
   );
 
   const ctx = useMemo<CommandContext>(
@@ -2510,6 +2576,18 @@ export default function App() {
                   onMarkerClick={(i) =>
                     scoreCtlRef.current?.openReviewAt?.(i)
                   }
+                />
+              ) : null}
+              {/* #12: 区間ラベル — 波形直下のチップバー。音源が載って
+                  いる間だけ出す(ラベルは音源時間軸に付く)。 */}
+              {regions.waveform && importState.audio ? (
+                <RegionLabelsBar
+                  labels={regionLabels}
+                  selection={waveformSelection}
+                  onAdd={addRegionLabel}
+                  onPick={pickRegionLabel}
+                  onRetranscribe={retranscribeRegionLabel}
+                  onRemove={removeRegionLabel}
                 />
               ) : null}
               <div className="hs-main">
