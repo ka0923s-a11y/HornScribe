@@ -40,6 +40,7 @@ from array import array
 from collections.abc import Callable
 from dataclasses import replace
 from fractions import Fraction
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,17 @@ from .backend import (
     require_module,
 )
 from .boundary import boundary_flags
+from .chord import (
+    LOW_CONFIDENCE as CHORD_LOW_CONFIDENCE,
+)
+from .chord import (
+    LOW_MARGIN as CHORD_LOW_MARGIN,
+)
+from .chord import (
+    ChordEstimate,
+    diatonic_chords,
+    estimate_chords,
+)
 from .clean import (
     MERGE_GAP_SEC,
     CleanedEvents,
@@ -130,6 +142,9 @@ MAX_EXTRA_ISSUES = 60
 MAX_BOUNDARY_ISSUES = 20
 """Cap on boundary re-scoring flags (#423) - one suspicious edge per
 hotspot is enough; a flickery take must not bury the queue."""
+MAX_CHORD_ISSUES = 10
+"""Cap on chord-uncertainty segments (#419) - a harmonically muddy
+piece flags its worst spans, not every bar."""
 
 # ``auto`` texture: when the onset-clean pass still saw this many
 # different-pitch overlaps (absolute floor + share of surviving events),
@@ -362,6 +377,8 @@ def _spelling_issues(
     key_changes: tuple[KeyChange, ...],
     onsets_sec: dict[ScoreNoteId, float],
     score_revision: ScoreRevisionId,
+    chord_map: tuple[ChordEstimate, ...] = (),
+    prefer_flats: bool = False,
 ) -> list[ReviewIssue]:
     """Flag chromatic notes whose enharmonic spelling is ambiguous (#166).
 
@@ -383,6 +400,17 @@ def _spelling_issues(
             break
         first = min(notes, key=lambda n: n.start_beat)
         onset = onsets_sec.get(first.id, 0.0)
+        # #419: the chord sounding under this note is the context
+        # the reviewer needs - is the chromatic tone a chord tone
+        # (secondary dominant, blues) or a passing artifact?
+        est = next(
+            (
+                c
+                for c in chord_map
+                if c.start_sec <= onset < c.end_sec
+            ),
+            None,
+        )
         issues.append(
             ReviewIssue(
                 id="",
@@ -396,6 +424,14 @@ def _spelling_issues(
                 evidence={
                     "pitchClass": pc,
                     "occurrences": len(notes),
+                    **(
+                        {
+                            "localChord": est.label(prefer_flats),
+                            "chordTone": pc in est.chord_tones(),
+                        }
+                        if est is not None
+                        else {}
+                    ),
                 },
             )
         )
@@ -508,9 +544,91 @@ def _boundary_issues(
             )
     _rank = {Severity.CAUTION: 0, Severity.INFO: 1}
     issues.sort(
-        key=lambda i: (_rank.get(i.severity, 2), i.time_range.start_sec)
+       key=lambda i: (_rank.get(i.severity, 2), i.time_range.start_sec)
     )
     return issues[:MAX_BOUNDARY_ISSUES]
+
+
+def _chord_issues(
+    chord_map: tuple[ChordEstimate, ...],
+    canonical_notes: tuple[QuantizedNote, ...],
+    warp: TimeWarp,
+    beat_ql: Fraction,
+    score_revision: ScoreRevisionId,
+    prefer_flats: bool,
+) -> list[ReviewIssue]:
+    """Low-confidence chord segments as review issues (#419).
+
+    A segment is flagged when the best template explains the chroma
+    weakly (``confidence < LOW_CONFIDENCE``) or two candidates are
+    nearly tied (``margin < LOW_MARGIN``). Segments with no note
+    onsets are skipped - interludes and tails carry no spelling or
+    rhythm decisions for the chord context to inform.
+    """
+    issues: list[ReviewIssue] = []
+    note_secs = sorted(
+        (
+            warp.ql_to_seconds(n.start_beat * beat_ql),
+            n.id,
+        )
+        for n in canonical_notes
+        if not n.deleted
+    )
+    for est in chord_map:
+        if est.confidence >= CHORD_LOW_CONFIDENCE and (
+            est.margin >= CHORD_LOW_MARGIN
+        ):
+            continue
+        ids = tuple(
+            nid
+            for sec, nid in note_secs
+            if est.start_sec <= sec < est.end_sec
+        )[:6]
+        if not ids:
+            continue
+        issues.append(
+            ReviewIssue(
+                id="",
+                score_revision=score_revision,
+                canonical_note_ids=ids,
+                time_range=TimeRange(
+                    start_sec=max(0.0, est.start_sec),
+                    end_sec=est.end_sec,
+                ),
+                reason=ReviewReason.CHORD_UNCERTAIN,
+                severity=Severity.INFO,
+                evidence={
+                    "suggestedChord": est.label(prefer_flats),
+                    "runnerUpChord": est.runner_up,
+                    "chordConfidence": round(est.confidence, 3),
+                    "chordMargin": round(est.margin, 3),
+                },
+            )
+        )
+        if len(issues) >= MAX_CHORD_ISSUES:
+            break
+    return issues
+
+
+def _merged_chord_dicts(
+    chord_map: tuple[ChordEstimate, ...], prefer_flats: bool
+) -> list[dict[str, Any]]:
+    """Consecutive same-chord segments merged into readable spans -
+    the meta progression reads "C | G | C", not sixteen half-bars."""
+    out: list[dict[str, Any]] = []
+    for est in chord_map:
+        if (
+            out
+            and out[-1]["rootPc"] == est.root_pc
+            and out[-1]["quality"] == est.quality
+        ):
+            out[-1]["endSec"] = round(est.end_sec, 3)
+            out[-1]["confidence"] = round(
+                min(out[-1]["confidence"], est.confidence), 3
+            )
+            continue
+        out.append(est.to_dict(prefer_flats))
+    return out
 
 
 def run_transcription_job(
@@ -1070,6 +1188,47 @@ def run_transcription_job(
         key = key_analysis.key
         key_changes = key_analysis.changes
         key_confidence = key_analysis.confidence
+        # #419: chord map — half-measure segments snapped to the
+        # canonical beat grid, chroma-matched then Viterbi-smoothed
+        # under the key prior. Runs on the slice; a failure leaves an
+        # empty map rather than sinking the job (enhancement layer).
+        prefer_flats = key.fifths < 0
+        chord_map: tuple[ChordEstimate, ...] = ()
+        try:
+            half_beats = measure_len_ql / (2 * beat_ql)
+            bounds: set[Fraction] = {Fraction(0)}
+            for ms in measure_starts:
+                bounds.add(ms + half_beats)
+                bounds.add(ms + measure_len_ql / beat_ql)
+            ordered_bounds = sorted(bounds)
+            seg_secs: list[tuple[float, float]] = []
+            for lo_b, hi_b in pairwise(ordered_bounds):
+                lo_s = (
+                    estimate.warp.ql_to_seconds(lo_b * beat_ql)
+                    - selection_offset_sec
+                )
+                hi_s = (
+                    estimate.warp.ql_to_seconds(hi_b * beat_ql)
+                    - selection_offset_sec
+                )
+                if hi_s > lo_s:
+                    seg_secs.append((lo_s, hi_s))
+            chord_map = tuple(
+                replace(
+                    est,
+                    start_sec=est.start_sec + selection_offset_sec,
+                    end_sec=est.end_sec + selection_offset_sec,
+                )
+                for est in estimate_chords(
+                    samples,
+                    sample_rate,
+                    tuple(seg_secs),
+                    diatonic=diatonic_chords(key.fifths, key.mode),
+                    prefer_flats=prefer_flats,
+                )
+            )
+        except Exception:  # noqa: BLE001 - enhancement layer
+            chord_map = ()
         build_done += 1
         step(5, build_done, build_total)
         tempo_map = tempo_map_from_estimate(estimate, meter)
@@ -1230,6 +1389,8 @@ def run_transcription_job(
                 payload.key_changes,
                 built.note_onset_sec,
                 score_revision,
+                chord_map,
+                prefer_flats,
             )
         )
         # #423: audio-evidence boundary re-scoring - a missed
@@ -1247,6 +1408,19 @@ def run_transcription_job(
                 beat_ql,
                 score_revision,
                 selection_offset_sec,
+            )
+        )
+        # #419: chord segments whose chroma the estimator cannot
+        # back up - the harmony context rides the issue as evidence
+        # (suggested chord + runner-up), there is no auto-fix.
+        issues.extend(
+            _chord_issues(
+                chord_map,
+                tuple(n for p in built.payload.parts for n in p.notes),
+                estimate.warp,
+                beat_ql,
+                score_revision,
+                prefer_flats,
             )
         )
         if meter_uncertain:
@@ -1602,6 +1776,11 @@ def run_transcription_job(
                     "keyFifths": key.fifths,
                     "keyMode": key.mode,
                     "keyConfidence": round(key_confidence, 3),
+                    # #419: measure-segmented chord map - consecutive
+                    # same-chord spans merged for readability.
+                    "chordProgression": _merged_chord_dicts(
+                        chord_map, prefer_flats
+                    ),
                     "noteCount": sum(len(p.notes) for p in payload.parts),
                     "partCount": len(payload.parts),
                     "pickupBeats": str(payload.pickup_beats),

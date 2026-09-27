@@ -77,6 +77,12 @@ class ReviewReason(Enum):
     # onset score — the remedy is mergeNotes/splitNote (no
     # re-transcription needed).
     BOUNDARY_UNCERTAIN = "boundary_uncertain"
+    # #419: a half-measure chord segment the estimator cannot back
+    # up — weak chroma match or two candidates nearly tied. Evidence
+    # carries the suggested chord, runner-up, confidence and margin;
+    # there is no auto-fix — the chord context informs how the user
+    # reads spelling/rhythm choices in that span.
+    CHORD_UNCERTAIN = "chord_uncertain"
 
 
 class Severity(Enum):
