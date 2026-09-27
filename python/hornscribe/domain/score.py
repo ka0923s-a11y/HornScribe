@@ -385,6 +385,66 @@ class MeterChange:
 
 
 @dataclass(frozen=True)
+class ChordSymbol:
+    """#44: one analyzed chord call over a canonical beat span.
+
+    Analysis metadata attached to the ScoreDocument (same standing as
+    ``raw_evidence``), not payload content - the symbols decorate
+    exported notation as ``<harmony>`` elements without changing what
+    the notes canonically are, so they stay out of the revision-
+    derivation path. ``root_pc``/``label`` are concert space; the
+    written-pitch export transposes the root itself.
+    """
+
+    start_beat: Fraction
+    end_beat: Fraction
+    root_pc: int
+    """Concert pitch class 0-11 (C=0)."""
+    quality: str
+    """Quality key matching transcription.chord's template set
+    (maj / min / 7 / maj7 / m7 / m7b5 / dim / aug / sus4)."""
+    confidence: float
+    margin: float
+    label: str
+    """Concert-space display label (e.g. ``Bbm7-5``) - informational;
+    the exporter respells root/kind itself."""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
+        object.__setattr__(self, "end_beat", _unfrac(self.end_beat))
+        if not (0 <= self.root_pc <= 11):
+            raise ValueError(f"root_pc must be in 0..11, got {self.root_pc}")
+        if self.end_beat <= self.start_beat:
+            raise ValueError(
+                f"chord symbol span must be positive, got "
+                f"{self.start_beat}..{self.end_beat}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "startBeat": _frac(self.start_beat),
+            "endBeat": _frac(self.end_beat),
+            "rootPc": self.root_pc,
+            "quality": self.quality,
+            "confidence": round(self.confidence, 3),
+            "margin": round(self.margin, 3),
+            "label": self.label,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ChordSymbol:
+        return cls(
+            start_beat=_unfrac(data["startBeat"]),
+            end_beat=_unfrac(data["endBeat"]),
+            root_pc=int(data["rootPc"]),
+            quality=str(data["quality"]),
+            confidence=float(data.get("confidence", 0.0)),
+            margin=float(data.get("margin", 0.0)),
+            label=str(data.get("label", "")),
+        )
+
+
+@dataclass(frozen=True)
 class Part:
     """A single staff part containing canonical notes in score order.
 
@@ -796,6 +856,11 @@ class ScoreDocument:
     # the real performance instead of re-rounding the notation.
     raw_evidence: dict[str, Any] | None = None
     pitch_space: PitchSpace = PitchSpace.CONCERT
+    # #44: the analyzed chord map (concert space, canonical beats).
+    # Document-level analysis metadata like raw_evidence — exported
+    # as MusicXML <harmony> symbols but not part of the payload's
+    # revision derivation, so score edits preserve it verbatim.
+    chord_symbols: tuple[ChordSymbol, ...] = ()
 
     @property
     def revision(self) -> ScoreRevisionId:
@@ -820,6 +885,8 @@ class ScoreDocument:
         }
         if self.raw_evidence is not None:
             out["rawEvidence"] = self.raw_evidence
+        if self.chord_symbols:
+            out["chordSymbols"] = [c.to_dict() for c in self.chord_symbols]
         return out
 
     @classmethod
@@ -850,6 +917,10 @@ class ScoreDocument:
                 else None
             ),
             pitch_space=space,
+            chord_symbols=tuple(
+                ChordSymbol.from_dict(c)
+                for c in data.get("chordSymbols", ())
+            ),
         )
         declared = data.get("revision")
         if declared is not None and declared != str(doc.revision):
