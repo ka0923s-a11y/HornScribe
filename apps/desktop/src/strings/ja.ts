@@ -962,6 +962,9 @@ export const ja = {
       tempoAuto: "自動",
       tempoManual: "手動",
       tempoBpm: "テンポ（手動）",
+      // #61: field error when 手動 tempo has no BPM — same contract
+      // as rangeInvalid (#346): explain, gate the primary action.
+      tempoBpmRequired: "手動テンポにはBPMを入力してください",
       meter: "拍子",
       meterAuto: "自動",
       /* #53: user-attested key — pins signature, spelling, chord prior. */

@@ -2,7 +2,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTranscriptionParams,
+  invalidManualTempo,
   invalidSelectionRange,
+  invalidTranscriptionOptions,
   transcriptionOptionsFromSettings,
 } from "./transcriptionParams";
 import { DEFAULT_TRANSCRIPTION_OPTIONS } from "./types";
@@ -89,6 +91,32 @@ describe("invalidSelectionRange (#346)", () => {
     expect(invalidSelectionRange(sel(null, null), 8)).toBe(false);
     expect(invalidSelectionRange(sel(2, null), 8)).toBe(false);
     expect(invalidSelectionRange(sel(null, 4), 8)).toBe(false);
+  });
+});
+
+describe("invalidManualTempo (#61)", () => {
+  const manual = (bpm: number | null) => ({
+    ...DEFAULT_TRANSCRIPTION_OPTIONS,
+    tempo: "manual" as const,
+    tempoBpm: bpm,
+  });
+
+  it("is true only for manual tempo with no BPM", () => {
+    expect(invalidManualTempo(manual(null))).toBe(true);
+    expect(invalidManualTempo(manual(120))).toBe(false);
+    expect(invalidManualTempo(DEFAULT_TRANSCRIPTION_OPTIONS)).toBe(false);
+  });
+
+  it("drives the combined invalidTranscriptionOptions gate", () => {
+    expect(invalidTranscriptionOptions(manual(null), 8)).toBe(true);
+    expect(invalidTranscriptionOptions(manual(90), 8)).toBe(false);
+    const badRange = {
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      range: "selection" as const,
+      selectionStartSec: 5,
+      selectionEndSec: 2,
+    };
+    expect(invalidTranscriptionOptions(badRange, 8)).toBe(true);
   });
 });
 
