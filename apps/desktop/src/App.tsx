@@ -1685,6 +1685,13 @@ export default function App() {
       jobOverrides: Partial<TranscriptionOptions>,
       commitOptions: () => void,
     ) => {
+      /* #63: 録音中は採譜コマンド全体が isEnabled:!isRecording で
+       * 閉じている — レジストリを通らないこの経路(ラベル↻・波形
+       * アクション・options dialog 適用)も同じルールで塞ぐ。 */
+      if (captureState?.phase === "recording") {
+        setStatusMessage(ja.commandFeedback.disabled);
+        return;
+      }
       requestRetranscription({
         audioLoaded: importState.audio != null,
         dirty: dirtyRef.current,
@@ -1695,7 +1702,7 @@ export default function App() {
           setStatusMessage(ja.notifications.transcribeRequiresAudio),
       });
     },
-    [importState.audio, startTranscriptionJob],
+    [importState.audio, startTranscriptionJob, captureState],
   );
 
   /* #18: 採譜キュー操作。エントリは enqueue 時点で params を確定
@@ -1703,6 +1710,12 @@ export default function App() {
    * 変わらない(params はエントリの不変条件)。 */
   const enqueueAudioRefs = useCallback(
     (refs: readonly AudioFileRef[]) => {
+      // #63: 録音中のキュー追加はコマンドレベルで無効(media.enqueueAudio)
+      // — キューパネル内の直接呼び出しも同じルールを適用する。
+      if (captureState?.phase === "recording") {
+        setStatusMessage(ja.commandFeedback.disabled);
+        return;
+      }
       let added = 0;
       let firstName = "";
       for (const ref of refs) {
@@ -1739,7 +1752,7 @@ export default function App() {
         setStatusMessage(ja.queue.addedToQueue.replace("{name}", name));
       }
     },
-    [queue, transcriptionOptions, settings.backend],
+    [queue, transcriptionOptions, settings.backend, captureState],
   );
 
   // 取り込みメニュー/キューパネルの「音源を追加」— 複数選択ピッカー。
@@ -1758,6 +1771,12 @@ export default function App() {
   const enqueueCurrentAudio = useCallback(() => {
     const audio = importState.audio;
     if (!audio) return;
+    // #63: same recording gate as the media.enqueueAudio command —
+    // the AUDIO_READY button calls this directly, not via registry.
+    if (captureState?.phase === "recording") {
+      setStatusMessage(ja.commandFeedback.disabled);
+      return;
+    }
     void stageAudioForEngine(audio)
       .then((staged) => {
         const params = buildTranscriptionParams(
@@ -1786,7 +1805,13 @@ export default function App() {
         );
       })
       .catch(() => undefined);
-  }, [importState.audio, transcriptionOptions, settings.backend, queue]);
+  }, [
+    importState.audio,
+    transcriptionOptions,
+    settings.backend,
+    queue,
+    captureState,
+  ]);
 
   // キュー行の「開く」— 完了結果を現在ドキュメントとして取り込む。
   // エントリ自身の音源を先に載せ替えて identity を合わせる(#234:
@@ -1794,6 +1819,12 @@ export default function App() {
   const openQueueResult = useCallback(
     (entry: QueueEntry) => {
       if (entry.status !== "done" || entry.result == null) return;
+      // #63: opening a result swaps the loaded source — same hazard as
+      // file.openAudio during recording, so apply the same gate.
+      if (captureState?.phase === "recording") {
+        setStatusMessage(ja.commandFeedback.disabled);
+        return;
+      }
       guardDiscard(() =>
         void (async () => {
           // RecordedAudioRef は importRefs の型に合わない — 永続化
@@ -1827,7 +1858,13 @@ export default function App() {
         })(),
       );
     },
-    [guardDiscard, importState.audio, importer, applyCompletedResult],
+    [
+      guardDiscard,
+      importState.audio,
+      importer,
+      applyCompletedResult,
+      captureState,
+    ],
   );
 
   /* #12: 区間ラベル操作 — 波形選択に名前を付け、チップから区間選択
