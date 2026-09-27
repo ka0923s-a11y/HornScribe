@@ -36,7 +36,11 @@ import type {
   SourceMissingInfo,
   TranscriptionOptions,
 } from "./types";
-import { issueText, type CaptureState } from "../capture/controller";
+import {
+  captureSessionActive,
+  issueText,
+  type CaptureState,
+} from "../capture/controller";
 
 /** Everything the import-owned bodies need — assembled once in App and
  *  handed down through ScoreWorkspace (keeps that shared file's diff small
@@ -133,7 +137,7 @@ function EmptyStateBody({ view }: { view: ImportView }) {
             <HsButton
               variant="secondary"
               icon={<Speaker2Regular />}
-              disabled={view.captureState?.phase === "recording"}
+              disabled={captureSessionActive(view.captureState)}
               onClick={() => view.onStartCapture!("loopback")}
             >
               {ja.emptyState.captureLoopback}
@@ -141,7 +145,7 @@ function EmptyStateBody({ view }: { view: ImportView }) {
             <HsButton
               variant="secondary"
               icon={<Mic24Regular />}
-              disabled={view.captureState?.phase === "recording"}
+              disabled={captureSessionActive(view.captureState)}
               onClick={() => view.onStartCapture!("microphone")}
             >
               {ja.emptyState.captureMic}

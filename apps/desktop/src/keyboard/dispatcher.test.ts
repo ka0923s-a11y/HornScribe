@@ -35,6 +35,7 @@ const EMPTY: CommandSnapshot = {
   reviewTotal: 0,
       isRecording: false,
       isRecordingPaused: false,
+      isRecordingStarting: false,
       auditionEnabled: false,
   view: "workspace",
 };

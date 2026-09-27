@@ -18,7 +18,23 @@ import type {
   CaptureStatus,
 } from "./types";
 
-export type CapturePhase = "idle" | "recording" | "importing" | "error";
+export type CapturePhase =
+  | "idle"
+  /** ポートの `start()` を await 中 — デバイスがまだ開いていない
+   *  のでタイマーも一時停止も動かない "pre-session" 状態。 */
+  | "starting"
+  | "recording"
+  | "importing"
+  | "error";
+
+/** 録音セッションが存在するか作られつつある状態 — port.start() の
+ *  await 中の "starting" も真。遅れて開いたセッションを他操作で
+ *  上書きしないための共通ゲート。 */
+export function captureSessionActive(
+  s: { phase: CapturePhase } | null | undefined,
+): boolean {
+  return s?.phase === "recording" || s?.phase === "starting";
+}
 
 export interface CaptureState {
   readonly phase: CapturePhase;
@@ -182,7 +198,11 @@ export class CaptureController {
 
   /** 録音開始。`source` は "loopback" | "microphone"。 */
   async start(source: CaptureSource): Promise<void> {
-    if (this.state.phase === "recording" || this.state.phase === "importing") {
+    if (
+      this.state.phase === "recording" ||
+      this.state.phase === "importing" ||
+      this.state.phase === "starting"
+    ) {
       return;
     }
     // #42: モニターセッションは同じセッション枠を使うので、実録音の
@@ -195,8 +215,11 @@ export class CaptureController {
         /* モニター掃除はベストエフォート — 録音開始を妨げない */
       }
     }
+    // "starting" — ポートがデバイスを開くまでの pre-session 状態。
+    // getUserMedia の許可待ちやドライバ応答待ちで何秒でも掛かり得る
+    // 間は「録音中」ではない:タイマーは 0 のまま、一時停止も無効。
     this.setState({
-      phase: "recording",
+      phase: "starting",
       source,
       elapsedSeconds: 0,
       deviceName: null,
@@ -213,6 +236,18 @@ export class CaptureController {
         deviceId: this.deviceIds[source] ?? undefined,
         suggestedName: fileName,
       });
+      // 開始待ちの間にキャンセル/中断された — 開いてしまった
+      // セッションを畳んで終了する(録音だけが走り続ける孤児化防止)。
+      // getState() 経由で読む — TS は上の setState で型を絞り込むが、
+      // 待ち時間中に cancel()/stop() が位相を書き換えているのが本質。
+      if (this.getState().phase !== "starting") {
+        try {
+          await this.port.cancel();
+        } catch {
+          /* 遅れて開いたセッションの掃除失敗は無視 */
+        }
+        return;
+      }
       this.setState({
         phase: "recording",
         source,
@@ -299,6 +334,9 @@ export class CaptureController {
 
   /** 録音停止 → WAV 化 → onCaptureComplete へ。 */
   async stop(): Promise<void> {
+    // 開始待ちの間に「終了して取り込む」が押された — まだ取り込む
+    // ものが無いので中止と同義に畳む(押せるのだから効くべき)。
+    if (this.state.phase === "starting") return this.cancel();
     if (this.state.phase !== "recording") return;
     const source = this.state.source ?? "microphone";
     this.setState({ ...this.state, phase: "importing" });
@@ -355,7 +393,14 @@ export class CaptureController {
 
   /** 録音中止(破棄)。 */
   async cancel(): Promise<void> {
-    if (this.state.phase !== "recording") return;
+    // "starting" 中の中止も受け付ける — port.start() の await が
+    // まだ返っていなくても、戻ってきた時点で後始末される。
+    if (
+      this.state.phase !== "recording" &&
+      this.state.phase !== "starting"
+    ) {
+      return;
+    }
     this.stopTimer();
     try {
       await this.port.cancel();
@@ -374,6 +419,11 @@ export class CaptureController {
   dispose(): void {
     this.stopTimer();
     this.stopMonitorTimer();
+    // 係争中の port.start() が「まだ開始中」と誤認して遅れて開いた
+    // セッションを録音開始しないよう、位相を idle に倒しておく。
+    if (this.state.phase === "starting") {
+      this.state = { ...INITIAL_CAPTURE_STATE };
+    }
   }
 
   /* ---------------- #42: pre-record level monitor ---------------- */

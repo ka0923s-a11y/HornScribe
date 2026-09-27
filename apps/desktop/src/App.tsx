@@ -89,7 +89,11 @@ import {
   writeProjectDocument,
 } from "./import/project";
 import { baseName } from "./import/formats";
-import { CaptureController, type CaptureState } from "./capture/controller";
+import {
+  CaptureController,
+  captureSessionActive,
+  type CaptureState,
+} from "./capture/controller";
 import {
   collectReferencedRecordingNames,
   copyRecordingToManaged,
@@ -1066,6 +1070,9 @@ export default function App() {
   const recordingActive = captureState?.phase === "recording";
   const recordingActiveRef = useRef(false);
   recordingActiveRef.current = recordingActive;
+  // 録音セッションが存在するか作られつつある状態(starting 含む) —
+  // primitive なので effect deps から直接使える。
+  const captureBusy = captureSessionActive(captureState);
   // #400: a running transcription is close-guard worthy too — a
   // long inference dies with the window and takes its compute time
   // with it. screen is the job-active signal the guard reads.
@@ -1286,9 +1293,10 @@ export default function App() {
       reviewTotal,
       view,
       // FEAT-001: recording + audition gates for the command registry.
-      isRecording: captureState?.phase === "recording",
+      isRecording: captureSessionActive(captureState),
       isRecordingPaused:
         captureState?.phase === "recording" && captureState.paused,
+      isRecordingStarting: captureState?.phase === "starting",
       auditionEnabled: scoreState?.auditionEnabled ?? false,
     }),
     [
@@ -1687,8 +1695,8 @@ export default function App() {
     ) => {
       /* #63: 録音中は採譜コマンド全体が isEnabled:!isRecording で
        * 閉じている — レジストリを通らないこの経路(ラベル↻・波形
-       * アクション・options dialog 適用)も同じルールで塞ぐ。 */
-      if (captureState?.phase === "recording") {
+      * アクション・options dialog 適用)も同じルールで塞ぐ。 */
+      if (captureSessionActive(captureState)) {
         setStatusMessage(ja.commandFeedback.disabled);
         return;
       }
@@ -1710,9 +1718,9 @@ export default function App() {
    * 変わらない(params はエントリの不変条件)。 */
   const enqueueAudioRefs = useCallback(
     (refs: readonly AudioFileRef[]) => {
-      // #63: 録音中のキュー追加はコマンドレベルで無効(media.enqueueAudio)
-      // — キューパネル内の直接呼び出しも同じルールを適用する。
-      if (captureState?.phase === "recording") {
+     // #63: 録音中のキュー追加はコマンドレベルで無効(media.enqueueAudio)
+     // — キューパネル内の直接呼び出しも同じルールを適用する。
+      if (captureSessionActive(captureState)) {
         setStatusMessage(ja.commandFeedback.disabled);
         return;
       }
@@ -1771,9 +1779,9 @@ export default function App() {
   const enqueueCurrentAudio = useCallback(() => {
     const audio = importState.audio;
     if (!audio) return;
-    // #63: same recording gate as the media.enqueueAudio command —
-    // the AUDIO_READY button calls this directly, not via registry.
-    if (captureState?.phase === "recording") {
+   // #63: same recording gate as the media.enqueueAudio command —
+   // the AUDIO_READY button calls this directly, not via registry.
+    if (captureSessionActive(captureState)) {
       setStatusMessage(ja.commandFeedback.disabled);
       return;
     }
@@ -1819,9 +1827,9 @@ export default function App() {
   const openQueueResult = useCallback(
     (entry: QueueEntry) => {
       if (entry.status !== "done" || entry.result == null) return;
-      // #63: opening a result swaps the loaded source — same hazard as
-      // file.openAudio during recording, so apply the same gate.
-      if (captureState?.phase === "recording") {
+     // #63: opening a result swaps the loaded source — same hazard as
+     // file.openAudio during recording, so apply the same gate.
+      if (captureSessionActive(captureState)) {
         setStatusMessage(ja.commandFeedback.disabled);
         return;
       }
@@ -2394,9 +2402,9 @@ export default function App() {
         setNativeDrag(false);
       } else {
         setNativeDrag(false);
-        // 録音中のドロップは onDropFiles と同じゲート — 取り込み済みの
-        // 録音を黙って上書きしない。
-        if (captureState?.phase === "recording") return;
+       // 録音中のドロップは onDropFiles と同じゲート — 取り込み済みの
+       // 録音を黙って上書きしない。
+        if (captureBusy) return;
         // #234: a running job owns the audio slot — a native drop
         // during transcription is refused like the open commands.
         if (screenRef.current === "transcribing") {
@@ -2419,7 +2427,7 @@ export default function App() {
       alive = false;
       unlisten?.();
     };
-  }, [importer, captureState?.phase, guardDiscard]);
+  }, [importer, captureBusy, guardDiscard]);
 
   // Assembled once per render for the import-owned score bodies
   // (ImportStates.tsx) — keeps ScoreWorkspace's prop surface small.
@@ -2696,9 +2704,9 @@ export default function App() {
                   importView={importView}
                   externalDragActive={nativeDrag}
                   onDropFiles={(files) =>
-                    // 録音中のドロップは取り込み済み録音を黙って上書きする
-                    // ので受け付けない(file.openAudio と同じゲート)。
-                    captureState?.phase === "recording"
+                   // 録音中のドロップは取り込み済み録音を黙って上書きする
+                   // ので受け付けない(file.openAudio と同じゲート)。
+                    captureSessionActive(captureState)
                       ? undefined
                       : screen === "transcribing"
                         ? setStatusMessage(

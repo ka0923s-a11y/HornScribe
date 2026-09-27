@@ -66,6 +66,9 @@ export interface CommandSnapshot {
   readonly isRecording: boolean;
   /** FEAT-001 (#80): the recording session is paused. */
   readonly isRecordingPaused: boolean;
+  /** FEAT-001: port.start() を await 中 — セッションはまだ無い。
+   *  isRecording の部分集合(中止は効くが一時停止は効かない)。 */
+  readonly isRecordingStarting: boolean;
   /** FEAT-001: score audition (auto-playback of the score) is on. */
   readonly auditionEnabled: boolean;
   /** Active top-level view. */
