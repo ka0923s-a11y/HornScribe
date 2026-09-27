@@ -17,6 +17,7 @@ import {
 } from "./primitives";
 import { ja } from "../strings/ja";
 import type { QueueEntry, QueueSnapshot } from "../queue/types";
+import { queueParamSummary } from "../queue/paramSummary";
 
 function statusLabel(e: QueueEntry): string {
   switch (e.status) {
@@ -93,13 +94,21 @@ export function QueuePanel({
         <p className="hs-queue__empty">{ja.queue.empty}</p>
       ) : (
         <ul className="hs-queue__list">
-          {snapshot.entries.map((e) => (
+          {snapshot.entries.map((e) => {
+            /* #59: pinned options baked at enqueue — params only
+               carries non-default keys, so an empty summary means
+               "all defaults" and renders nothing. */
+            const paramsSummary = queueParamSummary(e.params);
+            return (
             <li key={e.id} className={`hs-queue__row hs-queue__row--${e.status}`}>
               <div className="hs-queue__main">
                 <span className="hs-queue__name" title={e.label}>
                   {e.label}
                 </span>
                 <span className="hs-queue__status">{statusLabel(e)}</span>
+                {paramsSummary ? (
+                  <span className="hs-queue__params">{paramsSummary}</span>
+                ) : null}
                 {e.status === "running" ? (
                   <span className="hs-queue__progress">
                     <HsProgress value={e.progress ?? undefined} />
@@ -161,7 +170,8 @@ export function QueuePanel({
                 ) : null}
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </HsDialog>

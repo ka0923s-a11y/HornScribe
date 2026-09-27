@@ -2082,7 +2082,30 @@ export const ja = {
     openResult: "開く",
     entryDone: "{name} の採譜が完了しました",
     runFinished: "キューの採譜が終了しました",
-   addedToQueue: "{name} をキューに追加しました",
+    addedToQueue: "{name} をキューに追加しました",
+    /* #59: 行の params 要約 — 既定値以外の設定だけを短い断片で並べる。
+     *  全既定なら行自体を出さないので空ラベルは要らない。 */
+    paramSep: "・",
+    paramsRange: (start: string, end: string) =>
+      `選択範囲 ${start}–${end}`,
+    paramsTexture: {
+      mono: "単旋律",
+      melody: "メロディ優先",
+      voices: "複数声部",
+      chords: "和音",
+    } as Record<string, string>,
+    paramsMaxVoices: (n: number) => `最大${n}声部`,
+    paramsVocalIsolation: "ボーカル分離",
+    paramsTempo: (bpm: number) => `${bpm} BPM`,
+    paramsKey: (key: string) => `調 ${key}`,
+    paramsTriplets: {
+      allow: "三連符あり",
+      none: "三連符なし",
+    } as Record<string, string>,
+    paramsSimplicity: {
+      simple: "簡潔",
+      detailed: "詳細",
+    } as Record<string, string>,
   },
   /** #12: 区間ラベル(波形直下のチップバー)。 */
   regionLabels: {
