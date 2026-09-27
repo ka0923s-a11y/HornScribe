@@ -28,6 +28,7 @@ import {
   SaveEdit24Regular,
   DocumentBulletList24Regular,
   Search24Regular,
+  Options24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -267,6 +268,15 @@ export function CommandBar({
             label: commands.title("score.requantize"),
             icon: <MusicNote224Regular />,
             disabled: !commands.isEnabled("score.requantize"),
+          } satisfies HsMenuItem,
+          // #55: 採譜オプション dialog — change 調/texture/etc. and
+          // retranscribe from the score screen (the AUDIO_READY popover
+          // is unreachable once a score exists).
+          {
+            key: "transcribe-options",
+            label: commands.title("score.transcribeOptions"),
+            icon: <Options24Regular />,
+            disabled: !commands.isEnabled("score.transcribeOptions"),
           } satisfies HsMenuItem,
         ]
       : []),
@@ -598,6 +608,8 @@ export function CommandBar({
           else if (key === "note-merge") commands.invoke("score.mergeNotes");
           else if (key === "rest-to-note") commands.invoke("score.restToNote");
           else if (key === "requantize") commands.invoke("score.requantize");
+          else if (key === "transcribe-options")
+            commands.invoke("score.transcribeOptions");
           else if (key === "diagnostics") commands.invoke("app.diagnostics");
         }}
       />

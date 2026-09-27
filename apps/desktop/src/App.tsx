@@ -126,6 +126,7 @@ import { TranscriptionQueue } from "./queue/controller";
 import type { QueueEntry, QueueSnapshot } from "./queue/types";
 import { INITIAL_QUEUE_SNAPSHOT } from "./queue/types";
 import { QueuePanel } from "./components/QueuePanel";
+import { TranscriptionOptionsDialog } from "./import/TranscriptionOptionsDialog";
 import { dirtyFingerprint } from "./score/dirtyFingerprint";
 import {
   optionsAfterWaveformClear,
@@ -375,6 +376,10 @@ export default function App() {
   const [queueSnap, setQueueSnap] =
     useState<QueueSnapshot>(INITIAL_QUEUE_SNAPSHOT);
   const [queueOpen, setQueueOpen] = useState(false);
+  /* #55: スコア画面の採譜オプション dialog — the AUDIO_READY popover
+   * is unreachable once a score exists, so this is the retranscribe
+   * entry point for 調/texture/range tweaks. */
+  const [transcribeOptionsOpen, setTranscribeOptionsOpen] = useState(false);
   const queue = useMemo(
     () =>
       new TranscriptionQueue(session, {
@@ -2028,6 +2033,8 @@ export default function App() {
       // #18: 採譜キュー。
       openQueue: () => setQueueOpen(true),
       enqueueAudio: () => addAudioToQueue(),
+      // #55: スコア画面の採譜オプション dialog を開く。
+      openTranscribeOptions: () => setTranscribeOptionsOpen(true),
       toggleScoreAudition: () => {
         const c = scoreCtlRef.current;
         if (c) c.toggleAudition();
@@ -3267,6 +3274,22 @@ export default function App() {
             onCancelEntry={(id) => void queue.cancel(id)}
             onOpenResult={openQueueResult}
             onClearFinished={() => queue.clearFinished()}
+          />
+          {/* #55: 採譜オプション dialog — fields edit a draft seeded
+              from transcriptionOptions; apply goes through
+              retranscribeWithOptions (#343 guarded transaction) so a
+              cancelled dirty-score confirm never mutates the stored
+              options. */}
+          <TranscriptionOptionsDialog
+            open={transcribeOptionsOpen}
+            onOpenChange={setTranscribeOptionsOpen}
+            options={transcriptionOptions}
+            durationSec={importState.audio?.durationSeconds ?? 0}
+            onApply={(next) =>
+              retranscribeWithOptions(next, () =>
+                setTranscriptionOptions(next),
+              )
+            }
           />
         </AppShell>
       )}

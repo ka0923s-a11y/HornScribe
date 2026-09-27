@@ -533,6 +533,8 @@ export const ja = {
     noteShiftRight: "発音位置を右へ移動",
     noteToggleTie: "次の音符とタイで結ぶ / 解く",
     requantize: "採譜設定を変えて再適用",
+    /* #55: スコア画面から採譜オプション dialog を開いて再採譜する。 */
+    transcribeOptions: "採譜オプション…",
     noteSplit: "音符を分割",
     noteMerge: "次の音符と結合",
     restToNote: "休符を音符に変換",
@@ -1729,6 +1731,13 @@ export const ja = {
     apply: "適用",
     cancel: "キャンセル",
     unchanged: "設定が変わっていません",
+  },
+
+  /* #55: スコア画面の採譜オプション dialog — タイトルは
+   * audioOptions.label(「採譜オプション」)を共有し、ここは適用
+   * ボタンだけ持つ。キャンセルは ja.common.cancel。 */
+  transcribeOptionsDialog: {
+    apply: "この設定で採譜し直す",
   },
 
   /* ============================ UI-050 ============================
