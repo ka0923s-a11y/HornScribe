@@ -67,10 +67,16 @@ $stage = "dist/portable/HornScribe"
 New-Item -ItemType Directory -Force $stage/engine | Out-Null
 Copy-Item src-tauri/target/release/horn-scribe.exe $stage/
 Copy-Item src-tauri/resources/engine/hornscribe-engine.exe $stage/engine/
+# ffmpeg static binary を同梱する場合(#10):
+New-Item -ItemType Directory -Force $stage/tools | Out-Null
+Copy-Item path/to/ffmpeg.exe $stage/tools/
+# exe 隣の data/ がポータブルモードの印(#11): 録音・キャッシュ・
+# 自動保存がすべて同梱dir内に収まり %APPDATA% を触らない。
+New-Item -ItemType Directory -Force $stage/data | Out-Null
 Compress-Archive $stage dist/HornScribe-portable.zip
 ```
 
-exe の隣に `engine/` を置けば `engine.rs` の解決順(exe dir)で同梱エンジンが見つかる。設定・プロジェクト・録音の保存先が appData ベースのため、ポータブル完結(同梱dirにデータ)を求める場合は issue #11 の設計確定が先。
+exe の隣に `engine/` `tools/` `data/` を置けば、`tools.rs`/`engine.rs` の解決順(exe dir)で同梱エンジン・ffmpeg・ポータブルデータ配置がすべて有効になる(#10/#11)。`data/` を置かない従来配置は従来どおり %APPDATA% ベースで動く。
 
 ## 5. タグと Release 公開(手動)
 
@@ -91,4 +97,4 @@ gh release create vX.Y.Z `
 
 - クリーン環境(別マシンまたは新規ユーザー)でインストール → 起動 → `smoke_engine.py` 相当の採譜疎通
 - ポータブル zip 解凍 → exe 直起動 → 同梱 engine 解決の確認
-- 想定外の同梱漏れ(ffmpeg/demucs は外部検出依存: #10)は診断画面の表示で確認
+ - 同梱 ffmpeg を置いた場合は診断画面の FFmpeg 行が同梱パスを指すこと、demucs 同梱時は demucs(ボーカル分離)行が「検出済み」になることを確認(#10)

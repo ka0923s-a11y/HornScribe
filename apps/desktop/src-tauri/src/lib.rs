@@ -18,6 +18,7 @@ mod capture;
 mod diagnostics;
 mod engine;
 mod export;
+mod tools;
 
 /// Audio containers the import UX advertises (GUI_UX_SPEC §3 formats line).
 /// The frontend rejects other extensions before reaching this command; the

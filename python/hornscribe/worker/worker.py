@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import platform
+import shutil
 import sys
 import threading
 import time
@@ -256,6 +257,11 @@ class Worker:
                 "cancellationFallback": "terminate+restart",
                 "progressEvents": True,
                 "basicPitchAvailable": importlib.util.find_spec("basic_pitch") is not None,
+                # #10: engine-view tool status — the shell's bundled
+                # tools/ dir is injected into this process's PATH, so
+                # which("ffmpeg") sees the same binary audio_probe uses.
+                "demucsAvailable": importlib.util.find_spec("demucs") is not None,
+                "ffmpegAvailable": shutil.which("ffmpeg") is not None,
             },
         }
 

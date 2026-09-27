@@ -203,6 +203,7 @@ export function DiagnosticsSheet({
           <section className="hs-diag__section" aria-label={d.groups.tools}>
             <ToolRow label={f.ffmpeg} info={info.tools.ffmpeg} />
             <ToolRow label={f.musescore} info={info.tools.museScore} />
+            <ToolRow label={f.demucs} info={info.tools.demucs} />
             <ToolRow label={f.verovio} info={info.tools.verovio} />
             <ToolRow label={f.wavesurfer} info={info.tools.wavesurfer} />
           </section>

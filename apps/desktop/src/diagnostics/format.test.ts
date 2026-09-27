@@ -17,6 +17,7 @@ const FULL: DiagnosticsInfo = {
   tools: {
     ffmpeg: { status: "found", path: "C:\\tools\\ffmpeg.exe", version: "7.x" },
     museScore: { status: "missing" },
+    demucs: { status: "missing" },
     verovio: { status: "unknown" },
     wavesurfer: { status: "checking" },
   },
@@ -32,6 +33,7 @@ const EMPTY: DiagnosticsInfo = {
   tools: {
     ffmpeg: { status: "unknown" },
     museScore: { status: "unknown" },
+    demucs: { status: "unknown" },
     verovio: { status: "unknown" },
     wavesurfer: { status: "unknown" },
   },

@@ -24,6 +24,7 @@ const DEV_MUSESCORE_KEY = "hornscribe.dev.museScore";
 export interface MockDiagnosticsPortOptions {
   museScore?: ToolInfo;
   ffmpeg?: ToolInfo;
+  demucs?: ToolInfo;
   latencyMs?: number;
 }
 
@@ -80,6 +81,9 @@ export class MockDiagnosticsPort implements DiagnosticsPort {
       tools: {
         ffmpeg: withPathOverride(ffmpeg, overrides?.ffmpegPath),
         museScore: withPathOverride(museScore, overrides?.museScorePath),
+        // Mock engine advertises demucs so the review surface shows
+        // the separation row in its working state.
+        demucs: this.options.demucs ?? { status: "found" },
         // Frontend libs are not integrated yet — honest "unknown".
         verovio: { status: "unknown" },
         wavesurfer: { status: "unknown" },

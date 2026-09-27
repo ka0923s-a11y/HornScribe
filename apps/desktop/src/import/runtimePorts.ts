@@ -259,6 +259,10 @@ export function createImportPorts(
      *  `session.inspectProject` so desktop opens take the same
      *  migrate+validate path as project.save. */
     inspectProject?: ImportPorts["inspectProject"];
+    /** #10: 設定 → ツール の ffmpeg path — a getter (not a snapshot)
+     *  so changing the setting does not rebuild the whole port set
+     *  mid-session. */
+    ffmpegPath?: () => string | undefined;
   },
 ): ImportPorts {
   return {
@@ -286,7 +290,10 @@ export function createImportPorts(
     probeAudio: async (path) => {
       if (!isTauri()) return null;
       try {
-        return await invoke<AudioProbe>("audio_probe", { path });
+        return await invoke<AudioProbe>("audio_probe", {
+          path,
+          ffmpegPath: options?.ffmpegPath?.(),
+        });
       } catch {
         return null;
       }

@@ -50,6 +50,7 @@ export function formatDiagnosticsText(info: DiagnosticsInfo): string {
     [f.backend, value(info.backend)],
     [f.ffmpeg, toolLine(info.tools.ffmpeg)],
     [f.musescore, toolLine(info.tools.museScore)],
+    [f.demucs, toolLine(info.tools.demucs)],
     [f.verovio, toolLine(info.tools.verovio)],
     [f.wavesurfer, toolLine(info.tools.wavesurfer)],
     [f.cachePath, value(info.paths.cache)],

@@ -188,7 +188,7 @@ fn valid_artifact_name(name: &str) -> bool {
 /// `detect_tools`: probe MuseScore/ffmpeg for the export + diagnostics
 /// surfaces. PATH first, then the standard MuseScore install dirs.
 #[tauri::command]
-pub fn detect_tools() -> DetectedTools {
+pub fn detect_tools(app: tauri::AppHandle) -> DetectedTools {
     DetectedTools {
         muse_score: probe_tool(
             &["MuseScore4", "MuseScore3", "musescore"],
@@ -198,7 +198,19 @@ pub fn detect_tools() -> DetectedTools {
                 r"C:\Program Files (x86)\MuseScore 4\bin\MuseScore4.exe",
             ],
         ),
-        ffmpeg: probe_tool(&["ffmpeg"], &[]),
+        // #10: the probe resolves exactly like the runtime does —
+        // override/env, bundled tools/, then PATH — so a bundled or
+        // env-pinned ffmpeg shows "found" instead of missing.
+        ffmpeg: match crate::tools::resolve_ffmpeg(&app, None) {
+            Some(path) => ToolProbe {
+                status: "found".into(),
+                path: Some(path),
+            },
+            None => ToolProbe {
+                status: "missing".into(),
+                path: None,
+            },
+        },
     }
 }
 
@@ -219,7 +231,7 @@ pub struct ToolProbe {
 
 fn probe_tool(path_names: &[&str], absolute_candidates: &[&str]) -> ToolProbe {
     for name in path_names {
-        if which_exists(name) {
+        if crate::tools::which_exists(name) {
             return ToolProbe {
                 status: "found".into(),
                 path: Some((*name).to_string()),
@@ -238,16 +250,6 @@ fn probe_tool(path_names: &[&str], absolute_candidates: &[&str]) -> ToolProbe {
         status: "missing".into(),
         path: None,
     }
-}
-
-fn which_exists(exe: &str) -> bool {
-    std::process::Command::new("where")
-        .arg(exe)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
 }
 
 /// `probe_tool_path`: verify a user-specified tool path (設定 → ツール)
@@ -361,11 +363,8 @@ pub fn project_save_path(
  *          prefers the embedded key; it only answers pre-change files. */
 
 fn autosave_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("autosave.hornscribe.json"))
+    // #11: tools::data_dir honors the portable <exe>/data marker.
+    Ok(crate::tools::data_dir(app)?.join("autosave.hornscribe.json"))
 }
 
 fn autosave_meta_path(data_path: &Path) -> PathBuf {

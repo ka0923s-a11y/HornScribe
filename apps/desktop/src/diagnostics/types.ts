@@ -48,6 +48,9 @@ export interface DiagnosticsInfo {
   readonly tools: {
     readonly ffmpeg: ToolInfo;
     readonly museScore: ToolInfo;
+    /** Engine-reported demucs presence (vocal separation, #10) —
+     *  "unknown" when no engine handshake has happened. */
+    readonly demucs: ToolInfo;
     readonly verovio: ToolInfo;
     readonly wavesurfer: ToolInfo;
   };

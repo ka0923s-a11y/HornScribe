@@ -481,12 +481,8 @@ pub struct RecordingsInfo {
 }
 
 fn recordings_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    use tauri::Manager;
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("recordings"))
+    // #11: tools::data_dir honors the portable <exe>/data marker.
+    Ok(crate::tools::data_dir(app)?.join("recordings"))
 }
 
 /// 録音フォルダの場所・件数・使用量(#78)。
@@ -688,12 +684,7 @@ pub fn copy_recording_to_managed(app: tauri::AppHandle, name: String) -> Result<
 /// プロジェクトが参照する永続領域で、recordings/ の保持ポリシーは
 /// 適用しない(削除はユーザー操作のみ)。
 fn sources_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    use tauri::Manager;
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("sources"))
+    Ok(crate::tools::data_dir(app)?.join("sources"))
 }
 
 /// sources/ の場所・件数・使用量(#147)。recordings_info の sources 版。
@@ -801,12 +792,7 @@ pub fn delete_source(app: tauri::AppHandle, name: String) -> Result<(), String> 
  * 安全。 */
 
 fn source_refs_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    use tauri::Manager;
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("source-refs.json"))
+    Ok(crate::tools::data_dir(app)?.join("source-refs.json"))
 }
 
 /// パス比較の正規化 — 区切りを "/" に揃えて小文字化(recordingNameUnder
@@ -1459,12 +1445,7 @@ fn finalize_wav(
     suggested_name: &str,
     temp: &std::path::Path,
 ) -> Result<String, String> {
-    use tauri::Manager;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?
-        .join("recordings");
+    let dir = crate::tools::data_dir(app)?.join("recordings");
     std::fs::create_dir_all(&dir).map_err(|e| format!("recordings dir: {e}"))?;
     // ファイル名は UI 由来だが、パス要素として安全な文字だけに丸める。
     let stem: String = suggested_name

@@ -31,7 +31,9 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 
 use serde_json::json;
-use tauri::{ipc::Channel, Manager};
+use tauri::ipc::Channel;
+
+use crate::tools::which_exists;
 
 /// The single in-flight engine process. One sidecar per app — the worker
 /// itself enforces one job at a time (PROTOCOL.md).
@@ -84,6 +86,20 @@ pub fn engine_spawn(
         // progress frames flowing without relying on flush timing.
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONUTF8", "1");
+    // #10/#11: a bundled tools/ dir must be visible inside the engine
+    // too — audioread/demucs resolve ffmpeg through PATH in the child,
+    // so prepend the same dirs resolve_ffmpeg probes. Inherited PATH
+    // stays as fallback; nothing breaks when tools/ is absent.
+    let tool_dirs = crate::tools::bundled_tools_dirs(&app);
+    if !tool_dirs.is_empty() {
+        let mut paths = tool_dirs;
+        if let Some(existing) = std::env::var_os("PATH") {
+            paths.extend(std::env::split_paths(&existing));
+        }
+        if let Ok(joined) = std::env::join_paths(paths) {
+            cmd.env("PATH", joined);
+        }
+    }
     // No console window flash on Windows for the spawned interpreter.
     #[cfg(windows)]
     {
@@ -317,17 +333,9 @@ fn bundled_engine_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
     } else {
         "hornscribe-engine"
     };
-    let mut roots: Vec<PathBuf> = Vec::new();
-    if let Ok(dir) = app.path().resource_dir() {
-        roots.push(dir.clone());
-        roots.push(dir.join("resources"));
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            roots.push(dir.to_path_buf());
-        }
-    }
-    roots
+    // #10: same roots as tools::bundled_tools_dirs — one probe order
+    // for every bundled resource.
+    crate::tools::bundled_roots(app)
         .into_iter()
         .map(|root| root.join("engine").join(EXE))
         .collect()
@@ -391,15 +399,4 @@ fn local_venv_pythons() -> Vec<PathBuf> {
         .into_iter()
         .map(|v| v.join("Scripts").join("python.exe"))
         .collect()
-}
-
-fn which_exists(exe: &str) -> bool {
-    // Cheap PATH probe: `where.exe` is present on every supported Windows.
-    Command::new("where")
-        .arg(exe)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
 }
