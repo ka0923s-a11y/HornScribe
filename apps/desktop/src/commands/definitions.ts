@@ -217,6 +217,19 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.captureMicrophone?.(),
     },
     {
+      id: "media.openQueue",
+      title: ja.commands.openQueue,
+      section: "file",
+      run: (ctx) => ctx.openQueue?.(),
+    },
+    {
+      id: "media.enqueueAudio",
+      title: ja.commands.enqueueAudio,
+      section: "file",
+      isEnabled: (s) => !s.isTranscribing && !s.isRecording,
+      run: (ctx) => ctx.enqueueAudio?.(),
+    },
+    {
       id: "media.stopCapture",
       title: ja.commands.stopCapture,
       section: "file",

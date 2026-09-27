@@ -65,6 +65,9 @@ export interface ImportView {
   onPickRelink(): void;
   onDismissError(): void;
   onOptionsChange(next: TranscriptionOptions): void;
+  /** #18: 現在の音源+オプション(選択範囲を含む)を採譜キューに積む。
+   *  範囲を変えて連打すれば複数区間の逐次採譜になる。 */
+  onEnqueueQueue?(): void;
   /** FEAT-001 (#60): capture controls on the EMPTY state. */
   captureState?: CaptureState | null;
   onStartCapture?(source: "loopback" | "microphone"): void;
@@ -341,6 +344,17 @@ function AudioReadyBody({
         >
           {ja.score.transcribeStart}
         </HsButton>
+        {/* #18: 開始せずキューに積む — 複数ファイル/複数区間を連続で
+            回すときの入口。選択範囲もそのまま params に焼き付く。 */}
+        {view.onEnqueueQueue ? (
+          <HsButton
+            variant="secondary"
+            disabled={rangeInvalid}
+            onClick={() => view.onEnqueueQueue?.()}
+          >
+            {ja.queue.addCurrent}
+          </HsButton>
+        ) : null}
         {/* §4: advanced transcription settings live in the popover next to
             the primary action — hidden by default. */}
         <HsPopover

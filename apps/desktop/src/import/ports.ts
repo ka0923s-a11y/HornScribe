@@ -33,6 +33,11 @@ export interface ImportPorts {
    * error and never surfaces copy.
    */
   pickAudio(): Promise<AudioFileRef | null>;
+  /** Optional (#18): multi-file audio picker for the transcription
+   *  queue — resolves the picked refs, or an empty array on cancel
+   *  (cancel is not an error). Absent → callers fall back to the
+   *  single pickAudio contract. */
+  pickAudioMulti?(): Promise<readonly AudioFileRef[]>;
   // #369: the dedicated project picker — filters to HornScribe project
   // files (`.hornscribe.json`, plus future portable packages) so
   // opening saved work never hides inside the audio filter. Same

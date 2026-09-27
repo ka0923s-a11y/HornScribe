@@ -367,6 +367,19 @@ export function CommandBar({
           ...deviceItems("microphone", captureDevices.microphone),
         ] satisfies HsMenuItem[])
       : []),
+    // #18: 採譜キュー — 複数ジョブの逐次実行(追加・並び替え・キャンセル)。
+    { key: "queue-divider", divider: true },
+    {
+      key: "queue:add",
+      label: commands.title("media.enqueueAudio"),
+      icon: <DocumentBulletList24Regular />,
+      disabled: !commands.isEnabled("media.enqueueAudio"),
+    },
+    {
+      key: "queue:open",
+      label: commands.title("media.openQueue"),
+      icon: <CheckmarkCircle24Regular />,
+    },
   ];
   const recording = captureState?.phase === "recording";
   const captureLabel =
@@ -445,6 +458,10 @@ export function CommandBar({
           onSelect={(key) => {
             if (key === "loopback") commands.invoke("media.captureSystemAudio");
             else if (key === "microphone") commands.invoke("media.captureMicrophone");
+            else if (key === "queue:add")
+              commands.invoke("media.enqueueAudio");
+            else if (key === "queue:open")
+              commands.invoke("media.openQueue");
             else if (key === "loopback:monitor")
               onToggleCaptureMonitor?.("loopback");
             else if (key === "microphone:monitor")

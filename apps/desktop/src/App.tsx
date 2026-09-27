@@ -119,8 +119,13 @@ import {
 } from "./import/transcriptionParams";
 import { stageAudioForEngine } from "./import/staging";
 import { formatTimecode } from "./import/format";
+import { audioFormatOf } from "./import/formats";
 import type { SelectionRange } from "./import/selection";
 import { requestRetranscription } from "./import/retranscribe";
+import { TranscriptionQueue } from "./queue/controller";
+import type { QueueEntry, QueueSnapshot } from "./queue/types";
+import { INITIAL_QUEUE_SNAPSHOT } from "./queue/types";
+import { QueuePanel } from "./components/QueuePanel";
 import { dirtyFingerprint } from "./score/dirtyFingerprint";
 import {
   optionsAfterWaveformClear,
@@ -341,8 +346,32 @@ export default function App() {
   // A canonical score exists — survives failed/cancelled retranscription
   // (issue rule: partial failure never destroys valid state).
   const [hasScore, setHasScore] = useState(false);
+  // #18: ラン終了時の画面復帰で使う hasScore の安定参照。
+  const hasScoreRef = useRef(false);
+  hasScoreRef.current = hasScore;
   const [engineRestarting, setEngineRestarting] = useState(false);
   const layout = useWorkspaceLayout();
+
+  /* #18: 採譜キュー — 同一 session を逐次ドライブするランループ。
+   * キューが job を所有している間(isDrivingJob)は下の job ライフ
+   * サイクル effect が terminal 相を消費しないようゲートする。 */
+  const [queueSnap, setQueueSnap] =
+    useState<QueueSnapshot>(INITIAL_QUEUE_SNAPSHOT);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const queue = useMemo(
+    () =>
+      new TranscriptionQueue(session, {
+        onState: (s) => setQueueSnap(s),
+        announce: setStatusMessage,
+        onJobStart: () => setScreen("transcribing"),
+        onRunFinished: () => {
+          setStatusMessage(ja.queue.runFinished);
+          setScreen(hasScoreRef.current ? "scoreReady" : "audioReady");
+        },
+      }),
+    [session],
+  );
+  useEffect(() => () => queue.dispose(), [queue]);
 
   const [sessionSnap, setSessionSnap] = useState(() => session.getSnapshot());
 
@@ -427,17 +456,18 @@ export default function App() {
   );
   const scoreCtlRef = useRef<ScoreWorkspaceController | null>(null);
 
-  // §27 transitions driven by the job lifecycle. Terminal phases are
-  // consumed once (session.clearJob) — retry is never silent.
-  useEffect(() => {
-    if (!jobPhase) return;
-    if (jobPhase === "completed") {
+  /* #18: a completed job result → the live score document. Shared by
+   * the single-job lifecycle effect and the queue's 開く action — the
+   * queue path supplies the entry's identity since its source may not
+   * be the currently loaded audio. */
+  const applyCompletedResult = useCallback(
+    (result: unknown, identity: string | null) => {
       setHasScore(true);
       // ENG-002: a real engine result carries MusicXML — build the
       // document from it. The mock/dev result carries none, so the
       // deterministic fixture stays the honest fallback there.
-      const engineInput = engineDocumentFromResult(sessionSnap.lastResult);
-      const handoff = scoreHandoffFromResult(sessionSnap.lastResult);
+      const engineInput = engineDocumentFromResult(result);
+      const handoff = scoreHandoffFromResult(result);
       const engineDoc =
         engineInput !== null
           ? createEngineScoreDocument({
@@ -446,6 +476,28 @@ export default function App() {
               omittedIssues: handoff?.omittedIssues ?? [],
             })
           : null;
+      const doc = engineDoc ?? createFixtureScoreDocument(handoff);
+      setScoreDocument(doc);
+      /* #221: a fresh transcription has no clean baseline — the score
+      * is dirty until saved. */
+      savedFingerprintRef.current = null;
+      // #240: the completed result is this score's provenance.
+      setScoreProvenance(result);
+      scoreAudioIdentityRef.current = identity;
+      setScreen("scoreReady");
+    },
+    [],
+  );
+
+  // §27 transitions driven by the job lifecycle. Terminal phases are
+  // consumed once (session.clearJob) — retry is never silent.
+  useEffect(() => {
+    if (!jobPhase) return;
+    // #18: while the queue runs it owns every terminal phase —
+    // captured per entry, never the document. queueSnap.running is
+    // React state, so this gate can't race the runner's own flags.
+    if (queueSnap.running) return;
+    if (jobPhase === "completed") {
       // #234: a stale job result (its source was replaced while it
       // ran) must not land — the score belongs to the audio that
       // started the job, not whatever is loaded now.
@@ -456,20 +508,10 @@ export default function App() {
         session.clearJob();
         return;
       }
-      const doc = engineDoc ?? createFixtureScoreDocument(handoff);
-      setScoreDocument(doc);
-      /* #221: a fresh transcription has no clean baseline — the score
-      * is dirty until saved. projectPath survives on purpose: a
-       * re-transcription of the same project still saves back to the
-       * same file (the projectId is kept for the same reason). */
-      savedFingerprintRef.current = null;
-      // #240: the completed result is this score's provenance —
-      // kept across later job starts so a failed/cancelled
-      // re-transcription never loses the transcription record.
-      setScoreProvenance(sessionSnap.lastResult);
-      scoreAudioIdentityRef.current =
-        jobAudioIdentityRef.current ?? audioIdentityRef.current;
-      setScreen("scoreReady");
+      applyCompletedResult(
+        sessionSnap.lastResult,
+        jobAudioIdentityRef.current ?? audioIdentityRef.current,
+      );
       setStatusMessage(ja.transcription.completed);
       session.clearJob();
     } else if (jobPhase === "cancelled") {
@@ -479,13 +521,20 @@ export default function App() {
     }
     // `failed` also sets snap.failure — the screen mapping lives on the
     // failure flag below so crash/unresponsive land identically.
-  }, [jobPhase, hasScore, session, sessionSnap.lastResult]);
+  }, [jobPhase, hasScore, session, sessionSnap.lastResult, queueSnap.running, applyCompletedResult]);
 
   // §27: fail → TRANSCRIPTION_ERROR. Set by a terminal `failed` event
   // (job error) or by crash/unresponsive supervision while a job ran.
   useEffect(() => {
-    if (sessionSnap.failure) setScreen("transcriptionError");
-  }, [sessionSnap.failure]);
+    /* #18: job-level failures inside a run land on the entry row —
+    * the queue clears them after capture, so a lingering failure here
+    * means a hand-run job or an engine-level crash (the queue leaves
+    * engine-dead failures uncleared on purpose: after the run drains
+    * this surface carries the restart action). */
+    if (sessionSnap.failure && !queueSnap.running) {
+      setScreen("transcriptionError");
+    }
+  }, [sessionSnap.failure, queueSnap.running]);
 
   /* ---- UI-020 import flow ---- */
   // The transport adapter (UI-004 contract) is created once per app; the
@@ -596,15 +645,22 @@ export default function App() {
   const [captureDevices, setCaptureDevices] =
     useState<CaptureDeviceList | null>(null);
 
+  // #18: ImportController と採譜キューが共有するポート群。
+  // #365: route project opens through the engine's project.open —
+  // migrate + validate worker-side; the lighter local parser only
+  // remains for plain-browser dev where no engine exists.
+  const importPorts = useMemo(
+    () =>
+      createImportPorts({
+        inspectProject: (ref) => session.inspectProject(ref),
+      }),
+    [session],
+  );
+
   const importer = useMemo(
     () =>
       new ImportController(
-        // #365: route project opens through the engine's project.open —
-        // migrate + validate worker-side; the lighter local parser only
-        // remains for plain-browser dev where no engine exists.
-        createImportPorts({
-          inspectProject: (ref) => session.inspectProject(ref),
-        }),
+        importPorts,
         {
           onScreenChange: (s) => setScreen(s),
           onState: (s) => setImportState(s),
@@ -739,7 +795,7 @@ export default function App() {
         // Recent-project MRU persists in localStorage (web + webview).
         typeof window !== "undefined" ? window.localStorage : null,
       ),
-    [transport, session],
+    [transport, importPorts],
   );
 
   // #128 (§26 last project): on launch, reopen the project at the top
@@ -1595,6 +1651,138 @@ export default function App() {
     [importState.audio, startTranscriptionJob],
   );
 
+  /* #18: 採譜キュー操作。エントリは enqueue 時点で params を確定
+   * させる — 後からオプションを変えてもキュー済みジョブの意味は
+   * 変わらない(params はエントリの不変条件)。 */
+  const enqueueAudioRefs = useCallback(
+    (refs: readonly AudioFileRef[]) => {
+      let added = 0;
+      let firstName = "";
+      for (const ref of refs) {
+        const format = audioFormatOf(ref.name);
+        if (format === null) continue; // .json 等はキューの対象外
+        // path-backed ref は audioPath だけで job を組める —
+        // duration は全曲採譜の既定では要らない(区間指定は
+        // audioReady の「キューに追加」が持つ)。
+        const stub: LoadedAudio = {
+          ref,
+          fileName: ref.name,
+          format,
+          sizeBytes: 0,
+          durationSeconds: 0,
+          sampleRate: 0,
+          peaks: [],
+          mediaSource: { kind: "blob", blob: new Blob() },
+        };
+        queue.enqueue({
+          label: ref.name,
+          ref,
+          params: buildTranscriptionParams(
+            stub,
+            transcriptionOptions,
+            null,
+            settings.backend,
+          ),
+        });
+        if (added === 0) firstName = ref.name;
+        added += 1;
+      }
+      if (added > 0) {
+        const name = added === 1 ? firstName : added + " 件の音源";
+        setStatusMessage(ja.queue.addedToQueue.replace("{name}", name));
+      }
+    },
+    [queue, transcriptionOptions, settings.backend],
+  );
+
+  // 取り込みメニュー/キューパネルの「音源を追加」— 複数選択ピッカー。
+  const addAudioToQueue = useCallback(() => {
+    void (async () => {
+      const refs = importPorts.pickAudioMulti
+        ? await importPorts.pickAudioMulti()
+        : await importPorts.pickAudio().then((r) => (r ? [r] : []));
+      enqueueAudioRefs(refs);
+    })().catch(() => undefined);
+  }, [importPorts, enqueueAudioRefs]);
+
+  // audioReady の「キューに追加」— 現在の音源と現在のオプション
+  // (選択範囲を含む)をそのままエントリにする。範囲を変えて連打すれば
+  // 「複数区間を連続で回す」になる。
+  const enqueueCurrentAudio = useCallback(() => {
+    const audio = importState.audio;
+    if (!audio) return;
+    void stageAudioForEngine(audio)
+      .then((staged) => {
+        const params = buildTranscriptionParams(
+          audio,
+          transcriptionOptions,
+          staged,
+          settings.backend,
+        );
+        const label =
+          transcriptionOptions.range === "selection"
+            ? audio.fileName +
+              " (" +
+              formatTimecode(params.selectionStartSec ?? 0) +
+              "–" +
+              formatTimecode(params.selectionEndSec ?? 0) +
+              ")"
+            : audio.fileName;
+        queue.enqueue({
+          label,
+          ref: audio.ref,
+          identity: audioIdentityRef.current,
+          params,
+        });
+        setStatusMessage(
+          ja.queue.addedToQueue.replace("{name}", audio.fileName),
+        );
+      })
+      .catch(() => undefined);
+  }, [importState.audio, transcriptionOptions, settings.backend, queue]);
+
+  // キュー行の「開く」— 完了結果を現在ドキュメントとして取り込む。
+  // エントリ自身の音源を先に載せ替えて identity を合わせる(#234:
+  // 別の音源が載ったままだと次回取り込みでスコアが無効化される)。
+  const openQueueResult = useCallback(
+    (entry: QueueEntry) => {
+      if (entry.status !== "done" || entry.result == null) return;
+      guardDiscard(() =>
+        void (async () => {
+          // RecordedAudioRef は importRefs の型に合わない — 永続化
+          // パスがある録音は path ref に読み替えて再取り込みする。
+          const refForImport: AudioFileRef | null = !entry.ref
+            ? null
+            : entry.ref.kind !== "recording"
+              ? entry.ref
+              : entry.ref.path
+                ? { kind: "path", path: entry.ref.path, name: entry.ref.name }
+                : null;
+          if (
+            refForImport &&
+            // identity が分からないエントリ(ピッカー由来)は常に
+            // 音源を載せ直す — 「再生できる結果」が既定の開き方。
+            (entry.identity == null ||
+              entry.identity !== audioIdentityOf(importState.audio))
+          ) {
+            try {
+              await importer.importRefs([refForImport]);
+            } catch {
+              /* 音源が消えていても楽譜だけは開く */
+            }
+          }
+          applyCompletedResult(
+            entry.result,
+            audioIdentityRef.current ?? entry.identity ?? "?",
+          );
+          setStatusMessage(ja.transcription.completed);
+          setQueueOpen(false);
+        })(),
+      );
+    },
+    [guardDiscard, importState.audio, importer, applyCompletedResult],
+  );
+
   const ctx = useMemo<CommandContext>(
     () => ({
       openAudio: () => {
@@ -1743,6 +1931,9 @@ export default function App() {
       resumeCapture: () => {
         void capture.resume();
       },
+      // #18: 採譜キュー。
+      openQueue: () => setQueueOpen(true),
+      enqueueAudio: () => addAudioToQueue(),
       toggleScoreAudition: () => {
         const c = scoreCtlRef.current;
         if (c) c.toggleAudition();
@@ -1898,6 +2089,7 @@ export default function App() {
       toolOverrides,
       exportPort,
       startTranscriptionJob,
+      addAudioToQueue,
       screen,
     ],
   );
@@ -2140,6 +2332,8 @@ export default function App() {
       onPickRelink: () => void importer.pickRelinkSource(),
       onDismissError: () => importer.dismiss(),
       onOptionsChange: setTranscriptionOptions,
+      // #18: 現在の音源+オプションをキューに積む。
+      onEnqueueQueue: enqueueCurrentAudio,
       // FEAT-001: EMPTY state capture entry points.
       captureState,
       onStartCapture: (source) => {
@@ -2154,6 +2348,7 @@ export default function App() {
       captureState,
       requestCapture,
       guardDiscard,
+      enqueueCurrentAudio,
       screen,
     ],
   );
@@ -2950,6 +3145,20 @@ export default function App() {
             onApply={(overrides) =>
               scoreCtlRef.current?.requantize?.(overrides)
             }
+          />
+          {/* #18: 採譜キュー — 複数ジョブの逐次実行パネル。 */}
+          <QueuePanel
+            open={queueOpen}
+            onOpenChange={setQueueOpen}
+            snapshot={queueSnap}
+            onAddAudio={addAudioToQueue}
+            onStart={() => void queue.start()}
+            onStop={() => void queue.stop()}
+            onMove={(id, d) => void queue.move(id, d)}
+            onRemove={(id) => void queue.remove(id)}
+            onCancelEntry={(id) => void queue.cancel(id)}
+            onOpenResult={openQueueResult}
+            onClearFinished={() => queue.clearFinished()}
           />
         </AppShell>
       )}

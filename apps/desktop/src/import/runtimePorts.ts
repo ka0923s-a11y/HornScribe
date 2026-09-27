@@ -58,6 +58,50 @@ async function pickViaDialog(): Promise<AudioFileRef | null> {
   return { kind: "path", path: selected, name: baseName(selected) };
 }
 
+// #18: キュー用の複数選択ピッカー — 音声ファイルのみ(プロジェクト
+// はキューの対象外)。キャンセルは空配列。
+async function pickViaDialogMulti(): Promise<readonly AudioFileRef[]> {
+  const selected = await openDialog({
+    multiple: true,
+    directory: false,
+    filters: [
+      {
+        name: ja.import.dialog.audioFilter,
+        extensions: [...AUDIO_EXTENSIONS],
+      },
+    ],
+  });
+  const paths = Array.isArray(selected)
+    ? selected
+    : typeof selected === "string" && selected !== ""
+      ? [selected]
+      : [];
+  return paths.map((p) => ({ kind: "path" as const, path: p, name: baseName(p) }));
+}
+
+function pickViaFileInputMulti(): Promise<readonly AudioFileRef[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.accept = AUDIO_EXTENSIONS.map((e) => `.${e}`).join(",");
+    let settled = false;
+    const done = (refs: readonly AudioFileRef[]) => {
+      if (settled) return;
+      settled = true;
+      resolve(refs);
+    };
+    input.addEventListener("change", () => {
+      const files = Array.from(input.files ?? []);
+      done(files.map((f) => ({ kind: "file" as const, file: f, name: f.name })));
+    });
+    input.addEventListener("cancel", () => done([]));
+    const onFocus = () => setTimeout(() => done([]), 400);
+    window.addEventListener("focus", onFocus, { once: true });
+    input.click();
+  });
+}
+
 // #369: the project-only picker — separate command from 音声を開く so
 // resuming saved work is discoverable, not guessed. The all-files
 // escape hatch stays so a misnamed project file still opens (the
@@ -220,6 +264,8 @@ export function createImportPorts(
   return {
     inspectProject: options?.inspectProject,
     pickAudio: () => (isTauri() ? pickViaDialog() : pickViaFileInput()),
+    pickAudioMulti: () =>
+      isTauri() ? pickViaDialogMulti() : pickViaFileInputMulti(),
     pickProject: () =>
       isTauri() ? pickViaProjectDialog() : pickProjectViaFileInput(),
     readAudioBytes: (path) => invokeBytes("read_audio_bytes", path),
