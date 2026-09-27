@@ -4,9 +4,14 @@ JPOP mixes bury the lead vocal under accompaniment, so a monophonic
 tracker or melody-preference cleaner keeps locking onto louder
 instruments. Two backends are supported, tried in quality order:
 
-* **demucs** (#302) — true neural two-stem separation, used when the
-  optional ``engine-vocal`` extra is installed. It ships ~200 MB of
-  torch + model weights, so it stays opt-in.
+* **demucs** (#302) — true neural two-stem separation, used when a
+  runnable demucs is resolvable: the optional ``engine-vocal`` extra
+  in a dev install, or — in packaged builds, where
+  ``sys.executable`` is the worker itself and ``-m demucs`` would
+  spawn a second worker — a bundled ``tools/demucs`` binary, a
+  ``demucs`` console script on PATH, or another interpreter named by
+  ``HORNSCRIBE_PYTHON`` (#10). It ships ~200 MB of torch + model
+  weights, so it stays opt-in.
 * **center-channel extraction** — the free, librosa-only middle
   ground: pop production pans the lead vocal dead center while
   stereo-wide instrumentation spreads across the side channel, so a
@@ -26,6 +31,7 @@ Contract:
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import os
 import shutil
@@ -117,18 +123,106 @@ def _cache_dir() -> str:
     return root
 
 
-def _demucs_available() -> bool:
-    """#302: demucs is an optional heavier engine — probe, never import.
-
-    find_spec avoids paying torch's multi-second import cost on every
-    job when demucs is absent (the common case).
-    """
+def _demucs_module_importable() -> bool:
+    """find_spec probe — never imports, so torch stays unloaded."""
     try:
         import importlib.util
 
         return importlib.util.find_spec("demucs") is not None
     except Exception:
         return False
+
+
+def _python_has_demucs(python_exe: str) -> bool:
+    """find_spec probe inside a *different* interpreter — the honest
+    check when the module isn't in this process. find_spec (not
+    ``import demucs``) so the probe stays sub-second: a real import
+    would pay torch's multi-second load on every cold handshake.
+    A present-but-broken install still fails at job time and falls
+    back to center extraction — same as a broken dev env."""
+    try:
+        kwargs: dict[str, Any] = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "timeout": 15,
+            "check": False,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        proc = subprocess.run(  # noqa: S603
+            [
+                python_exe,
+                "-c",
+                "import importlib.util,sys;sys.exit(0 if "
+                "importlib.util.find_spec('demucs') else 1)",
+            ],
+            **kwargs,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+@functools.lru_cache(maxsize=1)
+def _demucs_cmd() -> tuple[str, ...] | None:
+    """Resolve a runnable demucs prefix — mirrors the shell's ffmpeg order.
+
+    Order (#10): ``HORNSCRIBE_DEMUCS`` exe path (explicit override — a
+    bad path resolves to None rather than falling through) -> this
+    interpreter's ``-m demucs`` when the module is importable -> a
+    ``demucs`` console script on PATH (the shell prepends the bundled
+    tools/ dir to the child's PATH, so a packaged demucs.exe lands
+    here too) -> ``HORNSCRIBE_PYTHON`` then PATH pythons that have
+    demucs installed. A frozen engine never uses ``sys.executable -m``
+    — the exe is the worker itself, so the spawn would start a second
+    NDJSON worker on the protocol pipe, not demucs.
+    """
+    env_exe = os.environ.get("HORNSCRIBE_DEMUCS", "").strip()
+    if env_exe:
+        return (env_exe,) if os.path.isfile(env_exe) else None
+    if (
+        not getattr(sys, "frozen", False)
+        and sys.executable
+        and _demucs_module_importable()
+    ):
+        return (sys.executable, "-m", "demucs")
+    cli = shutil.which("demucs")
+    if cli:
+        return (cli,)
+    candidates: list[str] = []
+    env_py = os.environ.get("HORNSCRIBE_PYTHON", "").strip()
+    if env_py:
+        candidates.append(env_py)
+    exe_real = (
+        os.path.realpath(sys.executable) if sys.executable else ""
+    )
+    for name in ("python", "python3"):
+        found = shutil.which(name)
+        if (
+            found
+            and found not in candidates
+            and os.path.realpath(found) != exe_real
+        ):
+            candidates.append(found)
+    for python_exe in candidates:
+        if _python_has_demucs(python_exe):
+            return (python_exe, "-m", "demucs")
+    return None
+
+
+def _demucs_available() -> bool:
+    """#302: demucs is opt-in — resolved once per process via
+    ``_demucs_cmd`` so the availability probe and the spawned command
+    can never disagree."""
+    return _demucs_cmd() is not None
+
+
+def demucs_available() -> bool:
+    """Handshake-visible availability — the same resolver the job path
+    uses, so the capability flag never disagrees with what a job
+    would actually run (#10)."""
+    return _demucs_cmd() is not None
 
 
 def _stage_span_wav(
@@ -191,8 +285,10 @@ def isolate_demucs_vocals(
 ) -> Any | None:
     """#302: neural two-stem separation via the demucs CLI -> mono float32 | None.
 
-    Runs ``python -m demucs --two-stems=vocals`` in a subprocess so a
-    torch crash can never take the engine down with it.
+    Runs ``<demucs prefix> --two-stems=vocals`` in a subprocess so a
+    torch crash can never take the engine down with it. The prefix
+    comes from ``_demucs_cmd`` — module, console script, bundled
+    binary, or another interpreter (#10).
     #320: a selection job must not pay the whole-file separation — the
     requested span is staged as a temp stereo WAV and demucs only ever
     sees that slice (the #229 partial-transcription contract). A
@@ -200,7 +296,8 @@ def isolate_demucs_vocals(
     None on any failure (missing binary, non-zero exit, decode error)
     so the caller falls back to center extraction.
     """
-    if not _demucs_available():
+    cmd_prefix = _demucs_cmd()
+    if cmd_prefix is None:
         return None
     try:
         require_module("librosa")
@@ -224,9 +321,7 @@ def isolate_demucs_vocals(
     out_dir = tempfile.mkdtemp(prefix="hornscribe-demucs-")
     try:
         cmd = [
-            sys.executable,
-            "-m",
-            "demucs",
+            *cmd_prefix,
             "--two-stems=vocals",
             "-o",
             out_dir,
@@ -234,6 +329,9 @@ def isolate_demucs_vocals(
         ]
         kwargs: dict[str, Any] = {
             "capture_output": True,
+            # DEVNULL keeps the child off this worker's stdin — that
+            # pipe carries NDJSON protocol frames, not subprocess input.
+            "stdin": subprocess.DEVNULL,
             "timeout": 3600,
         }
         if sys.platform == "win32":
