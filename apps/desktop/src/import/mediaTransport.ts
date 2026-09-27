@@ -41,6 +41,8 @@ export interface TransportSnapshot {
   loop: TimeRange | null;
   /** 元音源のミュート(#72)。楽譜の演奏だけを聴く用途で使う。 */
   muted: boolean;
+  /** #398: 元音源の音量 0..1 — 楽譜の演奏とのバランス調整用。 */
+  volume: number;
   /** Monotonic counter bumped on every emitted snapshot. */
   revision: number;
 }
@@ -75,6 +77,8 @@ export interface MediaPort {
   setRate(rate: number): void;
   setPreservePitch(on: boolean): void;
   setMuted(on: boolean): void;
+  /** #398: element volume 0..1 (muted stays a separate switch). */
+  setVolume(volume: number): void;
   getTime(): number;
   getDuration(): number;
   subscribe(handlers: MediaPortHandlers): Unsubscribe;
@@ -166,6 +170,9 @@ class AudioElementMediaPort implements MediaPort {
   setMuted(on: boolean): void {
     this.el.muted = on;
   }
+  setVolume(volume: number): void {
+    this.el.volume = Math.min(1, Math.max(0, volume));
+  }
   getTime(): number {
     return this.el.currentTime;
   }
@@ -189,6 +196,7 @@ export class MediaElementTransport {
    *  Cleared by stop/seek/setLoop/load; survives pause+resume. */
   private playUntil: number | null = null;
   private muted = false;
+  private volume = 1;
   private revision = 0;
   private readonly listeners = new Set<TransportListener>();
 
@@ -333,6 +341,15 @@ export class MediaElementTransport {
     this.emit();
   }
 
+  /** #398: 元音源の音量 — ミュートとは独立した fader。0..1 に clamp。 */
+  setVolume(volume: number): void {
+    const clamped = Math.min(1, Math.max(0, volume));
+    if (this.volume === clamped) return;
+    this.volume = clamped;
+    this.port.setVolume(clamped);
+    this.emit();
+  }
+
   /** Arm (TimeRange) or clear (null) the A-B loop. Degenerate/inverted
       ranges and ranges past the media end are rejected (clamped). */
   setLoop(range: TimeRange | null): void {
@@ -366,6 +383,7 @@ export class MediaElementTransport {
       rate: this.rate,
       loop: this.loop ? { ...this.loop } : null,
       muted: this.muted,
+      volume: this.volume,
       revision: this.revision,
     };
   }

@@ -17,12 +17,28 @@
  */
 import concertXml from "./fixtures/score_concert.musicxml?raw";
 import hornXml from "./fixtures/score_horn_in_f.musicxml?raw";
+import canonicalScaleJson from "./fixtures/canonical_scale_doc.json?raw";
 import type { ScoreDocumentPort } from "./document";
 import type { ScoreReviewIssue } from "./review";
 import { XmlScoreDocument } from "./xmlDocument";
 
 /** Deterministic revision id for the bundled fixture document. */
 const FIXTURE_REVISION = "rev-fixture0000001";
+
+/* #398: the committed engine fixture — the real canonical payload the
+ *  engine produced for the scale sample (parts/velocities/bends). It is
+ *  the fixture document's default canonical data so dev sessions exercise
+ *  the canonical-gated paths (mixer, velocity audition, note overlay)
+ *  instead of the empty-document fallback. The first 8 canonical ids
+ *  overlap the MusicXML fixture's sn-* ids; later notes simply have no
+ *  canonical match. */
+let fixtureCanonicalCache: unknown;
+function fixtureCanonical(): unknown {
+  if (fixtureCanonicalCache === undefined) {
+    fixtureCanonicalCache = JSON.parse(canonicalScaleJson);
+  }
+  return fixtureCanonicalCache;
+}
 
 const FIXTURE_ISSUES: readonly ScoreReviewIssue[] = [
   {
@@ -89,6 +105,11 @@ export function createFixtureScoreDocument(
     hornXml,
     revisionId: overrides?.revisionId ?? FIXTURE_REVISION,
     issues: overrides?.issues ?? FIXTURE_ISSUES,
-    canonicalDocument: overrides?.canonicalDocument,
+    // Explicit overrides win — including an intentional null ("no
+    // canonical payload"). Only an absent key takes the fixture default.
+    canonicalDocument:
+      overrides !== undefined && "canonicalDocument" in overrides
+        ? overrides.canonicalDocument
+        : fixtureCanonical(),
   });
 }

@@ -77,8 +77,15 @@ import {
   type ClockSnapshot,
   type TransportClock,
 } from "./clock";
-import { ScorePlaybackSynth, velocityByCanonicalId } from "./playbackSynth";
-import { bendsByCanonicalId } from "./playbackSynth";
+import {
+  ScorePlaybackSynth,
+  velocityByCanonicalId,
+  bendsByCanonicalId,
+  effectivePartGains,
+  partIndexByCanonicalId,
+  partNames,
+  type PartMixEntry,
+} from "./playbackSynth";
 import { buildSwingWarp } from "./swingWarp";
 import {
   allIssuesForCanonical,
@@ -187,6 +194,16 @@ interface Props {
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
+
+/* #398: push the mixer's effective gains into the audition synth —
+ *  solo/mute math lives in effectivePartGains (pure); this is the only
+ *  place the synth hears about it. */
+function pushPartGains(
+  synth: ScorePlaybackSynth | null,
+  mix: readonly PartMixEntry[],
+): void {
+  effectivePartGains(mix).forEach((g, i) => synth?.setPartGain(i, g));
+}
 
 function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   if (a.size !== b.size) return false;
@@ -401,6 +418,31 @@ export function ScoreReadyWorkspace({
   const synthRef = useRef<ScorePlaybackSynth | null>(null);
   const [auditionEnabled, setAuditionEnabled] = useState(false);
   const auditionRef = useRef(false);
+
+  /* #398: per-part mixer rows (canonical part order). Ref mirrors state so
+   *  the controller + rebuild helpers always see the latest mix; the state
+   *  copy feeds the onStateChange mirror for the transport-bar popover. */
+  const [partMix, setPartMix] = useState<readonly PartMixEntry[]>([]);
+  const partMixRef = useRef<readonly PartMixEntry[]>([]);
+
+  /* Rebuild mixer rows from canonical parts, preserving fader/mute/solo by
+   *  index so re-transcribing with a different part count keeps the user's
+   *  settings where rows still exist. Returns canonicalId -> part index
+   *  for synth.load. */
+  const syncPartMix = useCallback((canonicalDoc: unknown) => {
+    const names = partNames(canonicalDoc);
+    const prev = partMixRef.current;
+    const next: PartMixEntry[] = names.map((name, i) => ({
+      name,
+      volume: prev[i]?.volume ?? 1,
+      muted: prev[i]?.muted ?? false,
+      solo: prev[i]?.solo ?? false,
+    }));
+    partMixRef.current = next;
+    setPartMix(next);
+    pushPartGains(synthRef.current, next);
+    return partIndexByCanonicalId(canonicalDoc);
+  }, []);
 
   // Parsed presentations — identical canonical ids, different spelling.
   const docsRef = useRef<{
@@ -838,6 +880,9 @@ export function ScoreReadyWorkspace({
           notesByCanonical(concert),
           velocityByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
           bendsByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
+          /* #398: canonicalId -> part index — voices route through
+           *  per-part gain buses so the mixer can fade/mute/solo. */
+          syncPartMix(scoreDoc.canonicalDocument?.() ?? null),
         );
         clock.subscribe((s) => {
           synth.setLoop(
@@ -1305,6 +1350,9 @@ export function ScoreReadyWorkspace({
         notesByCanonical(concert),
         velocityByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
         bendsByCanonicalId(scoreDoc.canonicalDocument?.() ?? null),
+        /* #398: the edit may have changed the part list (doc swap,
+         *  re-transcribe) — re-derive rows and the routing map. */
+        syncPartMix(scoreDoc.canonicalDocument?.() ?? null),
       );
       clockRef.current?.setDuration(tableRef.current.durationMs);
       /* #335: an armed loop marks a PASSAGE — re-map it through the
@@ -1336,7 +1384,7 @@ export function ScoreReadyWorkspace({
       // recomputes against the new onsets.
       setTableGen((g) => g + 1);
     }
-  }, [scoreDoc, renderScore]);
+  }, [scoreDoc, renderScore, syncPartMix]);
 
   /** Apply a session action: bump the document version so derived views
    *  (markers, inspector, counts) refresh; reload the score when the edit
@@ -2067,6 +2115,29 @@ const setKey = useCallback(
             : "楽譜の自動演奏をオフにしました",
         );
       },
+      /* #398: mixer row edit — applies live to ringing + future voices
+       *  (gain nodes, no reschedule), mirrors into onStateChange so the
+       *  transport popover reflects it. */
+      updatePartMix: (index, patch) => {
+        const prev = partMixRef.current;
+        if (index < 0 || index >= prev.length) return;
+        const next = prev.map((m, i) =>
+          i === index
+            ? {
+                name: m.name,
+                volume:
+                  patch.volume !== undefined
+                    ? Math.min(1, Math.max(0, patch.volume))
+                    : m.volume,
+                muted: patch.muted ?? m.muted,
+                solo: patch.solo ?? m.solo,
+              }
+            : m,
+        );
+        partMixRef.current = next;
+        setPartMix(next);
+        pushPartGains(synthRef.current, next);
+      },
       openReview: () => openReview(),
       openReviewAt: (i) => openReviewAt(i),
       reviewNext: () => stepReviewOpen(1),
@@ -2185,6 +2256,7 @@ const setKey = useCallback(
       //  the history entry point once pending hits 0.
       totalIssueCount: allIssues.length,
       auditionEnabled,
+      partMix,
       // #399: queued engine edits — unsaved work from the app's
       // perspective even before editVersion moves.
       pendingEdits,
@@ -2203,6 +2275,7 @@ const setKey = useCallback(
     pendingCount,
     docVersion,
     auditionEnabled,
+    partMix,
     pendingEdits,
   ]);
 

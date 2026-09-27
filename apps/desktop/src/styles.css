@@ -1038,6 +1038,29 @@ body {
   flex: 1 1 auto;
 }
 
+/* ---- Mixer popover (#398) ---- */
+.hs-mixer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-ms);
+  min-width: 280px;
+  max-width: 360px;
+  padding: var(--hs-space-sm);
+}
+.hs-mixer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--hs-space-sm);
+}
+.hs-mixer__slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hs-mixer__toggle {
+  flex: 0 0 auto;
+  margin-bottom: 4px; /* optically aligns the icon toggles with the slider */
+}
+
 /* ---- Status bar ---- */
 .hs-statusbar {
   grid-area: statusbar;

@@ -1,4 +1,10 @@
-import { Toolbar, ToolbarButton, Tooltip } from "@fluentui/react-components";
+import { useState } from "react";
+import {
+  ToggleButton,
+  Toolbar,
+  ToolbarButton,
+  Tooltip,
+} from "@fluentui/react-components";
 import {
   Previous24Regular,
   Rewind24Regular,
@@ -12,10 +18,14 @@ import {
   MusicNote2PlayRegular,
   Speaker224Regular,
   SpeakerMute24Regular,
+  SpeakerSettings24Regular,
+  Headphones24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
 import { formatTimecode } from "../import/format";
+import { HsPopover } from "./primitives/Popover";
+import { HsSlider } from "./primitives/Slider";
 
 function withShortcut(title: string, shortcut?: string): string {
   return shortcut ? `${title}（${shortcut}）` : title;
@@ -45,6 +55,7 @@ export function TransportBar({
   onToggleFollow,
   auditionEnabled,
   loopArmed,
+  mixer,
 }: {
   commands: CommandSurface;
   live?: {
@@ -69,11 +80,30 @@ export function TransportBar({
   auditionEnabled?: boolean;
   /** #113: A-B loop armed (media loop or score loop) - pressed state. */
   loopArmed?: boolean;
+  /** #398: 音量ミキサー — per-part fader/mute/solo rows + the source fader.
+   *  Present when either side exists; undefined hides the button. */
+  mixer?: {
+    readonly parts: readonly {
+      name: string;
+      volume: number;
+      muted: boolean;
+      solo: boolean;
+    }[];
+    onPartChange(
+      index: number,
+      patch: { volume?: number; muted?: boolean; solo?: boolean },
+    ): void;
+    /** 元音源 fader — only while audio is loaded. */
+    readonly source?: { volume: number; onVolume(v: number): void } | null;
+  };
 }) {
   // #366: play/stop/seek/loop now reach the score clock too — the
   // rate and follow controls stay audio-only, so they key off the
   // still-hasAudio toggleSourceMute gate instead of playPause.
   const audioOnly = commands.isEnabled("transport.toggleSourceMute");
+  const [mixerOpen, setMixerOpen] = useState(false);
+  const mixerAvailable =
+    mixer !== undefined && (mixer.parts.length > 0 || mixer.source != null);
   const position = live
     ? formatTimecode(live.positionSec)
     : (timeLabel?.split(" / ")[0] ?? ja.time.zero);
@@ -267,6 +297,100 @@ export function TransportBar({
           onClick={() => commands.invoke("transport.toggleSourceMute")}
         />
       </Tooltip>
+      {/* #398: 音量ミキサー — パート別 + 元音源の fader。再生中の音声に
+          即時反映されるので、原曲と楽譜のバランスを聴きながら調整できる。 */}
+      {/* #398: 音量ミキサー — パート別 + 元音源の fader。再生中の音声に
+          即時反映されるので、原曲と楽譜のバランスを聴きながら調整できる。 */}
+      <HsPopover
+        open={mixerOpen}
+        onOpenChange={setMixerOpen}
+        positioning="above"
+        ariaLabel={ja.transport.mixer}
+        trigger={
+          <ToolbarButton
+            icon={<SpeakerSettings24Regular />}
+            aria-label={ja.transport.mixer}
+            /* disabledFocusable (#379 pattern): a disabled attr here would
+               still match the focus-zone [tabindex] selector (PopoverTrigger
+               injects tabindex=0) and swallow the F6 landing focus. */
+            disabledFocusable={!mixerAvailable}
+          />
+        }
+      >
+        <div className="hs-mixer" role="group" aria-label={ja.transport.mixer}>
+          {mixer?.source ? (
+            <div className="hs-mixer__row">
+              <HsSlider
+                className="hs-mixer__slider"
+                label={ja.transport.mixerSource}
+                value={Math.round(mixer.source.volume * 100)}
+                min={0}
+                max={100}
+                unit="%"
+                onChange={(v) => mixer.source?.onVolume(v / 100)}
+              />
+            </div>
+          ) : null}
+          {mixer?.parts.map((part, i) => (
+            <div className="hs-mixer__row" key={i}>
+              <HsSlider
+                className="hs-mixer__slider"
+                label={part.name}
+                value={Math.round(part.volume * 100)}
+                min={0}
+                max={100}
+                unit="%"
+                disabled={part.muted}
+                onChange={(v) => mixer.onPartChange(i, { volume: v / 100 })}
+              />
+              <Tooltip
+                content={
+                  part.solo ? ja.transport.partUnsolo : ja.transport.partSolo
+                }
+                relationship="label"
+              >
+                <ToggleButton
+                  className="hs-mixer__toggle"
+                  size="small"
+                  icon={<Headphones24Regular />}
+                  checked={part.solo}
+                  aria-label={
+                    part.name +
+                    ": " +
+                    (part.solo ? ja.transport.partUnsolo : ja.transport.partSolo)
+                  }
+                  onClick={() => mixer.onPartChange(i, { solo: !part.solo })}
+                />
+              </Tooltip>
+              <Tooltip
+                content={
+                  part.muted ? ja.transport.partUnmute : ja.transport.partMute
+                }
+                relationship="label"
+              >
+                <ToggleButton
+                  className="hs-mixer__toggle"
+                  size="small"
+                  icon={
+                    part.muted ? (
+                      <SpeakerMute24Regular />
+                    ) : (
+                      <Speaker224Regular />
+                    )
+                  }
+                  checked={part.muted}
+                  aria-label={
+                    part.name +
+                    ": " +
+                    (part.muted ? ja.transport.partUnmute : ja.transport.partMute)
+                  }
+                  onClick={() => mixer.onPartChange(i, { muted: !part.muted })}
+                />
+              </Tooltip>
+            </div>
+          ))}
+        </div>
+      </HsPopover>
     </Toolbar>
   );
 }

@@ -7,6 +7,11 @@ import { describe, expect, it } from "vitest";
 import { velocityByCanonicalId } from "./playbackSynth";
 import { bendsByCanonicalId } from "./playbackSynth";
 import { buildScheduledNotes } from "./playbackSynth";
+import {
+  effectivePartGains,
+  partIndexByCanonicalId,
+  partNames,
+} from "./playbackSynth";
 import type { PlaybackTable } from "./playbackTable";
 import type { ParsedNote } from "./scoreDoc";
 
@@ -192,5 +197,135 @@ describe("bendsByCanonicalId", () => {
     expect(velocityByCanonicalId(null).size).toBe(0);
     expect(velocityByCanonicalId({}).size).toBe(0);
     expect(velocityByCanonicalId(doc([])).size).toBe(0);
+  });
+});
+
+/* ---- #398: per-part mixer ---- */
+
+describe("partIndexByCanonicalId (#398)", () => {
+  it("maps each note id to its part's index in content.parts", () => {
+    const d = doc([
+      { id: "P1", name: "Horn in F", notes: [{ id: "sn-1" }, { id: "sn-2" }] },
+      { id: "P2", name: "伴奏", notes: [{ id: "sn-3" }] },
+    ]);
+    const m = partIndexByCanonicalId(d);
+    expect(m.get("sn-1")).toBe(0);
+    expect(m.get("sn-2")).toBe(0);
+    expect(m.get("sn-3")).toBe(1);
+    expect(m.size).toBe(3);
+  });
+
+  it("skips malformed payloads and notes without ids", () => {
+    const d = doc([
+      { id: "P1", notes: [{ pitchMidi: 60 }, "junk", { id: "sn-1" }] },
+      { id: "P2" }, // no notes array
+    ]);
+    const m = partIndexByCanonicalId(d);
+    expect(m.get("sn-1")).toBe(0);
+    expect(m.size).toBe(1);
+    expect(partIndexByCanonicalId(null).size).toBe(0);
+    expect(partIndexByCanonicalId({}).size).toBe(0);
+    expect(partIndexByCanonicalId(doc([])).size).toBe(0);
+  });
+});
+
+describe("partNames (#398)", () => {
+  it("reads canonical part names in order", () => {
+    const d = doc([
+      { id: "P1", name: "Horn in F", notes: [] },
+      { id: "P2", name: "コード伴奏", notes: [] },
+    ]);
+    expect(partNames(d)).toEqual(["Horn in F", "コード伴奏"]);
+  });
+
+  it("falls back to a numbered label for unnamed/missing parts", () => {
+    const d = doc([
+      { id: "P1", name: "", notes: [] },
+      { id: "P2", notes: [] },
+    ]);
+    const names = partNames(d);
+    expect(names).toHaveLength(2);
+    expect(names[0]).not.toBe("");
+    expect(names[1]).not.toBe("");
+    expect(names[0]).not.toBe(names[1]);
+    expect(partNames(null)).toEqual([]);
+    expect(partNames(doc([]))).toEqual([]);
+  });
+});
+
+describe("effectivePartGains (#398)", () => {
+  const row = (
+    volume: number,
+    muted = false,
+    solo = false,
+  ): { name: string; volume: number; muted: boolean; solo: boolean } => ({
+    name: "p",
+    volume,
+    muted,
+    solo,
+  });
+
+  it("passes fader values through with no mute/solo", () => {
+    expect(effectivePartGains([row(1), row(0.5), row(0)])).toEqual([
+      1, 0.5, 0,
+    ]);
+  });
+
+  it("mute silences only that part", () => {
+    expect(effectivePartGains([row(1, true), row(0.8)])).toEqual([0, 0.8]);
+  });
+
+  it("solo silences every non-soloed part regardless of fader", () => {
+    expect(effectivePartGains([row(1), row(0.6, false, true), row(0.9)])).toEqual(
+      [0, 0.6, 0],
+    );
+  });
+
+  it("multiple solos sound together; muted solo stays silent", () => {
+    expect(
+      effectivePartGains([
+        row(1, false, true),
+        row(0.5, true, true), // soloed but muted -> silent
+        row(0.9),
+      ]),
+    ).toEqual([1, 0, 0]);
+  });
+
+  it("clamps out-of-range faders", () => {
+    expect(effectivePartGains([row(1.5), row(-0.2)])).toEqual([1, 0]);
+  });
+});
+
+describe("buildScheduledNotes partOf (#398)", () => {
+  it("tags each scheduled note with its canonical part index", () => {
+    const t = table([seg(0, 500, ["sn-1", "sn-2"])]);
+    const notes = buildScheduledNotes(
+      t,
+      new Map([
+        ["sn-1", [note("C", 4)]],
+        ["sn-2", [note("E", 4)]],
+      ]),
+      undefined,
+      undefined,
+      new Map([
+        ["sn-1", 0],
+        ["sn-2", 1],
+      ]),
+    );
+    // E4 ≈ 329.6 Hz, C4 ≈ 261.6 Hz.
+    expect(notes.find((n) => n.freq > 300)?.partIndex).toBe(1);
+    expect(notes.find((n) => n.freq < 300)?.partIndex).toBe(0);
+  });
+
+  it("leaves partIndex null when the id is unmapped", () => {
+    const t = table([seg(0, 500, ["sn-1"])]);
+    const notes = buildScheduledNotes(
+      t,
+      new Map([["sn-1", [note("C", 4)]]]),
+      undefined,
+      undefined,
+      new Map(),
+    );
+    expect(notes[0].partIndex).toBeNull();
   });
 });
