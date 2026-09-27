@@ -33,6 +33,11 @@ Wire contract (camelCase, additive-optional; see PROTOCOL.md):
   larger sonorities are ordinary in chord-oriented sources, so the
   split is no longer hard-wired to three — the cap travels with the
   job and is echoed in ``meta.settings`` like every other option.
+* ``keyHint`` — ``"auto"`` or a tonic name (``"C"``, ``"Ebm"``,
+  ``"F#m"`` …). A user who knows the song's key pins the signature:
+  enharmonic spelling, the chord prior and the key signature all take
+  the hint and the ``key_uncertain`` review issue is skipped — a
+  user attestation is stronger evidence than any estimate (#53).
 """
 
 from __future__ import annotations
@@ -42,6 +47,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Any
 
+from hornscribe.domain.score import KeySignature
 from hornscribe.rhythm.meter import MeterSegment, UnsupportedMeterError
 from hornscribe.rhythm.profile import QuantizationProfile, TripletPolicy
 
@@ -67,6 +73,40 @@ _SUPPORTED_METERS = {
 _BACKENDS = {"auto", "basicPitch", "pyin"}
 
 _TEXTURES = {"auto", "mono", "melody", "voices", "chords"}
+
+# #53: key-hint names -> (fifths, mode). Both enharmonic spellings are
+# listed where they differ on the staff (Gb vs F#, D#m vs Ebm, G#m vs
+# Abm): the fifths sign drives the spelling layer, so they are NOT
+# interchangeable even though the sounding pitch class is identical.
+_KEY_HINTS: dict[str, tuple[int, str]] = {
+    "C": (0, "major"),
+    "Db": (-5, "major"),
+    "D": (2, "major"),
+    "Eb": (-3, "major"),
+    "E": (4, "major"),
+    "F": (-1, "major"),
+    "Gb": (-6, "major"),
+    "F#": (6, "major"),
+    "G": (1, "major"),
+    "Ab": (-4, "major"),
+    "A": (3, "major"),
+    "Bb": (-2, "major"),
+    "B": (5, "major"),
+    "Cm": (-3, "minor"),
+    "C#m": (4, "minor"),
+    "Dm": (-1, "minor"),
+    "D#m": (6, "minor"),
+    "Ebm": (-6, "minor"),
+    "Em": (1, "minor"),
+    "Fm": (-4, "minor"),
+    "F#m": (3, "minor"),
+    "Gm": (-2, "minor"),
+    "G#m": (5, "minor"),
+    "Abm": (-7, "minor"),
+    "Am": (0, "minor"),
+    "Bbm": (-5, "minor"),
+    "Bm": (2, "minor"),
+}
 
 
 @dataclass(frozen=True)
@@ -107,6 +147,10 @@ class TranscriptionParams:
     # so the display name travels separately and the title never
     # leaks the ``staged-<ts>-`` scratch name.
     display_name: str | None = None
+    # #53: user-attested key ("auto" = engine analysis). Pinned keys
+    # skip modulation detection — the hint means "this song is in
+    # this key", which is the honest contract for an explicit choice.
+    key_hint: str = "auto"
 
     @classmethod
     def from_payload(cls, raw: Any) -> TranscriptionParams:
@@ -142,6 +186,9 @@ class TranscriptionParams:
         max_voices = cls._opt_int(raw, "maxVoices", 3, lo=2, hi=8)
         vocal_isolation = raw.get("vocalIsolation", False) is True
         display_name = cls._opt_str(raw, "displayName")
+        key_hint = cls._opt_choice(
+            raw, "keyHint", "auto", set(_KEY_HINTS) | {"auto"}
+        )
         return cls(
             audio_path=audio_path,
             tempo_bpm=tempo_bpm,
@@ -158,6 +205,7 @@ class TranscriptionParams:
             max_voices=max_voices,
             vocal_isolation=vocal_isolation,
             display_name=display_name,
+            key_hint=key_hint,
         )
 
     def meter_segment(self) -> MeterSegment:
@@ -190,6 +238,14 @@ class TranscriptionParams:
             weights=profile.weights,
         )
 
+    def key_signature_hint(self) -> KeySignature | None:
+        """#53: the user-pinned key as a KeySignature, or None on auto."""
+        entry = _KEY_HINTS.get(self.key_hint)
+        if entry is None:
+            return None
+        fifths, mode = entry
+        return KeySignature(fifths=fifths, mode=mode)
+
     def settings_dict(self) -> dict[str, Any]:
         """JSON-serializable echo of the effective settings (result meta)."""
         return {
@@ -205,6 +261,7 @@ class TranscriptionParams:
             "texture": self.texture,
             "maxVoices": self.max_voices,
             "vocalIsolation": self.vocal_isolation,
+            "keyHint": self.key_hint,
         }
 
     @staticmethod

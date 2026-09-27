@@ -106,6 +106,7 @@ describe("transcriptionOptionsFromSettings", () => {
       backend: "basicPitch",
       texture: "melody",
       vocalIsolation: true,
+      keyHint: "Ebm",
     });
     expect(o).toEqual({
       tempo: "manual",
@@ -120,9 +121,58 @@ describe("transcriptionOptionsFromSettings", () => {
       maxVoices: 3,
       backend: "basicPitch",
       vocalIsolation: true,
+      keyHint: "Ebm",
       selectionStartSec: 12.5,
       selectionEndSec: 40,
     });
+  });
+
+  it("#53: keyHint passes through to the job params", () => {
+    const p = buildTranscriptionParams(audioOf("take.wav"), {
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      keyHint: "F#m",
+    });
+    expect(p.keyHint).toBe("F#m");
+    // auto stays off the wire — engine default.
+    const auto = buildTranscriptionParams(
+      audioOf("take.wav"),
+      DEFAULT_TRANSCRIPTION_OPTIONS,
+    );
+    expect(auto.keyHint).toBeUndefined();
+  });
+
+  it("#53: keyHint restores a known name and swallows unknowns", () => {
+    expect(transcriptionOptionsFromSettings({ keyHint: "Ebm" }).keyHint).toBe(
+      "Ebm",
+    );
+    expect(transcriptionOptionsFromSettings({ keyHint: "Q#" }).keyHint).toBe(
+      "auto",
+    );
+    expect(transcriptionOptionsFromSettings(null).keyHint).toBe("auto");
+  });
+
+  it("#53: keyHint passes through to the job params", () => {
+    const p = buildTranscriptionParams(audioOf("take.wav"), {
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      keyHint: "F#m",
+    });
+    expect(p.keyHint).toBe("F#m");
+    // auto stays off the wire — engine default.
+    const auto = buildTranscriptionParams(
+      audioOf("take.wav"),
+      DEFAULT_TRANSCRIPTION_OPTIONS,
+    );
+    expect(auto.keyHint).toBeUndefined();
+  });
+
+  it("#53: keyHint restores a known name and swallows unknowns", () => {
+    expect(transcriptionOptionsFromSettings({ keyHint: "Ebm" }).keyHint).toBe(
+      "Ebm",
+    );
+    expect(transcriptionOptionsFromSettings({ keyHint: "Q#" }).keyHint).toBe(
+      "auto",
+    );
+    expect(transcriptionOptionsFromSettings(null).keyHint).toBe("auto");
   });
 
   it("#187: vocalIsolation restores only from an explicit true", () => {

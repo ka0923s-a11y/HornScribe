@@ -27,6 +27,7 @@ import type {
   TranscriptionOptions,
 } from "./types";
 import { DEFAULT_TRANSCRIPTION_OPTIONS } from "./types";
+import { KEY_HINT_VALUES } from "./types";
 
 function audioPathOf(ref: AudioFileRef | RecordedAudioRef): string | null {
   if (ref.kind === "path") return ref.path;
@@ -53,6 +54,8 @@ export interface TranscriptionJobParams {
   maxVoices?: number;
   /** #187: opt-in vocal isolation (center extraction) for the job. */
   vocalIsolation?: boolean;
+  /** #53: user-pinned key signature ("auto" omitted). */
+  keyHint?: string;
 }
 
 export function buildTranscriptionParams(
@@ -105,6 +108,10 @@ export function buildTranscriptionParams(
   // #187: opt-in vocal isolation — false is the engine default; only
   // an explicit on reaches the job so provenance stays honest.
   if (options.vocalIsolation) params.vocalIsolation = true;
+  // #53: "auto" is the engine default — pin only an explicit key.
+  if (options.keyHint && options.keyHint !== "auto") {
+    params.keyHint = options.keyHint;
+  }
   if (options.range === "selection") {
     params.range = "selection";
     // #346: clamp into [0, duration] but NEVER widen an empty/inverted
@@ -213,6 +220,9 @@ export function transcriptionOptionsFromSettings(
     })(),
     backend: pick("backend", ["auto", "basicPitch", "pyin"] as const, "auto"),
     vocalIsolation: s.vocalIsolation === true,
+    // #53: restore a pinned key verbatim — an unknown name falls back
+    // to auto rather than pinning a key the engine would reject.
+    keyHint: pick("keyHint", KEY_HINT_VALUES, "auto"),
     // Selection seconds are source-relative; keep them verbatim so a
     // restored 範囲指定 re-runs over the same span of the same audio.
     selectionStartSec: num("selectionStartSec"),
