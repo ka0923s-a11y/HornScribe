@@ -2610,6 +2610,25 @@ export default function App() {
                     transportSnap?.loop != null ||
                     (scoreState?.loopEnabled ?? false)
                   }
+                  /* #398: 音量ミキサー — score parts from the workspace
+                   *  mirror + the source fader while audio is loaded. */
+                  mixer={
+                    (scoreState?.partMix.length ?? 0) > 0 ||
+                    (transportSnap && transportSnap.status !== "empty")
+                      ? {
+                          parts: scoreState?.partMix ?? [],
+                          onPartChange: (index, patch) =>
+                            scoreCtlRef.current?.updatePartMix?.(index, patch),
+                          source:
+                            transportSnap && transportSnap.status !== "empty"
+                              ? {
+                                  volume: transportSnap.volume,
+                                  onVolume: (v) => transport.setVolume(v),
+                                }
+                              : null,
+                        }
+                      : undefined
+                  }
                 />
               ) : null}
             </>

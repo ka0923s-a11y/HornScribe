@@ -55,6 +55,10 @@ class FakePort implements MediaPort {
   setMuted(on: boolean): void {
     this.muted = on;
   }
+  volume = 1;
+  setVolume(volume: number): void {
+    this.volume = volume;
+  }
   getTime(): number {
     return this.time;
   }

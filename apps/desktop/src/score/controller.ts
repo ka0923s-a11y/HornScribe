@@ -118,6 +118,13 @@ export interface ScoreWorkspaceController {
   /** "楽譜を演奏" toggle. When on, the score clock drives WebAudio. */
   toggleAudition(): void;
 
+  /** #398: mixer row edit — volume (0..1), mute, solo for one canonical
+   *  part. Applied live to the audition synth; mirrored into state. */
+  updatePartMix?(
+    index: number,
+    patch: { volume?: number; muted?: boolean; solo?: boolean },
+  ): void;
+
   // ---- review (§12 minimal: navigate open issues on the score) ----
   openReview(): void;
   reviewNext(): void;
@@ -183,6 +190,14 @@ export interface ScoreWorkspaceState {
   readonly totalIssueCount: number;
   /** FEAT-001: score audition enabled (drives the transport toggle). */
   readonly auditionEnabled: boolean;
+  /** #398: per-part mixer rows (canonical part order) — name, fader 0..1,
+   *  mute, solo. Empty until a score with parts loads. */
+  readonly partMix: readonly {
+    name: string;
+    volume: number;
+    muted: boolean;
+    solo: boolean;
+  }[];
   /** #399: in-flight serialized engine edits — >0 means committed
    *  content trails the user's actions; guards must treat this as
    *  unsaved work even though editVersion has not bumped yet. */

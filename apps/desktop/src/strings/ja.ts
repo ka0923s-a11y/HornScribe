@@ -148,6 +148,13 @@ export const ja = {
     /* #72: 元音源(取り込んだ音声)のミュート — 楽譜の演奏だけ聴く用途。 */
     muteSource: "元音源をミュート",
     unmuteSource: "元音源のミュートを解除",
+    /* #398: 音量ミキサー — パート別 fader/ソロ/ミュート + 元音源 fader。 */
+    mixer: "音量ミキサー",
+    mixerSource: "元音源",
+    partMute: "ミュート",
+    partUnmute: "ミュート解除",
+    partSolo: "このパートだけ聴く",
+    partUnsolo: "ソロを解除",
   },
 
   status: {

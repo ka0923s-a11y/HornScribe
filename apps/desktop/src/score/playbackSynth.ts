@@ -53,6 +53,10 @@ interface ScheduledNote {
   velocity: number | null;
   /** Normalized bend curve (pos 0..1, semitones) for vibrato. #174 */
   bends: readonly { pos: number; semis: number }[];
+  /** #398: canonical part index — routes the voice through its part's
+   *  gain node so the mixer can fade/mute/solo parts. null = unknown
+   *  part (connects to master directly). */
+  partIndex: number | null;
 }
 
 /** #245: one musical attack = one ScheduledNote. The segment table
@@ -67,6 +71,7 @@ export function buildScheduledNotes(
   notesByCanonical: ReadonlyMap<string, readonly ParsedNote[]>,
   velocities?: ReadonlyMap<string, number>,
   bends?: ReadonlyMap<string, readonly { pos: number; semis: number }[]>,
+  partOf?: ReadonlyMap<string, number>,
 ): ScheduledNote[] {
   const runs = new Map<string, { startMs: number; endMs: number }[]>();
   for (const seg of table.segments) {
@@ -94,6 +99,7 @@ export function buildScheduledNotes(
         freq: midiToFreq(midi),
         velocity: velocities?.get(canonicalId) ?? null,
         bends: bends?.get(canonicalId) ?? [],
+        partIndex: partOf?.get(canonicalId) ?? null,
       });
     }
   }
@@ -166,6 +172,73 @@ export function bendsByCanonicalId(
   return map;
 }
 
+/**
+ * canonicalId -> part index, read off content.parts[] (#398). The mixer
+ * routes each scheduled voice through a per-part gain node; this map is
+ * how a MusicXML-keyed schedule learns which part it belongs to.
+ */
+export function partIndexByCanonicalId(
+  canonicalDocument: unknown,
+): Map<string, number> {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  const parts = content?.["parts"];
+  const map = new Map<string, number>();
+  if (!Array.isArray(parts)) return map;
+  parts.forEach((rawPart, index) => {
+    const notes = (rawPart as Record<string, unknown>)["notes"];
+    if (!Array.isArray(notes)) return;
+    for (const rawNote of notes) {
+      const id = (rawNote as Record<string, unknown>)["id"];
+      if (typeof id === "string") map.set(id, index);
+    }
+  });
+  return map;
+}
+
+/**
+ * Part display names in canonical order (#398). Falls back to a numbered
+ * label when a part has no name — the mixer must always render a row the
+ * user can tell apart.
+ */
+export function partNames(canonicalDocument: unknown): string[] {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  const parts = content?.["parts"];
+  if (!Array.isArray(parts)) return [];
+  return parts.map((rawPart, index) => {
+    const name = (rawPart as Record<string, unknown>)["name"];
+    return typeof name === "string" && name !== ""
+      ? name
+      : "パート " + (index + 1);
+  });
+}
+
+/**
+ * One mixer row for a canonical part (#398): the UI state the user edits
+ * (volume slider + mute + solo), kept separate from the synth so the
+ * effective-gain math is a pure, testable function.
+ */
+export interface PartMixEntry {
+  readonly name: string;
+  /** Slider position 0..1 — the part's own fader before mute/solo. */
+  readonly volume: number;
+  readonly muted: boolean;
+  readonly solo: boolean;
+}
+
+/**
+ * Mixer state -> effective per-part gain. Solo wins over volume and mute:
+ * with any solo on, only soloed parts sound; without any solo, a muted
+ * part is silent and every other part keeps its fader value.
+ */
+export function effectivePartGains(mix: readonly PartMixEntry[]): number[] {
+  const anySolo = mix.some((m) => m.solo);
+  return mix.map((m) =>
+    m.muted || (anySolo && !m.solo) ? 0 : Math.min(1, Math.max(0, m.volume)),
+  );
+}
+
 export interface ScoreSynthOptions {
   /** AudioContext は外部注入可(テスト/既存コンテキスト共有)。 */
   audioContext?: AudioContext | null;
@@ -180,6 +253,11 @@ export interface ScoreSynthOptions {
 export class ScorePlaybackSynth {
   private ctx: AudioContext | null;
   private master: GainNode | null = null;
+  /* #398: per-part gain bus. Lazily created the first time a voice from
+   * that part is scheduled; setPartGain edits apply live to ringing
+   * notes — no reschedule needed. */
+  private partNodes = new Map<number, GainNode>();
+  private partMixGains = new Map<number, number>();
   private notes: ScheduledNote[] = [];
   private scheduledNodes: OscillatorNode[] = [];
   private loopRangeMs: { startMs: number; endMs: number } | null = null;
@@ -216,8 +294,15 @@ export class ScorePlaybackSynth {
     notesByCanonical: ReadonlyMap<string, readonly ParsedNote[]>,
     velocities?: ReadonlyMap<string, number>,
     bends?: ReadonlyMap<string, readonly { pos: number; semis: number }[]>,
+    partOf?: ReadonlyMap<string, number>,
   ): void {
-    this.notes = buildScheduledNotes(table, notesByCanonical, velocities, bends);
+    this.notes = buildScheduledNotes(
+      table,
+      notesByCanonical,
+      velocities,
+      bends,
+      partOf,
+    );
   }
 
   /** スコアクロックの位置(ms)を同期する。シーク/レート変更に追従。 */
@@ -274,6 +359,33 @@ export class ScorePlaybackSynth {
     if (this.master) this.master.gain.value = this.volume;
   }
 
+  /**
+   * #398: set a part's effective gain (0..1, clamped). Safe to call before
+   * the AudioContext exists — the value is stored and applied when the
+   * part's bus node is created. Voices already ringing follow live.
+   */
+  setPartGain(partIndex: number, gain: number): void {
+    const clamped = Math.min(1, Math.max(0, gain));
+    this.partMixGains.set(partIndex, clamped);
+    const node = this.partNodes.get(partIndex);
+    if (node) node.gain.value = clamped;
+  }
+
+  /** The part's bus node, created on first use. Child of master. */
+  private partBus(partIndex: number): GainNode | null {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return null;
+    let node = this.partNodes.get(partIndex);
+    if (!node) {
+      node = ctx.createGain();
+      node.gain.value = this.partMixGains.get(partIndex) ?? 1;
+      node.connect(master);
+      this.partNodes.set(partIndex, node);
+    }
+    return node;
+  }
+
   dispose(): void {
     this.disposeRequested = true;
     this.stopTimer();
@@ -322,7 +434,14 @@ export class ScorePlaybackSynth {
       if (note.startMs < scheduleFrom) continue;
       const startSec = t0 + (note.startMs - windowStart) / rate / 1000;
       const durSec = Math.max(0.04, (note.endMs - note.startMs) / rate / 1000);
-      this.spawnVoice(note.freq, startSec, durSec, note.velocity, note.bends);
+      this.spawnVoice(
+        note.freq,
+        startSec,
+        durSec,
+        note.velocity,
+        note.bends,
+        note.partIndex,
+      );
     }
     this.scheduledUntilMs = Math.max(this.scheduledUntilMs, windowEnd);
     this.lastTickAt = performance.now();
@@ -370,6 +489,7 @@ export class ScorePlaybackSynth {
     durSec: number,
     velocity: number | null = null,
     bends: readonly { pos: number; semis: number }[] = [],
+    partIndex: number | null = null,
   ): void {
     const ctx = this.ctx;
     const master = this.master;
@@ -416,7 +536,11 @@ export class ScorePlaybackSynth {
     osc1.connect(env);
     osc2.connect(osc2Gain);
     osc2Gain.connect(env);
-    env.connect(master);
+    /* #398: route through the part's bus so the mixer fader/mute/solo
+     * applies to this voice live; unknown parts take master directly. */
+    env.connect(
+      partIndex !== null ? (this.partBus(partIndex) ?? master) : master,
+    );
 
     osc1.start(startSec);
     osc2.start(startSec);
