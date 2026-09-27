@@ -64,12 +64,21 @@ ONSET_THRESHOLD = 0.4
 FRAME_THRESHOLD = 0.3
 MINIMUM_NOTE_LENGTH_MS = 70.0
 
-# Basic Pitch reports per-frame pitch bends in MIDI pitch-bend units
-# (0..16383, center 8192) over a +/-2 semitone range -> 4096 units per
-# semitone. We keep them as evidence (vibrato / portamento) instead of
-# dropping them (#169).
+# Two bend encodings reach _bend_points and they are NOT the same:
+#   - pYIN: frames_to_note_events synthesizes MIDI-wire ticks
+#     (0..16383, center 8192, 4096 units per semitone).
+#   - basic_pitch: get_pitch_bends returns raw contour-bin offsets in
+#     1/3-semitone units centered on 0 — decoding those as MIDI ticks
+#     crushed every recorded contour to ~= -2 st of dead evidence.
+# We keep bends as evidence (vibrato / portamento) instead of dropping
+# them (#169), so the decode must honour each producer separately.
 _BEND_CENTER = 8192.0
 _BEND_UNITS_PER_SEMITONE = 4096.0
+# basic_pitch.constants.CONTOURS_BINS_PER_SEMITONE — duplicated so the
+# decode helper stays usable in envs without the engine installed.
+_BP_BINS_PER_SEMITONE = 3.0
+BEND_UNITS_MIDI = "midi"
+BEND_UNITS_BP_BINS = "bp_bins"
 
 # #214: pYIN velocity comes from real loudness, not voiced probability.
 # -50 dBFS RMS is a quiet line, -12 dBFS is a loud one; the window maps
@@ -104,13 +113,20 @@ def _rms_velocity(samples: Any, sr: int, onset_sec: float, offset_sec: float) ->
 
 
 def _bend_points(
-    bends: Any, onset_sec: float, offset_sec: float
+    bends: Any,
+    onset_sec: float,
+    offset_sec: float,
+    *,
+    units: str = BEND_UNITS_MIDI,
 ) -> tuple[PitchBendPoint, ...]:
     """Convert a backend bend list to PitchBendPoint evidence (#169).
 
-    bends is a per-frame list of MIDI pitch-bend values spanning the
-    note's [onset, offset]; frame i maps to the evenly spaced time inside
-    that span. Non-numeric or empty input yields no points.
+    bends is a per-frame list of pitch-bend values spanning the note's
+    [onset, offset]; frame i maps to the evenly spaced time inside that
+    span. units selects the source encoding — MIDI-wire ticks (center
+    8192, 4096 per semitone; the pYIN path synthesizes these) or raw
+    basic_pitch contour bins (1/3 semitone each, centered on 0).
+    Non-numeric or empty input yields no points.
     """
     if not bends:
         return ()
@@ -125,7 +141,10 @@ def _bend_points(
     out: list[PitchBendPoint] = []
     for i, v in enumerate(values):
         t = onset_sec + span * (i / denom)
-        semis = (v - _BEND_CENTER) / _BEND_UNITS_PER_SEMITONE
+        if units == BEND_UNITS_BP_BINS:
+            semis = v / _BP_BINS_PER_SEMITONE
+        else:
+            semis = (v - _BEND_CENTER) / _BEND_UNITS_PER_SEMITONE
         out.append(PitchBendPoint(time_sec=t, bend_semitones=semis))
     return tuple(out)
 
@@ -331,6 +350,7 @@ def _to_raw_event(
     revision: TranscriptionRevisionId,
     source: str = BACKEND_ID,
     velocity: int | None = None,
+    bend_units: str = BEND_UNITS_MIDI,
 ) -> RawNoteEvent:
     """Map one backend note tuple to RawNoteEvent, keeping bends (#169).
 
@@ -353,7 +373,7 @@ def _to_raw_event(
         confidence=float(amplitude),
         velocity=max(1, min(127, int(velocity))),
         source=source,
-        pitch_bends=_bend_points(bends, onset_f, offset_f),
+        pitch_bends=_bend_points(bends, onset_f, offset_f, units=bend_units),
     )
 
 
@@ -445,6 +465,8 @@ def predict_note_events(
                 note_event,
                 allocator.allocate_raw_event_id(),
                 revision,
+                # basic_pitch returns contour-bin offsets, not MIDI ticks
+                bend_units=BEND_UNITS_BP_BINS,
             )
         )
     return tuple(events)
