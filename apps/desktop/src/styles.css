@@ -704,6 +704,15 @@ body {
   font-size: var(--hs-font-size-sm);
   flex-shrink: 0;
 }
+/* #59: pinned-option summary under the name — caption-sized and muted
+   so rows with all-default params stay visually quiet. */
+.hs-queue__params {
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .hs-queue__row--done .hs-queue__status {
   color: var(--hs-status-success);
 }
