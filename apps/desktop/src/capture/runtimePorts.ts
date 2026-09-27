@@ -42,6 +42,7 @@ interface RustCaptureStatus {
   level: number | null;
   paused: boolean;
   error: string | null;
+  monitoring: boolean;
 }
 interface RustDevice {
   id: string;
@@ -60,12 +61,13 @@ function toSource(s: string): CaptureSource {
 class TauriCapturePort implements CapturePort {
   async start(
     source: CaptureSource,
-    opts?: { deviceId?: string; suggestedName?: string },
+    opts?: { deviceId?: string; suggestedName?: string; monitorOnly?: boolean },
   ): Promise<CaptureSessionInfo> {
     const info = await invoke<RustSessionInfo>("capture_start", {
       source,
       deviceId: opts?.deviceId ?? null,
       suggestedName: opts?.suggestedName ?? null,
+      monitorOnly: opts?.monitorOnly ?? false,
     });
     return {
       source: toSource(info.source),
@@ -105,6 +107,7 @@ class TauriCapturePort implements CapturePort {
       level: s.level ?? null,
       paused: s.paused,
       error: s.error,
+      monitoring: s.monitoring ?? false,
     };
   }
   async listDevices(): Promise<CaptureDeviceList> {
@@ -138,17 +141,25 @@ class BrowserCapturePort implements CapturePort {
   private audioCtx: AudioContext | null = null;
   /** #79: MediaRecorder の致命的エラー — status() で UI に伝える。 */
   private lastError: string | null = null;
+  /** #42: モニターセッションのストリーム(MediaRecorder を作らない
+   *  書き出しなしのレベル確認)。録音中は null。 */
+  private monitorStream: MediaStream | null = null;
+  private monitorDeviceName: string | null = null;
 
   async start(
     source: CaptureSource,
-    opts?: { deviceId?: string; suggestedName?: string },
+    opts?: {
+      deviceId?: string;
+      suggestedName?: string;
+      monitorOnly?: boolean;
+    },
   ): Promise<CaptureSessionInfo> {
     if (source === "loopback") {
       throw new Error(
         "UNSUPPORTED: system-audio capture requires the desktop app",
       );
     }
-    if (this.recorder) throw new Error("CAPTURE_BUSY");
+    if (this.recorder || this.monitorStream) throw new Error("CAPTURE_BUSY");
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: opts?.deviceId ? { exact: opts.deviceId } : undefined,
@@ -157,6 +168,24 @@ class BrowserCapturePort implements CapturePort {
         noiseSuppression: false,
       },
     });
+    const track = stream.getAudioTracks()[0];
+    const settings = track?.getSettings() ?? {};
+    const sessionInfo = {
+      source: "microphone" as CaptureSource,
+      deviceName: track?.label ?? "Microphone",
+      sampleRate: settings.sampleRate ?? 48000,
+      channels: settings.channelCount ?? 1,
+    };
+    // #42: monitorOnly — 書き出しなしのレベル確認。MediaRecorder を
+    // 作らず AnalyserNode だけを繋ぐ。終了は cancel()。
+    if (opts?.monitorOnly) {
+      this.monitorStream = stream;
+      this.monitorDeviceName = sessionInfo.deviceName;
+      this.source = "microphone";
+      this.startedAt = performance.now();
+      this.setupAnalyser(stream);
+      return sessionInfo;
+    }
     const rec = new MediaRecorder(stream);
     this.chunks = [];
     this.lastError = null;
@@ -175,35 +204,19 @@ class BrowserCapturePort implements CapturePort {
     this.pausedTotal = 0;
     rec.start(250);
     // レベルメーター用の解析ノード(発音はしないので destination には繋がない)。
-    try {
-      const Ctor =
-        globalThis.AudioContext ??
-        (globalThis as { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (Ctor) {
-        this.audioCtx = new Ctor();
-        const src = this.audioCtx.createMediaStreamSource(stream);
-        this.analyser = this.audioCtx.createAnalyser();
-        this.analyser.fftSize = 512;
-        this.analyserBuf = new Float32Array(this.analyser.fftSize);
-        src.connect(this.analyser);
-      }
-    } catch {
-      this.analyser = null;
-    }
-    const track = stream.getAudioTracks()[0];
-    const settings = track?.getSettings() ?? {};
-    return {
-      source: "microphone",
-      deviceName: track?.label ?? "Microphone",
-      sampleRate: settings.sampleRate ?? 48000,
-      channels: settings.channelCount ?? 1,
-    };
+    this.setupAnalyser(stream);
+    return sessionInfo;
   }
 
   async stop(): Promise<CaptureResult> {
     const rec = this.recorder;
-    if (!rec) throw new Error("CAPTURE_NOT_ACTIVE");
+    if (!rec) {
+      // #42: a monitor session has nothing to stop into a file —
+      // the contract error mirrors the Rust side.
+      throw new Error(
+        this.monitorStream ? "CAPTURE_MONITOR" : "CAPTURE_NOT_ACTIVE",
+      );
+    }
     const chunks = this.chunks;
     const stopped = new Promise<void>((resolve) => {
       rec.onstop = () => resolve();
@@ -236,6 +249,14 @@ class BrowserCapturePort implements CapturePort {
   async cancel(): Promise<void> {
     const rec = this.recorder;
     this.recorder = null;
+    // #42: a monitor session holds only the stream — stop its
+    // tracks and tear down the analyser; no recorder exists.
+    if (this.monitorStream) {
+      this.monitorStream.getTracks().forEach((t) => t.stop());
+      this.monitorStream = null;
+      this.monitorDeviceName = null;
+      this.teardownAnalyser();
+    }
     if (!rec) return;
     rec.ondataavailable = null;
     rec.onerror = null;
@@ -260,6 +281,18 @@ class BrowserCapturePort implements CapturePort {
   }
 
   async status(): Promise<CaptureStatus> {
+    if (this.monitorStream) {
+      return {
+        active: true,
+        source: this.source,
+        elapsedSeconds: (performance.now() - this.startedAt) / 1000,
+        deviceName: this.monitorDeviceName,
+        level: this.currentLevel(),
+        paused: false,
+        error: null,
+        monitoring: true,
+      };
+    }
     return this.recorder
       ? {
           active: true,
@@ -276,6 +309,26 @@ class BrowserCapturePort implements CapturePort {
           error: this.lastError,
         }
       : { active: false, source: null, elapsedSeconds: null, deviceName: null };
+  }
+
+  /** #42: 録音/モニター共通の AnalyserNode セットアップ。 */
+  private setupAnalyser(stream: MediaStream): void {
+    try {
+      const Ctor =
+        globalThis.AudioContext ??
+        (globalThis as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (Ctor) {
+        this.audioCtx = new Ctor();
+        const src = this.audioCtx.createMediaStreamSource(stream);
+        this.analyser = this.audioCtx.createAnalyser();
+        this.analyser.fftSize = 512;
+        this.analyserBuf = new Float32Array(this.analyser.fftSize);
+        src.connect(this.analyser);
+      }
+    } catch {
+      this.analyser = null;
+    }
   }
 
   async listDevices(): Promise<CaptureDeviceList> {

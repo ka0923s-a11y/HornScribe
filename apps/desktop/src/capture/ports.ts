@@ -19,7 +19,13 @@ export interface CapturePort {
    *  id(省略時は既定デバイス)。`suggestedName` は保存ファイル名。 */
   start(
     source: CaptureSource,
-    opts?: { deviceId?: string; suggestedName?: string },
+    opts?: {
+      deviceId?: string;
+      suggestedName?: string;
+      /** #42: 真なら書き出しの無いレベルモニターとして動く。
+       *  stop() は呼べず、終了は cancel()。 */
+      monitorOnly?: boolean;
+    },
   ): Promise<CaptureSessionInfo>;
   /** 録音停止して結果を返す(Tauri は保存パス、ブラウザは bytes)。 */
   stop(): Promise<CaptureResult>;

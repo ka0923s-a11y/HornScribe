@@ -55,6 +55,25 @@ function withShortcut(title: string, shortcut?: string): string {
   return shortcut ? `${title}（${shortcut}）` : title;
 }
 
+/** #42: 取り込みメニュー内の小さな入力レベルメーター。
+ *  ピークが熱い(クリップ気味)ほど色を警戒側に寄せる。 */
+function LevelMeter({ level }: { level: number | null }) {
+  const pct = Math.round(Math.min(1, Math.max(0, level ?? 0)) * 100);
+  const tone = pct >= 95 ? "clip" : pct >= 70 ? "warm" : "ok";
+  return (
+    <span
+      className={`hs-levelmeter hs-levelmeter--${tone}`}
+      role="meter"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={pct}
+      aria-label={ja.capture.monitorAria}
+    >
+      <span className="hs-levelmeter__fill" style={{ width: `${pct}%` }} />
+    </span>
+  );
+}
+
 /**
  * Command bar (GUI_UX_SPEC §16, DESIGN_SYSTEM §10).
  * Left: project actions. Center: pitch selector. Right: 要確認/書き出し/設定/overflow.
@@ -83,6 +102,8 @@ export function CommandBar({
   captureSelectedDevice,
   onSelectCaptureDevice,
   onCaptureMenuOpen,
+  onCaptureMenuClose,
+  onToggleCaptureMonitor,
   onShortcutsHelp,
 }: {
   commands: CommandSurface;
@@ -105,6 +126,10 @@ export function CommandBar({
   onSelectCaptureDevice?(source: CaptureSource, id: string | null): void;
   /** メニューが開いた時にデバイス一覧を取り直す。 */
   onCaptureMenuOpen?(): void;
+  /** #42: メニューが閉じた時にレベルモニターを畳む。 */
+  onCaptureMenuClose?(): void;
+  /** #42: ソースの入力レベルモニターをトグルする。 */
+  onToggleCaptureMonitor?(source: CaptureSource): void;
   /** #318: open the keyboard-shortcuts help overlay. */
   onShortcutsHelp?(): void;
 }) {
@@ -290,14 +315,32 @@ export function CommandBar({
           selected === null
             ? "\u2713 " + ja.capture.defaultDevice
             : ja.capture.defaultDevice,
+        persistOnClick: true,
       },
     ];
     for (const d of devices) {
       items.push({
         key: source + ":" + d.id,
         label: selected === d.id ? "\u2713 " + d.name : d.name,
+        persistOnClick: true,
       });
     }
+    // #42: 入力レベル行 — クリックでそのソースのモニターをトグル。
+    // モニター中は右端にライブメーターを出す(デバイス選びながら
+    // ゲインを確認できる)。
+    const mon = captureState?.monitor ?? null;
+    items.push({
+      key: source + ":monitor",
+      label:
+        mon?.source === source
+          ? ja.capture.monitorLabel
+          : ja.capture.monitorStart,
+      persistOnClick: true,
+      suffix:
+        mon?.source === source ? (
+          <LevelMeter level={mon.level} />
+        ) : undefined,
+    });
     return items;
   };
   const captureMenuItems: HsMenuItem[] = [
@@ -397,10 +440,15 @@ export function CommandBar({
           ariaLabel={captureLabel}
           onOpenChange={(open) => {
             if (open) onCaptureMenuOpen?.();
+            else onCaptureMenuClose?.();
           }}
           onSelect={(key) => {
             if (key === "loopback") commands.invoke("media.captureSystemAudio");
             else if (key === "microphone") commands.invoke("media.captureMicrophone");
+            else if (key === "loopback:monitor")
+              onToggleCaptureMonitor?.("loopback");
+            else if (key === "microphone:monitor")
+              onToggleCaptureMonitor?.("microphone");
             else if (key === "loopback:default")
               onSelectCaptureDevice?.("loopback", null);
             else if (key === "microphone:default")

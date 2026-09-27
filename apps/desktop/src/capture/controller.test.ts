@@ -217,7 +217,152 @@ describe("CaptureController", () => {
     const { events } = makeEvents();
     const c = new CaptureController(port, events);
     await c.start("loopback");
-    expect(c.getState().issue?.kind).toBe("interrupted");
+      expect(c.getState().issue?.kind).toBe("interrupted");
+  });
+
+  describe("level monitor (#42)", () => {
+    /** モニターセッションを模倣するポート — monitorOnly で開いた
+     *  セッションだけが monitoring: true を返す。 */
+    function monitorPort(level = 0.5) {
+      let monitoring = false;
+      const port = makePort({
+        start: vi.fn(
+          async (
+            source,
+            opts,
+          ): Promise<CaptureSessionInfo> => {
+            if (opts?.monitorOnly) monitoring = true;
+            return {
+              source,
+              deviceName: "dev",
+              sampleRate: 48000,
+              channels: 2,
+            };
+          },
+        ),
+        cancel: vi.fn(async () => {
+          monitoring = false;
+        }),
+        status: vi.fn(async (): Promise<CaptureStatus> => ({
+          active: monitoring,
+          source: monitoring ? "microphone" : null,
+          elapsedSeconds: monitoring ? 1 : null,
+          deviceName: monitoring ? "dev" : null,
+          level: monitoring ? level : null,
+          monitoring,
+        })),
+      });
+      return port;
+    }
+
+    it("startMonitor opens a write-less session and polls the level",
+      async () => {
+        vi.useFakeTimers();
+        try {
+          const port = monitorPort(0.6);
+          const { events } = makeEvents();
+          const c = new CaptureController(port, events);
+          await c.startMonitor("microphone");
+          expect(port.start).toHaveBeenCalledWith(
+            "microphone",
+            expect.objectContaining({ monitorOnly: true }),
+          );
+          expect(c.getState().monitor?.source).toBe("microphone");
+          await vi.advanceTimersByTimeAsync(200);
+          expect(c.getState().monitor?.level).toBe(0.6);
+          c.dispose();
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("stopMonitor cancels the session and clears the state", async () => {
+      const port = monitorPort();
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      await c.startMonitor("microphone");
+      await c.stopMonitor();
+      expect(port.cancel).toHaveBeenCalled();
+      expect(c.getState().monitor).toBeNull();
+    });
+
+    it("toggleMonitor starts and stops the same source", async () => {
+      const port = monitorPort();
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      await c.toggleMonitor("loopback");
+      expect(c.getState().monitor?.source).toBe("loopback");
+      await c.toggleMonitor("loopback");
+      expect(c.getState().monitor).toBeNull();
+    });
+
+    it("selectDevice starts a monitor for the picked source", async () => {
+      const port = monitorPort();
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      c.selectDevice("microphone", "dev-42");
+      await vi.waitFor(() => {
+        expect(c.getState().monitor?.source).toBe("microphone");
+      });
+      expect(c.getState().monitor?.deviceId).toBe("dev-42");
+      expect(port.start).toHaveBeenCalledWith(
+        "microphone",
+        expect.objectContaining({ deviceId: "dev-42", monitorOnly: true }),
+      );
+    });
+
+    it("recording cancels the monitor session first", async () => {
+      const port = monitorPort();
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      await c.startMonitor("microphone");
+      await c.start("microphone");
+      expect(port.cancel).toHaveBeenCalled();
+      expect(c.getState().monitor).toBeNull();
+      expect(c.getState().phase).toBe("recording");
+      // 2回目の start が録音用(monitorOnly 無し)であること。
+      const calls = (port.start as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[1][1]).not.toHaveProperty("monitorOnly");
+    });
+
+    it("a failed monitor start announces the pre-flight issue", async () => {
+      const port = monitorPort();
+      port.start = vi.fn(async () => {
+        throw new Error("マイクが見つかりません");
+      });
+      const { events, announced } = makeEvents();
+      const c = new CaptureController(port, events);
+      await c.startMonitor("microphone");
+      expect(c.getState().monitor).toBeNull();
+      expect(announced.at(-1)).toContain("マイク");
+    });
+
+    it("a dead monitor session clears itself on the next poll",
+      async () => {
+        vi.useFakeTimers();
+        try {
+          const port = monitorPort();
+          // status() が非モニター(セッション死亡)を返すケース。
+          port.status = vi.fn(async (): Promise<CaptureStatus> => ({
+            active: false,
+            source: null,
+            elapsedSeconds: null,
+            deviceName: null,
+          }));
+          const { events } = makeEvents();
+          const c = new CaptureController(port, events);
+          await c.startMonitor("microphone");
+          expect(c.getState().monitor).not.toBeNull();
+          await vi.advanceTimersByTimeAsync(200);
+          expect(c.getState().monitor).toBeNull();
+          c.dispose();
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
   });
 
   it("surfaces a worker error from status polling (#79)", async () => {

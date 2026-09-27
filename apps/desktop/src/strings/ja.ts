@@ -2029,6 +2029,10 @@ export const ja = {
     /** #79: 録音中にデバイスが切断・拒否された時の説明。 */
     interruptedAnnounce:
       "録音デバイスとの接続が切れました。録音をやり直してください。",
+    /** #42: 録音前の入力レベルモニター(取り込みメニュー内)。 */
+    monitorStart: "入力レベルを確認",
+    monitorLabel: "入力レベル",
+    monitorAria: "入力レベルメーター",
   },
 } as const;
 

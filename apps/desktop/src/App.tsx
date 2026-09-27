@@ -2231,6 +2231,10 @@ export default function App() {
                   setCaptureDevices((d) => (d ? { ...d } : d));
                 }}
                 onCaptureMenuOpen={refreshCaptureDevices}
+                onCaptureMenuClose={() => void capture.stopMonitor()}
+                onToggleCaptureMonitor={(source) =>
+                  void capture.toggleMonitor(source)
+                }
                 onShortcutsHelp={() => setShortcutsHelpOpen(true)}
               />
               {regions.waveform ? (
