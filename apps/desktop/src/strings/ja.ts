@@ -503,8 +503,11 @@ export const ja = {
     settings: "設定",
     diagnostics: "診断情報",
     /* FEAT-001 (#60): capture + score audition */
-    captureSystemAudio: "PCの音を取り込む",
-    captureMicrophone: "マイクで録音",
+   captureSystemAudio: "PCの音を取り込む",
+   captureMicrophone: "マイクで録音",
+    /** #18: 採譜キュー。 */
+    openQueue: "採譜キュー…",
+    enqueueAudio: "キューに音源を追加…",
     stopCapture: "録音を終了して取り込む",
     cancelCapture: "録音をやめる",
     /* #80: 録音の一時停止/再開 */
@@ -2029,10 +2032,38 @@ export const ja = {
     /** #79: 録音中にデバイスが切断・拒否された時の説明。 */
     interruptedAnnounce:
       "録音デバイスとの接続が切れました。録音をやり直してください。",
-    /** #42: 録音前の入力レベルモニター(取り込みメニュー内)。 */
-    monitorStart: "入力レベルを確認",
-    monitorLabel: "入力レベル",
-    monitorAria: "入力レベルメーター",
+   /** #42: 録音前の入力レベルモニター(取り込みメニュー内)。 */
+   monitorStart: "入力レベルを確認",
+   monitorLabel: "入力レベル",
+   monitorAria: "入力レベルメーター",
+ },
+  /** #18: 採譜キュー(複数ジョブの逐次実行)。 */
+  queue: {
+    title: "採譜キュー",
+    open: "採譜キュー…",
+    addAudio: "キューに音源を追加…",
+    addCurrent: "キューに追加",
+    start: "開始",
+    stop: "停止",
+    clearFinished: "終了分をクリア",
+    empty: "キューは空です",
+    busy: "別の採譜が実行中です",
+    close: "閉じる",
+    colName: "音源",
+    colStatus: "状態",
+    statusPending: "待機中",
+    statusRunning: "実行中",
+    statusDone: "完了",
+    statusFailed: "失敗",
+    statusCancelled: "キャンセル済み",
+    moveUp: "上へ",
+    moveDown: "下へ",
+    remove: "削除",
+    cancelEntry: "キャンセル",
+    openResult: "開く",
+    entryDone: "{name} の採譜が完了しました",
+    runFinished: "キューの採譜が終了しました",
+    addedToQueue: "{name} をキューに追加しました",
   },
 } as const;
 

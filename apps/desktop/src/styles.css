@@ -656,6 +656,82 @@ body {
 .hs-levelmeter--clip .hs-levelmeter__fill {
   background: var(--hs-status-error);
 }
+/* #18: 採譜キューパネル — 行ベースのジョブ一覧。 */
+.hs-queue__empty {
+  margin: var(--hs-space-lg) 0;
+  color: var(--hs-text-secondary);
+}
+.hs-queue__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-sm);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.hs-queue__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hs-space-md);
+  padding: var(--hs-space-sm) var(--hs-space-md);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-card);
+}
+.hs-queue__row--running {
+  border-color: var(--hs-status-info);
+}
+.hs-queue__row--failed {
+  border-color: var(--hs-status-error);
+}
+.hs-queue__main {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-sm);
+  min-width: 0;
+  flex: 1;
+}
+.hs-queue__name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hs-queue__status {
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-sm);
+  flex-shrink: 0;
+}
+.hs-queue__row--done .hs-queue__status {
+  color: var(--hs-status-success);
+}
+.hs-queue__row--failed .hs-queue__status {
+  color: var(--hs-status-error);
+}
+.hs-queue__progress {
+  width: 80px;
+  flex-shrink: 0;
+}
+.hs-queue__error {
+  color: var(--hs-status-error);
+  font-size: var(--hs-font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hs-queue__review {
+  color: var(--hs-status-warning);
+  font-size: var(--hs-font-size-sm);
+  flex-shrink: 0;
+}
+.hs-queue__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-xs);
+  flex-shrink: 0;
+}
 @keyframes hs-recording-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }

@@ -119,6 +119,10 @@ export interface CommandContext {
   resumeCapture?(): void;
   /** 楽譜の自動演奏トグル(スコアクロックに同期して発音)。 */
   toggleScoreAudition?(): void;
+  /** #18: 採譜キューパネルを開く。 */
+  openQueue?(): void;
+  /** #18: ファイルピッカーで音源をキューに追加する。 */
+  enqueueAudio?(): void;
   /** 元音源のミュート切替(#72)。楽譜の演奏だけを聴く用途。 */
   toggleSourceMute?(): void;
   setPitchView(view: PitchViewSetting): void;
