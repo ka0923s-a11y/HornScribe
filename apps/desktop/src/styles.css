@@ -632,6 +632,30 @@ body {
   background: var(--hs-status-success);
   transition: width 120ms linear;
 }
+/* #42: pre-record monitor meter inside the capture menu — same thin
+ *  track idiom as the recording meter, with heat states so clipping
+ *  reads before the take starts. */
+.hs-levelmeter {
+  display: inline-block;
+  width: 56px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hs-status-neutral-subtle);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.hs-levelmeter__fill {
+  display: block;
+  height: 100%;
+  background: var(--hs-status-success);
+  transition: width 120ms linear;
+}
+.hs-levelmeter--warm .hs-levelmeter__fill {
+  background: var(--hs-status-warning);
+}
+.hs-levelmeter--clip .hs-levelmeter__fill {
+  background: var(--hs-status-error);
+}
 @keyframes hs-recording-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }

@@ -32,6 +32,12 @@ export interface HsMenuItem {
   disabled?: boolean;
   /** Render a divider instead of an item. */
   divider?: boolean;
+  /** #42: keep the menu open when the item is chosen (device pickers,
+   *  monitor toggles — multi-step menus must not collapse mid-flow). */
+  persistOnClick?: boolean;
+  /** Trailing content rendered via MenuItem's secondaryContent slot
+   *  (live level meter, hints). */
+  suffix?: ReactElement;
 }
 
 export interface HsMenuProps {
@@ -79,6 +85,8 @@ export function HsMenu({
                 key={item.key}
                 icon={item.icon}
                 disabled={item.disabled}
+                persistOnClick={item.persistOnClick}
+                secondaryContent={item.suffix}
                 onClick={() => onSelect?.(item.key)}
               >
                 {item.label}

@@ -137,6 +137,9 @@ struct ActiveSession {
     handle: std::thread::JoinHandle<()>,
     /// UI が提示した保存ファイル名(#70: 表示名と保存名を一致させる)。
     suggested_name: String,
+    /// #42: レベルモニターセッション(temp WAV を書かないプレビュー)。
+    /// stop はエラー扱い — 実録音は cancel 後に開始し直す。
+    monitor_only: bool,
 }
 
 /// 全プロセスで 1 本だけ進行できる録音セッション。
@@ -169,6 +172,9 @@ pub struct CaptureStatus {
     /// ずに UI へ伝える)。読み取っても消費しない — stop 時のエラー
     /// 返却経路はそのまま残す。
     pub error: Option<String>,
+    /// #42: このセッションが書き出しを伴わないレベルモニターなら真。
+    /// モニター中に録音開始ボタンを「録音中」に見せないために使う。
+    pub monitoring: bool,
 }
 
 #[tauri::command]
@@ -193,6 +199,7 @@ pub fn capture_status() -> CaptureStatus {
                 level: Some(level),
                 paused: shared.paused,
                 error: shared.error.clone(),
+                monitoring: s.monitor_only,
             }
         }
         None => CaptureStatus {
@@ -203,6 +210,7 @@ pub fn capture_status() -> CaptureStatus {
             level: None,
             paused: false,
             error: None,
+            monitoring: false,
         },
     }
 }
@@ -237,12 +245,16 @@ pub fn capture_start(
     source: String,
     device_id: Option<String>,
     suggested_name: Option<String>,
+    monitor_only: Option<bool>,
 ) -> Result<CaptureSessionInfo, String> {
     let src = match source.as_str() {
         "loopback" => CaptureSource::Loopback,
         "microphone" | "mic" => CaptureSource::Microphone,
         other => return Err(format!("unknown capture source: {other}")),
     };
+    // #42: monitor_only = レベル確認だけのプレビューセッション。
+    // temp WAV を開かず、stop してもファイルは生まれない。
+    let monitor_only = monitor_only.unwrap_or(false);
 
     let mut guard = SESSION.lock().map_err(|_| "capture session lock")?;
     if guard.is_some() {
@@ -274,15 +286,25 @@ pub fn capture_start(
     // #235: the worker streams PCM16 into a temp WAV under recordings/
     // so RAM stays bounded regardless of recording length. Prune orphans
     // from crashed sessions first — a stale .part has no live writer.
-    let rec_dir = recordings_dir(&app)?;
-    std::fs::create_dir_all(&rec_dir).map_err(|e| format!("recordings dir: {e}"))?;
-    prune_orphan_parts(&rec_dir);
+    // #42: monitor sessions write nothing — skip the recordings dir
+    // entirely so a level check never touches disk (書き出しなし).
+    let rec_dir = if monitor_only {
+        None
+    } else {
+        let dir = recordings_dir(&app)?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("recordings dir: {e}"))?;
+        prune_orphan_parts(&dir);
+        Some(dir)
+    };
     let shared_t = Arc::clone(&shared);
     let cancel_t = Arc::clone(&cancel);
     let device_id_t = device_id.clone();
     let handle = std::thread::Builder::new()
         .name("hornscribe-capture".into())
-        .spawn(move || capture_thread(src, device_id_t, rec_dir, shared_t, cancel_t))
+        .spawn(move || {
+            capture_thread(src, device_id_t, rec_dir, shared_t, cancel_t)
+        })
         .map_err(|e| format!("spawn capture thread: {e}"))?;
 
     *guard = Some(ActiveSession {
@@ -296,6 +318,7 @@ pub fn capture_start(
         cancel,
         handle,
         suggested_name: suggested_name.unwrap_or_default(),
+        monitor_only,
     });
     Ok(info)
 }
@@ -375,6 +398,12 @@ pub fn capture_stop(app: tauri::AppHandle) -> Result<CaptureResult, String> {
         s.stopping = true;
     }
     let _ = session.handle.join();
+    if session.monitor_only {
+        // #42: a level monitor produced no file by design — stop() is
+        // a contract error, torn down like a cancel so the device is
+        // never held hostage to a UI mistake.
+        return Err("capture session is a level monitor; nothing was written".into());
+    }
 
     let mut s = session.shared.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(err) = s.error.take() {
@@ -967,11 +996,19 @@ fn device_friendly_name(device: &IMMDevice) -> Option<String> {
 fn capture_thread(
     source: CaptureSource,
     device_id: Option<String>,
-    rec_dir: std::path::PathBuf,
+    // #42: None = level monitor — the loop runs and meters but no
+    // temp WAV is opened, so monitoring never touches the disk.
+    rec_dir: Option<std::path::PathBuf>,
     shared: Arc<Mutex<SharedBuf>>,
     cancel: Arc<AtomicBool>,
 ) {
-    if let Err(e) = run_capture(source, device_id.as_deref(), &rec_dir, &shared, &cancel) {
+    if let Err(e) = run_capture(
+        source,
+        device_id.as_deref(),
+        rec_dir.as_deref(),
+        &shared,
+        &cancel,
+    ) {
         let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
         s.error = Some(e);
     }
@@ -1021,7 +1058,7 @@ fn wav_header(data_len: u32, sample_rate: u32, channels: u16) -> [u8; 44] {
 fn run_capture(
     source: CaptureSource,
     device_id: Option<&str>,
-    rec_dir: &std::path::Path,
+    rec_dir: Option<&std::path::Path>,
     shared: &Arc<Mutex<SharedBuf>>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), String> {
@@ -1076,12 +1113,22 @@ fn run_capture(
 
         // #235: stream PCM16 into a temp WAV instead of buffering f32 in
         // RAM — the in-memory footprint stays a single packet.
-        let (temp_path, temp_file) = open_temp_wav(rec_dir)?;
-        {
-            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
-            s.temp_path = Some(temp_path.clone());
-        }
-        let mut writer = std::io::BufWriter::new(temp_file);
+        // #42: monitor sessions (rec_dir = None) never open the temp
+        // WAV — the loop still meters every packet, the disk stays
+        // untouched, and cancel/cleanup has nothing to remove.
+        let (temp_path, mut writer): (
+            Option<std::path::PathBuf>,
+            Option<std::io::BufWriter<std::fs::File>>,
+        ) = if let Some(dir) = rec_dir {
+            let (path, file) = open_temp_wav(dir)?;
+            {
+                let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+                s.temp_path = Some(path.clone());
+            }
+            (Some(path), Some(std::io::BufWriter::new(file)))
+        } else {
+            (None, None)
+        };
         let max_frames = (sample_rate as u64)
             .saturating_mul((MAX_SECONDS + MAX_SECONDS_SLACK) as u64);
         let mut io_error: Option<String> = None;
@@ -1156,8 +1203,11 @@ fn run_capture(
                         if silent {
                             // 無音パケットは PCM16 ゼロを流す。
                             let zeros = vec![0u8; num_frames as usize * channels * 2];
-                            if let Err(e) = writer.write_all(&zeros) {
-                                io_error = Some(format!("temp wav write: {e}"));
+                            if let Some(w) = writer.as_mut() {
+                                if let Err(e) = w.write_all(&zeros) {
+                                    io_error =
+                                        Some(format!("temp wav write: {e}"));
+                                }
                             }
                             s.silent_frames += num_frames as u64;
                             s.frames += num_frames as u64;
@@ -1189,8 +1239,11 @@ fn run_capture(
                             // レベルメーター(#71): パケットピークを採用し、
                             // 減衰は status ポーリング側で行う。
                             if packet_peak > s.level { s.level = packet_peak; }
-                            if let Err(e) = writer.write_all(&pcm) {
-                                io_error = Some(format!("temp wav write: {e}"));
+                            if let Some(w) = writer.as_mut() {
+                                if let Err(e) = w.write_all(&pcm) {
+                                    io_error =
+                                        Some(format!("temp wav write: {e}"));
+                                }
                             }
                             s.frames += written_frames;
                         }
@@ -1224,37 +1277,41 @@ fn run_capture(
             s.frames
         };
         let cancelled = cancel.load(Ordering::SeqCst);
-        let finalize = (|writer: &mut std::io::BufWriter<std::fs::File>| -> Result<(), String> {
-            writer
-                .flush()
-                .map_err(|e| format!("temp wav flush: {e}"))?;
-            let file = writer.get_mut();
-            file.seek(SeekFrom::Start(0))
-                .map_err(|e| format!("temp wav seek: {e}"))?;
-            let data_len = (frames as u64)
-                .saturating_mul(channels as u64)
-                .saturating_mul(2);
-            let data_len = u32::try_from(data_len)
-                .map_err(|_| "recording exceeds the 4 GiB WAV limit".to_string())?;
-            file.write_all(&wav_header(data_len, sample_rate, channels as u16))
-                .map_err(|e| format!("temp wav header: {e}"))?;
-            file.flush()
-                .map_err(|e| format!("temp wav flush: {e}"))?;
-            Ok(())
-        })(&mut writer);
-        drop(writer);
-        if cancelled || io_error.is_some() || finalize.is_err() {
-            let _ = std::fs::remove_file(&temp_path);
-            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
-            s.temp_path = None;
-            if cancelled {
-                return Ok(());
-            }
-            if let Some(e) = io_error {
-                return Err(e);
-            }
-            if let Err(e) = finalize {
-                return Err(e);
+        // #42: monitor sessions own no writer and no temp file — the
+        // whole finalize path is skipped; cancel already ended the loop.
+        if let (Some(temp_path), Some(mut writer)) = (temp_path, writer) {
+            let finalize = (|writer: &mut std::io::BufWriter<std::fs::File>| -> Result<(), String> {
+                writer
+                    .flush()
+                    .map_err(|e| format!("temp wav flush: {e}"))?;
+                let file = writer.get_mut();
+                file.seek(SeekFrom::Start(0))
+                    .map_err(|e| format!("temp wav seek: {e}"))?;
+                let data_len = (frames as u64)
+                    .saturating_mul(channels as u64)
+                    .saturating_mul(2);
+                let data_len = u32::try_from(data_len)
+                    .map_err(|_| "recording exceeds the 4 GiB WAV limit".to_string())?;
+                file.write_all(&wav_header(data_len, sample_rate, channels as u16))
+                    .map_err(|e| format!("temp wav header: {e}"))?;
+                file.flush()
+                    .map_err(|e| format!("temp wav flush: {e}"))?;
+                Ok(())
+            })(&mut writer);
+            drop(writer);
+            if cancelled || io_error.is_some() || finalize.is_err() {
+                let _ = std::fs::remove_file(&temp_path);
+                let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+                s.temp_path = None;
+                if cancelled {
+                    return Ok(());
+                }
+                if let Some(e) = io_error {
+                    return Err(e);
+                }
+                if let Err(e) = finalize {
+                    return Err(e);
+                }
             }
         }
     }

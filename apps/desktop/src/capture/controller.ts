@@ -31,6 +31,9 @@ export interface CaptureState {
   /** 一時停止中か(#80)。phase は "recording" のまま — 録音セッション
    *  は生きており、再開/停止/中止が選べる。 */
   readonly paused: boolean;
+  /** #42: 録音前の入力レベルモニター。非 null なら選択デバイスの
+   *  プレビューキャプチャ(書き出しなし)が動いている。idle 時のみ。 */
+  readonly monitor: MonitorState | null;
 }
 
 export const INITIAL_CAPTURE_STATE: CaptureState = {
@@ -41,7 +44,16 @@ export const INITIAL_CAPTURE_STATE: CaptureState = {
   issue: null,
   level: null,
   paused: false,
+  monitor: null,
 };
+
+/** #42: 録音前モニターのスナップショット — 何のデバイスを
+ *  どのくらいのレベルで聴いているか。 */
+export interface MonitorState {
+  readonly source: CaptureSource;
+  readonly deviceId: string | null;
+  readonly level: number | null;
+}
 
 export interface CaptureEvents {
   onState(state: CaptureState): void;
@@ -105,6 +117,8 @@ function classifyError(err: unknown, source: CaptureSource): CaptureIssue {
 export class CaptureController {
   private state: CaptureState = INITIAL_CAPTURE_STATE;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** #42: モニター用ポーリング(録音タイマーとは別系統)。 */
+  private monitorTimer: ReturnType<typeof setInterval> | null = null;
   private startedAtMs = 0;
   /** start 時に決めた保存/表示ファイル名(stop で使い回す)。 */
   private pendingFileName: string | null = null;
@@ -148,6 +162,9 @@ export class CaptureController {
     } catch {
       /* storage 不可は無視 */
     }
+    // #42: デバイスを選んだその場で入力レベルを確かめられるよう、
+    // idle 時は選択をトリガにモニターを(再)開始する。録音中は触れない。
+    if (this.state.phase === "idle") void this.startMonitor(source);
   }
 
   /** デバイス一覧(#73)。失敗は空リストに畳む(メニューが死なないよう)。 */
@@ -168,6 +185,16 @@ export class CaptureController {
     if (this.state.phase === "recording" || this.state.phase === "importing") {
       return;
     }
+    // #42: モニターセッションは同じセッション枠を使うので、実録音の
+    // 前に破棄する(cancel = temp無しの監視を閉じるだけ)。
+    if (this.state.monitor) {
+      this.stopMonitorTimer();
+      try {
+        await this.port.cancel();
+      } catch {
+        /* モニター掃除はベストエフォート — 録音開始を妨げない */
+      }
+    }
     this.setState({
       phase: "recording",
       source,
@@ -176,6 +203,7 @@ export class CaptureController {
       issue: null,
       level: null,
       paused: false,
+      monitor: null,
     });
     try {
       const fileName = source === "loopback"
@@ -193,6 +221,7 @@ export class CaptureController {
         issue: null,
         level: null,
         paused: false,
+        monitor: null,
       });
       this.pendingFileName = fileName;
       this.startedAtMs = Date.now();
@@ -212,6 +241,7 @@ export class CaptureController {
         issue,
         level: null,
         paused: false,
+        monitor: null,
       });
       this.events.announce(issueText(issue));
     }
@@ -237,6 +267,7 @@ export class CaptureController {
         issue,
         level: null,
         paused: false,
+        monitor: null,
       });
       this.events.announce(issueText(issue));
     }
@@ -260,6 +291,7 @@ export class CaptureController {
         issue,
         level: null,
         paused: false,
+        monitor: null,
       });
       this.events.announce(issueText(issue));
     }
@@ -315,6 +347,7 @@ export class CaptureController {
         issue,
         level: null,
         paused: false,
+        monitor: null,
       });
       this.events.announce(issueText(issue));
     }
@@ -340,6 +373,117 @@ export class CaptureController {
 
   dispose(): void {
     this.stopTimer();
+    this.stopMonitorTimer();
+  }
+
+  /* ---------------- #42: pre-record level monitor ---------------- */
+
+  /** 選択デバイスの入力レベルを書き出し無しでライブ確認する。
+   *  同時に1ソースのみ — 別ソースの開始は前のモニターを畳む。
+   *  失敗は録音開始前の予行エラーとしてアナウンスする(デバイス不在/
+   *  拒否をここで先に知れるのがこの機能の価値)。 */
+  async startMonitor(source: CaptureSource): Promise<void> {
+    if (this.state.phase !== "idle") return;
+    const deviceId = this.deviceIds[source];
+    if (
+      this.state.monitor?.source === source &&
+      this.state.monitor.deviceId === deviceId
+    ) {
+      return; // 同じモニターが既に走っている
+    }
+    this.stopMonitorTimer();
+    try {
+      await this.port.cancel(); // 別ソースのモニター残滓を畳む
+    } catch {
+      /* セッション無しなら何も起きない */
+    }
+    try {
+      await this.port.start(source, {
+        deviceId: deviceId ?? undefined,
+        monitorOnly: true,
+      });
+      this.setState({
+        ...this.state,
+        monitor: { source, deviceId, level: null },
+      });
+      this.startMonitorTimer();
+    } catch (e) {
+      this.setState({ ...this.state, monitor: null });
+      this.events.announce(issueText(classifyError(e, source)));
+    }
+  }
+
+  /** モニターを畳む(メニューを閉じた時/録音前)。 */
+  async stopMonitor(): Promise<void> {
+    if (!this.state.monitor) return;
+    this.stopMonitorTimer();
+    try {
+      await this.port.cancel();
+    } catch {
+      /* 掃除失敗は無視 — 表示だけ畳む */
+    }
+    this.setState({ ...this.state, monitor: null });
+  }
+
+  /** メニューの「入力レベル」行のトグル。 */
+  async toggleMonitor(source: CaptureSource): Promise<void> {
+    if (this.state.monitor?.source === source) {
+      await this.stopMonitor();
+      return;
+    }
+    await this.startMonitor(source);
+  }
+
+  private startMonitorTimer(): void {
+    this.stopMonitorTimer();
+    this.monitorTimer = setInterval(() => {
+      const tick = async () => {
+        const mon = this.state.monitor;
+        if (!mon) {
+          this.stopMonitorTimer();
+          return;
+        }
+        try {
+          const s = await this.port.status();
+          // セッションが死んだ/モニターでなくなった → 表示だけ畳む。
+          if (!s.active || !s.monitoring) {
+            this.stopMonitorTimer();
+            if (this.state.monitor) {
+              this.setState({ ...this.state, monitor: null });
+            }
+            return;
+          }
+          // #79 と同じくワーカー側の致命的エラーを早めに拾う。
+          if (s.error) {
+            this.stopMonitorTimer();
+            try {
+              await this.port.cancel();
+            } catch {
+              /* 掃除失敗は無視 */
+            }
+            this.setState({ ...this.state, monitor: null });
+            this.events.announce(
+              issueText(classifyError(new Error(s.error), mon.source)),
+            );
+            return;
+          }
+          this.setState({
+            ...this.state,
+            monitor: { ...mon, level: s.level ?? null },
+          });
+        } catch {
+          /* ポーリング失敗は次の tick に委ねる */
+        }
+      };
+      void tick();
+    }, 160);
+  }
+
+  private stopMonitorTimer(): void {
+    if (this.monitorTimer) {
+      clearInterval(this.monitorTimer);
+      this.monitorTimer = null;
+    }
   }
 
   private startTimer(): void {
@@ -376,6 +520,7 @@ export class CaptureController {
               issue,
               level: null,
               paused: false,
+              monitor: null,
             });
             this.events.announce(issueText(issue));
             return;

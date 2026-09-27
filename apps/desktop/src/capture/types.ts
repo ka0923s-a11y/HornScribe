@@ -49,6 +49,9 @@ export interface CaptureStatus {
   /** ワーカー側の致命的エラー(#79)。デバイス切断等を stop を待たずに
    *  UI へ伝えるための早期信号。 */
   error?: string | null;
+  /** #42: このセッションが書き出しの無いレベルモニターなら真。
+   *  モニター中に録音中UIを出さないための識別子。 */
+  monitoring?: boolean;
 }
 
 /** 録音デバイス1台(#73)。 */
