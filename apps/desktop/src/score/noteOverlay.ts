@@ -19,6 +19,19 @@ export interface WaveformNote {
   readonly midi: number;
   /** 0-based part index — a second voice colours differently. */
   readonly partIndex: number;
+  /** #427: the tracked f0 contour inside the note — (pos 0..1, semitone
+   *  offset from the written pitch) points straight off canonical
+   *  pitchBends. Present when the engine tracked the note; imported /
+   *  hand-built notes carry none and draw a flat line. */
+  readonly bends?: readonly { pos: number; semis: number }[];
+}
+
+/** #427: a note's continuous-pitch contour in strip coordinates —
+ *  absolute seconds + sounding MIDI (bend offsets already folded in). */
+export interface WaveformF0Contour {
+  readonly id: string;
+  readonly partIndex: number;
+  readonly points: readonly { sec: number; midi: number }[];
 }
 
 /** Canonical payloads write beats as "n/d" strings (score.py _frac). */
@@ -64,8 +77,57 @@ export function waveformNoteOverlay(
         endSec: Math.max(endSec, startSec + 0.02),
         midi,
         partIndex: pi,
+        bends: readBends(n["pitchBends"]),
       });
     }
   }
   return out.sort((a, b) => a.startSec - b.startSec);
+}
+
+/** Canonical pitchBends -> {pos, semis} points; undefined when absent
+ *  or malformed (the overlay falls back to a flat contour line). */
+function readBends(
+  raw: unknown,
+): readonly { pos: number; semis: number }[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const pts = raw
+    .map((b) => {
+      const p = (b as Record<string, unknown>)["timeSec"];
+      const s = (b as Record<string, unknown>)["bendSemitones"];
+      return typeof p === "number" && typeof s === "number"
+        ? { pos: p, semis: s }
+        : null;
+    })
+    .filter((x): x is { pos: number; semis: number } => x !== null);
+  return pts.length > 0 ? pts : undefined;
+}
+
+/**
+ * #427: note spans -> continuous f0 contour polylines. Bend pos is the
+ * fraction inside the note span, semis the offset from the written
+ * pitch — the polyline lands exactly where the engine heard the pitch
+ * move, so a wrong note boundary shows up as a contour that disagrees
+ * with the drawn rectangle.
+ */
+export function waveformF0Contours(
+  notes: readonly WaveformNote[],
+): readonly WaveformF0Contour[] {
+  const out: WaveformF0Contour[] = [];
+  for (const n of notes) {
+    const span = n.endSec - n.startSec;
+    if (!(span > 0)) continue;
+    const points = n.bends?.length
+      ? n.bends.map((b) => ({
+          sec: n.startSec + Math.min(1, Math.max(0, b.pos)) * span,
+          midi: n.midi + b.semis,
+        }))
+      : // Bendless note: a flat two-point line at the written pitch —
+        // honest "no tracked deviation" evidence, not missing data.
+        [
+          { sec: n.startSec, midi: n.midi },
+          { sec: n.endSec, midi: n.midi },
+        ];
+    out.push({ id: n.id, partIndex: n.partIndex, points });
+  }
+  return out;
 }
