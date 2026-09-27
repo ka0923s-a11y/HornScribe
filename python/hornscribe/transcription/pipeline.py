@@ -620,7 +620,10 @@ def run_transcription_job(
             try:
                 import librosa  # noqa: PLC0415
 
-                backend_version = librosa.__version__
+                # #421: the pyin path decodes with the lead-voice Viterbi
+                # segmenter — name it in the version so tr-* identities
+                # change when the decoder does.
+                backend_version = librosa.__version__ + "+lead"
             except Exception:
                 backend_version = "unknown"
         # #319: the revision must name the preprocess that actually

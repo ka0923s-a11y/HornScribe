@@ -7,6 +7,8 @@ exercise without basic_pitch installed.
 
 from __future__ import annotations
 
+import pytest
+
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
 from hornscribe.transcription.backend import (
     _bend_points,
@@ -241,3 +243,116 @@ class TestFramesToNoteEvents:
         f0, t, v, p = self._frames([60] * 40)
         ev = frames_to_note_events(f0, t, v, p, onset_sec=[2.0])
         assert len(ev) == 1
+
+
+class TestLeadVoiceDecoder:
+    """#421: Viterbi pitch-track decoder (decoder="lead").
+
+    The same frames go through frames_to_note_events — only the
+    segmentation stage differs. These fixtures encode the J-POP vocal
+    failure modes the run-grouper gets wrong.
+    """
+
+    def _frames(self, midis, voiced=None, dt=0.01):
+        n = len(midis)
+        f0 = [440.0 * (2 ** ((m - 69) / 12)) for m in midis]
+        times = [i * dt for i in range(n)]
+        voiced = ([True] * n) if voiced is None else voiced
+        prob = [0.9] * n
+        for i in range(n):
+            if not voiced[i]:
+                f0[i] = float("nan")
+        return f0, times, voiced, prob
+
+    def _decode(self, midis, voiced=None, **kw):
+        f0, t, v, p = self._frames(midis, voiced=voiced)
+        return frames_to_note_events(f0, t, v, p, decoder="lead", **kw)
+
+    def test_single_run_one_note(self):
+        ev = self._decode([60] * 20)
+        assert len(ev) == 1
+        assert ev[0][2] == 60.0
+
+    def test_strong_vibrato_stays_one_note(self):
+        # +-0.6 st vibrato flips the rounded pitch on the run-grouper
+        # (0.6 rounds to 61) — the DP keeps riding the centre state.
+        midis = [60 + (0.6 if i % 2 else -0.6) for i in range(30)]
+        ev = self._decode(midis)
+        assert len(ev) == 1
+        assert ev[0][2] == 60.0
+
+    def test_real_pitch_change_still_splits(self):
+        # 20 frames at 60 then 20 at 64 — a genuine step must split.
+        ev = self._decode([60] * 20 + [64] * 20)
+        assert len(ev) == 2
+        assert ev[0][2] == 60.0
+        assert ev[1][2] == 64.0
+
+    def test_boundary_lands_at_the_f0_step(self):
+        # The run-grouper splits where round() flips; the DP picks the
+        # cost-optimal boundary — which for an instant step IS the step.
+        midis = [60.0] * 10 + [62.0] * 10
+        ev = self._decode(midis)
+        assert len(ev) == 2
+        assert ev[0][1] == pytest.approx(0.10)  # ends at the step frame
+        assert ev[1][0] == pytest.approx(0.10)
+
+    def test_short_blip_between_notes_is_absorbed(self):
+        # A 2-frame dip to a neighbouring pitch (vibrato overshoot /
+        # passing consonant) cannot pay the jump cost twice.
+        midis = [60] * 15 + [61, 61] + [60] * 15
+        ev = self._decode(midis)
+        assert len(ev) == 1
+        assert ev[0][2] == 60.0
+
+    def test_portamento_glue_vs_step(self):
+        # Slow portamento ramp 60 -> 62 over 8 frames then holds: the DP
+        # still lands one boundary — it just picks the cheapest frame.
+        midis = (
+            [60.0] * 10
+            + [60.25, 60.5, 60.75, 61.0, 61.25, 61.5, 61.75, 62.0]
+            + [62.0] * 10
+        )
+        ev = self._decode(midis)
+        assert len(ev) == 2
+        assert ev[0][2] == 60.0
+        assert ev[1][2] == 62.0
+
+    def test_single_frame_dropout_bridges(self):
+        midis = [60] * 10 + [60] * 9
+        voiced = [True] * 10 + [False] + [True] * 9
+        ev = self._decode(midis, voiced=voiced)
+        assert len(ev) == 1
+
+    def test_unvoiced_gap_splits_phrases(self):
+        # A real breath (>1 unvoiced frame) is a hard boundary — never
+        # bridged even when both sides share a pitch.
+        midis = [60] * 10 + [60] * 10
+        voiced = [True] * 10 + [False, False, False] + [True] * 10
+        ev = self._decode(midis, voiced=voiced)
+        assert len(ev) == 2
+
+    def test_onset_split_still_applies(self):
+        # The shared onset-split pass runs after decoding — same-pitch
+        # re-articulation with a prob dip still produces two notes.
+        f0, t, v, p = self._frames([60] * 40)
+        p[20] = 0.3
+        ev = frames_to_note_events(
+            f0, t, v, p, decoder="lead", onset_sec=[0.2]
+        )
+        assert len(ev) == 2
+
+    def test_short_segments_dropped(self):
+        ev = self._decode([60] * 3)
+        assert ev == []
+
+    def test_empty_and_unvoiced(self):
+        f0, t, v, p = self._frames([], voiced=[])
+        assert frames_to_note_events(f0, t, v, p, decoder="lead") == []
+        f0, t, v, p = self._frames([60] * 10, voiced=[False] * 10)
+        assert frames_to_note_events(f0, t, v, p, decoder="lead") == []
+
+    def test_unknown_decoder_rejected(self):
+        f0, t, v, p = self._frames([60] * 10)
+        with pytest.raises(ValueError):
+            frames_to_note_events(f0, t, v, p, decoder="bogus")

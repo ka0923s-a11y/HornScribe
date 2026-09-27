@@ -43,6 +43,7 @@ from hornscribe.domain.ids import (
     TranscriptionRevisionId,
     derive_transcription_revision_id,
 )
+from hornscribe.transcription.leadvoice import decode_lead_voice
 
 BACKEND_ID = "basic_pitch"
 BACKEND_VERSION = "0.4.0"
@@ -138,6 +139,7 @@ def frames_to_note_events(
     min_note_sec: float = 0.07,
     onset_sec: Any = (),
     split_prob_drop: float = 0.85,
+    decoder: str = "runs",
 ) -> list[tuple[float, float, float, float, list[int]]]:
     """librosa.pyin frame output -> Basic-Pitch-style note tuples (#175).
 
@@ -175,48 +177,62 @@ def frames_to_note_events(
     def to_midi(hz: float) -> float:
         return 69.0 + 12.0 * math.log2(hz / 440.0)
 
-    # Runs of consecutive voiced frames sharing one rounded pitch.
-    runs: list[list[int]] = []
-    cur: list[int] = []
-    cur_pc: int | None = None
-    for i in range(n):
-        if not voiced[i] or math.isnan(f0[i]) or f0[i] <= 0:
-            if cur:
-                runs.append(cur)
-                cur = []
-                cur_pc = None
-            continue
-        pc = int(round(to_midi(f0[i])))
-        if cur and pc == cur_pc:
-            cur.append(i)
-        else:
-            if cur:
-                runs.append(cur)
-            cur = [i]
-            cur_pc = pc
-    if cur:
-        runs.append(cur)
+    if decoder == "lead":
+        # #421: Viterbi pitch track — a state switch has to pay for itself
+        # in quantization error, so vibrato/portamento stops fragmenting
+        # into false note boundaries. Returns (run, state) pairs — the
+        # state IS the note pitch (a borderline median must not re-decide
+        # what the DP already resolved).
+        merged = [
+            (frames, float(state))
+            for frames, state in decode_lead_voice(f0, times, voiced, prob)
+        ]
+    elif decoder == "runs":
+        # Runs of consecutive voiced frames sharing one rounded pitch.
+        runs: list[list[int]] = []
+        cur: list[int] = []
+        cur_pc: int | None = None
+        for i in range(n):
+            if not voiced[i] or math.isnan(f0[i]) or f0[i] <= 0:
+                if cur:
+                    runs.append(cur)
+                    cur = []
+                    cur_pc = None
+                continue
+            pc = int(round(to_midi(f0[i])))
+            if cur and pc == cur_pc:
+                cur.append(i)
+            else:
+                if cur:
+                    runs.append(cur)
+                cur = [i]
+                cur_pc = pc
+        if cur:
+            runs.append(cur)
 
-    # Merge runs split by a single unvoiced frame (tracker dropout).
-    merged: list[list[int]] = []
-    for run in runs:
-        if (
-            merged
-            and run[0] - merged[-1][-1] == 2
-            and int(round(to_midi(f0[run[0]])))
-            == int(round(to_midi(f0[merged[-1][-1]])))
-        ):
-            merged[-1].extend(range(merged[-1][-1] + 1, run[0]))
-            merged[-1].extend(run)
-        else:
-            merged.append(list(run))
+        # Merge runs split by a single unvoiced frame (tracker dropout).
+        merged_runs: list[list[int]] = []
+        for run in runs:
+            if (
+                merged_runs
+                and run[0] - merged_runs[-1][-1] == 2
+                and int(round(to_midi(f0[run[0]])))
+                == int(round(to_midi(f0[merged_runs[-1][-1]])))
+            ):
+                merged_runs[-1].extend(range(merged_runs[-1][-1] + 1, run[0]))
+                merged_runs[-1].extend(run)
+            else:
+                merged_runs.append(list(run))
+        merged = [(run, None) for run in merged_runs]
+    else:
+        raise ValueError(f"unknown decoder: {decoder}")
 
     # #180: split runs at detected onsets — pyin has no onset notion, so
     # re-articulated same-pitch notes would otherwise glue into one.
     onsets = sorted(float(t) for t in onset_sec)
     if onsets:
-        split_runs: list[list[int]] = []
-        for run in merged:
+        split_runs: list[tuple[list[int], float | None]] = []
+        for run, run_pitch in merged:
             piece_start = 0
             end = run[-1]
             for t in onsets:
@@ -242,13 +258,13 @@ def frames_to_note_events(
                 finite = [p for p in window if not math.isnan(p)]
                 if finite and min(finite) >= run_max * split_prob_drop:
                     continue
-                split_runs.append(run[piece_start:k])
+                split_runs.append((run[piece_start:k], run_pitch))
                 piece_start = k
-            split_runs.append(run[piece_start:])
+            split_runs.append((run[piece_start:], run_pitch))
         merged = split_runs
 
     out: list[tuple[float, float, float, float, list[int]]] = []
-    for run in merged:
+    for run, run_pitch in merged:
         onset = times[run[0]]
         offset = times[run[-1]] + frame_dt
         if offset - onset < min_note_sec:
@@ -279,7 +295,14 @@ def frames_to_note_events(
         # Bend baseline is the quantized note pitch (same convention as
         # Basic Pitch), not the raw median — otherwise a run centred
         # between semitones would lose its +0.5 st offset on playback.
-        note_pitch = float(int(round(center)))
+        # #421: a lead-decoded run already carries the DP's state — using
+        # the median here would re-decide a borderline the decoder just
+        # resolved (symmetric +-0.6 st vibrato around 60 medians at 60.6).
+        note_pitch = (
+            run_pitch
+            if run_pitch is not None
+            else float(int(round(center)))
+        )
         # Voiced probability can be NaN on dropout frames; average over
         # the finite values so confidence stays a real number.
         probs = [prob[i] for i in run if not math.isnan(prob[i])]
@@ -433,6 +456,7 @@ def predict_note_events_pyin(
     revision: TranscriptionRevisionId,
     min_frequency_hz: float = MIN_FREQUENCY_HZ,
     max_frequency_hz: float = MAX_FREQUENCY_HZ,
+    decoder: str = "lead",
 ) -> tuple[RawNoteEvent, ...]:
     """Run librosa.pyin on *audio_path* -> raw note events (#175).
 
@@ -480,6 +504,10 @@ def predict_note_events_pyin(
         f0, times, voiced_flag, voiced_prob,
         min_note_sec=MINIMUM_NOTE_LENGTH_MS / 1000.0,
         onset_sec=onset_times,
+        # #421: the vocal-path default is the lead-voice Viterbi decoder —
+        # vibrato/portamento-tolerant pitch tracking. "runs" selects the
+        # original run-grouping heuristic.
+        decoder=decoder,
     )
 
     allocator = IdAllocator("rne")
