@@ -3,6 +3,7 @@ import { Tooltip } from "@fluentui/react-components";
 import {
   ArrowRepeatAll24Regular,
   MusicNote2Regular,
+  MusicNote224Regular,
   Play24Regular,
   ZoomIn24Regular,
   Dismiss24Regular,
@@ -190,6 +191,7 @@ export function WaveformView({
   onLoopSelection,
   onPlaySelection,
   onClearSelection,
+  onRetranscribeSelection,
   markers,
   onMarkerClick,
   overlayNotes,
@@ -225,6 +227,10 @@ export function WaveformView({
   onPlaySelection?(range: SelectionRange): void;
   /** #113: context action / Esc - drop the committed selection. */
   onClearSelection?(): void;
+  /** #57: context action - retranscribe [start, end). Optional — the
+   *  caller passes it only where the action is meaningful (score
+   *  screens); absent = the button never renders. */
+  onRetranscribeSelection?(range: SelectionRange): void;
   /** #376: open review issues as strip markers — startSec in source
    *  seconds; click/Enter jumps to the issue (single selection
    *  source: the workspace's review cursor). */
@@ -911,6 +917,25 @@ export function WaveformView({
                   <ZoomIn24Regular />
                 </button>
               </Tooltip>
+              {/* #57: この区間を再採譜 — score screens only; the
+                  caller decides availability by passing the prop. */}
+              {onRetranscribeSelection ? (
+                <Tooltip
+                  content={ja.waveform.retranscribeSelection}
+                  relationship="label"
+                >
+                  <button
+                    type="button"
+                    className="hs-waveform__action"
+                    aria-label={ja.waveform.retranscribeSelection}
+                    onClick={() =>
+                      selection && onRetranscribeSelection(selection)
+                    }
+                  >
+                    <MusicNote224Regular />
+                  </button>
+                </Tooltip>
+              ) : null}
               <Tooltip content={ja.waveform.clearSelection} relationship="label">
                 <button
                   type="button"

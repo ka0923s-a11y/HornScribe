@@ -9,6 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installJsdomStubs } from "../quality/testEnv";
+import { ja } from "../strings/ja";
 import {
   clusterMarkers,
   WaveformView,
@@ -277,5 +278,42 @@ describe("WaveformView note overlay (#402)", () => {
       (parseFloat(lane.style.top) + parseFloat(lane.style.height) / 2) / 100;
     expect(y).toBeGreaterThan(laneMid);
     expect(lines[2].getAttribute("class")).toContain("--extra");
+  });
+});
+
+describe("WaveformView retranscribe-selection action (#57)", () => {
+  const RANGE = { startSec: 10, endSec: 30 };
+
+  function retranscribeBtn(): HTMLElement | undefined {
+    return [...document.querySelectorAll<HTMLElement>("button")].find(
+      (b) => b.getAttribute("aria-label") === ja.waveform.retranscribeSelection,
+    );
+  }
+
+  it("renders the action on a committed selection and fires with the range", async () => {
+    const onRetranscribeSelection = vi.fn();
+    await mount({
+      selection: RANGE,
+      onSelect: vi.fn(),
+      onRetranscribeSelection,
+    });
+    const btn = retranscribeBtn();
+    expect(btn).toBeTruthy();
+    await act(async () => {
+      btn!.click();
+    });
+    expect(onRetranscribeSelection).toHaveBeenCalledWith(RANGE);
+  });
+
+  it("stays absent when the caller does not provide the callback", async () => {
+    await mount({ selection: RANGE, onSelect: vi.fn() });
+    // The other committed-selection actions still render — only the
+    // retranscribe affordance is gated on the prop.
+    expect(retranscribeBtn()).toBeUndefined();
+    expect(
+      [...document.querySelectorAll<HTMLElement>("button")].some(
+        (b) => b.getAttribute("aria-label") === ja.waveform.loopSelection,
+      ),
+    ).toBe(true);
   });
 });
