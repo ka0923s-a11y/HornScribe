@@ -195,6 +195,9 @@ class TestDemucsSpanStaging:
         import hornscribe.transcription.vocal as vocal_mod
 
         monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+        monkeypatch.setattr(
+            vocal_mod, "_demucs_cmd", lambda: ("demucs",)
+        )
         # librosa is an engine extra — absent in dev/CI — but the
         # dispatch under test never reaches it (staging + run are
         # stubbed, run fails before the decode). A bare module stub
@@ -313,3 +316,111 @@ class TestIsolationProvenance:
         assert plain != demucs
 
 
+class TestDemucsResolution:
+    """#10: demucs must stay reachable in packaged builds — a bundled
+    tools/ binary or console script on PATH, or another interpreter,
+    never ``sys.executable -m`` when the exe IS the worker itself."""
+
+    @pytest.fixture(autouse=True)
+    def _resolver(self, monkeypatch):
+        import sys as _sys
+
+        import hornscribe.transcription.vocal as vocal_mod
+
+        monkeypatch.delenv("HORNSCRIBE_DEMUCS", raising=False)
+        monkeypatch.delenv("HORNSCRIBE_PYTHON", raising=False)
+        monkeypatch.delattr(_sys, "frozen", raising=False)
+        monkeypatch.setattr(
+            vocal_mod, "_demucs_module_importable", lambda: False
+        )
+        monkeypatch.setattr(vocal_mod.shutil, "which", lambda _n: None)
+        vocal_mod._demucs_cmd.cache_clear()
+        yield vocal_mod
+        vocal_mod._demucs_cmd.cache_clear()
+
+    def test_env_exe_wins(self, _resolver, tmp_path, monkeypatch):
+        exe = tmp_path / "demucs.exe"
+        exe.write_bytes(b"x")
+        monkeypatch.setenv("HORNSCRIBE_DEMUCS", str(exe))
+        # Explicit override beats even an importable module.
+        monkeypatch.setattr(
+            _resolver, "_demucs_module_importable", lambda: True
+        )
+        assert _resolver._demucs_cmd() == (str(exe),)
+
+    def test_env_exe_missing_file_never_falls_through(
+        self, _resolver, monkeypatch
+    ):
+        """Same contract as resolve_ffmpeg — a typo'd override must
+        report missing, not silently grab another demucs."""
+        monkeypatch.setenv("HORNSCRIBE_DEMUCS", r"C:\no\demucs.exe")
+        monkeypatch.setattr(
+            _resolver, "_demucs_module_importable", lambda: True
+        )
+        monkeypatch.setattr(
+            _resolver.shutil,
+            "which",
+            lambda n: "C:\\tools\\demucs.exe" if n == "demucs" else None,
+        )
+        assert _resolver._demucs_cmd() is None
+
+    def test_dev_uses_this_interpreter(self, _resolver, monkeypatch):
+        import sys
+
+        monkeypatch.setattr(
+            _resolver, "_demucs_module_importable", lambda: True
+        )
+        assert _resolver._demucs_cmd() == (
+            sys.executable,
+            "-m",
+            "demucs",
+        )
+
+    def test_path_console_script(self, _resolver, monkeypatch):
+        monkeypatch.setattr(
+            _resolver.shutil,
+            "which",
+            lambda n: "C:\\tools\\demucs.exe" if n == "demucs" else None,
+        )
+        assert _resolver._demucs_cmd() == ("C:\\tools\\demucs.exe",)
+
+    def test_frozen_never_uses_sys_executable(
+        self, _resolver, monkeypatch
+    ):
+        """The packaged engine's sys.executable is the worker — even
+        with the module bundled, `-m demucs` must not run: the spawn
+        would start a second worker on the NDJSON pipe."""
+        import sys
+
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(
+            _resolver, "_demucs_module_importable", lambda: True
+        )
+        assert _resolver._demucs_cmd() is None
+        assert _resolver._demucs_available() is False
+
+    def test_frozen_finds_other_python(self, _resolver, monkeypatch):
+        """A pip-installed demucs on the user's own python stays
+        reachable in packaged builds — free operation, zero config."""
+        import sys
+
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(
+            _resolver.shutil,
+            "which",
+            lambda n: (
+                "C:\\Python312\\python.exe" if n == "python" else None
+            ),
+        )
+        monkeypatch.setattr(
+            _resolver, "_python_has_demucs", lambda _p: True
+        )
+        assert _resolver._demucs_cmd() == (
+            "C:\\Python312\\python.exe",
+            "-m",
+            "demucs",
+        )
+
+    def test_nothing_resolves_to_none(self, _resolver):
+        assert _resolver._demucs_cmd() is None
+        assert _resolver.demucs_available() is False

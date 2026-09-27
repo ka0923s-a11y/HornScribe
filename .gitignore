@@ -30,6 +30,9 @@ apps/desktop/measurements/
 
 # #83: built frozen engine binary (rebuilt via scripts/build_engine.py)
 apps/desktop/src-tauri/resources/engine/hornscribe-engine*
+# #10: vendored tool binaries (ffmpeg/ffprobe/demucs) — place locally
+# before packaging per resources/tools/README.txt; never commit
+apps/desktop/src-tauri/resources/tools/*.exe
 
 # vite dev-server scratch logs
 vite-*.log

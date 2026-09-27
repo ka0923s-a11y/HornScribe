@@ -43,7 +43,8 @@ audio probe, FLAC transcode, `detect_tools` diagnostics):
   resource dir, its `resources/` child, and the exe dir
 - PATH
 
-To ship a static ffmpeg: place it at `resources/tools/ffmpeg.exe` — the
+To ship a static ffmpeg: place it at `resources/tools/ffmpeg.exe`
+(`ffprobe.exe` alongside feeds `doctor`/diagnostics) — the
 `"resources/tools/*": "tools/"` mapping is pre-wired in
 `tauri.bundled.json`, so the bundled build picks it up automatically
 (see `resources/tools/README.txt`). For the portable zip, drop a
@@ -69,17 +70,33 @@ self-contained — nothing touches %APPDATA%.
 
 ## demucs
 
-demucs stays an engine-side extra (`pip install hornscribe[engine-vocal]`
-in the engine venv before `build_engine.py` — PyInstaller then freezes
-torch + demucs inside the engine binary, which roughly doubles its
-size). The worker handshake reports `demucsAvailable`; the diagnostics
-sheet shows it as the demucs(ボーカル分離) row.
+The engine reaches demucs through `_demucs_cmd()` (vocal.py), in this
+order:
+
+- `HORNSCRIBE_DEMUCS` — explicit executable path (a bad path reports
+  missing, never falls through)
+- `sys.executable -m demucs` — dev installs only; a frozen engine
+  skips this on purpose (the exe is the worker — `-m` would spawn a
+  second worker on the protocol pipe)
+- `demucs` console script on PATH — covers a bundled
+  `tools/demucs.exe` (the dir is PATH-injected) and a user-side
+  `pip install demucs`
+- `HORNSCRIBE_PYTHON` / PATH `python`/`python3` with demucs importable
+  — probed via `find_spec`, never by importing torch
+
+So a user who runs `pip install demucs` into their own Python gets
+neural vocal separation in the packaged app with zero extra config —
+the free path stays intact. Shipping a frozen `demucs.exe` in tools/
+is the fully-offline option (~1-2 GB with torch + model weights, so
+it stays opt-in). The worker handshake reports `demucsAvailable` via
+the same resolver; the diagnostics sheet shows it as the
+demucs(ボーカル分離) row.
 
 ## Size estimate
 
 onefile PyInstaller + ONNX model + onnxruntime + numpy/scipy lands
 around 150-250 MB, the cost of fully-offline free-tier inference.
-A bundled static ffmpeg adds ~30-80 MB; demucs (torch) inside the
-frozen engine adds roughly 1-2 GB — the engine-vocal extra is optional
-for exactly this reason. Alternatives (one-dir layout, first-run model
-download) are noted on issue #83.
+A bundled static ffmpeg adds ~80 MB (essentials build) up to ~220 MB
+(full build); a frozen demucs.exe adds roughly 1-2 GB — the demucs
+path stays opt-in for exactly this reason. Alternatives (one-dir
+layout, first-run model download) are noted on issue #83.

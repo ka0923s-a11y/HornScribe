@@ -50,6 +50,7 @@ from hornscribe.transcription import (
     TranscriptionParams,
     run_transcription_job,
 )
+from hornscribe.transcription.vocal import demucs_available
 from hornscribe.worker import protocol
 from hornscribe.worker.jobs import (
     JOB_KIND_DEMO_LONG_TASK,
@@ -259,8 +260,8 @@ class Worker:
                 "basicPitchAvailable": importlib.util.find_spec("basic_pitch") is not None,
                 # #10: engine-view tool status — the shell's bundled
                 # tools/ dir is injected into this process's PATH, so
-                # which("ffmpeg") sees the same binary audio_probe uses.
-                "demucsAvailable": importlib.util.find_spec("demucs") is not None,
+                # which() sees the same binaries a job would spawn.
+                "demucsAvailable": demucs_available(),
                 "ffmpegAvailable": shutil.which("ffmpeg") is not None,
             },
         }
