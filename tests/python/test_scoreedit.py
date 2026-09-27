@@ -699,6 +699,27 @@ class TestSplitMerge:
         assert len(notes) == 2
         assert notes[0].duration_beats == Fraction(1)
 
+    def test_split_at_suggested_beat(self) -> None:
+        # #423: a review-action split carries startBeat = the onset
+        # the boundary expert heard; it replaces the midpoint and
+        # still snaps onto the minimum grid.
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(
+            doc, _edit("splitNote", "sn-000001", startBeat="3/4")
+        )
+        notes = out.payload.parts[0].notes
+        assert len(notes) == 3
+        assert notes[0].duration_beats == Fraction(3, 4)
+        assert notes[1].start_beat == Fraction(3, 4)
+        assert notes[1].duration_beats == Fraction(1, 4)
+
+    def test_split_at_beat_outside_note_rejected(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1")])
+        with pytest.raises(ScoreEditError, match="too short"):
+            apply_score_edit(
+                doc, _edit("splitNote", "sn-000001", startBeat="3/1")
+            )
+
 
 class TestLayerAwareMergeTie:
     """#260: merge/tie resolve the partner by notation layer + temporal

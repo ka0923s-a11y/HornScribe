@@ -86,8 +86,10 @@ from .backend import (
     predict_note_events_pyin,
     require_module,
 )
+from .boundary import boundary_flags
 from .clean import (
     MERGE_GAP_SEC,
+    CleanedEvents,
     clean_monophonic,
     clip_to_range,
     split_voices,
@@ -125,6 +127,9 @@ VERY_SHORT_SEC = 0.09
 """Surviving detections shorter than this flag ``very_short_detection``."""
 MAX_EXTRA_ISSUES = 60
 """Cap on hand-built issues so a noisy take cannot flood the review UI."""
+MAX_BOUNDARY_ISSUES = 20
+"""Cap on boundary re-scoring flags (#423) - one suspicious edge per
+hotspot is enough; a flickery take must not bury the queue."""
 
 # ``auto`` texture: when the onset-clean pass still saw this many
 # different-pitch overlaps (absolute floor + share of surviving events),
@@ -395,6 +400,117 @@ def _spelling_issues(
             )
         )
     return issues
+
+
+def _boundary_issues(
+    samples: Any,
+    sample_rate: int,
+    cleaneds: tuple[CleanedEvents, ...],
+    parts: tuple[Any, ...],
+    event_by_id: dict[RawNoteEventId, RawNoteEvent],
+    warp: TimeWarp,
+    beat_ql: Fraction,
+    score_revision: ScoreRevisionId,
+    time_offset_sec: float,
+) -> list[ReviewIssue]:
+    """Audio-evidence second opinion on note edges (#423).
+
+    boundary_flags re-scores every cleaned edge per voice; this maps
+    the survivors onto canonical notes so the suggestion is a real
+    score edit, not a raw-event hint. A flag only becomes an issue
+    when the matching one-click fix can actually apply:
+
+    - ``merge``     - both events must map to different canonical
+      notes in the same part, same written pitch, exactly adjacent
+      (``a.end_beat == b.start_beat``) so ``mergeNotes`` applies.
+    - ``split``     - the event must map to a canonical note whose
+      beat span strictly contains the flagged second, so ``splitNote``
+      lands inside the note (the beat rides along as
+      ``suggestedSplitBeat``).
+    - ``uncertain`` - no fix is suggested; both sides are attached
+      for highlighting and the user decides.
+
+    Flags whose events quantized away (or onto the same note, or a
+    deleted note) are dropped - the score no longer has that edge.
+    """
+    canon_by_event: dict[RawNoteEventId, QuantizedNote] = {}
+    part_of: dict[ScoreNoteId, int] = {}
+    for pi, part in enumerate(parts):
+        for n in part.notes:
+            part_of[n.id] = pi
+            for e in n.source_event_ids:
+                canon_by_event.setdefault(e, n)
+    issues: list[ReviewIssue] = []
+    for c in cleaneds:
+        for flag in boundary_flags(
+            samples, sample_rate, c.events, time_offset_sec=time_offset_sec
+        ):
+            note_ids: list[ScoreNoteId] = []
+            evidence: dict[str, Any] = {
+                "suggestedKind": flag.kind,
+                "boundarySec": round(flag.boundary_sec, 3),
+                "boundaryScore": flag.score,
+                **flag.detail,
+            }
+            if flag.kind == "split":
+                n = canon_by_event.get(flag.event_ids[0])
+                if n is None or n.deleted:
+                    continue
+                split_beat = warp.seconds_to_ql(flag.boundary_sec) / beat_ql
+                if not (n.start_beat < split_beat < n.end_beat):
+                    continue
+                evidence["suggestedSplitBeat"] = str(split_beat)
+                note_ids.append(n.id)
+                severity = Severity.CAUTION
+            else:
+                a = canon_by_event.get(flag.event_ids[0])
+                b = canon_by_event.get(flag.event_ids[1])
+                if a is None or b is None or a.deleted or b.deleted:
+                    continue
+                if a.id == b.id:
+                    continue  # both events already fed one canonical note
+                if flag.kind == "merge" and (
+                    part_of.get(a.id) != part_of.get(b.id)
+                    or a.pitch_midi != b.pitch_midi
+                    or a.end_beat != b.start_beat
+                ):
+                    continue
+                severity = (
+                    Severity.CAUTION if flag.kind == "merge" else Severity.INFO
+                )
+                note_ids.extend((a.id, b.id))
+            ev_a = event_by_id.get(flag.event_ids[0])
+            ev_b = (
+                event_by_id.get(flag.event_ids[1])
+                if len(flag.event_ids) > 1
+                else None
+            )
+            if ev_a is not None and ev_b is not None:
+                lo, hi = ev_a.offset_sec, ev_b.onset_sec
+            else:
+                lo = flag.boundary_sec - 0.1
+                hi = flag.boundary_sec + 0.1
+            if hi - lo < 0.04:
+                mid = 0.5 * (lo + hi)
+                lo, hi = mid - 0.02, mid + 0.02
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=tuple(note_ids),
+                    time_range=TimeRange(
+                        start_sec=max(0.0, lo), end_sec=hi
+                    ),
+                    reason=ReviewReason.BOUNDARY_UNCERTAIN,
+                    severity=severity,
+                    evidence=evidence,
+                )
+            )
+    _rank = {Severity.CAUTION: 0, Severity.INFO: 1}
+    issues.sort(
+        key=lambda i: (_rank.get(i.severity, 2), i.time_range.start_sec)
+    )
+    return issues[:MAX_BOUNDARY_ISSUES]
 
 
 def run_transcription_job(
@@ -1114,6 +1230,23 @@ def run_transcription_job(
                 payload.key_changes,
                 built.note_onset_sec,
                 score_revision,
+            )
+        )
+        # #423: audio-evidence boundary re-scoring - a missed
+        # re-articulation (split), a phantom edge (merge), or an
+        # unprovable one (uncertain) surfaces as a one-click score
+        # fix instead of a silent quantizer artifact.
+        issues.extend(
+            _boundary_issues(
+                samples,
+                sample_rate,
+                (cleaned, *cleaned_lowers),
+                built.payload.parts,
+                event_by_id,
+                estimate.warp,
+                beat_ql,
+                score_revision,
+                selection_offset_sec,
             )
         )
         if meter_uncertain:

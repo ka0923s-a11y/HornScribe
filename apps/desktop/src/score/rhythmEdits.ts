@@ -71,6 +71,9 @@ export interface RhythmEditOp {
   /** setKey/keyChangeAt only: major/minor (kept from the score when absent). */
   readonly mode?: "major" | "minor";
   /** *ChangeAt/remove*Change only: boundary beat ("n/d" fraction). */
+  /** *ChangeAt/remove*Change: boundary beat ("n/d" fraction). Also
+   *  splitNote (#423) — the boundary expert's suggested split point;
+   *  engine snaps it to the minimum grid, midpoint stays default. */
   readonly startBeat?: string;
   /** *ChangeAt/remove*Change only (#145/#249): boundary measure number
    *  — the UI names barlines; the engine resolves the beat. Mutually

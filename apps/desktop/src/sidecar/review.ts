@@ -26,6 +26,8 @@ export const REVIEW_REASONS = [
   "vocal_isolation_unavailable",
   // #358: auto-estimated anacrusis the evidence cannot justify.
   "pickup_uncertain",
+  // #423: audio-evidence boundary re-scoring (merge/split/uncertain).
+  "boundary_uncertain",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
@@ -55,6 +57,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "vocal_isolation_unavailable",
   "key_uncertain",
   "pickup_uncertain",
+  "boundary_uncertain",
   "onset_uncertain",
   "pitch_uncertain",
   "multiple_candidates",

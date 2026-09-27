@@ -966,6 +966,7 @@ def _apply_split(
     payload: ScoreRevisionPayload,
     part_index: int,
     note_index: int,
+    split_beat: Fraction | None = None,
 ) -> Part:
     """Split a note at its midpoint (§13 post-MVP split).
 
@@ -983,7 +984,13 @@ def _apply_split(
     profile = _profile_from_settings(payload.quantization_settings)
     grid = profile.min_note_value_ql
     beat_ql = beat_ql_of(payload)
-    mid_ql = target.start_beat * beat_ql + target.duration_beats * beat_ql / 2
+    if split_beat is None:
+        mid_ql = (
+            target.start_beat * beat_ql
+            + target.duration_beats * beat_ql / 2
+        )
+    else:
+        mid_ql = split_beat * beat_ql
     # Snap the split point to the grid (round-half-up on the step count).
     steps = (mid_ql + grid / 2) // grid
     split_ql = steps * grid
@@ -2371,7 +2378,11 @@ def apply_score_edit(
     if edit.kind == "toggleTie":
         new_part = _apply_tie_toggle(payload, part_index, note_index)
     elif edit.kind == "splitNote":
-        new_part = _apply_split(payload, part_index, note_index)
+        # #423: a review-action split carries startBeat = the onset
+        # the boundary expert heard; a bare split keeps the midpoint.
+        new_part = _apply_split(
+            payload, part_index, note_index, split_beat=edit.start_beat
+        )
     elif edit.kind == "mergeNotes":
         new_part = _apply_merge(payload, part_index, note_index)
     else:

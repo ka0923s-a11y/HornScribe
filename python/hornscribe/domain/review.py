@@ -69,6 +69,14 @@ class ReviewReason(Enum):
     # onset/beat gap inputs — the remedy is the properties pickup
     # editor (setPickup re-tiles, no re-transcription).
     PICKUP_UNCERTAIN = "pickup_uncertain"
+    # #423: a note boundary looks wrong on the audio evidence — a legato
+    # run of same-pitch notes that a spectral onset wants merged, or a
+    # sustained note whose interior onset suggests a missed split, or a
+    # hairline gap where the evidence is genuinely ambiguous. Evidence
+    # carries the suggested kind, the boundary/split position, and the
+    # onset score — the remedy is mergeNotes/splitNote (no
+    # re-transcription needed).
+    BOUNDARY_UNCERTAIN = "boundary_uncertain"
 
 
 class Severity(Enum):
