@@ -43,6 +43,18 @@ class TestBendPoints:
         assert _bend_points(None, 0.0, 1.0) == ()
         assert _bend_points(["x", "y"], 0.0, 1.0) == ()
 
+    def test_bp_bins_decode_in_thirds_of_a_semitone(self):
+        # basic_pitch emits raw contour-bin offsets (1/3 st, centered
+        # at 0) — a perfectly tuned note is all zeros, not -2 st.
+        pts = _bend_points([0, 0, 0], 1.0, 2.0, units="bp_bins")
+        assert [p.bend_semitones for p in pts] == [0.0, 0.0, 0.0]
+
+    def test_bp_bins_preserve_real_vibrato(self):
+        pts = _bend_points([-3, 0, 3], 0.0, 1.0, units="bp_bins")
+        assert pts[0].bend_semitones == -1.0
+        assert pts[1].bend_semitones == 0.0
+        assert pts[2].bend_semitones == 1.0
+
 
 class TestToRawEvent:
     def test_bends_are_kept(self):
@@ -55,6 +67,18 @@ class TestToRawEvent:
         assert ev.pitch_bends[1].bend_semitones == 1.0
         assert ev.pitch_bends[0].time_sec == 0.5
         assert ev.pitch_bends[1].time_sec == 1.5
+
+    def test_bp_bend_units_route_to_bin_decode(self):
+        # The basic_pitch tuple slot carries contour bins — decode via
+        # bend_units, or the same data would collapse to ~= -2 st.
+        ev = _to_raw_event(
+            (0.5, 1.5, 60, 0.8, [0, 3]),
+            RawNoteEventId("rne-000001"),
+            _rev(),
+            bend_units="bp_bins",
+        )
+        assert ev.pitch_bends[0].bend_semitones == 0.0
+        assert ev.pitch_bends[1].bend_semitones == 1.0
 
     def test_missing_bends_yields_empty(self):
         ev = _to_raw_event(
