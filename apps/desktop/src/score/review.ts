@@ -37,6 +37,7 @@ export type ReviewReason =
   | "key_uncertain"
   | "pickup_uncertain"
   | "boundary_uncertain"
+  | "chord_uncertain"
   | "onset_uncertain"
   | "pitch_uncertain"
   | "multiple_candidates"

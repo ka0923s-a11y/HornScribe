@@ -28,6 +28,8 @@ export const REVIEW_REASONS = [
   "pickup_uncertain",
   // #423: audio-evidence boundary re-scoring (merge/split/uncertain).
   "boundary_uncertain",
+  // #419: chord-segment confidence from the local chord map.
+  "chord_uncertain",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
@@ -58,6 +60,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "key_uncertain",
   "pickup_uncertain",
   "boundary_uncertain",
+  "chord_uncertain",
   "onset_uncertain",
   "pitch_uncertain",
   "multiple_candidates",

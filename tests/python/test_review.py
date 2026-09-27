@@ -55,6 +55,8 @@ def test_all_master_plan_reasons_exist() -> None:
             "pickup_uncertain",
             # #423: audio-evidence boundary re-scoring contract.
             "boundary_uncertain",
+            # #419: chord-map segment uncertainty contract.
+            "chord_uncertain",
         }
     assert {r.value for r in ReviewReason} == expected
 

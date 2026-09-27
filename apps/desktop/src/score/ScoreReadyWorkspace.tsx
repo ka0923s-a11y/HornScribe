@@ -334,6 +334,23 @@ function inspectorCopy(): InspectorCopy {
             });
           }
         }
+        // #419: chord-uncertainty evidence - suggested chord, the
+        // runner-up it nearly tied with, confidence + margin.
+        if (issue.reason === "chord_uncertain") {
+          const suggested = issue.evidence["suggestedChord"];
+          const runnerUp = issue.evidence["runnerUpChord"];
+          const conf = numEvidence(issue, "chordConfidence");
+          const margin = numEvidence(issue, "chordMargin");
+          return ja.reviewEvidence.chordUncertain({
+            suggested:
+              typeof suggested === "string" ? suggested : null,
+            runnerUp: typeof runnerUp === "string" ? runnerUp : null,
+            confidencePct:
+              conf != null ? Math.round(conf * 100) : null,
+            marginPct:
+              margin != null ? Math.round(margin * 100) : null,
+          });
+        }
         // #322: isolation was skipped because voices/chords keep the
         // overlapping lines — say so instead of the generic mono/
         // decode-failure copy.

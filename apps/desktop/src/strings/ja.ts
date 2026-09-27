@@ -1508,7 +1508,16 @@ export const ja = {
     boundary_uncertain: {
       title: "音符の区切りを確認してください",
       detail:
-"音源の音量やピッチの変化から、音符の切れ目が楽譜とずれている可能性のある箇所が見つかりました。提案された修正を適用するか、そのままにするか確認してください。",
+        "音源の音量やピッチの変化から、音符の切れ目が楽譜とずれている可能性のある箇所が見つかりました。提案された修正を適用するか、そのままにするか確認してください。",
+    },
+    // #419: a chord segment the local estimator cannot back up -
+    // the suggested chord + runner-up ride the issue as context;
+    // there is no auto-fix, the map informs how the user reads
+    // spelling and rhythm choices in the span.
+    chord_uncertain: {
+      title: "コード進行を確認してください",
+      detail:
+        "この区間の和音推定が曖昧です（確信度が低い、または候補が拮抗）。推定コードを証拠として表示しています。",
     },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
@@ -1670,6 +1679,35 @@ export const ja = {
         return `ひとつの音の途中に、別の発音らしき立ち上がりが検出されています${scoreTxt}。その位置で分割することを検討してください。`;
       }
       return `この区切りには確かな発音の証拠が見つかりません${scoreTxt}。元音源と聴き比べて確認してください。`;
+    },
+    // #419: chord-uncertainty evidence - names the suggested chord,
+    // the runner-up it nearly tied with, and the confidence so the
+    // user can weigh the harmony context themselves.
+    chordUncertain: (p: {
+      readonly suggested: string | null;
+      readonly runnerUp: string | null;
+      readonly confidencePct: number | null;
+      readonly marginPct: number | null;
+    }) => {
+      const clauses: string[] = [];
+      if (p.suggested != null) {
+        clauses.push(
+          p.confidencePct != null
+            ? `推定コードは${p.suggested}です（確からしさ ${p.confidencePct}%）`
+            : `推定コードは${p.suggested}です`,
+        );
+      }
+      if (p.runnerUp != null) {
+        clauses.push(
+          p.marginPct != null
+            ? `次点の${p.runnerUp}との差が${p.marginPct}%しかありません`
+            : `次点は${p.runnerUp}です`,
+        );
+      }
+      clauses.push(
+        "この区間の和音は証拠が弱いため、臨時記号やリズムの解釈を耳で確認してください",
+      );
+      return clauses.join("。") + "。";
     },
   },
 
