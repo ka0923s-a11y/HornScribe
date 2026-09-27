@@ -9,6 +9,7 @@ import {
   ZoomFit24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
+import { waveformF0Contours } from "../score/noteOverlay";
 import type { WaveformNote } from "../score/noteOverlay";
 import {
   readWaveformView,
@@ -490,20 +491,27 @@ export function WaveformView({
     for (const n of overlayNotes) {
       if (n.midi < lo) lo = n.midi;
       if (n.midi > hi) hi = n.midi;
+      // #427: bend excursions leave the written lane — keep them in
+      // the strip or a wide vibrato clips the contour mid-glide.
+      for (const b of n.bends ?? []) {
+        const m = n.midi + b.semis;
+        if (m < lo) lo = m;
+        if (m > hi) hi = m;
+      }
     }
     // Pad a narrow melody so lanes stay readable (min 12 semitones).
     const pad = Math.max(2, Math.ceil((12 - (hi - lo)) / 2));
     lo -= pad;
     hi += pad;
     const span2 = hi - lo;
-    const out: { id: string; left: number; width: number; top: number; height: number; partIndex: number }[] = [];
+    const lanes: { id: string; left: number; width: number; top: number; height: number; partIndex: number }[] = [];
     for (const n of overlayNotes) {
       if (n.endSec <= view.startSec || n.startSec >= view.endSec) continue;
       const l = Math.max(0, (n.startSec - view.startSec) / span);
       const r = Math.min(1, (n.endSec - view.startSec) / span);
       if (r <= l) continue;
       const lane = (hi - n.midi) / span2; // higher pitch -> higher lane
-      out.push({
+      lanes.push({
         id: n.id,
         left: l,
         width: r - l,
@@ -511,9 +519,28 @@ export function WaveformView({
         height: Math.max(4, 100 / span2),
         partIndex: n.partIndex,
       });
-      if (out.length >= 4000) break; // perf guard — pathological scores
+      if (lanes.length >= 4000) break; // perf guard — pathological scores
     }
-    return out;
+    // #427: tracked-f0 evidence — the continuous pitch contour drawn
+    // through the lanes, so a boundary or spelling slip shows up as
+    // the curve disagreeing with its rectangle. Points keep a 1 s
+    // margin past the view edge so curves do not pop at the seam.
+    const contours = waveformF0Contours(overlayNotes)
+      .map((c) => ({
+        id: c.id,
+        partIndex: c.partIndex,
+        points: c.points
+          .filter(
+            (p) => p.sec >= view.startSec - 1 && p.sec <= view.endSec + 1,
+          )
+          .map(
+            (p) =>
+              `${(p.sec - view.startSec) / span},${(hi - p.midi) / span2}`,
+          )
+          .join(" "),
+      }))
+      .filter((c) => c.points.length > 0);
+    return { lanes, contours };
   }, [overlayNotes, overlayVisible, view, span]);
 
   const onMinimapDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -779,10 +806,10 @@ export function WaveformView({
           {overlayLanes ? (
             <div
               className="hs-waveform__notes"
-              data-note-count={overlayLanes.length}
+              data-note-count={overlayLanes.lanes.length}
               aria-hidden="true"
             >
-              {overlayLanes.map((n) => (
+              {overlayLanes.lanes.map((n) => (
                 <div
                   key={n.id}
                   className={`hs-waveform__note${n.partIndex > 0 ? " hs-waveform__note--extra" : ""}`}
@@ -794,6 +821,26 @@ export function WaveformView({
                   }}
                 />
               ))}
+              {/* #427: f0 contour through the lanes — non-scaling
+                  stroke keeps the evidence hairline at any zoom. */}
+              <svg
+                className="hs-waveform__f0"
+                viewBox="0 0 1 1"
+                preserveAspectRatio="none"
+              >
+                {overlayLanes.contours.map((c) => (
+                  <polyline
+                    key={c.id}
+                    className={
+                      c.partIndex > 0
+                        ? "hs-waveform__f0-line hs-waveform__f0-line--extra"
+                        : "hs-waveform__f0-line"
+                    }
+                    points={c.points}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+              </svg>
             </div>
           ) : null}
           {overlayNotes && overlayNotes.length > 0 ? (
@@ -802,7 +849,8 @@ export function WaveformView({
                 type="button"
                 className={`hs-waveform__notes-toggle${overlayVisible ? " hs-waveform__notes-toggle--on" : ""}`}
                 data-overlay-notes={overlayNotes?.length ?? 0}
-                data-overlay-lanes={overlayLanes?.length ?? -1}
+                data-overlay-lanes={overlayLanes?.lanes.length ?? -1}
+                data-overlay-contours={overlayLanes?.contours.length ?? -1}
                 aria-pressed={overlayVisible}
                 aria-label={ja.waveform.noteOverlay}
                 onPointerDown={(e) => e.stopPropagation()}

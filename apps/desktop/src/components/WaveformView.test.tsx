@@ -246,4 +246,36 @@ describe("WaveformView note overlay (#402)", () => {
       document.querySelector(".hs-waveform__notes-toggle"),
     ).toBeNull();
   });
+
+  it("draws one f0 polyline per note, bends sitting below the lane (#427)", async () => {
+    await mount({
+      overlayNotes: [
+        {
+          id: "sn-1",
+          startSec: 10,
+          endSec: 12,
+          midi: 60,
+          partIndex: 0,
+          bends: [
+            { pos: 0, semis: -1 },
+            { pos: 1, semis: -1 },
+          ],
+        },
+        { id: "sn-2", startSec: 12, endSec: 13.5, midi: 64, partIndex: 0 },
+        { id: "sn-3", startSec: 12, endSec: 14, midi: 55, partIndex: 1 },
+      ],
+    });
+    const lines = document.querySelectorAll(".hs-waveform__f0-line");
+    expect(lines).toHaveLength(3);
+    // A -1st bend drops the contour below the lane midline (larger y
+    // fraction = lower on screen).
+    const y = parseFloat(
+      lines[0].getAttribute("points")!.split(" ")[0].split(",")[1],
+    );
+    const lane = document.querySelector<HTMLElement>(".hs-waveform__note")!;
+    const laneMid =
+      (parseFloat(lane.style.top) + parseFloat(lane.style.height) / 2) / 100;
+    expect(y).toBeGreaterThan(laneMid);
+    expect(lines[2].getAttribute("class")).toContain("--extra");
+  });
 });
