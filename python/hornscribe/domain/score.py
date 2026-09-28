@@ -708,7 +708,10 @@ def primary_beat_beats(ts: TimeSignature, beat_ql: Fraction) -> Fraction:
     return measure_length_beats(ts, beat_ql) / beat_count
 
 
-def note_layers(notes: tuple[QuantizedNote, ...]) -> dict[ScoreNoteId, int]:
+def note_layers(
+    notes: tuple[QuantizedNote, ...],
+    rests: tuple[ScoreRest, ...] = (),
+) -> dict[ScoreNoteId, int]:
     """Assign each note a notation layer (voice) within its part (#155).
 
     Notes sharing ``(start_beat, duration_beats, atoms)`` — the chord
@@ -716,6 +719,13 @@ def note_layers(notes: tuple[QuantizedNote, ...]) -> dict[ScoreNoteId, int]:
     overlap needs its own layer: layers are allocated greedily so the
     lowest free layer wins.  Monophonic parts get all-zero layers, so
     this is a strict generalization of the old one-voice-per-part rule.
+
+    ``rests`` (#86): canonical rests occupy layer 0 together with the
+    primary notes — a note whose span intersects any rest span must
+    take a higher layer or the strict per-measure tiling sees an
+    overlap.  Merged-chords parts hit exactly this: a folded voice's
+    note lands inside a voice-1 rest.  Layer 0 remains the only layer
+    rests may sit on; higher layers gap-fill at render time.
     """
     groups: dict[tuple[Fraction, Fraction, tuple[ScoreAtom, ...]], list[QuantizedNote]] = {}
     for n in sorted(notes, key=lambda n: (n.start_beat, n.pitch_midi, n.id)):
@@ -726,12 +736,22 @@ def note_layers(notes: tuple[QuantizedNote, ...]) -> dict[ScoreNoteId, int]:
         start = members[0].start_beat
         end = members[0].end_beat
         layer = 0
-        while layer < len(layer_ends) and layer_ends[layer] > start:
-            layer += 1
-        if layer == len(layer_ends):
-            layer_ends.append(end)
-        else:
-            layer_ends[layer] = end
+        while True:
+            if layer < len(layer_ends) and layer_ends[layer] > start:
+                layer += 1
+                continue
+            if layer == 0 and any(
+                r.start_beat < end and start < r.end_beat for r in rests
+            ):
+                layer += 1
+                continue
+            break
+        # A rest-blocked or overlap-blocked group can take a layer
+        # lower-numbered layers never used — pad the tracker so
+        # indexing stays honest (Fraction(0) ends never block).
+        while len(layer_ends) <= layer:
+            layer_ends.append(Fraction(0))
+        layer_ends[layer] = end
         for n in members:
             out[n.id] = layer
     return out

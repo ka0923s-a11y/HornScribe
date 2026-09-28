@@ -753,7 +753,12 @@ def _build_part_measures(
     # #155: notes sharing (start, duration, atoms) are chord members on
     # one layer; other overlaps get their own layer (voice).
     entries_by_measure = _measure_entries(
-        part_notes, part_rests, spans, note_layers(tuple(part_notes))
+        part_notes,
+        part_rests,
+        spans,
+        # #86: rests occupy layer 0 too — a note inside a rest span
+        # must lift to a higher layer or strict tiling sees an overlap.
+        note_layers(tuple(part_notes), part_rests),
     )
 
     # #268: modern-notation clef policy — a sustained low passage
