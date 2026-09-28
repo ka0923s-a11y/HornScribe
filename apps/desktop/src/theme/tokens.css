@@ -150,8 +150,15 @@
   --hs-playhead: #0c3b5e;
 
   /* Score paper (§13 option A): paper stays light in both themes, so the
-     ink/staff tokens keep their light-paper values in the dark block too. */
+    ink/staff tokens keep their light-paper values in the dark block too. */
   --hs-score-ink: #1a1a1a;
+  /* #120: on-paper UI text — the empty/transcribing/loading/error states
+     inside .hs-score are transparent and paint on the (always light)
+     paper, so they need paper-safe ramps. Values mirror the light-theme
+     text-primary-secondary-muted and status-error ramps. */
+  --hs-score-ink-secondary: #424242;
+  --hs-score-ink-muted: #616161;
+  --hs-score-ink-error: #c50f1f;
   --hs-score-staff: #333333;
   --hs-score-paper-border: #d4d4d4;
   /* UI-070 gate fix: the 25% wash composited to 1.44:1 on paper — below
@@ -239,6 +246,10 @@
 
   /* Score marks land on the (light) score paper in both themes. */
   --hs-score-ink: #1a1a1a;
+  /* #120: on-paper UI text ramps — same light-paper values as :root. */
+  --hs-score-ink-secondary: #424242;
+  --hs-score-ink-muted: #616161;
+  --hs-score-ink-error: #c50f1f;
   --hs-score-staff: #333333;
   --hs-score-paper-border: #c9c9c9;
   --hs-score-selection: #4f86c6;
