@@ -117,7 +117,7 @@
     "loop": "ループを切り替える（Ctrl+L）",
     "toggleAudition": "楽譜を演奏",
     "toggleSourceMute": "元音源のミュート",
-      "follow": "再生位置を追従",
+    "follow": "再生位置を追従",
     "scoreZoomIn": "楽譜を拡大（Ctrl++）",
     "scoreZoomOut": "楽譜を縮小（Ctrl+-）",
     "scoreFitWidth": "楽譜を画面幅に合わせる（Ctrl+0）",
@@ -257,23 +257,23 @@
     },
     "reasons": {
       "low_model_confidence": {
-        "title": "検出結果を確認してください",
-        "detail": "モデル確信度が低い箇所です。元音源と比較して確認してください。"
+        "title": "音高を確認してください",
+        "detail": "検出された音高の確信度が低めです。"
       },
       "very_short_detection": {
         "title": "音の長さを確認してください",
-        "detail": "非常に短い音として検出されました。実際の音かどうかを確認してください。"
+        "detail": "ごく短い音として検出されました。意図した音か確認してください。"
       },
       "overlapping_candidates": {
         "title": "音の重なりを確認してください",
-        "detail": "複数の候補があります。元音源を聞いて正しい解釈を選んでください。"
+        "detail": "複数の候補が重なって検出されました。"
       },
       "quantization_ambiguous": {
         "title": "リズムの解釈を確認してください",
         "detail": "リズムの取り方が複数考えられます。"
       },
       "pitch_spelling_ambiguous": {
-        "title": "臨時記号の表記を確認してください",
+        "title": "表記を確認してください",
         "detail": "異名同音の表記が複数考えられます。"
       },
       "outside_preferred_horn_range": {
@@ -281,8 +281,8 @@
         "detail": "一般的なホルンの音域を外れている可能性があります。"
       },
       "structural_measure_conflict": {
-        "title": "小節内の音価を確認してください",
-        "detail": "小節内の音の長さの合計が拍子と一致しません。"
+        "title": "拍位置を確認してください",
+        "detail": "小節内の拍位置が合っていない可能性があります。"
       },
       "beat_alignment_uncertain": {
         "title": "拍位置を確認してください",
@@ -290,7 +290,7 @@
       },
       "beat_map_uncertain": {
         "title": "テンポと拍位置を確認してください",
-        "detail": "テンポまたは拍の推定が不安定です。必要に応じて手動で設定してください。"
+        "detail": "テンポと拍の対応が曖昧です。"
       },
       "possible_triplet": {
         "title": "三連符の可能性があります",
@@ -298,7 +298,7 @@
       },
       "possible_grace_note": {
         "title": "装飾音の可能性があります",
-        "detail": "装飾音として検出された音があります。"
+        "detail": "装飾音として解釈できる箇所があります。"
       },
       "offset_ambiguous": {
         "title": "音の長さを確認してください",
@@ -306,15 +306,15 @@
       },
       "pickup_ambiguous": {
         "title": "弱起を確認してください",
-        "detail": "弱起（アウフタクト）の可能性があります。"
+        "detail": "弱起（アウフタクト）として解釈できる箇所があります。"
       },
       "meter_conflict": {
         "title": "拍子を確認してください",
-        "detail": "現在の拍子と矛盾するリズムがあります。"
+        "detail": "小節内の音価と拍子が合っていない可能性があります。"
       },
       "swing_feel": {
         "title": "スウィングの可能性があります",
-        "detail": "八分の裏拍が三連符の3つ目に寄っています（シャッフル系）。記譜は通常の八分または三連符になっているため、元音源と聴き比べてください。"
+        "detail": "八分の裏拍が三連符の3つ目に寄っています（シャッフル系）。記譜にスウィングの指示を付けました。再生が元音源と合うか確認してください。"
       },
       "monophonic_backend": {
         "title": "単音エンジンで採譜しました",
@@ -350,7 +350,7 @@
       },
       "onset_uncertain": {
         "title": "音の開始位置を確認してください",
-        "detail": "音の開始タイミングが曖昧です。"
+        "detail": "音の開始位置が曖昧です。"
       },
       "pitch_uncertain": {
         "title": "音高を確認してください",
@@ -358,11 +358,11 @@
       },
       "multiple_candidates": {
         "title": "複数の候補があります",
-        "detail": "候補を比較して、正しい解釈を選んでください。"
+        "detail": "同じ箇所に複数の解釈候補があります。"
       },
       "other": {
-        "title": "この箇所を確認してください",
-        "detail": "元音源と比較して確認してください。"
+        "title": "内容を確認してください",
+        "detail": "採譜エンジンが確認を求めています。"
       }
     }
   },
@@ -620,6 +620,7 @@
     "dependencyMissing": {
       "title": "採譜エンジンの部品が見つかりません",
       "body": "必要な部品がエンジン環境にありません。アプリを再インストールするか、開発環境では pip install hornscribe[engine] を実行してからもう一度お試しください。",
+      "unknownPackage": "名称不明のパッケージ",
       "actions": {
         "diagnostics": "診断情報を見る"
       }
@@ -660,6 +661,67 @@
       "actions": {
         "retry": "再試行",
         "diagnostics": "診断情報"
+      }
+    },
+    "exportDiskFull": {
+      "title": "空き容量が不足しています",
+      "body": "保存先または作業用ドライブの空き容量が足りず、ファイルを書き込めませんでした。空き容量を確保するか、別の保存先を選んでください。",
+      "actions": {
+        "chooseDestination": "別の保存先を選ぶ",
+        "retry": "再試行"
+      }
+    },
+    "exportDestinationInvalid": {
+      "title": "保存先を利用できません",
+      "body": "選択した保存先が存在しないか、フォルダとして使用できません。別の保存先を選んでください。",
+      "actions": {
+        "chooseDestination": "別の保存先を選ぶ"
+      }
+    },
+    "exportSourceMissing": {
+      "title": "元の音源が見つかりません",
+      "body": "同梱する音源ファイルが移動または削除されています。音源の同梱をオフにして書き出すか、読み込み画面で音源を再リンクしてください。",
+      "actions": {
+        "backToForm": "書き出し設定に戻る"
+      }
+    },
+    "exportRenderFailed": {
+      "title": "PDFの変換に失敗しました",
+      "body": "MuseScoreによるPDF変換が正常に終了しませんでした。MusicXMLとMIDIには影響ありません。再試行するか、診断情報でMuseScoreの状態を確認してください。",
+      "actions": {
+        "retry": "再試行",
+        "diagnostics": "診断情報"
+      }
+    },
+    "exportWriteFailed": {
+      "title": "ファイルを書き込めませんでした",
+      "body": "書き出し用ファイルの作成に失敗しました。別の保存先を選ぶか、再試行してください。",
+      "actions": {
+        "retry": "再試行",
+        "chooseDestination": "別の保存先を選ぶ"
+      }
+    },
+    "exportCommitFailed": {
+      "title": "保存の途中で失敗しました",
+      "body": "ファイルを保存先へ移す途中でエラーが発生しました。保存先の空き容量と権限を確認して、もう一度書き出してください。",
+      "actions": {
+        "retry": "再試行",
+        "chooseDestination": "別の保存先を選ぶ"
+      }
+    },
+    "exportInternal": {
+      "title": "予期しないエラーが発生しました",
+      "body": "書き出し処理で予期しないエラーが発生しました。再試行しても解決しない場合は、診断情報を確認してください。",
+      "actions": {
+        "retry": "再試行",
+        "diagnostics": "診断情報"
+      }
+    },
+    "exportNameExhausted": {
+      "title": "ファイル名を決定できませんでした",
+      "body": "同名のファイルが多数あるため、空いている名前を付けられませんでした。書き出し名を変更するか、別の保存先を選んでください。",
+      "actions": {
+        "backToForm": "書き出し設定に戻る"
       }
     }
   },
