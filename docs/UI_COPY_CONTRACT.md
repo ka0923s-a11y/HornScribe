@@ -10,8 +10,28 @@
 # 1. Purpose and rule
 
 HornScribe's user-facing UI is **Japanese only**. This document defines how the
-canonical copy deck is keyed and consumed so that the desktop app (UI-001 spike
-onward) never grows ad-hoc or English placeholder copy.
+copy deck is keyed and how the runtime copy module consumes it so that the
+desktop app (UI-001 spike onward) never grows ad-hoc or English placeholder
+copy.
+
+> Canonicality (revised for #116 — the original contract declared the deck
+> the global source of truth, which silently diverged in practice):
+>
+> - **Runtime copy module is the wording canon.** Every user-visible string
+>   resolves from `apps/desktop/src/strings/ja.ts`. That module supports
+>   function-valued keys (`{placeholder}` interpolation), scoped comments,
+>   and type checking — none of which the deck can express.
+> - **The deck is canonical for IPC-facing enum keys.** Engine stage ids,
+>   review reason codes, export error ids, and capture issue ids land in
+>   sidecar payloads; for these groups the deck is the vocabulary of record
+>   and `ja.ts` mirrors it (keys *and* wording). See §4.1 for the group list.
+> - **The deck may run ahead of the implementation.** Spec-era entries that
+>   name ids/features not yet implemented are retained as backlog — the deck
+>   is allowed to be a superset of `ja.ts`, never a subset.
+> - **Drift is guarded.** `apps/desktop/src/quality/copyDrift.test.ts`
+>   asserts key parity and wording equality for the IPC-facing groups on
+>   every test run. `test_copy_deck.py` still validates the deck's internal
+>   shape and the UI fixtures.
 
 Hard rules:
 
@@ -19,9 +39,10 @@ Hard rules:
   deck, no runtime locale negotiation. `meta.locale` in the deck is a fixed
   declaration (`"ja-JP"`), not an option.
 - **No English fallback copy.** Every user-visible string resolves from
-  `protocol/copy/ja-JP.json`. A missing key is a bug; the UI must fail visibly
-  in development (e.g. render `!!key.path!!` in dev builds, never silently emit
-  English).
+  `src/strings/ja.ts`; for IPC-facing groups that module mirrors
+  `protocol/copy/ja-JP.json` (§4.1). A missing key is a bug; the UI must fail
+  visibly in development (e.g. render `!!key.path!!` in dev builds, never
+  silently emit English).
 - **No translation framework required.** A flat lookup (`key → string`) plus
   `{placeholder}` interpolation is sufficient. Do not add i18n libraries to
   satisfy this contract.
@@ -111,23 +132,47 @@ or sentence. Internal jargon (`raw`, `cleaned`, `backend`, `worker`, `HSQ`,
 
 ---
 
-# 4. Consuming the deck (future app)
+# 4. Consuming the copy (implemented)
 
-- Load `ja-JP.json` once at startup; resolve `group.path.leaf` lookups.
-- Command registry (`GUI_UX_SPEC` §23) sets `labelJa` from the deck — commands
-  never carry hard-coded strings.
-- Icon-only buttons must take both `aria` (from `a11y.*`) and `tooltip` (from
-  `tooltips.*` or the control's own `tooltip` field).
-- Progress: use `transcription.stages.<id>.{pending,active,done}`. When real
-  progress is unknown, show the stage label indeterminate — **never fabricate
-  percentages** (copy standard §5).
-- Errors: render `errors.<id>` as title → body → actions, in that order
+- The runtime copy module `src/strings/ja.ts` is imported by code directly;
+  there is no runtime JSON lookup.
+- Command registry (`GUI_UX_SPEC` §23) sets `labelJa` from `ja.commands.*` —
+  commands never carry hard-coded strings.
+- Icon-only buttons must take both `aria` and `tooltip` copy from the module.
+- Progress: use `ja.transcription.stages.<id>.{pending,active,done}`. When
+  real progress is unknown, show the stage label indeterminate — **never
+  fabricate percentages** (copy standard §5).
+- Errors: render `ja.errors.<id>` as title → body → actions, in that order
   (copy standard §7). Raw tracebacks and exception text never reach the UI.
-- Review: map `ReviewIssue.reason` to `review.reasons.<reason>.title` /
-  `.detail`. Unknown future reasons fall back to `review.reasons.other`.
-- Adding or renaming keys: update the deck, this contract if the shape
-  changes, and `tests/python/test_copy_deck.py` if groups change. Deck edits
-  are copy changes — review them against JAPANESE_UI_COPY.md.
+- Review: map `ReviewIssue.reason` to `ja.reviewReasons.<reason>.title` /
+  `.detail`. Unknown future reasons fall back to `reviewReasons.other`
+  (`sidecar/review.ts#reviewReasonCopyKey`).
+
+## 4.1 Deck-canonical groups (guarded by copyDrift.test.ts)
+
+These IPC-facing groups keep the deck as their vocabulary of record — the
+`ja.ts` mirror must carry every implemented id with identical wording:
+
+| Deck group | `ja.ts` mirror | Rule |
+|---|---|---|
+| `transcription.stages.<id>` | `transcription.stages.<id>` | exact key+value parity |
+| `review.reasons.<reason>` | `reviewReasons.<reason>` | exact key+value parity |
+| `errors.<id>` | `errors.<id>` | every implemented id in deck; matching wording (`actions` nesting or flat) |
+| `capture.issue.<id>` | `capture.issue.<id>` | exact key parity, matching wording |
+
+Deck entries with no `ja.ts` counterpart are tolerated everywhere (spec-era
+backlog); `ja.ts` entries outside these groups have no deck obligation.
+
+## 4.2 Adding or renaming keys
+
+- **App-internal copy**: add to `src/strings/ja.ts` only. No deck entry is
+  required.
+- **New IPC-facing ids** (a new engine stage, review reason, export error,
+  capture issue): add the key to the deck *and* the `ja.ts` mirror — the
+  drift guard fails if either side is missing or the wording differs.
+- **Shape changes**: update this contract, the deck, the mirror, and
+  `tests/python/test_copy_deck.py` if top-level groups change. Copy edits
+  are reviewed against JAPANESE_UI_COPY.md.
 
 ---
 

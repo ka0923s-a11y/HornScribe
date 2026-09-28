@@ -159,8 +159,10 @@ play() して元音源をモニターする。開始カウントイン中はま�
 
 ## 4. コピー
 
-新規キーは `protocol/copy/ja-JP.json` の `menus.file`/`transport`/
-`capture` と `src/strings/ja.ts` に追加。録音中ラベルはソースで分岐する:
+新規キーは `src/strings/ja.ts` に追加する。`capture.issue.*` のように
+IPC payload に乗る id は `protocol/copy/ja-JP.json` にも登録する
+(UI_COPY_CONTRACT §4.1 — copyDrift.test.ts が両辺を検査する)。
+録音中ラベルはソースで分岐する:
 
 - ループバック: 「取り込み中」
 - マイク: 「録音中」
