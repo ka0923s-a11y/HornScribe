@@ -700,6 +700,97 @@ class TestMeter:
         assert est.uncertain
 
 
+class TestMeterEventAccents:
+    """#87: the production meter path scores post-onset RMS accents on
+    a regularised slot grid -- onset-detector lag, merged subdivisions,
+    and short windows must not flip the reading."""
+
+    def _beats(self, n: int, period: float = 0.5) -> tuple[float, ...]:
+        return tuple(i * period for i in range(n))
+
+    def test_beat_level_three_four(self) -> None:
+        n = 24
+        beats = self._beats(n)
+        accents = tuple(
+            (t, 0.9 if i % 3 == 0 else 0.4) for i, t in enumerate(beats)
+        )
+        est = estimate_meter(beats, (), event_accents=accents)
+        assert est.meter == "3/4"
+        assert not est.uncertain
+        assert est.tracked_unit_ql is None
+
+    def test_beat_level_six_eight_ternary(self) -> None:
+        # Dotted-quarter pulse: slot accents alternate strong/mid and
+        # interior events sit on the ternary positions.
+        n = 12
+        beat = 0.42
+        beats = self._beats(n, period=beat)
+        accents: list[tuple[float, float]] = []
+        for i, t in enumerate(beats):
+            accents.append((t, 0.55 if i % 2 == 0 else 0.34))
+            accents.append((t + beat / 3, 0.2))
+            accents.append((t + 2 * beat / 3, 0.2))
+        est = estimate_meter(beats, (), event_accents=tuple(accents))
+        assert est.meter == "6/8"
+        assert not est.uncertain
+        assert est.tracked_unit_ql is None
+
+    def test_beat_level_binary_stays_simple(self) -> None:
+        # Same two-level accents but binary eighth subdivisions --
+        # the census must keep this a simple meter (2/4), not 6/8.
+        n = 16
+        beat = 0.42
+        beats = self._beats(n, period=beat)
+        accents: list[tuple[float, float]] = []
+        for i, t in enumerate(beats):
+            accents.append((t, 0.6 if i % 2 == 0 else 0.35))
+            accents.append((t + beat / 2, 0.2))
+        est = estimate_meter(beats, (), event_accents=tuple(accents))
+        assert est.meter == "2/4"
+
+    def test_detector_lag_does_not_shift_the_census(self) -> None:
+        # A systematic ~45 ms onset lag relative to the tracker used to
+        # smear triplet eighths onto the binary midpoint (9/8 and 2/4
+        # misreads). The grid recentres on the onsets' own cluster.
+        n = 12
+        beat = 0.42
+        lag = -0.045
+        beats = self._beats(n, period=beat)
+        accents: list[tuple[float, float]] = []
+        for i, t in enumerate(beats):
+            accents.append((t + lag, 0.55 if i % 2 == 0 else 0.34))
+            accents.append((t + lag + beat / 3, 0.2))
+            accents.append((t + lag + 2 * beat / 3, 0.2))
+        est = estimate_meter(beats, (), event_accents=tuple(accents))
+        assert est.meter == "6/8"
+        assert not est.uncertain
+
+    def test_eighth_level_six_eight_anchors_eighths(self) -> None:
+        # 240 bpm pulse = tracked eighths: lag accents decide, and the
+        # warp anchor must be the eighth, not the compound beat.
+        n = 36
+        beats = self._beats(n, period=0.25)
+        accents = tuple(
+            (t, 0.9 if i % 6 == 0 else (0.45 if i % 3 == 0 else 0.3))
+            for i, t in enumerate(beats)
+        )
+        est = estimate_meter(beats, (), event_accents=accents)
+        assert est.meter == "6/8"
+        assert est.tracked_eighths
+        assert est.tracked_unit_ql == Fraction(1, 2)
+
+    def test_short_window_needs_three_periods(self) -> None:
+        # 10 slots cannot hold three 5/4 measures -- the period-5
+        # read must not compete on two cycles of noise.
+        n = 10
+        beats = self._beats(n)
+        accents = tuple(
+            (t, 0.9 if i % 5 == 0 else 0.4) for i, t in enumerate(beats)
+        )
+        est = estimate_meter(beats, (), event_accents=accents)
+        assert est.meter != "5/4"
+
+
 class TestKey:
     def test_c_major(self) -> None:
         key, conf = estimate_key(
@@ -2074,7 +2165,7 @@ class TestAutoMeterFallback:
         monkeypatch.setattr(
             pipeline_mod,
             "estimate_meter",
-            lambda _b, _s: meter_est,
+            lambda _b, _s, **_kw: meter_est,
         )
         return run(
             tmp_path,
@@ -2123,6 +2214,7 @@ class TestAutoMeterFallback:
                 confidence=0.8,
                 tracked_eighths=True,
                 uncertain=False,
+                tracked_unit_ql=Fraction(1, 2),
             ),
         )
         assert log[-1]["phase"] == "completed"
