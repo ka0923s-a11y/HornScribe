@@ -495,6 +495,8 @@ PR rule:
 - arbitrary spacing禁止
 - component local tokenを増やしすぎない
 - semantic token変更はvisual regression必須
+- font-size tokenを指定するときは対になる line-height tokenも必ず指定する
+  （body 継承の行高より大きい見出しサイズで日本語グリフが削れる事故の再発防止）
 
 ---
 
