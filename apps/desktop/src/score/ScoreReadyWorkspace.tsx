@@ -1342,7 +1342,7 @@ export function ScoreReadyWorkspace({
     navOpenRef.current = false;
     setNavOpen(false);
     // The review-audition loop dies with the review - restore whatever
-    // loop the user had before 蜈・浹貅舌ｒ蜀咲函 armed it.
+    // loop the user had before the review session armed it.
     reviewLoopRef.current = releaseReviewLoop(
       reviewLoopRef.current,
       reviewLoopPorts(),
@@ -2140,8 +2140,8 @@ const setKey = useCallback(
         synth.setEnabled(next);
         announce(
           next
-            ? "楽譜の自動演奏をオンにしました"
-            : "楽譜の自動演奏をオフにしました",
+            ? ja.transport.auditionOnAnnounce
+            : ja.transport.auditionOffAnnounce,
         );
       },
       /* #398: mixer row edit — applies live to ringing + future voices

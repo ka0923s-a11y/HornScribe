@@ -3,6 +3,7 @@ import {
   SpinButton,
   mergeClasses,
 } from "@fluentui/react-components";
+import { ja } from "../../strings/ja";
 
 /**
  * HsNumericField — labelled numeric input (BPM, 小節番号, 秒数…).
@@ -66,8 +67,8 @@ export function HsNumericField({
         disabled={disabled}
         // Fluent's defaults ship English aria-labels; the copy contract
         // requires Japanese accessible names, derived from the field label.
-        incrementButton={{ "aria-label": `${label}を増やす` }}
-        decrementButton={{ "aria-label": `${label}を減らす` }}
+        incrementButton={{ "aria-label": ja.a11y.numericIncrement(label) }}
+        decrementButton={{ "aria-label": ja.a11y.numericDecrement(label) }}
         onChange={(_, data) => {
           if (data.value !== undefined) {
             onChange?.(data.value);

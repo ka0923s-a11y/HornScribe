@@ -17,6 +17,7 @@ import type {
   CaptureSource,
   CaptureStatus,
 } from "./types";
+import { ja } from "../strings/ja";
 
 export type CapturePhase =
   | "idle"
@@ -262,8 +263,8 @@ export class CaptureController {
       this.startedAtMs = Date.now();
       this.events.announce(
         source === "loopback"
-          ? "PCの音を取り込んでいます"
-          : "マイクで録音しています",
+          ? ja.capture.startedLoopback
+          : ja.capture.startedMic,
       );
       this.startTimer();
     } catch (e) {
@@ -289,9 +290,7 @@ export class CaptureController {
     try {
       await this.port.pause();
       this.setState({ ...this.state, paused: true, level: null });
-      this.events.announce(
-        "録音を一時停止しました。再開するまで音は記録されません。",
-      );
+      this.events.announce(ja.capture.pausedAnnounce);
     } catch (e) {
       const issue = classifyError(e, this.state.source ?? "microphone");
       this.setState({
@@ -315,7 +314,7 @@ export class CaptureController {
     try {
       await this.port.resume();
       this.setState({ ...this.state, paused: false });
-      this.events.announce("録音を再開しました");
+      this.events.announce(ja.capture.resumedAnnounce);
     } catch (e) {
       const issue = classifyError(e, this.state.source ?? "microphone");
       this.setState({
@@ -366,14 +365,10 @@ export class CaptureController {
       // ほぼ無音の録音は取り込み後に一言添える(ブラウザ dev ポートは
       // silentRatio=0 を返すので Tauri 経路でのみ発火する)。
       if (result.silentRatio >= 0.95) {
-        this.events.announce(
-          "録音はほぼ無音でした。音が再生されているか、マイクが接続されているか確認してください。",
-        );
+        this.events.announce(ja.capture.silentFinish);
       }
       if (result.limitReached) {
-        this.events.announce(
-          "連続録音の上限(30分)に達したため、録音を終了しました。",
-        );
+        this.events.announce(ja.capture.limitReachedFinish);
       }
     } catch (e) {
       const issue = classifyError(e, this.state.source ?? "microphone");
@@ -408,7 +403,7 @@ export class CaptureController {
       /* キャンセル自体の失敗は無視 — 状態は idle に戻す */
     }
     this.setState({ ...INITIAL_CAPTURE_STATE });
-    this.events.announce("録音を取りやめました");
+    this.events.announce(ja.capture.cancelledAnnounce);
   }
 
   /** 外部からの状態問い合わせ(ボタン活性など)。 */
@@ -617,25 +612,25 @@ export function issueText(issue: CaptureIssue): string {
   switch (issue.kind) {
     case "noDevice":
       return issue.source === "loopback"
-        ? "既定の再生デバイスが見つかりません。PCで音を再生してからもう一度お試しください。"
-        : "マイクが見つかりません。マイクを接続してからもう一度お試しください。";
+        ? ja.capture.issue.noDeviceLoopback
+        : ja.capture.issue.noDeviceMic;
     case "busy":
-      return "別の録音が進行中です。";
+      return ja.capture.issue.busy;
     case "notActive":
-      return "録音が開始されていません。";
+      return ja.capture.issue.notActive;
     case "unsupported":
       return issue.source === "loopback"
-        ? "PCの音の取り込みはデスクトップアプリでのみ利用できます。"
-        : "この環境では録音を利用できません。";
+        ? ja.capture.issue.unsupportedLoopback
+        : ja.capture.issue.unsupportedMic;
     case "permissionDenied":
       return issue.source === "loopback"
-        ? "オーディオデバイスへのアクセスが許可されていません。デバイスの状態を確認してからもう一度お試しください。"
-        : "マイクへのアクセスが許可されていません。Windowsの設定 → プライバシーとセキュリティ → マイク で、このアプリへのアクセスを許可してください。";
+        ? ja.capture.issue.permissionLoopback
+        : ja.capture.issue.permissionMic;
     case "interrupted":
       return issue.source === "loopback"
-        ? "録音デバイスとの接続が切れました。再生デバイスの状態を確認して、録音をやり直してください。"
-        : "マイクとの接続が切れました。マイクを接続し直して、録音をやり直してください。";
+        ? ja.capture.issue.interruptedLoopback
+        : ja.capture.issue.interruptedMic;
     case "failed":
-      return `録音に失敗しました: ${issue.detail}`;
+      return ja.capture.issue.failed(issue.detail);
   }
 }

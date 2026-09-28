@@ -17,6 +17,7 @@ import type {
   CaptureSource,
   CaptureStatus,
 } from "./types";
+import { ja } from "../strings/ja";
 
 /* ------------------------------ Tauri port ------------------------------ */
 
@@ -340,7 +341,7 @@ class BrowserCapturePort implements CapturePort {
         .filter((d) => d.kind === "audioinput")
         .map((d, i) => ({
           id: d.deviceId,
-          name: d.label || `マイク ${i + 1}`,
+          name: d.label || ja.capture.micFallbackName(i + 1),
           isDefault: d.deviceId === "default",
         })),
     };

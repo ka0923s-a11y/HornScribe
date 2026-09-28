@@ -1595,7 +1595,7 @@ export default function App() {
         const blob = await ports.readProjectBytes(info.path);
         restoredProjectRef.current = true;
         await importer.openProject(
-          { name: "自動保存", path: "", openedAt: Date.now() },
+          { name: ja.project.autosaveName, path: "", openedAt: Date.now() },
           blob,
         );
         /* The ref is consumed inside openProject when a saved score
@@ -1756,7 +1756,7 @@ export default function App() {
         added += 1;
       }
       if (added > 0) {
-        const name = added === 1 ? firstName : added + " 件の音源";
+        const name = added === 1 ? firstName : ja.queue.audioItems(added);
         setStatusMessage(ja.queue.addedToQueue.replace("{name}", name));
       }
     },

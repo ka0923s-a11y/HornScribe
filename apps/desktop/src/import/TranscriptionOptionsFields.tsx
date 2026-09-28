@@ -63,7 +63,7 @@ const TEXTURE_OPTIONS: readonly HsSelectOption[] = [
 const BACKEND_OPTIONS: readonly HsSelectOption[] = [
   { value: "auto", label: ja.import.audioOptions.backendAuto },
   { value: "basicPitch", label: "Basic Pitch" },
-  { value: "pyin", label: "pYIN（単音）" },
+  { value: "pyin", label: ja.import.audioOptions.backendPyin },
 ];
 const RANGE_OPTIONS: readonly HsSelectOption[] = [
   { value: "all", label: ja.import.audioOptions.rangeAll },
