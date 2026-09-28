@@ -98,6 +98,7 @@ import {
 import {
   collectReferencedRecordingNames,
   copyRecordingToManaged,
+  deleteRecording,
   getRecordingsInfo,
   getSourceRefIndex,
   pruneRecordings,
@@ -990,39 +991,74 @@ export default function App() {
   // FEAT-001: the capture controller pushes recorded audio straight into
   // the import flow — a finished take lands as AUDIO_READY exactly like a
   // picked file (single-document app: the new source replaces the old).
+  const importCaptureResult = useCallback(
+    ({ path, bytes, fileName, source, mimeType }: {
+      path?: string;
+      bytes?: Uint8Array;
+      fileName: string;
+      source: CaptureSource;
+      mimeType?: string;
+    }) => {
+      // Tauri: 録音は appDataDir/recordings/ に保存済み(#70)なので
+      // path を渡し、import 側で読み直す。ブラウザ dev 等で path が
+      // 無い場合は bytes → Blob を渡す。
+      const blob = bytes
+        ? new Blob(
+            [
+              new Uint8Array(
+                new Uint8Array(
+                  bytes.buffer,
+                  bytes.byteOffset,
+                  bytes.byteLength,
+                ),
+              ),
+            ],
+            { type: mimeType ?? "audio/wav" },
+          )
+        : undefined;
+      void importer.importRecording({
+        kind: "recording",
+        name: fileName,
+        source,
+        path,
+        blob,
+      });
+    },
+    [importer],
+  );
+  // #102: ほぼ無音テイクの取り込み確認 — controller が stop() 内で
+  // この promise を await するので、resolver を ref に退避してダイアログの
+  // ボタンで解決する。破棄なら前の音源は残り、保存済み WAV は消す。
+  const silentTakeResolver = useRef<((proceed: boolean) => void) | null>(
+    null,
+  );
+  const [pendingSilentTake, setPendingSilentTake] = useState<{
+    fileName: string;
+    source: CaptureSource;
+  } | null>(null);
+  const resolveSilentTake = useCallback((proceed: boolean) => {
+    setPendingSilentTake(null);
+    silentTakeResolver.current?.(proceed);
+    silentTakeResolver.current = null;
+  }, []);
   const capture = useMemo(
     () =>
       new CaptureController(createCapturePort(), {
         onState: (s) => setCaptureState(s),
         announce: setStatusMessage,
-        onCaptureComplete: ({ path, bytes, fileName, source, mimeType }) => {
-          // Tauri: 録音は appDataDir/recordings/ に保存済み(#70)なので
-          // path を渡し、import 側で読み直す。ブラウザ dev 等で path が
-          // 無い場合は bytes → Blob を渡す。
-          const blob = bytes
-            ? new Blob(
-                [
-                  new Uint8Array(
-                    new Uint8Array(
-                      bytes.buffer,
-                      bytes.byteOffset,
-                      bytes.byteLength,
-                    ),
-                  ),
-                ],
-                { type: mimeType ?? "audio/wav" },
-              )
-            : undefined;
-          void importer.importRecording({
-            kind: "recording",
-            name: fileName,
-            source,
-            path,
-            blob,
-          });
+        confirmSilentImport: (info) =>
+          new Promise<boolean>((resolve) => {
+            silentTakeResolver.current = resolve;
+            setPendingSilentTake(info);
+          }),
+        onCaptureDiscarded: ({ path }) => {
+          // WAV は recordings/ に保存済み — 破棄確定なのでファイルごと消す
+          // (ブラウザ dev は silentRatio=0 を返すのでここには来ない)。
+          if (path) void deleteRecording(baseName(path));
         },
+        onCaptureComplete: importCaptureResult,
       }),
-    [importer],
+    [importCaptureResult],
   );
   useEffect(() => () => capture.dispose(), [capture]);
 
@@ -3069,6 +3105,35 @@ export default function App() {
                 ? ja.capture.replaceBodyWithScore
                 : ja.capture.replaceBody}
             </p>
+          </HsDialog>
+          {/* #102: ほぼ無音のテイクは取り込み前に確認 — 無音のまま音源を
+              置き換えて前の音源を失う事故を防ぐ。Esc/外側クローズも破棄扱い
+              (前の音源を維持する側が安全)。 */}
+          <HsDialog
+            open={pendingSilentTake !== null}
+            modalType="alert"
+            title={ja.capture.silentTitle}
+            onOpenChange={(open) => {
+              if (!open) resolveSilentTake(false);
+            }}
+            actions={
+              <>
+                <HsButton
+                  variant="danger"
+                  onClick={() => resolveSilentTake(false)}
+                >
+                  {ja.capture.silentDiscard}
+                </HsButton>
+                <HsButton
+                  variant="secondary"
+                  onClick={() => resolveSilentTake(true)}
+                >
+                  {ja.capture.silentImport}
+                </HsButton>
+              </>
+            }
+          >
+            <p style={{ margin: 0 }}>{ja.capture.silentBody}</p>
           </HsDialog>
           {/* #221: 未保存の変更を破棄する破壊的ナビゲーションの確認。
               保存して続けるは書き込み成功時のみ遷移する。 */}

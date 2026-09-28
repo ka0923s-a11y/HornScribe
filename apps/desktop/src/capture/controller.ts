@@ -76,6 +76,27 @@ export interface CaptureEvents {
   onState(state: CaptureState): void;
   announce(message: string): void;
   /**
+   * #102: silentRatio >= 0.95 のほぼ無音テイクを取り込む前に呼ぶ確認。
+   * true を返すと従来どおり onCaptureComplete へ、false なら破棄して
+   * onCaptureDiscarded へ。未設定なら確認なしで取り込む(従来互換)。
+   * 確認UIの解決を stop() が await する — その間 state は既に idle。
+   */
+  confirmSilentImport?(info: {
+    fileName: string;
+    source: CaptureSource;
+    durationSeconds: number;
+    silentRatio: number;
+  }): Promise<boolean>;
+  /**
+   * #102: 無音テイクの破棄が確定した時に呼ぶ。保存済みファイルの削除は
+   * 呼び出し側(App)の責務 — コントローラはファイル管理を知らない。
+   */
+  onCaptureDiscarded?(info: {
+    path?: string;
+    fileName: string;
+    source: CaptureSource;
+  }): void;
+  /**
    * 録音データをインポートへ橋渡しする(WAV bytes → LoadedAudio)。
    * App が ImportController と繋ぐ。
    */
@@ -353,6 +374,32 @@ export class CaptureController {
           : `録音_${timestampForFile()}.${ext}`;
       this.pendingFileName = null;
       this.setState({ ...INITIAL_CAPTURE_STATE });
+      // #102: ほぼ無音のテイクは取り込み前に確認する。破棄確定なら
+      // インポートせず、保存済みファイルの後始末は呼び出し側に委ねる
+      // (前の音源はインポートが走らないのでそのまま残る)。
+      if (result.silentRatio >= 0.95 && this.events.confirmSilentImport) {
+        let proceed = true;
+        try {
+          proceed = await this.events.confirmSilentImport({
+            fileName,
+            source,
+            durationSeconds: result.durationSeconds,
+            silentRatio: result.silentRatio,
+          });
+        } catch {
+          // 確認UIの失敗で録音を捨てない — fail open で取り込む。
+          proceed = true;
+        }
+        if (!proceed) {
+          this.events.onCaptureDiscarded?.({
+            path: result.path,
+            fileName,
+            source,
+          });
+          this.events.announce(ja.capture.silentDiscarded);
+          return;
+        }
+      }
       this.events.onCaptureComplete({
         path: result.path,
         bytes: result.bytes,
