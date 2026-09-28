@@ -1137,18 +1137,28 @@ export default function App() {
   }, [capture]);
 
   // #76: 録音は現在の音源(と楽譜)を置き換える単一ドキュメントのため、
-  // 既に音源がある時は開始前に確認する。録音中に演奏が鳴っていると
-  // ループバック/マイクに混入するので、開始時に audition は切る。
+  // 既に音源がある時は開始前に確認する。録音中にアプリ由来の音が
+  // 鳴っているとループバック/マイクに混入するので、開始時に
+  // audition と元音源の再生の両方を止める(#97 — §2.4 は audition
+  // だけを止めていたが、ループバックはアプリ自身の出力も録音対象
+  // に含むため同じ混入が起きる)。
+  const launchCapture = useCallback(
+    (source: CaptureSource) => {
+      if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
+      transport.pause();
+      void capture.start(source);
+    },
+    [capture, transport, scoreState?.auditionEnabled],
+  );
   const beginCapture = useCallback(
     (source: CaptureSource) => {
       if (importState.audio || scoreDocument) {
         setPendingCapture(source);
         return;
       }
-      if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
-      void capture.start(source);
+      launchCapture(source);
     },
-    [capture, importState.audio, scoreDocument, scoreState?.auditionEnabled],
+    [importState.audio, scoreDocument, launchCapture],
   );
   /* #221: capture replaces the document too — a dirty score queues
    * the capture behind the 未保存 guard before the replace-source
@@ -1163,9 +1173,8 @@ export default function App() {
     const source = pendingCapture;
     setPendingCapture(null);
     if (!source) return;
-    if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
-    void capture.start(source);
-  }, [capture, pendingCapture, scoreState?.auditionEnabled]);
+    launchCapture(source);
+  }, [pendingCapture, launchCapture]);
 
   const regions = regionVisibility(screen);
 
