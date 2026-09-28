@@ -24,6 +24,7 @@ import type { DiagnosticsInfo, ToolInfo } from "../diagnostics/types";
 import {
   SETTINGS_CATEGORIES,
   playbackRateOptions,
+  CAPTURE_COUNT_IN_SECONDS,
   RECORDINGS_RETENTION_DAYS,
   type AppSettings,
   type SettingsCategory,
@@ -326,6 +327,20 @@ export function SettingsView({
       case "recordings":
         return (
           <>
+            {/* #99: 録音開始カウントイン — ループバックは再生側への切替、
+               マイクは楽器を構える猶予がいる。カウント中は何も録らない。 */}
+            <HsSelect
+              label={s.captureCountIn}
+              value={String(settings.captureCountInSeconds)}
+              options={CAPTURE_COUNT_IN_SECONDS.map((n) => ({
+                value: String(n),
+                label:
+                  n === 0 ? s.captureCountInOff : s.captureCountInSeconds(n),
+              }))}
+              onChange={(v) =>
+                onSettingsChange({ captureCountInSeconds: Number(v) })
+              }
+            />
             <div className="hs-settings__field">
               <Label>{s.recordingsFolder}</Label>
               <div className="hs-settings__path-row">

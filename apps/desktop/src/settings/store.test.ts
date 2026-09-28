@@ -77,6 +77,15 @@ describe("parseSettings", () => {
       parseSettings(JSON.stringify({ recordingsRetentionDays: 30 }))
         .recordingsRetentionDays,
     ).toBe(30);
+    // カウントイン(#99)も同じ契約 — 提供値以外は既定に畳む。
+    expect(
+      parseSettings(JSON.stringify({ captureCountInSeconds: 7 }))
+        .captureCountInSeconds,
+    ).toBe(DEFAULT_SETTINGS.captureCountInSeconds);
+    expect(
+      parseSettings(JSON.stringify({ captureCountInSeconds: 5 }))
+        .captureCountInSeconds,
+    ).toBe(5);
   });
 });
 
@@ -135,4 +144,3 @@ describe("exportFormats persistence (#377)", () => {
     ).toEqual(DEFAULT_SETTINGS);
   });
 });
-

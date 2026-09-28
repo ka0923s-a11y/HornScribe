@@ -73,6 +73,8 @@ export interface AppSettings {
   readonly backend: BackendSetting;
   /** 録音 → 自動削除の保持日数 (0 = 削除しない). */
   readonly recordingsRetentionDays: number;
+  /** 録音 → 開始までのカウント秒数 #99 (0 = すぐ開始). */
+  readonly captureCountInSeconds: number;
   /** 書き出し → 前回選んだ形式 (#377 — re-export keeps the last set). */
   readonly exportFormats: Record<ExportFormatId, boolean>;
 }
@@ -92,6 +94,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ffmpegPath: "",
   backend: "auto",
   recordingsRetentionDays: 0,
+  captureCountInSeconds: 0,
   // #377: the first-run default is every format on; the dialog then
   // persists whatever the user last picked.
   // #357: source audio stays opt-in — a normal score export must
@@ -106,6 +109,8 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
  *  (#354: a stored value outside the list renders as a dead select,
  *  so parse validates membership, not just range). */
 export const RECORDINGS_RETENTION_DAYS = [0, 7, 30, 90] as const;
+/** #99: 録音開始カウントインの提供値 — ループバック切替・楽器構えの猶予。 */
+export const CAPTURE_COUNT_IN_SECONDS = [0, 3, 5, 10] as const;
 const METERS: readonly MeterSetting[] = [
   "auto",
   "4/4",
@@ -179,6 +184,9 @@ export function parseSettings(raw: string | null): AppSettings {
     recordingsRetentionDays:
       oneOfNum(o.recordingsRetentionDays, RECORDINGS_RETENTION_DAYS) ??
       d.recordingsRetentionDays,
+    captureCountInSeconds:
+      oneOfNum(o.captureCountInSeconds, CAPTURE_COUNT_IN_SECONDS) ??
+      d.captureCountInSeconds,
     // #377: per-format booleans — unknown ids are dropped, missing
     // ones fall back to the default so a stale blob never unchecks
     // a format the user never saw.

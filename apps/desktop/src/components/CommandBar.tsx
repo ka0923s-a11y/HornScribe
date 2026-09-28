@@ -27,6 +27,7 @@ import {
   Save24Regular,
   SaveEdit24Regular,
   DocumentBulletList24Regular,
+  DocumentQueue24Regular,
   Search24Regular,
   Options24Regular,
 } from "@fluentui/react-icons";
@@ -77,7 +78,9 @@ function LevelMeter({ level }: { level: number | null }) {
 
 /**
  * Command bar (GUI_UX_SPEC §16, DESIGN_SYSTEM §10).
- * Left: project actions. Center: pitch selector. Right: 要確認/書き出し/設定/overflow.
+ * Left: project actions. Center: pitch selector.
+ * Right: 取り込み(録音)/キュー/要確認/書き出し/設定/overflow (#103:
+ * 採譜キューは録音取り込みと別のジョブ管理として専用メニューを持つ)。
  * Never scrolls; at <1600px secondary labels collapse to icon+tooltip
  * (§21), at <1200px 設定 moves into the overflow menu. The menu always
  * carries the properties show/close toggle so the panel stays reachable.
@@ -106,6 +109,7 @@ export function CommandBar({
   onCaptureMenuClose,
   onToggleCaptureMonitor,
   onShortcutsHelp,
+  queuePendingCount,
 }: {
   commands: CommandSurface;
   pitch: PitchView;
@@ -133,6 +137,9 @@ export function CommandBar({
   onToggleCaptureMonitor?(source: CaptureSource): void;
   /** #318: open the keyboard-shortcuts help overlay. */
   onShortcutsHelp?(): void;
+  /** #103: 採譜キューの pending+running 件数 — 専用メニューボタンの
+   *  ラベルに出す(バックグラウンド進行の存在を常駐表示)。 */
+  queuePendingCount?: number;
 }) {
   // 採譜 ↔ 採譜し直す — same command slot, label follows score presence
   // (the registry hides retranscribe until a score exists).
@@ -377,18 +384,28 @@ export function CommandBar({
           ...deviceItems("microphone", captureDevices.microphone),
         ] satisfies HsMenuItem[])
       : []),
-    // #18: 採譜キュー — 複数ジョブの逐次実行(追加・並び替え・キャンセル)。
-    { key: "queue-divider", divider: true },
+  ];
+  /* #103: 採譜キューは録音取り込みではなくジョブ管理 — マイクの
+   *  取り込みメニューから分離して専用メニューにする。ボタンの件数は
+   *  pending+running(バックグラウンドで動くジョブの存在を常駐表示)。 */
+  const queueLabel =
+    (queuePendingCount ?? 0) > 0
+      ? ja.commandBar.queueWithCount.replace(
+          "{count}",
+          String(queuePendingCount),
+        )
+      : ja.commandBar.queueLabel;
+  const queueMenuItems: HsMenuItem[] = [
     {
-      key: "queue:add",
+      key: "open",
+      label: commands.title("media.openQueue"),
+      icon: <DocumentQueue24Regular />,
+    },
+    {
+      key: "add",
       label: commands.title("media.enqueueAudio"),
       icon: <DocumentBulletList24Regular />,
       disabled: !commands.isEnabled("media.enqueueAudio"),
-    },
-    {
-      key: "queue:open",
-      label: commands.title("media.openQueue"),
-      icon: <CheckmarkCircle24Regular />,
     },
   ];
   const recording = captureState?.phase === "recording";
@@ -472,10 +489,6 @@ export function CommandBar({
           onSelect={(key) => {
             if (key === "loopback") commands.invoke("media.captureSystemAudio");
             else if (key === "microphone") commands.invoke("media.captureMicrophone");
-            else if (key === "queue:add")
-              commands.invoke("media.enqueueAudio");
-            else if (key === "queue:open")
-              commands.invoke("media.openQueue");
             else if (key === "loopback:monitor")
               onToggleCaptureMonitor?.("loopback");
             else if (key === "microphone:monitor")
@@ -504,7 +517,10 @@ export function CommandBar({
             >
               <span className="hs-commandbar__label">
                 {starting
-                  ? ja.capture.startingLabel
+                  ? // #99: カウントイン中は残り秒数を出す(押せば中止)。
+                    captureState?.countInRemaining != null
+                    ? ja.capture.countInLabel(captureState.countInRemaining)
+                    : ja.capture.startingLabel
                   : `${commands.title("media.stopCapture")}${
                       captureState?.elapsedSeconds != null
                         ? ` ${formatElapsed(captureState.elapsedSeconds)}`
@@ -542,6 +558,25 @@ export function CommandBar({
           </Tooltip>
         </>
       )}
+
+      {/* #103: 採譜キュー — 録音の取り込みとは別のジョブ管理なので
+          専用メニューに分離。録音中も開ける(追加だけコマンド側で無効)。 */}
+      <HsMenu
+        trigger={
+          <ToolbarButton
+            icon={<DocumentQueue24Regular />}
+            aria-label={queueLabel}
+          >
+            <span className="hs-commandbar__label">{queueLabel}</span>
+          </ToolbarButton>
+        }
+        items={queueMenuItems}
+        ariaLabel={queueLabel}
+        onSelect={(key) => {
+          if (key === "open") commands.invoke("media.openQueue");
+          else if (key === "add") commands.invoke("media.enqueueAudio");
+        }}
+      />
 
       {loaded ? (
         <Tooltip content={reviewLabel} relationship="label">

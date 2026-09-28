@@ -1067,6 +1067,10 @@ export default function App() {
   useEffect(() => {
     transport.setRate(settings.playbackRate);
   }, [transport, settings.playbackRate]);
+  // #99: 録音開始カウントイン — 設定は即時反映(次の録音から効く)。
+  useEffect(() => {
+    capture.setCountInSeconds(settings.captureCountInSeconds);
+  }, [capture, settings.captureCountInSeconds]);
 
   // #87: 保持日数ポリシー — 起動時に一度だけ古い録音を削除する。
   // settings.recordingsRetentionDays は起動時の値で確定(途中変更は
@@ -2624,6 +2628,11 @@ export default function App() {
                 onCaptureMenuClose={() => void capture.stopMonitor()}
                 onToggleCaptureMonitor={(source) =>
                   void capture.toggleMonitor(source)
+                }
+                queuePendingCount={
+                  queueSnap.entries.filter(
+                    (e) => e.status === "pending" || e.status === "running",
+                  ).length
                 }
                 onShortcutsHelp={() => setShortcutsHelpOpen(true)}
               />
