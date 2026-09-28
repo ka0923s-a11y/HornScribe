@@ -170,6 +170,105 @@ describe("CaptureController", () => {
     );
   });
 
+  it("#102: confirms before importing a near-silent take", async () => {
+    const port = makePort({
+      stop: vi.fn(async (): Promise<CaptureResult> => ({
+        path: "C:\\rec\\quiet.wav",
+        durationSeconds: 3,
+        sampleRate: 48000,
+        channels: 2,
+        silentRatio: 0.98,
+      })),
+    });
+    const { events, completed } = makeEvents();
+    const confirmSilentImport = vi.fn(async () => true);
+    const onCaptureDiscarded = vi.fn();
+    const c = new CaptureController(port, {
+      ...events,
+      confirmSilentImport,
+      onCaptureDiscarded,
+    });
+    await c.start("microphone");
+    await c.stop();
+    expect(confirmSilentImport).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "microphone", silentRatio: 0.98 }),
+    );
+    expect(completed).toHaveLength(1);
+    expect(onCaptureDiscarded).not.toHaveBeenCalled();
+  });
+
+  it("#102: discards a near-silent take when declined", async () => {
+    const port = makePort({
+      stop: vi.fn(async (): Promise<CaptureResult> => ({
+        path: "C:\\rec\\quiet.wav",
+        durationSeconds: 3,
+        sampleRate: 48000,
+        channels: 2,
+        silentRatio: 0.97,
+      })),
+    });
+    const { events, announced, completed } = makeEvents();
+    const confirmSilentImport = vi.fn(async () => false);
+    const onCaptureDiscarded = vi.fn();
+    const c = new CaptureController(port, {
+      ...events,
+      confirmSilentImport,
+      onCaptureDiscarded,
+    });
+    await c.start("loopback");
+    await c.stop();
+    expect(completed).toHaveLength(0);
+    expect(onCaptureDiscarded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "C:\\rec\\quiet.wav",
+        source: "loopback",
+      }),
+    );
+    expect(announced.at(-1)).toContain("破棄");
+    expect(c.getState().phase).toBe("idle");
+  });
+
+  it("#102: imports a near-silent take without a confirm hook", async () => {
+    const port = makePort({
+      stop: vi.fn(async (): Promise<CaptureResult> => ({
+        path: "C:\\rec\\quiet.wav",
+        durationSeconds: 3,
+        sampleRate: 48000,
+        channels: 2,
+        silentRatio: 0.99,
+      })),
+    });
+    const { events, announced, completed } = makeEvents();
+    const c = new CaptureController(port, events);
+    await c.start("microphone");
+    await c.stop();
+    // 互換: 確認フックが無ければ従来どおり取り込み + 無音アナウンス。
+    expect(completed).toHaveLength(1);
+    expect(announced.at(-1)).toContain("無音");
+  });
+
+  it("#102: a failing confirm hook falls back to importing", async () => {
+    const port = makePort({
+      stop: vi.fn(async (): Promise<CaptureResult> => ({
+        path: "C:\\rec\\quiet.wav",
+        durationSeconds: 3,
+        sampleRate: 48000,
+        channels: 2,
+        silentRatio: 0.99,
+      })),
+    });
+    const { events, completed } = makeEvents();
+    const c = new CaptureController(port, {
+      ...events,
+      confirmSilentImport: vi.fn(async () => {
+        throw new Error("ui gone");
+      }),
+    });
+    await c.start("microphone");
+    await c.stop();
+    expect(completed).toHaveLength(1);
+  });
+
   it("pauses and resumes via the port (#80)", async () => {
     const pause = vi.fn(async () => {});
     const resume = vi.fn(async () => {});
