@@ -30,6 +30,7 @@ import {
   DocumentQueue24Regular,
   Search24Regular,
   Options24Regular,
+  HeadphonesSoundWave24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -380,6 +381,19 @@ export function CommandBar({
       label: commands.title("media.captureMicrophone"),
       icon: <Mic24Regular />,
       disabled: !commands.isEnabled("media.captureMicrophone"),
+    },
+    /* #104: プレイアロング — 参照音源をモニターしながらマイク録音。
+     *  音源が無いと成り立たないので hasAudio ゲートのコマンドに従う。 */
+    {
+      key: "playalong",
+      label: commands.title("media.capturePlayalong"),
+      icon: <HeadphonesSoundWave24Regular />,
+      disabled: !commands.isEnabled("media.capturePlayalong"),
+    },
+    {
+      key: "playalong-hint",
+      label: ja.capture.playalongHint,
+      disabled: true,
     },
     // デバイスセクションは一覧が取れた時だけ出す(ブラウザ dev では
     // loopback は空、mic のみ)。両方空なら区切り線ごと出さない。

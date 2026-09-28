@@ -678,6 +678,8 @@ export default function App() {
   const [pendingCapture, setPendingCapture] = useState<CaptureSource | null>(
     null,
   );
+  /** #104: プレイアロング録音の確認(ヘッドホン推奨の案内を兼ねる)。 */
+  const [pendingPlayalong, setPendingPlayalong] = useState(false);
   // #73: 取り込みデバイス選択(capture_devices の結果)。
   const [captureDevices, setCaptureDevices] =
     useState<CaptureDeviceList | null>(null);
@@ -1072,6 +1074,43 @@ export default function App() {
     capture.setCountInSeconds(settings.captureCountInSeconds);
   }, [capture, settings.captureCountInSeconds]);
 
+  /* #104: プレイアロング録音 — 参照音源モニターを録音セッションに
+   *  連動させる。
+   *  armed: capture.start() 発行済み、recording 移行待ち
+   *        (カウントイン中はまだマイクが書いていないので鳴らさない)
+   *  live : recording 中。一時停止に連動してモニターも止める
+   *        (マイクのギャップとモニターのギャップを揃え、再開時に
+   *        参照と録音の拍がずれないように)。 */
+  const playalongRef = useRef<"off" | "armed" | "live">("off");
+  const capturePhase = captureState?.phase;
+  const capturePaused = captureState?.paused;
+  useEffect(() => {
+    const mode = playalongRef.current;
+    if (mode === "off") return;
+    if (mode === "armed") {
+      if (capturePhase === "recording") {
+        playalongRef.current = "live";
+        void transport
+          .seek(0)
+          .then(() => transport.play())
+          .catch(() => undefined);
+      } else if (capturePhase !== "starting") {
+        // デバイスを開けず idle に落ちた等 — armed のまま残さない。
+        playalongRef.current = "off";
+      }
+      return;
+    }
+    // live
+    if (capturePhase === "recording") {
+      if (capturePaused === true) transport.pause();
+      else void transport.play().catch(() => undefined);
+    } else {
+      // 停止/中止/デバイス切断/上限到達 — どれでもモニターを畳む。
+      transport.pause();
+      playalongRef.current = "off";
+    }
+  }, [capturePhase, capturePaused, transport]);
+
   // #87: 保持日数ポリシー — 起動時に一度だけ古い録音を削除する。
   // settings.recordingsRetentionDays は起動時の値で確定(途中変更は
   // 次回起動から有効)。削除件数はステータスバーで知らせる。
@@ -1223,6 +1262,34 @@ export default function App() {
     if (!source) return;
     launchCapture(source);
   }, [pendingCapture, launchCapture]);
+
+  /* #104: プレイアロング — マイク録音しながら参照音源をモニターする。
+   *  モニターの再生自体は recording 移行の effect が担当するので、
+   *  ここでは armed を立ててセッションを始めるだけ。audition/
+   *  メトロノームは通常録音と同じ経路で切る(別系統の参照が2重に
+   *  鳴るのを防ぐ)。 */
+  const launchPlayalong = useCallback(() => {
+    /* 既に録音セッションが動いているなら start() は早期 return し、
+     * armed だけが残って後の録音に誤ってモニターを載せる — 先に弾く。 */
+    if (captureSessionActive(captureState)) return;
+    playalongRef.current = "armed";
+    if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
+    if (scoreState?.metronomeEnabled)
+      scoreCtlRef.current?.toggleMetronome?.();
+    void capture.start("microphone");
+  }, [
+    capture,
+    captureState,
+    scoreState?.auditionEnabled,
+    scoreState?.metronomeEnabled,
+  ]);
+  const requestPlayalong = useCallback(() => {
+    guardDiscard(() => setPendingPlayalong(true));
+  }, [guardDiscard]);
+  const confirmPlayalong = useCallback(() => {
+    setPendingPlayalong(false);
+    launchPlayalong();
+  }, [launchPlayalong]);
 
   const regions = regionVisibility(screen);
 
@@ -2124,6 +2191,10 @@ export default function App() {
       captureMicrophone: () => {
         requestCapture("microphone");
       },
+      // #104: プレイアロング — 参照音源をモニターしながらマイク録音。
+      capturePlayalong: () => {
+        requestPlayalong();
+      },
       stopCapture: () => {
         void capture.stop();
       },
@@ -2299,6 +2370,7 @@ export default function App() {
       session,
       capture,
       requestCapture,
+      requestPlayalong,
       transportSnap,
       waveformSelection,
       settings.skipSeconds,
@@ -3147,6 +3219,31 @@ export default function App() {
                 ? ja.capture.replaceBodyWithScore
                 : ja.capture.replaceBody}
             </p>
+          </HsDialog>
+          {/* #104: プレイアロング — スピーカー音がマイクに入る案内を
+              兼ねた開始確認。Esc/外側クローズ = 開始しない(安全側)。 */}
+          <HsDialog
+            open={pendingPlayalong}
+            modalType="alert"
+            title={ja.capture.playalongTitle}
+            onOpenChange={(open) => {
+              if (!open) setPendingPlayalong(false);
+            }}
+            actions={
+              <>
+                <HsButton variant="primary" onClick={confirmPlayalong}>
+                  {ja.capture.playalongConfirm}
+                </HsButton>
+                <HsButton
+                  variant="secondary"
+                  onClick={() => setPendingPlayalong(false)}
+                >
+                  {ja.capture.playalongCancel}
+                </HsButton>
+              </>
+            }
+          >
+            <p style={{ margin: 0 }}>{ja.capture.playalongBody}</p>
           </HsDialog>
           {/* #102: ほぼ無音のテイクは取り込み前に確認 — 無音のまま音源を
               置き換えて前の音源を失う事故を防ぐ。Esc/外側クローズも破棄扱い

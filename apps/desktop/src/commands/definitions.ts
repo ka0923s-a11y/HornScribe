@@ -248,6 +248,15 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.captureMicrophone?.(),
     },
     {
+      // #104: プレイアロング — 参照音源をモニターしながらマイク録音。
+      // モニター対象の音源が無ければ成り立たないので hasAudio が前提。
+      id: "media.capturePlayalong",
+      title: ja.commands.capturePlayalong,
+      section: "file",
+      isEnabled: (s) => s.hasAudio && !s.isTranscribing && !s.isRecording,
+      run: (ctx) => ctx.capturePlayalong?.(),
+    },
+    {
       id: "media.openQueue",
       title: ja.commands.openQueue,
       section: "file",
