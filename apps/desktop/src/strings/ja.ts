@@ -552,6 +552,8 @@ export const ja = {
     /* #101: メトロノーム + カウントイン(自動演奏の補助レイヤ)。 */
     toggleMetronome: "メトロノーム",
     toggleCountIn: "カウントイン",
+    /* #104: プレイアロング録音 — 参照音源モニター付きのマイク録音。 */
+    capturePlayalong: "参照音源を聴きながら録音",
     /* #100: project save */
     saveProject: "プロジェクトを保存",
     /* #221: Save As — distinct from 書き出し (export artifacts). */
@@ -2116,6 +2118,14 @@ export const ja = {
     silentDiscard: "破棄してやり直す",
     silentImport: "このまま取り込む",
     silentDiscarded: "ほぼ無音の録音を破棄しました",
+    /** #104: プレイアロング — 参照音源をモニターしながらマイク録音。
+     *  メニューの注意行 + 開始前確認(スピーカー音はマイクに入る)の2面。 */
+    playalongHint: "スピーカーの音はマイクに入ります(ヘッドホン推奨)",
+    playalongTitle: "参照音源を聴きながら録音",
+    playalongBody:
+      "再生中の音源に合わせてマイクで録音します。録音したテイクは新しい音源に置き換わります。スピーカーの音はマイクに入り込むので、ヘッドホンを使うときれいに録れます。",
+    playalongConfirm: "再生しながら録音",
+    playalongCancel: "キャンセル",
     limitReachedFinish:
       "連続録音の上限(30分)に達したため、録音を終了しました。",
     cancelledAnnounce: "録音を取りやめました",
