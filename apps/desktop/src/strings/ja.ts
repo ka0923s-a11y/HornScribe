@@ -159,12 +159,23 @@ export const ja = {
      *  auditionOn/Off とは別物 — こちらは「〜しました」の通知文。 */
     auditionOnAnnounce: "楽譜の自動演奏をオンにしました",
     auditionOffAnnounce: "楽譜の自動演奏をオフにしました",
+    /* #101: メトロノーム/カウントイン — audition と同じトグル文型。 */
+    metronomeOn: "メトロノーム: オン",
+    metronomeOff: "メトロノーム: オフ",
+    metronomeOnAnnounce: "メトロノームをオンにしました",
+    metronomeOffAnnounce: "メトロノームをオフにしました",
+    countInOn: "カウントイン: オン",
+    countInOff: "カウントイン: オフ",
+    countInOnAnnounce: "カウントインをオンにしました",
+    countInOffAnnounce: "カウントインをオフにしました",
     /* #72: 元音源(取り込んだ音声)のミュート — 楽譜の演奏だけ聴く用途。 */
     muteSource: "元音源をミュート",
     unmuteSource: "元音源のミュートを解除",
     /* #398: 音量ミキサー — パート別 fader/ソロ/ミュート + 元音源 fader。 */
     mixer: "音量ミキサー",
     mixerSource: "元音源",
+    /* #101: クリック(メトロノーム)の音量 fader。 */
+    mixerClick: "クリック",
     partMute: "ミュート",
     partUnmute: "ミュート解除",
     partSolo: "このパートだけ聴く",
@@ -538,6 +549,9 @@ export const ja = {
     resumeCapture: "録音を再開",
     toggleAudition: "楽譜を演奏",
     toggleSourceMute: "元音源のミュート",
+    /* #101: メトロノーム + カウントイン(自動演奏の補助レイヤ)。 */
+    toggleMetronome: "メトロノーム",
+    toggleCountIn: "カウントイン",
     /* #100: project save */
     saveProject: "プロジェクトを保存",
     /* #221: Save As — distinct from 書き出し (export artifacts). */

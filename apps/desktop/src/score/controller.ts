@@ -118,12 +118,22 @@ export interface ScoreWorkspaceController {
   /** "楽譜を演奏" toggle. When on, the score clock drives WebAudio. */
   toggleAudition(): void;
 
+  /** #101: メトロノーム toggle — clicks the score's beat grid while the
+   *  clock runs, independently of audition (e.g. over the source audio
+   *  to check the detected meter/tempo). */
+  toggleMetronome?(): void;
+  /** #101: カウントイン toggle — when on, play() holds the position for
+   *  one bar of clicks before the score advances. */
+  toggleCountIn?(): void;
+
   /** #398: mixer row edit — volume (0..1), mute, solo for one canonical
    *  part. Applied live to the audition synth; mirrored into state. */
   updatePartMix?(
     index: number,
     patch: { volume?: number; muted?: boolean; solo?: boolean },
   ): void;
+  /** #101: mixer row edit — the click layer's fader (0..1). */
+  updateClickVolume?(volume: number): void;
 
   // ---- review (§12 minimal: navigate open issues on the score) ----
   openReview(): void;
@@ -190,6 +200,11 @@ export interface ScoreWorkspaceState {
   readonly totalIssueCount: number;
   /** FEAT-001: score audition enabled (drives the transport toggle). */
   readonly auditionEnabled: boolean;
+  /** #101: metronome + count-in toggles (transport button states). */
+  readonly metronomeEnabled: boolean;
+  readonly countInEnabled: boolean;
+  /** #101: click-layer fader 0..1 for the mixer popover. */
+  readonly clickVolume: number;
   /** #398: per-part mixer rows (canonical part order) — name, fader 0..1,
    *  mute, solo. Empty until a score with parts loads. */
   readonly partMix: readonly {

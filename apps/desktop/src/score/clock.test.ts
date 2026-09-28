@@ -155,4 +155,63 @@ describe("ScoreCursorClock", () => {
     expect(clock.durationMs()).toBe(4000);
     clock.dispose();
   });
+
+  /* #101: count-in — play(countInMs) freezes the position for that much
+   *  score-time before playback advances. */
+  it("count-in holds the position, then advances normally", () => {
+    const { raf, caf, step } = fakeRaf();
+    const clock = new ScoreCursorClock(8000, { raf, caf });
+    clock.play(1000);
+    expect(clock.isPlaying()).toBe(true);
+    step(100); // rAF arm
+    step(600); // +500 real -> hold 500 remains
+    expect(clock.positionMs()).toBe(0);
+    step(1100); // +500 -> hold exactly consumed
+    expect(clock.positionMs()).toBe(0);
+    step(1600); // now the score advances
+    expect(clock.positionMs()).toBeCloseTo(500);
+    clock.dispose();
+  });
+
+  it("count-in leftover flows into the position mid-tick", () => {
+    const { raf, caf, step } = fakeRaf();
+    const clock = new ScoreCursorClock(8000, { raf, caf });
+    clock.play(400);
+    step(100);
+    step(600); // +500 -> 400 to hold, 100 to the position
+    expect(clock.positionMs()).toBeCloseTo(100);
+    clock.dispose();
+  });
+
+  it("snapshot reports countingIn + remaining; its end force-emits", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const { raf, caf, step } = fakeRaf();
+    const clock = new ScoreCursorClock(8000, { raf, caf });
+    const seen: boolean[] = [];
+    clock.subscribe((s) => seen.push(s.countingIn));
+    clock.play(1000);
+    step(100);
+    step(600);
+    const beforeEnd = seen.length;
+    step(1100); // hold consumed here -> transition must emit at once
+    expect(seen.length).toBe(beforeEnd + 1);
+    expect(seen[seen.length - 1]).toBe(false);
+    clock.dispose();
+    vi.useRealTimers();
+  });
+
+  it("pause and seek during the count-in cancel the hold", () => {
+    const { raf, caf, step } = fakeRaf();
+    const clock = new ScoreCursorClock(8000, { raf, caf });
+    clock.play(1000);
+    step(100);
+    clock.pause();
+    clock.play(); // plain play — no count-in budget
+    step(200);
+    step(700);
+    // Had the old hold survived, pos would still sit at 0.
+    expect(clock.positionMs()).toBeCloseTo(500);
+    clock.dispose();
+  });
 });

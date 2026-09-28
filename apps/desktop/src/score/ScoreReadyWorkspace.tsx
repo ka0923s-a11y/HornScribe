@@ -87,6 +87,7 @@ import {
   type PartMixEntry,
 } from "./playbackSynth";
 import { buildSwingWarp } from "./swingWarp";
+import { clickTrack, countInMs, countInPattern } from "./metronome";
 import {
   allIssuesForCanonical,
   markedCanonicalIds,
@@ -441,12 +442,21 @@ export function ScoreReadyWorkspace({
     isPlaying: false,
     rate: 1,
     loop: null,
+    countingIn: false,
+    countInRemainingMs: 0,
   });
   // FEAT-001: score audition engine. Lazily created when the user turns
   // the audition toggle on; synced with the score clock below.
   const synthRef = useRef<ScorePlaybackSynth | null>(null);
   const [auditionEnabled, setAuditionEnabled] = useState(false);
   const auditionRef = useRef(false);
+  /* #101: メトロノーム/カウントイン — audition とは独立したクリック
+   *  レイヤ。ref はコントローラと sync 配線が最新値を読むための鏡。 */
+  const [metronomeEnabled, setMetronomeEnabled] = useState(false);
+  const metronomeRef = useRef(false);
+  const [countInEnabled, setCountInEnabled] = useState(false);
+  const countInRef = useRef(false);
+  const [clickVolume, setClickVolume] = useState(0.8);
 
   /* #398: per-part mixer rows (canonical part order). Ref mirrors state so
    *  the controller + rebuild helpers always see the latest mix; the state
@@ -913,11 +923,22 @@ export function ScoreReadyWorkspace({
            *  per-part gain buses so the mixer can fade/mute/solo. */
           syncPartMix(scoreDoc.canonicalDocument?.() ?? null),
         );
+        // #101: メトロノームのクリック列 — 拍グリッドは拍子/テンポマップ
+        // 由来(warp 不動点なので swing ワープは不要)。
+        synth.setClickTrack(
+          clickTrack(scoreDoc.canonicalDocument?.() ?? null),
+        );
         clock.subscribe((s) => {
           synth.setLoop(
             s.loop ? { startMs: s.loop.startMs, endMs: s.loop.endMs } : null,
           );
-          synth.sync(s.positionMs, s.isPlaying, s.rate);
+          synth.sync(
+            s.positionMs,
+            s.isPlaying,
+            s.rate,
+            s.countingIn,
+            s.countInRemainingMs,
+          );
         });
       })
       .catch((e: unknown) => {
@@ -1382,6 +1403,10 @@ export function ScoreReadyWorkspace({
         /* #398: the edit may have changed the part list (doc swap,
          *  re-transcribe) — re-derive rows and the routing map. */
         syncPartMix(scoreDoc.canonicalDocument?.() ?? null),
+      );
+      // #101: 拍子/テンポ編集はクリック列も変える — 張り直す。
+      synthRef.current?.setClickTrack(
+        clickTrack(scoreDoc.canonicalDocument?.() ?? null),
       );
       clockRef.current?.setDuration(tableRef.current.durationMs);
       /* #335: an armed loop marks a PASSAGE — re-map it through the
@@ -2085,7 +2110,31 @@ const setKey = useCallback(
         if (reviewOpenRef.current) exitReview();
         else clearSelection();
       },
-      togglePlayPause: () => clockRef.current?.togglePlayPause(),
+      togglePlayPause: () => {
+        const c = clockRef.current;
+        if (!c) return;
+        if (c.isPlaying()) {
+          c.pause();
+          return;
+        }
+        // #101: カウントイン — メトロノームか audition が鳴る時だけ
+        // 1小節分のクリックを武装して保留付きで再生する(無音のまま
+        // 待たせても意味がないので両方オフなら即時開始)。
+        const doc = scoreDoc.canonicalDocument?.() ?? null;
+        // 末尾での play はクロック側で pos=0 に巻き戻る — カウントインの
+        // 拍子は実際に鳴り始める小節から取る(変拍子でずれないため)。
+        const pos =
+          c.positionMs() >= c.durationMs() ? 0 : c.positionMs();
+        const countIn =
+          countInRef.current && (auditionRef.current || metronomeRef.current)
+            ? countInMs(doc, pos)
+            : 0;
+        const synth = synthRef.current;
+        if (synth) {
+          synth.armCountIn(countIn > 0 ? countInPattern(doc, pos) : null);
+        }
+        c.play(countIn);
+      },
       stop: () => clockRef.current?.stop(),
       seekToStart: () => clockRef.current?.seek(0),
       seekToEnd: () => {
@@ -2143,6 +2192,38 @@ const setKey = useCallback(
             ? ja.transport.auditionOnAnnounce
             : ja.transport.auditionOffAnnounce,
         );
+      },
+      // #101: メトロノーム — クリックレイヤは audition と独立。
+      toggleMetronome: () => {
+        const synth = synthRef.current;
+        if (!synth) return;
+        const next = !metronomeRef.current;
+        metronomeRef.current = next;
+        setMetronomeEnabled(next);
+        synth.setMetronome(next);
+        announce(
+          next
+            ? ja.transport.metronomeOnAnnounce
+            : ja.transport.metronomeOffAnnounce,
+        );
+      },
+      // #101: カウントイン — 次の再生から効く設定トグル(即時の音は出ない)。
+      toggleCountIn: () => {
+        const next = !countInRef.current;
+        countInRef.current = next;
+        setCountInEnabled(next);
+        announce(
+          next
+            ? ja.transport.countInOnAnnounce
+            : ja.transport.countInOffAnnounce,
+        );
+      },
+      // #101: クリック音量 fader — synth の click 層のゲインを更新する
+      // (スケジュール済みの鳴りは変えない; ミキサーの行は state 経由)。
+      updateClickVolume: (volume) => {
+        const v = Math.min(1, Math.max(0, volume));
+        setClickVolume(v);
+        synthRef.current?.setClickVolume(v);
       },
       /* #398: mixer row edit — applies live to ringing + future voices
        *  (gain nodes, no reschedule), mirrors into onStateChange so the
@@ -2254,6 +2335,7 @@ const setKey = useCallback(
     mergeSelectedNotes,
     convertSelectedRest,
     announce,
+    scoreDoc,
   ]);
 
   /* --------------------------- state mirror ------------------------------ */
@@ -2285,6 +2367,9 @@ const setKey = useCallback(
       //  the history entry point once pending hits 0.
       totalIssueCount: allIssues.length,
       auditionEnabled,
+      metronomeEnabled,
+      countInEnabled,
+      clickVolume,
       partMix,
       // #399: queued engine edits — unsaved work from the app's
       // perspective even before editVersion moves.
@@ -2304,6 +2389,9 @@ const setKey = useCallback(
     pendingCount,
     docVersion,
     auditionEnabled,
+    metronomeEnabled,
+    countInEnabled,
+    clickVolume,
     partMix,
     pendingEdits,
   ]);

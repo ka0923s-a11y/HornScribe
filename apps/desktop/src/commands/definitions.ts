@@ -203,6 +203,24 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.toggleScoreAudition?.(),
     },
     {
+      // #101: メトロノーム — 拍子/テンポの確認用クリック。スコアがある
+      // 時だけ。録音中はクリックが録音に混入するので止める(audition と
+      // 同じゲート — #72)。
+      id: "transport.toggleMetronome",
+      title: ja.commands.toggleMetronome,
+      section: "transport",
+      isEnabled: (s) => hasScore(s) && !s.isRecording,
+      run: (ctx) => ctx.toggleMetronome?.(),
+    },
+    {
+      // #101: カウントイン — 再生開始前に1小節分クリックのみ鳴らす。
+      id: "transport.toggleCountIn",
+      title: ja.commands.toggleCountIn,
+      section: "transport",
+      isEnabled: (s) => hasScore(s) && !s.isRecording,
+      run: (ctx) => ctx.toggleCountIn?.(),
+    },
+    {
       id: "transport.toggleSourceMute",
       title: ja.commands.toggleSourceMute,
       section: "transport",

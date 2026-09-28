@@ -150,3 +150,18 @@ export function buildBeatToMs(
   if (!bounds || bounds.length === 0) return null;
   return makeBeatToMs(bounds);
 }
+
+/** written ms -> written beat for a canonical scoreDocument dict — the
+ *  inverse of buildBeatToMs, or null on the same missing-map conditions.
+ *  The metronome's count-in needs it to read the local tempo at an
+ *  arbitrary play position (#101). */
+export function buildMsToBeat(
+  canonicalDocument: unknown,
+): ((ms: number) => number) | null {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  if (!content) return null;
+  const bounds = beatBoundaries(content);
+  if (!bounds || bounds.length === 0) return null;
+  return makeMsToBeat(bounds);
+}
