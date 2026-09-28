@@ -76,6 +76,10 @@ export interface MockSidecarOptions {
   /** Advertised job kinds — defaults to the full mock set; pass
    *  ["demoLongTask"] to emulate the UI-002 spike worker exactly. */
   jobKinds?: readonly string[];
+  /** `result.meta` payload for the transcription kind. `undefined` →
+   *  the default meta mirroring the real engine's emitted fields;
+   *  `null` → omit `meta` entirely (older-engine emulation). */
+  transcriptionMeta?: Record<string, unknown> | null;
 }
 
 export class MockSidecarPort implements SidecarPort {
@@ -90,10 +94,15 @@ export class MockSidecarPort implements SidecarPort {
   private jobCounter = 0;
   private job: MockJob | null = null;
   private startedAt = 0;
+  private readonly transcriptionMeta: Record<string, unknown> | null;
 
   constructor(opts: MockSidecarOptions = {}) {
     this.pid = opts.pid ?? 4242;
     this.jobKinds = opts.jobKinds ?? MOCK_JOB_KINDS;
+    this.transcriptionMeta =
+      opts.transcriptionMeta === undefined
+        ? DEFAULT_TRANSCRIPTION_META
+        : opts.transcriptionMeta;
   }
 
   // ---- lifecycle ------------------------------------------------------
@@ -580,7 +589,10 @@ export class MockSidecarPort implements SidecarPort {
         step: next,
         progress: 1,
         elapsedMs: Date.now() - job.startedAt,
-        result: job.jobKind === "transcription" ? transcriptionResult() : { steps: job.params.steps },
+        result:
+          job.jobKind === "transcription"
+            ? transcriptionResult(this.transcriptionMeta)
+            : { steps: job.params.steps },
       });
       return;
     }
@@ -674,9 +686,27 @@ function parseJobParams(raw: unknown): MockJobParams {
 /** Sample completed-job result for the `transcription` kind — real
  *  ReviewIssue reason codes from python/hornscribe/domain/review.py so
  *  the UI's reason→copy mapping is exercised with genuine values. */
-function transcriptionResult(): Record<string, unknown> {
+/** `result.meta` subset the real pipeline emits on completion
+ *  (pipeline.py → `meta` dict). Only the fields downstream surfaces
+ *  read are modelled — a nonzero `alignmentShiftSec` exercises the
+ *  diagnostics timing-correction line (#81). */
+const DEFAULT_TRANSCRIPTION_META: Record<string, unknown> = {
+  tempoBpm: 120.0,
+  tempoAuto: true,
+  meter: "4/4",
+  meterEstimated: false,
+  keyFifths: 0,
+  keyMode: "major",
+  alignmentShiftSec: 0.0124,
+  alignmentMeterResolved: false,
+};
+
+function transcriptionResult(
+  meta: Record<string, unknown> | null,
+): Record<string, unknown> {
   return {
     scoreRevision: "sr-mock-0001",
+    ...(meta !== null ? { meta } : {}),
     reviewIssues: [
       {
         id: "ri-000001",
