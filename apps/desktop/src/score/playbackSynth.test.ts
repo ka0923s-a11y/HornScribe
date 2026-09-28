@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { velocityByCanonicalId } from "./playbackSynth";
 import { bendsByCanonicalId } from "./playbackSynth";
 import { buildScheduledNotes } from "./playbackSynth";
+import { ScorePlaybackSynth } from "./playbackSynth";
 import {
   effectivePartGains,
   partIndexByCanonicalId,
@@ -327,5 +328,147 @@ describe("buildScheduledNotes partOf (#398)", () => {
       new Map(),
     );
     expect(notes[0].partIndex).toBeNull();
+  });
+});
+
+/* ---- #101: metronome + count-in scheduling (fake AudioContext) ---- */
+
+interface FakeOsc {
+  type: string;
+  readonly frequency: {
+    value: number;
+    setValueAtTime(): void;
+    linearRampToValueAtTime(): void;
+  };
+  startedAt: number | null;
+  stoppedAt: number | null;
+}
+
+/** Minimal AudioContext stand-in: records every oscillator so tests can
+ *  assert what got scheduled and when — without real audio. */
+function fakeAudio() {
+  const oscs: FakeOsc[] = [];
+  const gain = () => ({
+    gain: {
+      value: 0,
+      setValueAtTime: () => {},
+      linearRampToValueAtTime: () => {},
+      exponentialRampToValueAtTime: () => {},
+    },
+    connect: () => {},
+    disconnect: () => {},
+  });
+  const ctx = {
+    currentTime: 0,
+    destination: {},
+    createGain: gain,
+    createOscillator: () => {
+      const o: FakeOsc & Record<string, unknown> = {
+        type: "",
+        startedAt: null,
+        stoppedAt: null,
+        frequency: {
+          value: 0,
+          setValueAtTime: () => {},
+          linearRampToValueAtTime: () => {},
+        },
+        connect: () => {},
+        disconnect: () => {},
+        start: (t: number) => {
+          o.startedAt = t;
+        },
+        stop: (t: number) => {
+          o.stoppedAt = t;
+        },
+        onended: null,
+      };
+      oscs.push(o);
+      return o;
+    },
+  };
+  return { ctx: ctx as unknown as AudioContext, oscs };
+}
+
+/** Click oscillators ring at 2350/1760 Hz — voices stay under ~2093. */
+const clickOscs = (oscs: FakeOsc[]) =>
+  oscs.filter((o) => o.frequency.value >= 1000);
+const noteOscs = (oscs: FakeOsc[]) =>
+  oscs.filter((o) => o.frequency.value < 1000);
+
+describe("ScorePlaybackSynth click layer (#101)", () => {
+  it("#113: audition OFF schedules nothing — silent play no longer blips", () => {
+    const { ctx, oscs } = fakeAudio();
+    const synth = new ScorePlaybackSynth({ audioContext: ctx });
+    synth.load(
+      table([seg(0, 500, ["sn-1"])]),
+      new Map([["sn-1", [note("C", 4)]]]),
+    );
+    synth.sync(0, true, 1);
+    expect(oscs).toHaveLength(0);
+    synth.dispose();
+  });
+
+  it("metronome clicks schedule even with audition off", () => {
+    const { ctx, oscs } = fakeAudio();
+    const synth = new ScorePlaybackSynth({ audioContext: ctx });
+    synth.load(
+      table([seg(0, 500, ["sn-1"])]),
+      new Map([["sn-1", [note("C", 4)]]]),
+    );
+    synth.setClickTrack([
+      { startMs: 0, accent: true },
+      { startMs: 300, accent: false },
+      { startMs: 900, accent: true },
+    ]);
+    synth.setMetronome(true);
+    synth.sync(0, true, 1);
+    // LOOKAHEAD 400ms: the 0ms + 300ms clicks schedule, 900ms waits.
+    expect(clickOscs(oscs).map((o) => o.startedAt)).toEqual([0.06, 0.36]);
+    // Audition stays off — the note inside the window stays silent.
+    expect(noteOscs(oscs)).toHaveLength(0);
+    synth.dispose();
+  });
+
+  it("count-in fires the armed pattern; notes shift by the hold", () => {
+    const { ctx, oscs } = fakeAudio();
+    const synth = new ScorePlaybackSynth({ audioContext: ctx });
+    synth.load(
+      table([seg(0, 500, ["sn-1"])]),
+      new Map([["sn-1", [note("C", 4)]]]),
+    );
+    synth.setEnabled(true);
+    synth.armCountIn([
+      { offsetMs: 0, accent: true },
+      { offsetMs: 500, accent: false },
+    ]);
+    synth.sync(0, true, 1, true, 1000);
+    // Count-in clicks at 0.06 + offsets; the note at score-ms 0 waits
+    // out the 1000ms hold -> 0.06 + 1.0.
+    expect(clickOscs(oscs).map((o) => o.startedAt)).toEqual([0.06, 0.56]);
+    const notes = noteOscs(oscs);
+    expect(notes).toHaveLength(2); // triangle + sub-octave
+    expect(notes[0].startedAt).toBeCloseTo(1.06);
+    synth.dispose();
+  });
+
+  it("stopping the click layer only kills clicks, not notes", () => {
+    const { ctx, oscs } = fakeAudio();
+    const synth = new ScorePlaybackSynth({ audioContext: ctx });
+    synth.load(
+      table([seg(0, 500, ["sn-1"])]),
+      new Map([["sn-1", [note("C", 4)]]]),
+    );
+    synth.setClickTrack([{ startMs: 0, accent: true }]);
+    synth.setMetronome(true);
+    synth.setEnabled(true);
+    synth.sync(0, true, 1);
+    synth.setMetronome(false);
+    // The click osc was re-stopped at ctx.currentTime (0) — the voice
+    // oscs keep their originally scheduled stop times (> 0.5s).
+    expect(clickOscs(oscs).map((o) => o.stoppedAt)).toEqual([0]);
+    expect(
+      noteOscs(oscs).every((o) => (o.stoppedAt ?? 0) > 0.5),
+    ).toBe(true);
+    synth.dispose();
   });
 });

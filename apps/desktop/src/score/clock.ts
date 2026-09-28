@@ -20,6 +20,13 @@ export interface ClockSnapshot {
   readonly isPlaying: boolean;
   readonly rate: number;
   readonly loop: LoopRange | null;
+  /** #101: a count-in hold is consuming wall time — the position is
+   *  frozen at the entry point while the count-in bar clicks. */
+  readonly countingIn: boolean;
+  /** #101: remaining count-in budget in score-ms (0 when not counting
+   *  in). The audition synth shifts the resume anchor by this so notes
+   *  sound only after the hold ends. */
+  readonly countInRemainingMs: number;
 }
 
 export interface TransportClock {
@@ -28,7 +35,9 @@ export interface TransportClock {
   isPlaying(): boolean;
   rate(): number;
   loopRange(): LoopRange | null;
-  play(): void;
+  /** #101: countInMs holds the position frozen for that much score-time
+   *  before playback actually advances (one bar of clicks). */
+  play(countInMs?: number): void;
   pause(): void;
   togglePlayPause(): void;
   stop(): void;
@@ -58,6 +67,9 @@ export class ScoreCursorClock implements TransportClock {
   private playing = false;
   private playbackRate = 1;
   private loop: LoopRange | null = null;
+  /** #101: remaining count-in budget in score-ms; while > 0 the rAF
+   *  delta charges here instead of advancing pos. */
+  private holdMs = 0;
   private raf = 0;
   private lastTick = 0;
   private lastSnapshotAt = 0;
@@ -98,10 +110,11 @@ export class ScoreCursorClock implements TransportClock {
     return this.loop;
   }
 
-  play(): void {
+  play(countInMs = 0): void {
     if (this.playing || this.disposed) return;
     if (this.pos >= this.dur) this.pos = 0;
     this.playing = true;
+    this.holdMs = Math.max(0, countInMs);
     this.lastTick = 0;
     this.schedule();
     this.emit(true);
@@ -110,6 +123,7 @@ export class ScoreCursorClock implements TransportClock {
   pause(): void {
     if (!this.playing) return;
     this.playing = false;
+    this.holdMs = 0;
     if (this.raf) {
       this.cafFn(this.raf);
       this.raf = 0;
@@ -130,6 +144,7 @@ export class ScoreCursorClock implements TransportClock {
 
   seek(ms: number): void {
     this.pos = Math.min(this.dur, Math.max(0, ms));
+    this.holdMs = 0; // a seek during the count-in cancels it
     this.emit(true);
   }
 
@@ -189,21 +204,40 @@ export class ScoreCursorClock implements TransportClock {
   private tick(now: number): void {
     if (!this.playing || this.disposed) return;
     if (this.lastTick !== 0) {
-      const dt = (now - this.lastTick) * this.playbackRate;
-      this.pos += dt;
-      const loop = this.loop;
-      if (loop && this.pos >= loop.endMs) {
-        // Wrap inside the loop range, carrying the overshoot.
-        this.pos = loop.startMs + ((this.pos - loop.startMs) % (loop.endMs - loop.startMs));
-      } else if (this.pos >= this.dur) {
-        this.pos = this.dur;
-        this.playing = false;
-        this.emit(true);
-        return;
+      let dt = (now - this.lastTick) * this.playbackRate;
+      const wasCounting = this.holdMs > 0;
+      if (wasCounting) {
+        // #101: the hold consumes the delta first; only the leftover
+        // flows into the position, so the entry lands on schedule even
+        // when the hold ends mid-tick.
+        const used = Math.min(dt, this.holdMs);
+        this.holdMs -= used;
+        dt -= used;
       }
+      if (dt > 0) {
+        this.pos += dt;
+        const loop = this.loop;
+        if (loop && this.pos >= loop.endMs) {
+          // Wrap inside the loop range, carrying the overshoot.
+          this.pos =
+            loop.startMs +
+            ((this.pos - loop.startMs) % (loop.endMs - loop.startMs));
+        } else if (this.pos >= this.dur) {
+          this.pos = this.dur;
+          this.playing = false;
+          this.holdMs = 0;
+          this.emit(true);
+          return;
+        }
+      }
+      // The count-in end is a transition — the synth must reschedule
+      // notes onto the now-moving position without the hold offset.
+      this.lastTick = now;
+      this.emit(wasCounting && this.holdMs === 0);
+      this.schedule();
+      return;
     }
     this.lastTick = now;
-    this.emit(false);
     this.schedule();
   }
 
@@ -214,6 +248,8 @@ export class ScoreCursorClock implements TransportClock {
       isPlaying: this.playing,
       rate: this.playbackRate,
       loop: this.loop ? { ...this.loop } : null,
+      countingIn: this.holdMs > 0,
+      countInRemainingMs: this.holdMs,
     };
   }
 

@@ -18,6 +18,10 @@
  */
 import type { PlaybackTable } from "./playbackTable";
 import type { ParsedNote } from "./scoreDoc";
+// #101: the click model lives in metronome.ts (the synth is its
+// consumer) — re-exported so synth callers keep one import site.
+import type { ClickEvent, CountInClick } from "./metronome";
+export type { ClickEvent, CountInClick } from "./metronome";
 
 /** canonical id → 音高。step/alter/octave から MIDI note を計算する。 */
 const STEP_TO_SEMITONE: Record<string, number> = {
@@ -273,6 +277,22 @@ export class ScorePlaybackSynth {
   private scheduledUntilMs = 0;
   /** ティック間の実経過計測用。 */
   private lastTickAt = 0;
+  /** #101: in-score metronome click track (score-ms). Its own layer —
+   *  audible independently of audition so the detected beat grid can be
+   *  checked against the source audio. */
+  private clicks: ClickEvent[] = [];
+  private metronomeOn = false;
+  /** Click-layer watermark — separate from scheduledUntilMs so toggling
+   *  the metronome mid-play cannot re-fire notes or lose clicks. */
+  private clickUntilMs = 0;
+  private clickNodes = new Set<OscillatorNode>();
+  /** Click loudness multiplier 0..1 (mixer fader). */
+  private clickVol = 0.8;
+  /** #101: count-in — the clock holds the position while the armed
+   *  pattern clicks one bar; notes shift by the remaining hold. */
+  private countingIn = false;
+  private countInRemainingMs = 0;
+  private countInPattern: CountInClick[] = [];
 
   /** 事前スケジュールの先読み幅(ms 相当の score 時間)。 */
   private readonly LOOKAHEAD_MS = 400;
@@ -305,30 +325,55 @@ export class ScorePlaybackSynth {
     );
   }
 
-  /** スコアクロックの位置(ms)を同期する。シーク/レート変更に追従。 */
-  sync(positionMs: number, isPlaying: boolean, rate: number): void {
+  /** スコアクロックの位置(ms)を同期する。シーク/レート変更に追従。
+   *  #101: countingIn + countInRemainingMs はクロックのカウントイン
+   *  保留 — 位置は凍結されたまま、音符は保留分だけ後ろにずれて
+   *  鳴る(カウントインの拍が先に聴こえる)。 */
+  sync(
+    positionMs: number,
+    isPlaying: boolean,
+    rate: number,
+    countingIn = false,
+    countInRemainingMs = 0,
+  ): void {
     const wasPlaying = this.playing;
+    const wasCountingIn = this.countingIn;
     const rateChanged = rate !== this.rate;
     // シーク/ループ折り返し検出: 内部カーソルと大きくズレたら
     // スケジュール済み音声を破棄して新位置から張り直す。
     // ティックの setTimeout ドリフトが 10Hz のスナップショット同期までに
     // 250ms を超え得るので、誤検出を避けるため余裕を持たせる。
+    // #101: カウントイン中は位置が凍結されるので誤検しない。
     const jumped = Math.abs(positionMs - this.cursorMs) > 400;
     this.cursorMs = positionMs;
     this.playing = isPlaying;
     this.rate = rate;
+    this.countingIn = countingIn;
+    this.countInRemainingMs = countInRemainingMs;
+    if (countingIn && !wasCountingIn) {
+      // カウントイン開始: 保有パターンを1小節分スケジュールする。
+      this.scheduleCountIn();
+    }
     if (isPlaying && !wasPlaying) {
       this.scheduledUntilMs = positionMs;
+      this.clickUntilMs = positionMs;
       // 再生開始: 現在位置から先読みスケジュールを開始。
       this.scheduleFromCursor();
     } else if (!isPlaying && wasPlaying) {
-      // 一時停止: 鳴っている音を止める。
+      // 一時停止: 鳴っている音を止める(予約済みクリック含む)。
       this.stopAllVoices();
+      this.stopAllClicks();
       this.stopTimer();
-    } else if (isPlaying && this.enabled && (rateChanged || jumped)) {
+    } else if (
+      isPlaying &&
+      (this.enabled || this.metronomeOn) &&
+      (rateChanged || jumped)
+    ) {
       // レート変更やシーク: スケジュール済みの音は旧基準なので張り直す。
       this.stopAllVoices();
+      this.stopAllClicks();
       this.scheduledUntilMs = positionMs;
+      this.clickUntilMs = positionMs;
       this.scheduleFromCursor();
     }
   }
@@ -343,7 +388,9 @@ export class ScorePlaybackSynth {
     this.enabled = on;
     if (!on) {
       this.stopAllVoices();
-      this.stopTimer();
+      // #101: メトロノーム/カウントイン層が残っている間はティックを
+      // 継続する — audition を切ってもクリックは鳴り続けるのが正しい。
+      if (!this.metronomeOn && !this.countingIn) this.stopTimer();
     } else if (this.playing) {
       this.scheduledUntilMs = this.cursorMs;
       this.scheduleFromCursor();
@@ -352,6 +399,41 @@ export class ScorePlaybackSynth {
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /** #101: in-score click track (score-ms) — from metronome.clickTrack.
+   *  Replaces the list wholesale; a running playback keeps its watermark
+   *  (same convention as load()). */
+  setClickTrack(clicks: readonly ClickEvent[] | null): void {
+    this.clicks = clicks ? [...clicks] : [];
+  }
+
+  /** #101: metronome layer toggle — independent of audition so the beat
+   *  grid can be heard over the source audio too. */
+  setMetronome(on: boolean): void {
+    this.metronomeOn = on;
+    if (!on) {
+      this.stopAllClicks();
+    } else if (this.playing) {
+      this.clickUntilMs = this.cursorMs;
+      this.scheduleFromCursor();
+    }
+  }
+
+  isMetronomeOn(): boolean {
+    return this.metronomeOn;
+  }
+
+  /** #101: click loudness 0..1 (the mixer fader multiplies into the
+   *  accent/beat peaks). */
+  setClickVolume(v: number): void {
+    this.clickVol = Math.min(1, Math.max(0, v));
+  }
+
+  /** #101: arm the count-in pattern — scheduled on the next
+   *  countingIn rising edge from the score clock. null clears it. */
+  armCountIn(pattern: readonly CountInClick[] | null): void {
+    this.countInPattern = pattern ? [...pattern] : [];
   }
 
   setVolume(v: number): void {
@@ -390,34 +472,49 @@ export class ScorePlaybackSynth {
     this.disposeRequested = true;
     this.stopTimer();
     this.stopAllVoices();
+    this.stopAllClicks();
     // AudioContext は外部共有の可能性があるので close はしない。
   }
 
   /* ------------------------------ internals ------------------------------ */
 
   private ensureContext(): AudioContext | null {
-    if (this.ctx) return this.ctx;
-    const Ctor: typeof AudioContext | undefined =
-      globalThis.AudioContext ??
-      (globalThis as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (!Ctor) return null;
-    this.ctx = new Ctor();
+    // master は ctx と別物なので、注入済み ctx の場合でもここで揃える
+    // (#101: テスト注入コンテキストでも実際に鳴らせるようになる)。
+    if (this.ctx && this.master) return this.ctx;
+    if (!this.ctx) {
+      const Ctor: typeof AudioContext | undefined =
+        globalThis.AudioContext ??
+        (globalThis as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctor) return null;
+      this.ctx = new Ctor();
+    }
     this.master = this.ctx.createGain();
     this.master.gain.value = this.volume;
     this.master.connect(this.ctx.destination);
     return this.ctx;
   }
 
-  /** カーソル位置から LOOKAHEAD_MS 先までの音をスケジュールする。 */
+  /** カーソル位置から LOOKAHEAD_MS 先までの音をスケジュールする。
+   *  聴こえるレイヤ(audition / メトロノーム / カウントイン)が1つも
+   *  無い時は AudioContext すら開かない — #113 修正: 以前は audition
+   *  オフのまま再生すると先読み分の音符が鳴っていた。 */
   private scheduleFromCursor(): void {
+    const anyLayer = this.enabled || this.metronomeOn || this.countingIn;
+    if (!anyLayer) return;
     const ctx = this.ensureContext();
-    if (!ctx || !this.master || this.notes.length === 0) return;
+    if (!ctx || !this.master) return;
     this.stopTimer();
 
     // AudioContext の currentTime を基準に、スコア時間 → 実時間に変換する。
     // scoreMs = cursorMs から、実時間 t0 = ctx.currentTime + 少しの猶予。
-    const t0 = ctx.currentTime + 0.06; // 60ms の起動猶予
+    // #101: カウントイン中は残り保留分だけ後ろにずれるので、音符は
+    // カウントインが明けた瞬間から正確に鳴り始める。
+    const t0 =
+      ctx.currentTime +
+      0.06 +
+      (this.countingIn ? this.countInRemainingMs / this.rate / 1000 : 0);
     const rate = this.rate;
     const windowStart = this.cursorMs;
     const windowEnd = windowStart + this.LOOKAHEAD_MS * rate;
@@ -425,25 +522,44 @@ export class ScorePlaybackSynth {
     // (scheduledUntilMs 以前)は二度鳴らさない。
     const scheduleFrom = Math.max(windowStart, this.scheduledUntilMs);
 
-    for (const note of this.notes) {
-      // 進行中の音(note.startMs < cursor)は既に鳴っているはずだが、
-      // シーク直後の整合のため、onset がウィンドウ内にあるものだけ鳴らす。
-      if (note.endMs <= windowStart) continue;
-      if (note.startMs >= windowEnd) break;
-      // onset が過去/スケジュール済みの音は次回 onset を待つ。
-      if (note.startMs < scheduleFrom) continue;
-      const startSec = t0 + (note.startMs - windowStart) / rate / 1000;
-      const durSec = Math.max(0.04, (note.endMs - note.startMs) / rate / 1000);
-      this.spawnVoice(
-        note.freq,
-        startSec,
-        durSec,
-        note.velocity,
-        note.bends,
-        note.partIndex,
-      );
+    if (this.enabled) {
+      for (const note of this.notes) {
+        // 進行中の音(note.startMs < cursor)は既に鳴っているはずだが、
+        // シーク直後の整合のため、onset がウィンドウ内にあるものだけ鳴らす。
+        if (note.endMs <= windowStart) continue;
+        if (note.startMs >= windowEnd) break;
+        // onset が過去/スケジュール済みの音は次回 onset を待つ。
+        if (note.startMs < scheduleFrom) continue;
+        const startSec = t0 + (note.startMs - windowStart) / rate / 1000;
+        const durSec = Math.max(
+          0.04,
+          (note.endMs - note.startMs) / rate / 1000,
+        );
+        this.spawnVoice(
+          note.freq,
+          startSec,
+          durSec,
+          note.velocity,
+          note.bends,
+          note.partIndex,
+        );
+      }
     }
     this.scheduledUntilMs = Math.max(this.scheduledUntilMs, windowEnd);
+
+    // #101: in-score メトロノーム — 音符とは独立したレイヤ。
+    // カウントイン中も発射されると、保留終了 = 小節頭の拍で続く拍子の
+    // グリッドにそのまま繋がる。
+    if (this.metronomeOn && this.clicks.length > 0) {
+      const clickFrom = Math.max(windowStart, this.clickUntilMs);
+      for (const click of this.clicks) {
+        if (click.startMs >= windowEnd) break;
+        if (click.startMs < clickFrom) continue;
+        const startSec = t0 + (click.startMs - windowStart) / rate / 1000;
+        this.spawnClick(click.accent, startSec);
+      }
+      this.clickUntilMs = Math.max(this.clickUntilMs, windowEnd);
+    }
     this.lastTickAt = performance.now();
 
     // ループ: 範囲の終わりに近づいたらループ先頭から再スケジュール。
@@ -464,22 +580,83 @@ export class ScorePlaybackSynth {
   }
 
   private onTick(): void {
-    if (this.disposeRequested || !this.enabled || !this.playing) return;
+    if (this.disposeRequested || !this.playing) return;
+    if (!this.enabled && !this.metronomeOn && !this.countingIn) return;
     // 実経過でカーソルを進める(setTimeout は遅延するので TICK_MS 固定
     // だと徐々に遅れる)。クロック subscribe が 10Hz で補正もする。
     const now = performance.now();
     const elapsedMs = (now - this.lastTickAt) * this.rate;
-    this.cursorMs += elapsedMs;
-    if (this.loopRangeMs) {
-      const { startMs, endMs } = this.loopRangeMs;
-      if (this.cursorMs >= endMs) {
-        const span = endMs - startMs;
-        this.cursorMs = startMs + ((this.cursorMs - startMs) % span);
-        // ループ折り返し: 先読み済み範囲を巻き戻して再スケジュール。
-        this.scheduledUntilMs = this.cursorMs;
+    // #101: カウントイン中はカーソルを進めない — クロック側の位置も
+    // 凍結されているので、進めてしまうと次のスナップショットで
+    // jumped 誤検して張り直しになる。
+    if (!this.countingIn) {
+      this.cursorMs += elapsedMs;
+      if (this.loopRangeMs) {
+        const { startMs, endMs } = this.loopRangeMs;
+        if (this.cursorMs >= endMs) {
+          const span = endMs - startMs;
+          this.cursorMs = startMs + ((this.cursorMs - startMs) % span);
+          // ループ折り返し: 先読み済み範囲を巻き戻して再スケジュール。
+          this.scheduledUntilMs = this.cursorMs;
+          this.clickUntilMs = this.cursorMs;
+        }
       }
     }
     this.scheduleFromCursor();
+  }
+
+  /** #101: armed count-in pattern — one shot on the countingIn rising
+   *  edge. Click times are absolute audio times (offset/rate from the
+   *  count-in start), so the pattern rides the AudioContext clock
+   *  exactly while the score position stays frozen. */
+  private scheduleCountIn(): void {
+    if (this.countInPattern.length === 0) return;
+    const ctx = this.ensureContext();
+    if (!ctx || !this.master) return;
+    const t0 = ctx.currentTime + 0.06;
+    const rate = this.rate;
+    for (const click of this.countInPattern) {
+      this.spawnClick(click.accent, t0 + click.offsetMs / rate / 1000);
+    }
+  }
+
+  /** #101: メトロノームの一拍 — sine の短い打点音。小節頭は高く、
+   *  拍は低く(クラシックなメトロノームの約束事)。 */
+  private spawnClick(accent: boolean, startSec: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return;
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = accent ? 2350 : 1760;
+    const env = ctx.createGain();
+    const peak = Math.max(0.0001, (accent ? 0.55 : 0.34) * this.clickVol);
+    env.gain.setValueAtTime(peak, startSec);
+    env.gain.exponentialRampToValueAtTime(0.0001, startSec + 0.05);
+    osc.connect(env);
+    env.connect(master);
+    osc.start(startSec);
+    osc.stop(startSec + 0.06);
+    this.clickNodes.add(osc);
+    osc.onended = () => {
+      this.clickNodes.delete(osc);
+    };
+  }
+
+  /** 予約済みクリックだけ止める — 音符は鳴らしたまま。 */
+  private stopAllClicks(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    for (const osc of this.clickNodes) {
+      try {
+        osc.stop(now);
+      } catch {
+        /* already stopped */
+      }
+      osc.disconnect();
+    }
+    this.clickNodes.clear();
   }
 
   /** 1 音を鳴らす。ホルンらしい柔らかさのため三角波+正弦波の 2 音構成。 */

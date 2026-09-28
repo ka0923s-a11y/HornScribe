@@ -20,6 +20,8 @@ import {
   SpeakerMute24Regular,
   SpeakerSettings24Regular,
   Headphones24Regular,
+  TopSpeed24Regular,
+  Timer324Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -54,6 +56,8 @@ export function TransportBar({
   followSuspended,
   onToggleFollow,
   auditionEnabled,
+  metronomeEnabled,
+  countInEnabled,
   loopArmed,
   mixer,
 }: {
@@ -78,6 +82,9 @@ export function TransportBar({
   onToggleFollow?(): void;
   /** FEAT-001 (#60): 楽譜の自動演奏がオンか(score clock がある時のみ)。 */
   auditionEnabled?: boolean;
+  /** #101: メトロノーム/カウントインの押下状態。 */
+  metronomeEnabled?: boolean;
+  countInEnabled?: boolean;
   /** #113: A-B loop armed (media loop or score loop) - pressed state. */
   loopArmed?: boolean;
   /** #398: 音量ミキサー — per-part fader/mute/solo rows + the source fader.
@@ -95,6 +102,8 @@ export function TransportBar({
     ): void;
     /** 元音源 fader — only while audio is loaded. */
     readonly source?: { volume: number; onVolume(v: number): void } | null;
+    /** #101: クリック(メトロノーム) fader — スコアがある時のみ。 */
+    readonly click?: { volume: number; onVolume(v: number): void } | null;
   };
 }) {
   // #366: play/stop/seek/loop now reach the score clock too — the
@@ -103,7 +112,8 @@ export function TransportBar({
   const audioOnly = commands.isEnabled("transport.toggleSourceMute");
   const [mixerOpen, setMixerOpen] = useState(false);
   const mixerAvailable =
-    mixer !== undefined && (mixer.parts.length > 0 || mixer.source != null);
+    mixer !== undefined &&
+    (mixer.parts.length > 0 || mixer.source != null || mixer.click != null);
   const position = live
     ? formatTimecode(live.positionSec)
     : (timeLabel?.split(" / ")[0] ?? ja.time.zero);
@@ -280,6 +290,44 @@ export function TransportBar({
           onClick={() => commands.invoke("transport.toggleAudition")}
         />
       </Tooltip>
+      {/* #101: メトロノーム — 拍子/テンポをクリックで確認する。 */}
+      <Tooltip
+        content={
+          metronomeEnabled
+            ? ja.transport.metronomeOn
+            : ja.transport.metronomeOff
+        }
+        relationship="label"
+      >
+        <ToolbarButton
+          icon={<TopSpeed24Regular />}
+          aria-label={
+            metronomeEnabled
+              ? ja.transport.metronomeOn
+              : ja.transport.metronomeOff
+          }
+          aria-pressed={metronomeEnabled === true}
+          disabled={!commands.isEnabled("transport.toggleMetronome")}
+          onClick={() => commands.invoke("transport.toggleMetronome")}
+        />
+      </Tooltip>
+      {/* #101: カウントイン — 再生前に1小節分クリックのみ鳴らす。 */}
+      <Tooltip
+        content={
+          countInEnabled ? ja.transport.countInOn : ja.transport.countInOff
+        }
+        relationship="label"
+      >
+        <ToolbarButton
+          icon={<Timer324Regular />}
+          aria-label={
+            countInEnabled ? ja.transport.countInOn : ja.transport.countInOff
+          }
+          aria-pressed={countInEnabled === true}
+          disabled={!commands.isEnabled("transport.toggleCountIn")}
+          onClick={() => commands.invoke("transport.toggleCountIn")}
+        />
+      </Tooltip>
       {/* #72: 元音源のミュート — 楽譜の演奏だけを聴く用途。 */}
       <Tooltip
         content={
@@ -328,6 +376,19 @@ export function TransportBar({
                 max={100}
                 unit="%"
                 onChange={(v) => mixer.source?.onVolume(v / 100)}
+              />
+            </div>
+          ) : null}
+          {mixer?.click ? (
+            <div className="hs-mixer__row">
+              <HsSlider
+                className="hs-mixer__slider"
+                label={ja.transport.mixerClick}
+                value={Math.round(mixer.click.volume * 100)}
+                min={0}
+                max={100}
+                unit="%"
+                onChange={(v) => mixer.click?.onVolume(v / 100)}
               />
             </div>
           ) : null}

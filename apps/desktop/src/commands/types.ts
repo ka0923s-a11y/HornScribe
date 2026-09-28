@@ -122,6 +122,10 @@ export interface CommandContext {
   resumeCapture?(): void;
   /** 楽譜の自動演奏トグル(スコアクロックに同期して発音)。 */
   toggleScoreAudition?(): void;
+  /** #101: メトロノーム — 楽譜の拍グリッドをクリックで鳴らす。 */
+  toggleMetronome?(): void;
+  /** #101: カウントイン — 再生開始前に1小節分クリックのみ鳴らす。 */
+  toggleCountIn?(): void;
   /** #18: 採譜キューパネルを開く。 */
   openQueue?(): void;
   /** #18: ファイルピッカーで音源をキューに追加する。 */

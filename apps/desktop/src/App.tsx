@@ -1185,10 +1185,18 @@ export default function App() {
   const launchCapture = useCallback(
     (source: CaptureSource) => {
       if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
+      // #101: メトロノームもアプリ由来の音 — audition と同じ混入経路。
+      if (scoreState?.metronomeEnabled)
+        scoreCtlRef.current?.toggleMetronome?.();
       transport.pause();
       void capture.start(source);
     },
-    [capture, transport, scoreState?.auditionEnabled],
+    [
+      capture,
+      transport,
+      scoreState?.auditionEnabled,
+      scoreState?.metronomeEnabled,
+    ],
   );
   const beginCapture = useCallback(
     (source: CaptureSource) => {
@@ -2138,6 +2146,18 @@ export default function App() {
         if (c) c.toggleAudition();
         else setStatusMessage(ja.commandFeedback.disabled);
       },
+      // #101: メトロノーム/カウントイン — スコアワークスペースの
+      // コントローラへ委譲(トグル状態は scoreState で戻る)。
+      toggleMetronome: () => {
+        const c = scoreCtlRef.current;
+        if (c?.toggleMetronome) c.toggleMetronome();
+        else setStatusMessage(ja.commandFeedback.disabled);
+      },
+      toggleCountIn: () => {
+        const c = scoreCtlRef.current;
+        if (c?.toggleCountIn) c.toggleCountIn();
+        else setStatusMessage(ja.commandFeedback.disabled);
+      },
       toggleSourceMute: () => {
         transport.setMuted(!(transportSnap?.muted ?? false));
         setStatusMessage(
@@ -3049,6 +3069,8 @@ export default function App() {
                       c.setFollowEnabled(!(scoreState?.followEnabled ?? true));
                   }}
                   auditionEnabled={scoreState?.auditionEnabled}
+                  metronomeEnabled={scoreState?.metronomeEnabled}
+                  countInEnabled={scoreState?.countInEnabled}
                   loopArmed={
                     transportSnap?.loop != null ||
                     (scoreState?.loopEnabled ?? false)
@@ -3057,7 +3079,8 @@ export default function App() {
                    *  mirror + the source fader while audio is loaded. */
                   mixer={
                     (scoreState?.partMix.length ?? 0) > 0 ||
-                    (transportSnap && transportSnap.status !== "empty")
+                    (transportSnap && transportSnap.status !== "empty") ||
+                    scoreState != null
                       ? {
                           parts: scoreState?.partMix ?? [],
                           onPartChange: (index, patch) =>
@@ -3067,6 +3090,16 @@ export default function App() {
                               ? {
                                   volume: transportSnap.volume,
                                   onVolume: (v) => transport.setVolume(v),
+                                }
+                              : null,
+                          /* #101: クリック fader — メトロノーム層の音量を
+                           *  元音源/パートと同列で調整できる。 */
+                          click:
+                            scoreState != null
+                              ? {
+                                  volume: scoreState.clickVolume,
+                                  onVolume: (v) =>
+                                    scoreCtlRef.current?.updateClickVolume?.(v),
                                 }
                               : null,
                         }
