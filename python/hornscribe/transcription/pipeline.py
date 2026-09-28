@@ -37,7 +37,7 @@ import threading
 import time
 import wave
 from array import array
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from fractions import Fraction
 from itertools import pairwise
@@ -187,6 +187,33 @@ def _track_beats(
         times.append(ft)
         strengths.append(strength)
     return tuple(times), tuple(strengths)
+
+
+def _event_accents(
+    events: Iterable[RawNoteEvent],
+    samples: Any,
+    sample_rate: int,
+) -> tuple[tuple[float, float], ...]:
+    """(onset_sec, post-onset RMS) per event -- meter accent evidence.
+
+    The tracker's onset envelope is too noisy to read performed
+    accents (#87), but the audio energy in a short window after each
+    detected onset tracks them closely. Pure-Python RMS keeps this a
+    no-op on engines without numpy.
+    """
+    window = int(0.12 * sample_rate)
+    out: list[tuple[float, float]] = []
+    n = len(samples)
+    for ev in events:
+        i0 = max(0, int(ev.onset_sec * sample_rate))
+        i1 = min(n, i0 + window)
+        if i1 - i0 < 8:
+            continue
+        seg = samples[i0:i1]
+        ss = sum(float(v) * float(v) for v in seg)
+        out.append((float(ev.onset_sec), math.sqrt(ss / len(seg))))
+    out.sort(key=lambda p: p[0])
+    return tuple(out)
 
 
 def _warp_evidence(warp: TimeWarp) -> dict[str, Any]:
@@ -1047,7 +1074,14 @@ def run_transcription_job(
             # even when the user pinned the tempo (the pinned BPM only
             # replaces the warp; the accent evidence is still real).
             # The same track feeds the tempo warp when tempo is auto.
-            meter_est = estimate_meter(beat_times or (), strengths)
+            accents = _event_accents(
+                (e for c in (cleaned, *cleaned_lowers) for e in c.events),
+                samples,
+                sample_rate,
+            )
+            meter_est = estimate_meter(
+                beat_times or (), strengths, event_accents=accents
+            )
             meter_est_label = meter_est.meter
             # #24 contract fix: an uncertain estimate never writes its
             # guess — the estimator contract (meter.py) says the caller
@@ -1063,12 +1097,12 @@ def run_transcription_job(
             meter_estimated = True
             meter_uncertain = meter_est.uncertain
             meter_confidence = meter_est.confidence
-            # The eighth-note pulse anchor only applies when the
-            # compound-meter read was trusted — an uncertain guess must
-            # not re-denominate the tracked beat (that is exactly how a
-            # misread 6/8 printed "37.45" for a ~108 bpm source).
-            if meter_est.tracked_eighths and not meter_est.uncertain:
-                pulse_unit_ql = Fraction(4, meter.denominator)
+            # A non-beat tracked pulse anchors only when the meter read
+            # was trusted — an uncertain guess must not re-denominate
+            # the tracked beat (that is exactly how a misread 6/8
+            # printed "37.45" for a ~108 bpm source).
+            if meter_est.tracked_unit_ql is not None and not meter_est.uncertain:
+                pulse_unit_ql = meter_est.tracked_unit_ql
             rhythm_done += 1
             step(3, rhythm_done, rhythm_total)
         else:
