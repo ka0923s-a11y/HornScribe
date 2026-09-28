@@ -107,6 +107,7 @@ ALLOWED_LATIN_TOKENS = {
     "Pitch",
     "Verovio",
     "pYIN",
+    "Windows",
     "pip",
     "install",
     "engine",
