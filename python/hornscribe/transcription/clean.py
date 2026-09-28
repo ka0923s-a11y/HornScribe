@@ -54,6 +54,17 @@ GHOST_MAX_SEC = 0.12
 GHOST_INTERVALS = (3, 4, 7, 12, 19, 24)  # m3/M3/P5/octave/octave+P5/2oct
 GHOST_MIN_LEAD_SEC = 0.02  # ghost attack must land after the real attack
 
+# Concurrent octave ghosts (#92): Basic Pitch also emits octave errors
+# that attack WITH the fundamental and ring just as long, so neither
+# GHOST_MAX_SEC nor GHOST_MIN_LEAD_SEC can see them. The tells are
+# simultaneity, an octave-family interval, and a confidence gap too
+# large for a genuine second voice -- BOTH a ratio and an absolute
+# gap are required so a merely quieter real octave doubling survives.
+CONCURRENT_GHOST_ONSET_SEC = 0.06
+CONCURRENT_GHOST_INTERVALS = (12, 19, 24)  # octave, octave+P5, 2oct
+CONCURRENT_GHOST_CONF_RATIO = 0.7
+CONCURRENT_GHOST_CONF_GAP = 0.15
+
 
 @dataclass(frozen=True)
 class CleanedEvents:
@@ -143,10 +154,13 @@ def clean_monophonic(
     if prefer not in ("onset", "top"):
         raise ValueError(f"prefer must be 'onset' or 'top', got {prefer!r}")
     ordered = sorted(events, key=lambda e: (e.onset_sec, e.offset_sec))
+    concurrent_ghosts = _concurrent_ghost_ids(ordered, min_event_sec)
     kept: list[RawNoteEvent] = []
     dropped = 0
     merged = 0
-    for ev in ordered:
+    for i, ev in enumerate(ordered):
+        if i in concurrent_ghosts:
+            continue  # overtone artifact -- counted with ghosts below
         if ev.offset_sec - ev.onset_sec < min_event_sec:
             dropped += 1
             continue
@@ -163,7 +177,7 @@ def clean_monophonic(
 
     clipped = 0
     polyphonic = 0
-    ghosts = 0
+    ghosts = len(concurrent_ghosts)
     final_events: list[RawNoteEvent] = []
     for ev in kept:
         if final_events:
@@ -222,6 +236,55 @@ def clean_monophonic(
         polyphonic_overlaps=polyphonic,
         ghost_dropped=ghosts,
     )
+
+
+def _is_concurrent_ghost(
+    ev: RawNoteEvent, other: RawNoteEvent
+) -> bool:
+    """True when *ev* is an overtone artifact attacking with *other*.
+
+    Unlike _is_harmonic_ghost this does not need a later, shorter
+    attack: the octave error starts at the fundamental's own onset and
+    sustains as long as the real note, so the signal is the
+    simultaneous attack plus a large confidence deficit (#92).
+    """
+    if abs(ev.onset_sec - other.onset_sec) > CONCURRENT_GHOST_ONSET_SEC:
+        return False
+    interval = abs(
+        int(round(ev.pitch_midi)) - int(round(other.pitch_midi))
+    )
+    if interval not in CONCURRENT_GHOST_INTERVALS:
+        return False
+    if ev.confidence is None or other.confidence is None:
+        return False
+    return (
+        ev.confidence < other.confidence * CONCURRENT_GHOST_CONF_RATIO
+        and other.confidence - ev.confidence >= CONCURRENT_GHOST_CONF_GAP
+    )
+
+
+def _concurrent_ghost_ids(
+    ordered: list[RawNoteEvent], min_event_sec: float
+) -> set[int]:
+    """Indexes of concurrent octave ghosts inside one event list.
+
+    Pairwise rather than order-dependent -- the fundamental may sort
+    after its ghost, and a too-short partner cannot kill (it is not
+    even a note). O(n^2) on the raw count, trivial at job sizes.
+    """
+    out: set[int] = set()
+    for i, ev in enumerate(ordered):
+        if ev.confidence is None:
+            continue
+        for j, other in enumerate(ordered):
+            if i == j or other.confidence is None:
+                continue
+            if other.offset_sec - other.onset_sec < min_event_sec:
+                continue
+            if _is_concurrent_ghost(ev, other):
+                out.add(i)
+                break
+    return out
 
 
 def _is_harmonic_ghost(prev: RawNoteEvent, ev: RawNoteEvent) -> bool:
@@ -290,12 +353,15 @@ def split_voices(
     Events that fit no free voice count as dropped_beyond_voices.
     """
     ordered = sorted(events, key=lambda e: (e.onset_sec, -e.pitch_midi))
+    concurrent_ghosts = _concurrent_ghost_ids(ordered, min_event_sec)
     voices: list[list[RawNoteEvent]] = [[] for _ in range(max_voices)]
     dropped = 0
     merged = 0
-    ghosts = 0
+    ghosts = len(concurrent_ghosts)
     beyond = 0
-    for ev in ordered:
+    for i, ev in enumerate(ordered):
+        if i in concurrent_ghosts:
+            continue
         if ev.offset_sec - ev.onset_sec < min_event_sec:
             dropped += 1
             continue

@@ -565,6 +565,54 @@ class TestSplitVoices:
         assert out.dropped_beyond_voices == 0
         assert sum(len(v) for v in out.voices) == 2
 
+    def test_concurrent_octave_ghosts_are_dropped(self) -> None:
+        # #92: the octave error attacks WITH the fundamental and rings
+        # just as long -- neither the short-span nor the late-attack
+        # tells apply, only the confidence deficit does.
+        from hornscribe.transcription.clean import split_voices
+
+        low = self._ev(1, 48, 0.03, 0.44, confidence=0.65)
+        high = self._ev(2, 52, 0.01, 0.44, confidence=0.67)
+        ghost_low = self._ev(3, 60, 0.02, 0.40, confidence=0.42)  # +12 low
+        ghost_high = self._ev(4, 64, 0.02, 0.35, confidence=0.33)  # +12 high
+        out = split_voices((low, high, ghost_low, ghost_high))
+        assert out.ghost_dropped == 2
+        assert sum(len(v) for v in out.voices) == 2
+
+    def test_concurrent_rule_keeps_a_real_quiet_octave(self) -> None:
+        # A genuine octave doubling may be quieter -- the ratio guard
+        # spares it (0.5 is not below 0.65 * 0.7).
+        from hornscribe.transcription.clean import split_voices
+
+        fundamental = self._ev(1, 60, 0.0, 0.5, confidence=0.65)
+        doubled = self._ev(2, 72, 0.01, 0.5, confidence=0.5)
+        out = split_voices((fundamental, doubled))
+        assert out.ghost_dropped == 0
+        assert sum(len(v) for v in out.voices) == 2
+
+    def test_concurrent_rule_needs_the_absolute_gap(self) -> None:
+        # Below-confidence events: the 0.15 absolute deficit guard is
+        # what keeps a soft doubling alive when only the ratio fires.
+        from hornscribe.transcription.clean import split_voices
+
+        fundamental = self._ev(1, 48, 0.0, 0.5, confidence=0.4)
+        doubled = self._ev(2, 60, 0.01, 0.5, confidence=0.27)
+        out = split_voices((fundamental, doubled))
+        assert out.ghost_dropped == 0
+        assert sum(len(v) for v in out.voices) == 2
+
+    def test_concurrent_ghost_does_not_clip_the_real_tail(self) -> None:
+        # clean_monophonic gets the same suppression -- a ghost that
+        # sorts after the real note used to clip its tail and survive.
+        from hornscribe.transcription.clean import clean_monophonic
+
+        real = self._ev(1, 48, 0.0, 0.5, confidence=0.65)
+        ghost = self._ev(2, 60, 0.02, 0.4, confidence=0.4)  # +12 at onset
+        out = clean_monophonic((real, ghost))
+        assert out.ghost_dropped == 1
+        assert [e.pitch_midi for e in out.events] == [48.0]
+        assert out.events[0].offset_sec == pytest.approx(0.5)
+
     def test_crossing_lines_keep_their_own_voice(self) -> None:
         # #85: free voices are chosen by pitch proximity, so a line
         # that dips under a held note still continues its own stream
