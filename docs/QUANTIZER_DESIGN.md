@@ -695,6 +695,63 @@ UI:
 拍位置を確認してください
 ```
 
+### #78 拍節情報による解消 (meter-aware alignment)
+
+上記のresidualスコアだけでは、系統的な検出バイアスに2つの敗北モードがある。
+
+1. **offbeat-16th alias**: Basic Pitch 等の onset が一貫して早め/遅めに
+   出ると、真の拍位相より「裏16分位相」の方が fine grid に少しだけ
+   良くfitし、全音符が16分1個ずれて記譜される（実測6/8で発生）。
+2. **swing/triplet 補正の歪み**: 3連位置の onset は fine grid のみで
+   測ると常に residual を持つ。Huber コストは誤差を均す方を好むので、
+   「全 onset を僅かにずらして 3連を16分に寄せる」妥協位相が勝ち、
+   swing census が 2/3 を読めなくなる。
+
+対策は2段階（`estimate_alignment_shift(events, warp, profile,
+meter_map=…)`；meter_map 未指定なら旧来の meter-agnostic 挙動）。
+
+#### notatable lattice residual
+
+meter_map がある場合、residual は fine grid 単体ではなく
+**記譜可能ラティス**（fine grid ∪ セグメントの拍/3＝3連位置）への
+距離で測る。3連位置に正しく乗る onset は「記譜上正しい位置」なので
+residual を持たず、swing の裏拍が矯正されない（#134 の swingFeel が
+2/3 を保つ）。複合拍子では拍/3=8分＝fine grid に既に含まれるので
+無害な no-op。
+
+#### metrical tie-break
+
+残る競合極小（coarse grid 上の local minimum）は**拍節強度カーネル**
+で順位付けする:
+
+```text
+hits(δ) = Σ_i w_i · max_level[ level_w · max(0, 1 − d_level/ε) ]
+```
+
+- ε = 0.06 ql（三角カーネル — ヒューマナイズされた timing が部分点を
+  持つ。hit 計数は距離和ではないので「全体に少しずれる」位相は
+  「半数が拍に一致」に負ける）
+- level_w: beat=1.0, eighth=0.65, triplet-third=0.45（simple）;
+  beat=1.0, eighth=0.6（compound）—「全部が拍」は「全部が3連位置」
+  に明確に勝つ
+
+候補の収集は uncertainty 許容（best_score の 5%）より**広い**
+（`ALIGNMENT_TIEBREAK_PER_WEIGHT = 0.02 × Σw` を併用）:
+系統バイアスは offbeat 位相を真位相より *僅かに* 良く fit させるので、
+正直な競合は 5% 帯のすぐ外に落ちる。
+
+勝者は
+
+- リード: `hits(lead) − hits(second) ≥ 0.15 × Σw`
+- 証拠量: `hits(lead) ≥ 0.30 × Σw`
+
+を両方満たすとき適用し、`AlignmentEstimate.meter_resolved` /
+`QuantizationDiagnostics.alignment_meter_resolved` / job meta
+`alignmentMeterResolved` に記録する。差がつかない場合は従来通り
+`beat_alignment_uncertain`（8分グリッド同士の index alias のような
+真の曖昧さはここに残る）。band edge の勝者はタイブレークしない
+（真の shift が帯域外の可能性があるため）。
+
 ---
 
 # 7. Meter tree
