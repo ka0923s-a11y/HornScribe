@@ -154,8 +154,12 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   { fg: "--hs-status-info", bg: "--hs-surface-app", kind: "text" },
   // Danger (destructive) button label.
   { fg: "--hs-danger-foreground", bg: "--hs-danger", kind: "text" },
-  // Score ink/staff on the (always light) score paper.
+  // Score ink/staff on the (always light) score paper — including the
+  // #120 on-paper UI ramps for the transparent state containers.
   { fg: "--hs-score-ink", bg: "--hs-surface-score", kind: "text" },
+  { fg: "--hs-score-ink-secondary", bg: "--hs-surface-score", kind: "text" },
+  { fg: "--hs-score-ink-muted", bg: "--hs-surface-score", kind: "text" },
+  { fg: "--hs-score-ink-error", bg: "--hs-surface-score", kind: "text" },
   // Non-text interactive cues (≥3:1 per §6).
   { fg: "--hs-focus", bg: "--hs-surface-app", kind: "non-text" },
   { fg: "--hs-focus", bg: "--hs-surface-panel", kind: "non-text" },

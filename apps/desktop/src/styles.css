@@ -850,13 +850,17 @@ body {
   min-height: 0;
   padding: var(--hs-space-lg);
   background: var(--hs-surface-score);
-  color: var(--hs-text-primary);
+  /* #120: the paper is light in both themes — chrome text-primary is
+     white in dark mode, so the region's base ink must be paper-safe. */
+  color: var(--hs-score-ink);
   /* Score paper keeps a hairline radius, not decorative rounding (§7). */
   border-radius: var(--hs-radius-score-paper);
   overflow: auto;
 }
 .hs-score--dragover {
-  outline: 2px dashed var(--hs-accent);
+  /* --hs-accent is light-blue in dark mode (~2.4:1 on paper) — the
+     drop affordance needs the paper-safe active-note blue instead. */
+  outline: 2px dashed var(--hs-score-active-note);
   outline-offset: -8px;
 }
 .hs-score__empty-title {
@@ -864,7 +868,7 @@ body {
   font-size: var(--hs-font-size-title);
   line-height: var(--hs-line-height-title);
   font-weight: 400;
-  color: var(--hs-text-primary);
+  color: var(--hs-score-ink);
 }
 /* Score-ready placeholder paper: bounded page shape inside the score
    surface until UI-003 renders real notation. */
@@ -879,7 +883,7 @@ body {
   border: 1px solid var(--hs-score-paper-border);
   border-radius: var(--hs-radius-score-paper);
   background: var(--hs-surface-score);
-  color: var(--hs-text-muted);
+  color: var(--hs-score-ink-muted);
   font-size: var(--hs-font-size-compact);
 }
 
@@ -995,6 +999,18 @@ body {
   margin: 0;
   color: var(--hs-text-muted);
   font-size: var(--hs-font-size-caption);
+}
+
+/* #120: the empty/transcribing states are transparent and paint on the
+   (always light) score paper — rebind their text/status tokens to the
+   paper-safe ramps so dark theme keeps them readable. Scoped to these
+   containers only: they carry no surfaced children, and the toolbar /
+   review tint / elevated cards inside .hs-score must keep chrome text. */
+.hs-score .hs-empty,
+.hs-score .hs-transcribing {
+  --hs-text-secondary: var(--hs-score-ink-secondary);
+  --hs-text-muted: var(--hs-score-ink-muted);
+  --hs-status-error: var(--hs-score-ink-error);
 }
 
 /* 最近使ったプロジェクト (§3: rendered only when history exists) — a quiet
@@ -1528,6 +1544,9 @@ body {
   min-height: 36px;
   padding: var(--hs-space-xs) var(--hs-space-ms);
   background: var(--hs-surface-panel);
+  /* Panel surface inside the paper region — base ink stays chrome
+     (.hs-score's own color is paper ink since #120). */
+  color: var(--hs-text-secondary);
   border-bottom: 1px solid var(--hs-border-subtle);
   white-space: nowrap;
   overflow: hidden;
@@ -1942,7 +1961,7 @@ body {
   align-items: center;
   justify-content: center;
   flex: 1 1 auto;
-  color: var(--hs-text-muted);
+  color: var(--hs-score-ink-muted);
   font-size: var(--hs-font-size-compact);
 }
 .hs-score-error {
@@ -1958,12 +1977,12 @@ body {
 .hs-score-error h2 {
   margin: 0;
   font-size: var(--hs-font-size-subtitle);
-  color: var(--hs-text-primary);
+  color: var(--hs-score-ink);
 }
 .hs-score-error p {
   margin: 0;
   max-width: 40em;
-  color: var(--hs-text-secondary);
+  color: var(--hs-score-ink-secondary);
   font-size: var(--hs-font-size-compact);
 }
 
