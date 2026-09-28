@@ -310,6 +310,42 @@ describe("CaptureController", () => {
     }
   });
 
+  it("#105: accumulates live waveform peaks from status ticks", async () => {
+    vi.useFakeTimers();
+    try {
+      let total = 4;
+      const port = makePort({
+        status: vi.fn(async (): Promise<CaptureStatus> => ({
+          active: true,
+          source: "microphone",
+          elapsedSeconds: 1,
+          deviceName: "dev",
+          waveformTotal: total,
+          waveformPeaks: [0.1, 0.5, 0.2, 0.4, 0.7, 0.9].slice(
+            Math.max(0, total - 6),
+            total,
+          ),
+        })),
+      });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      await c.start("microphone");
+      await vi.advanceTimersByTimeAsync(250);
+      expect(c.getState().takePeaks).toEqual([0.1, 0.5, 0.2, 0.4]);
+      // 2 ピーク増えた次の tick は差分だけ追記する。
+      total = 6;
+      await vi.advanceTimersByTimeAsync(250);
+      expect(c.getState().takePeaks).toEqual(
+        [0.1, 0.5, 0.2, 0.4, 0.7, 0.9],
+      );
+      // 同一 total の再ポーリングは重複しない。
+      await vi.advanceTimersByTimeAsync(250);
+      expect(c.getState().takePeaks).toHaveLength(6);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("pauses and resumes via the port (#80)", async () => {
     const pause = vi.fn(async () => {});
     const resume = vi.fn(async () => {});

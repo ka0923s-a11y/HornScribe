@@ -54,6 +54,9 @@ export interface CaptureState {
   /** #99: 録音開始カウントインの残り秒数。非 null の間 phase は
    *  "starting" — デバイスはまだ開かれておらず何も録っていない。 */
   readonly countInRemaining?: number | null;
+  /** #105: 録音中のライブ波形 — ~25Hz ピーク列。take 毎に作り直す
+   *  append-only 配列で、UI からは readonly として見せる。 */
+  readonly takePeaks?: readonly number[];
 }
 
 export const INITIAL_CAPTURE_STATE: CaptureState = {
@@ -163,6 +166,9 @@ export class CaptureController {
   private startedAtMs = 0;
   /** #99: 録音開始までのカウント秒数(0 = すぐ開始)。設定から App が流す。 */
   private countInSeconds = 0;
+  /** #105: take 中のライブ波形ピークと既読位置(status の total 差分で追記)。 */
+  private takePeaks: number[] = [];
+  private takePeaksSeen = 0;
   /** start 時に決めた保存/表示ファイル名(stop で使い回す)。 */
   private pendingFileName: string | null = null;
   /** ソース別の選択デバイス ID(#73)。null = 既定。 */
@@ -295,6 +301,9 @@ export class CaptureController {
         }
         return;
       }
+      // #105: take 毎に波形を張り直す — 参照は state 経由で UI へ。
+      this.takePeaks = [];
+      this.takePeaksSeen = 0;
       this.setState({
         phase: "recording",
         source,
@@ -304,6 +313,7 @@ export class CaptureController {
         level: null,
         paused: false,
         monitor: null,
+        takePeaks: this.takePeaks,
       });
       this.pendingFileName = fileName;
       this.startedAtMs = Date.now();
@@ -641,6 +651,18 @@ export class CaptureController {
             });
             this.events.announce(issueText(issue));
             return;
+          }
+          // #105: ライブ波形ピーク — total 差分で新規分だけ追記する
+          // (複数の status 読者がいても各自の cursor で整合する)。
+          if (s.waveformTotal != null && s.waveformPeaks) {
+            const fresh = s.waveformTotal - this.takePeaksSeen;
+            if (fresh > 0) {
+              const tail = s.waveformPeaks;
+              this.takePeaks.push(
+                ...tail.slice(Math.max(0, tail.length - fresh)),
+              );
+              this.takePeaksSeen = s.waveformTotal;
+            }
           }
           this.setState({
             ...this.state,

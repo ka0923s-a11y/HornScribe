@@ -52,6 +52,11 @@ export interface CaptureStatus {
   /** #42: このセッションが書き出しの無いレベルモニターなら真。
    *  モニター中に録音中UIを出さないための識別子。 */
   monitoring?: boolean;
+  /** #105: ライブ波形 — 確定ピーク総数(バケット列の長さ)と末尾。
+   *  UI は total 差分で新規分だけ追記する(Tauri 経路のみ、
+   *  ブラウザ dev では未定義)。 */
+  waveformTotal?: number;
+  waveformPeaks?: readonly number[];
 }
 
 /** 録音デバイス1台(#73)。 */
