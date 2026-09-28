@@ -116,7 +116,12 @@ def test_hsq_beats_baselines_on_ioi_fixture() -> None:
     # context the IOI term is still load-bearing: B3-no-ioi regresses.
     assert metrics["B4-no-ioi"].exact_onset_rate == 1.0
     assert metrics["B3"].exact_onset_rate == 1.0
-    assert metrics["B3-no-ioi"].exact_onset_rate == 0.5
+    # #78: the pair is also a *global* ~60 ms latency — the meter-aware
+    # alignment pull resolves it upstream of the DP, so the timing-only
+    # no-IOI arm no longer regresses here. The DP-level IOI contribution
+    # stays covered by test_ioi_cost_recovers_consistent_shift (shift
+    # search off).
+    assert metrics["B3-no-ioi"].exact_onset_rate == 1.0
 
 
 def test_b4_beats_nearest_grid_on_latency65() -> None:
@@ -131,9 +136,11 @@ def test_b4_beats_nearest_grid_on_latency65() -> None:
     assert metrics["B4"].exact_onset_rate == 1.0
     assert metrics["B0"].exact_onset_rate < 1.0
     assert metrics["B1"].exact_onset_rate < 1.0
-    # the band-aliased alignment estimate is flagged, not silently applied
-    assert metrics["B4"].review_issue_count is not None
-    assert metrics["B4"].review_issue_count >= 1
+    # #78: the band-aliased alignment is *resolved*, not merely flagged —
+    # among the competing phases (true -65 ms vs the index-aliased +60 ms),
+    # the metrical tie-break lands the quarters on beats instead of odd
+    # sixteenths, so the correct -65 ms applies cleanly upstream of the DP.
+    assert metrics["B4"].review_issue_count == 0
 
 
 def test_tiny_rest_ablation_on_articulation_fixture() -> None:
