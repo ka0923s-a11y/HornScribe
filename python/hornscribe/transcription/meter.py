@@ -35,6 +35,7 @@ surfaces a 'meter_conflict' review issue so the user can override.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -91,6 +92,10 @@ _CENSUS_DEFAULT_TERNARY = 0.3
 # is explaining the same downbeats twice (6/8's alternation also
 # satisfies period 4) -- drop the larger candidate.
 _REDUNDANT_PERIOD_TOLERANCE = 1.05
+# Beat intervals spread wider than this mean a genuine tempo change,
+# not jitter -- switch to index-space slots so a 100->140 step still
+# reads accents on the beat lattice (#93).
+_VARIABLE_PULSE_RATIO = 1.25
 # Score-time value (quarterLength) of one tracked pulse when the
 # tracker sits on eighths regardless of the winning label.
 _EIGHTH_QL = Fraction(1, 2)
@@ -151,12 +156,13 @@ def estimate_meter(
         # mapping exists at that level.
         return _default()
     if event_accents:
+        variable = intervals[-1] > intervals[0] * _VARIABLE_PULSE_RATIO
         if pulse_bpm >= _EIGHTH_LEVEL_BPM:
             return _estimate_eighth_level(
-                beat_times_sec, event_accents, median_sec
+                beat_times_sec, event_accents, median_sec, variable
             )
         return _estimate_beat_level(
-            beat_times_sec, event_accents, median_sec
+            beat_times_sec, event_accents, median_sec, variable
         )
     return _estimate_from_strengths(beat_times_sec, strengths, pulse_bpm)
 
@@ -178,25 +184,83 @@ def _slot_phase(
     return first + (residuals[len(residuals) // 2] if residuals else 0.0)
 
 
-def _slot_accents(
+def _slot_evidence(
     beat_times_sec: tuple[float, ...],
     event_accents: tuple[tuple[float, float], ...],
     interval_sec: float,
-) -> tuple[list[float], float]:
-    """Uniform beat slots each taking its loudest nearby event accent.
+    variable: bool,
+) -> tuple[list[float], int, int]:
+    """(slot accents, ternary census, binary census) on the beat grid.
 
-    Returns the accent per slot plus the grid phase -- the census
-    needs the same origin to read interior phases.
+    Uniform mode regularises the tracked beats onto a median-interval
+    grid and recentres on the onsets' own cluster -- a dropped tracker
+    beat or a systematic ~40 ms detection lag cannot shift every
+    interior phase. Variable mode (a real tempo step) instead reads
+    each event inside its containing beat interval, so the lattice
+    survives differing beat lengths (#93).
     """
+    n = len(beat_times_sec)
+    accents = [0.0] * n
+    ternary = binary = 0
+    max_accent = max((a for _, a in event_accents), default=0.0)
+    lag_window = _LAG_WINDOW_FRAC * interval_sec
+
+    if variable:
+        # Index-space lattice: beat i IS slot i. Detector lag is the
+        # median onset-to-nearest-beat offset in seconds.
+        residuals = []
+        for onset, _a in event_accents:
+            i = bisect_left(beat_times_sec, onset)
+            cands = [j for j in (i - 1, i) if 0 <= j < n]
+            if not cands:
+                continue
+            offset = min(
+                (onset - beat_times_sec[j] for j in cands), key=abs
+            )
+            if abs(offset) <= lag_window:
+                residuals.append(offset)
+        lag = (
+            sorted(residuals)[len(residuals) // 2]
+            if len(residuals) >= 3
+            else 0.0
+        )
+
+        def index_pos(t: float) -> float:
+            """Continuous beat-index position of an onset."""
+            tt = t - lag
+            i = bisect_left(beat_times_sec, tt)
+            if i == 0:
+                d = beat_times_sec[1] - beat_times_sec[0]
+                return (tt - beat_times_sec[0]) / d if d > 0 else 0.0
+            if i >= n:
+                d = beat_times_sec[-1] - beat_times_sec[-2]
+                return (n - 1) + (tt - beat_times_sec[-1]) / d if d > 0 else 0.0
+            d = beat_times_sec[i] - beat_times_sec[i - 1]
+            return (i - 1) + (tt - beat_times_sec[i - 1]) / d if d > 0 else 0.0
+
+        for onset, accent in event_accents:
+            pos = index_pos(onset)
+            base = int(pos) if pos >= 0 else int(pos) - 1
+            frac = pos - base
+            edge = min(frac, 1.0 - frac)
+            if edge <= _ON_BEAT_FRAC:
+                idx = base if frac <= 0.5 else base + 1
+                if 0 <= idx < n and accent > accents[idx]:
+                    accents[idx] = accent
+                continue
+            if max_accent > 0 and accent < _CENSUS_MIN_ACCENT_SHARE * max_accent:
+                continue
+            ternary_dist = min(abs(frac - 1 / 3), abs(frac - 2 / 3))
+            binary_dist = abs(frac - 0.5)
+            if ternary_dist <= _CENSUS_TOL_FRAC and ternary_dist < binary_dist:
+                ternary += 1
+            elif binary_dist <= _CENSUS_TOL_FRAC:
+                binary += 1
+        return accents, ternary, binary
+
     phase = _slot_phase(beat_times_sec, interval_sec)
     window = _ON_BEAT_FRAC * interval_sec
-    # Systematic detector lag: the note-onset detector stamps events a
-    # fraction of a beat off the librosa beat grid (~0.1 beat on the
-    # bench fixtures). Centre the grid on the onsets' own cluster or
-    # every interior phase reads shifted -- merged triplet pairs used
-    # to land on 1/2 and vote binary for a genuinely ternary groove.
     residuals = []
-    lag_window = _LAG_WINDOW_FRAC * interval_sec
     for onset, _a in event_accents:
         k = int(round((onset - phase) / interval_sec))
         offset = onset - (phase + k * interval_sec)
@@ -206,16 +270,23 @@ def _slot_accents(
         phase += sorted(residuals)[len(residuals) // 2]
     k_lo = int(round((beat_times_sec[0] - phase) / interval_sec))
     k_hi = int(round((beat_times_sec[-1] - phase) / interval_sec))
-    accents = [0.0] * (k_hi - k_lo + 1)
     for onset, accent in event_accents:
         k = int(round((onset - phase) / interval_sec))
         if not k_lo <= k <= k_hi:
             continue
         if abs(onset - (phase + k * interval_sec)) <= window:
-            idx = k - k_lo
-            if accent > accents[idx]:
-                accents[idx] = accent
-    return accents, phase
+            accents[k - k_lo] = max(accents[k - k_lo], accent)
+            continue
+        frac = ((onset - phase) / interval_sec) % 1.0
+        if max_accent > 0 and accent < _CENSUS_MIN_ACCENT_SHARE * max_accent:
+            continue
+        ternary_dist = min(abs(frac - 1 / 3), abs(frac - 2 / 3))
+        binary_dist = abs(frac - 0.5)
+        if ternary_dist <= _CENSUS_TOL_FRAC and ternary_dist < binary_dist:
+            ternary += 1
+        elif binary_dist <= _CENSUS_TOL_FRAC:
+            binary += 1
+    return accents, ternary, binary
 
 
 def _period_ratio(accents: list[float], period: int) -> float:
@@ -262,6 +333,7 @@ def _estimate_beat_level(
     beat_times_sec: tuple[float, ...],
     event_accents: tuple[tuple[float, float], ...],
     interval_sec: float,
+    variable: bool,
 ) -> MeterEstimate:
     """Primary-beat tracking: slot accent period + subdivision census.
 
@@ -270,30 +342,12 @@ def _estimate_beat_level(
     so the census is what separates 6/8 from 2/4 at identical accent
     periods.
     """
-    accents, phase = _slot_accents(
-        beat_times_sec, event_accents, interval_sec
+    accents, ternary, binary = _slot_evidence(
+        beat_times_sec, event_accents, interval_sec, variable
     )
     if not accents or sum(accents) <= 0:
         return _default()
 
-    loudest = max(a for _, a in event_accents)
-    ternary = binary = 0
-    lo = beat_times_sec[0] - 0.5 * interval_sec
-    hi = beat_times_sec[-1] + 0.5 * interval_sec
-    for onset, accent in event_accents:
-        if not lo <= onset <= hi:
-            continue
-        if loudest > 0 and accent < _CENSUS_MIN_ACCENT_SHARE * loudest:
-            continue
-        frac = ((onset - phase) / interval_sec) % 1.0
-        if min(frac, 1.0 - frac) <= _ON_BEAT_FRAC:
-            continue  # on-beat -- accent evidence, not groove evidence
-        ternary_dist = min(abs(frac - 1 / 3), abs(frac - 2 / 3))
-        binary_dist = abs(frac - 0.5)
-        if ternary_dist <= _CENSUS_TOL_FRAC and ternary_dist < binary_dist:
-            ternary += 1
-        elif binary_dist <= _CENSUS_TOL_FRAC:
-            binary += 1
     ternary_ratio = (
         ternary / (ternary + binary)
         if (ternary + binary)
@@ -335,6 +389,7 @@ def _estimate_eighth_level(
     beat_times_sec: tuple[float, ...],
     event_accents: tuple[tuple[float, float], ...],
     interval_sec: float,
+    variable: bool,
 ) -> MeterEstimate:
     """Eighth-note pulse: lag accents on the slot grid.
 
@@ -344,8 +399,8 @@ def _estimate_eighth_level(
     rescues simple 4/4 pieces whose tracker landed on eighths (the
     old estimate mislabelled or mis-anchored them).
     """
-    accents, _phase = _slot_accents(
-        beat_times_sec, event_accents, interval_sec
+    accents, _t, _b = _slot_evidence(
+        beat_times_sec, event_accents, interval_sec, variable
     )
     if not accents or sum(accents) <= 0:
         return _default()

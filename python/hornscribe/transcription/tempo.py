@@ -491,33 +491,65 @@ def tempo_map_from_estimate(
         ql = meter.start_ql + index * measure_len_ql - phase_ql
         return max(Fraction(0), ql) / beat_ql
 
-    # Instantaneous tempo between consecutive anchors, bucketed by the
-    # measure containing the interval's start anchor (ql positions come
-    # from the warp's beat map, which already carries the pickup shift).
-    measure_bpms: dict[int, list[float]] = {}
-    for i in range(len(times) - 1):
-        dt = times[i + 1] - times[i]
-        if dt <= 0:
+    # Least-squares slope of the anchors inside each measure. A median
+    # of per-interval bpms inherits the frame-quantisation bias of the
+    # tracker (~2% on a 0.42 s beat = 140->143.5 bpm), while the slope
+    # averages the whole measure's anchors at once (#93). Bucket by the
+    # measure containing each anchor's ql position (from the warp's
+    # beat map, which already carries the pickup shift).
+    measure_anchors: dict[int, list[tuple[float, float]]] = {}
+    for i, t in enumerate(times):
+        pos_ql = estimate.warp.seconds_to_ql(t)
+        measure_anchors.setdefault(measure_index(pos_ql), []).append(
+            (float(i), t)
+        )
+    # One value per measure; a segment is emitted only when the
+    # measure's tempo differs from the last EMITTED value by more than
+    # the merge ratio — a genuine rit./accel. survives as a stair-step
+    # across measure boundaries.
+    measure_bpm: dict[int, float] = {}
+    for index, pts in measure_anchors.items():
+        if len(pts) < 2:
+            # A lone anchor has no slope and no tempo evidence of its
+            # own — leave the neighbouring measures to carry it. The
+            # pickup measure typically holds just the anacrusis beat.
             continue
-        bpm = float(pulse_unit) * 60.0 / (dt * float(beat_unit))
-        pos_ql = estimate.warp.seconds_to_ql(times[i])
-        measure_bpms.setdefault(measure_index(pos_ql), []).append(bpm)
-    # One robust value per measure (median rejects single-beat jitter);
-    # a segment is emitted only when the measure's tempo differs from
-    # the last EMITTED value by more than the merge ratio — a genuine
-    # rit./accel. survives as a stair-step across measure boundaries.
-    segments: list[TempoSegment] = []
-    last_bpm: float | None = None
-    for index in sorted(measure_bpms):
-        values = sorted(measure_bpms[index])
-        bpm = values[len(values) // 2]
-        if last_bpm is None or abs(bpm - last_bpm) / last_bpm > _TEMPO_MERGE_RATIO:
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        xbar = sum(xs) / len(xs)
+        ybar = sum(ys) / len(ys)
+        var = sum((x - xbar) ** 2 for x in xs)
+        slope = (
+            sum((x - xbar) * (y - ybar) for x, y in pts) / var
+            if var > 0
+            else 0.0
+        )
+        measure_bpm[index] = (
+            float(pulse_unit) * 60.0 / (slope * float(beat_unit))
+            if slope > 0
+            else float(estimate.median_bpm)
+        )
+    indices = sorted(measure_bpm)
+    if not indices:
+        return (
+            TempoSegment(
+                start_beat=Fraction(0), bpm=round(estimate.median_bpm, 2)
+            ),
+        )
+    # The beat-0 segment inherits the FIRST measurable measure's tempo:
+    # a pickup-only measure 0 (one anchor, no slope) must not split a
+    # redundant mark off at the first downbeat.
+    segments: list[TempoSegment] = [
+        TempoSegment(start_beat=Fraction(0), bpm=round(measure_bpm[indices[0]], 2))
+    ]
+    last_bpm = measure_bpm[indices[0]]
+    for index in indices[1:]:
+        bpm = measure_bpm[index]
+        if abs(bpm - last_bpm) / last_bpm > _TEMPO_MERGE_RATIO:
             segments.append(
-                TempoSegment(start_beat=measure_start_beats(index), bpm=round(bpm, 2))
+                TempoSegment(
+                    start_beat=measure_start_beats(index), bpm=round(bpm, 2)
+                )
             )
             last_bpm = bpm
-    if not segments or segments[0].start_beat != 0:
-        segments.insert(
-            0, TempoSegment(start_beat=Fraction(0), bpm=round(estimate.median_bpm, 2))
-        )
     return tuple(segments)
