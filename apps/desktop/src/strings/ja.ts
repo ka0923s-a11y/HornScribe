@@ -195,7 +195,8 @@ export const ja = {
     captureLoopback: "PCで再生中の音を録音",
     captureMic: "マイクで録音",
     captureHint:
-      "録音はこのPCの中だけで行われ、外部に送信されません。連続録音は30分までです。",
+      "録音はこのPCの中だけで行われ、外部に送信されません。連続録音は30分までです。"
+      + "PCの音の取り込みは、このPCで鳴っているすべての音(通知音も含む)が録音されます。",
   },
 
   /** 要確認バッジ (GUI_UX_SPEC §12, copy deck review.status.*) */
@@ -2068,6 +2069,9 @@ export const ja = {
     /** 取り込みメニューのデバイス選択セクション。 */
     loopbackDeviceLabel: "出力先(PCの音)",
     microphoneDeviceLabel: "マイク",
+    /* #100: ループバックは全ミックス録音 — 対象アプリの音だけでなく
+     *  通知音・他アプリまでテイクに入る。選択前に一度だけ見せる。 */
+    loopbackMixHint: "このPCで鳴っているすべての音が録音されます",
     defaultDevice: "既定のデバイス",
     noDevices: "利用できるデバイスがありません",
     /** #76: 録音は現在の音源を置き換えるので、既に音源/楽譜がある時は

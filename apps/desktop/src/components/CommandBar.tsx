@@ -367,6 +367,14 @@ export function CommandBar({
       icon: <Speaker2Regular />,
       disabled: !commands.isEnabled("media.captureSystemAudio"),
     },
+    // #100: ループバックは出力デバイス全体のミックス録音 — 通知音や
+    // 他アプリの再生もテイクに入る。選択前に一度だけ見せる注意書き
+    // (無効行 = セクションラベルと同じ表現)。
+    {
+      key: "loopback-mix-hint",
+      label: ja.capture.loopbackMixHint,
+      disabled: true,
+    },
     {
       key: "microphone",
       label: commands.title("media.captureMicrophone"),
