@@ -74,9 +74,11 @@ spurious tiny rests (the single tiny rest is the *real* sixteenth rest in
 
 - `eighths_jitter80` emits **one extra rest** under B4 — ±80 ms jitter can
   still realize a spurious gap. Rare, surfaced via review issues.
-- Alignment search flags `beat_alignment_uncertain` on latency/jitter
-  fixtures instead of silently shifting — review burden is measured
-  (`review_issue_count`), not hidden.
+  - Alignment search resolves latency aliases against the meter map
+    (#78, design 6.3): competing phases ranked by metrical strength,
+    `meter_resolved` marks a disambiguated apply. Genuinely ambiguous
+    surfaces still flag `beat_alignment_uncertain` — review burden is
+    measured (`review_issue_count`), not hidden.
 - No real horn recordings in the committed corpus — `--local` covers that
   path; corpus is synthetic/deterministic by design.
 - User-correction metrics are not measurable from synthetic fixtures;
