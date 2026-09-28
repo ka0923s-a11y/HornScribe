@@ -862,6 +862,7 @@ body {
 .hs-score__empty-title {
   margin: 0;
   font-size: var(--hs-font-size-title);
+  line-height: var(--hs-line-height-title);
   font-weight: 400;
   color: var(--hs-text-primary);
 }
@@ -975,6 +976,9 @@ body {
 .hs-empty__title {
   margin: 0;
   font-size: var(--hs-font-size-display);
+  /* 24px フォントに body 継承の 20px が掛かり字面が上下に削れるのを
+   *  直す — display トークン対の行高(32px)を明示する。 */
+  line-height: var(--hs-line-height-display);
   font-weight: 400;
 }
 .hs-empty__or {
@@ -2144,6 +2148,7 @@ body {
 .hs-settings__title {
   margin: 0 0 var(--hs-space-md);
   font-size: var(--hs-font-size-title);
+  line-height: var(--hs-line-height-title);
   font-weight: 600;
 }
 /* Section chrome (border / radius / padding) comes from the HsPanel
@@ -2186,6 +2191,7 @@ body {
 .hs-transcribing__title {
   margin: 0;
   font-size: var(--hs-font-size-title);
+  line-height: var(--hs-line-height-title);
   font-weight: var(--hs-font-weight-title);
   text-align: center;
 }
@@ -2271,6 +2277,7 @@ body {
 .hs-error-surface__title {
   margin: 0;
   font-size: var(--hs-font-size-title);
+  line-height: var(--hs-line-height-title);
   font-weight: var(--hs-font-weight-title);
   color: var(--hs-text-primary);
 }
