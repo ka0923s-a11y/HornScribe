@@ -632,9 +632,9 @@ export function SettingsView({
               label={s.backendLabel}
               value={settings.backend}
               options={[
-                { value: "auto", label: s.tempoAuto },
+                { value: "auto", label: s.backendAuto },
                 { value: "basicPitch", label: "Basic Pitch" },
-                { value: "pyin", label: "pYIN（単音）" },
+                { value: "pyin", label: s.backendPyin },
               ]}
               hint={s.backendHint}
               onChange={(v) =>

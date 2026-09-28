@@ -401,7 +401,7 @@ export function CommandBar({
       ? ja.transport.recordingLoopbackLabel
       : recording
         ? ja.transport.recordingLabel
-        : "取り込み";
+        : ja.commandBar.captureLabel;
 
   return (
     <Toolbar

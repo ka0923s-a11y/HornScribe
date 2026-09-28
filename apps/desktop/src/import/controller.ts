@@ -248,8 +248,8 @@ export class ImportController {
         this.events.onAudioReady(audio);
         this.events.announce(
           ref.source === "loopback"
-            ? "PCの音を取り込みました(" + ref.name + ")"
-            : "録音を取り込みました(" + ref.name + ")",
+            ? ja.import.feedback.capturedLoopback(ref.name)
+            : ja.import.feedback.capturedMic(ref.name),
         );
         return;
       }
@@ -282,8 +282,8 @@ export class ImportController {
       this.events.onAudioReady(audio);
       this.events.announce(
         ref.source === "loopback"
-          ? `PCの音を取り込みました(${ref.name})`
-          : `録音を取り込みました(${ref.name})`,
+          ? ja.import.feedback.capturedLoopback(ref.name)
+          : ja.import.feedback.capturedMic(ref.name),
       );
     } catch {
       if (!this.isCurrent(gen)) return;

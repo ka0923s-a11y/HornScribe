@@ -777,6 +777,32 @@
     "replaceBodyWithScore": "新しく取り込むと、現在の音源と楽譜は置き換えられます。続けますか?",
     "replaceBody": "新しく取り込むと、現在の音源は置き換えられます。続けますか?",
     "replaceConfirm": "取り込む",
-    "replaceCancel": "キャンセル"
+    "replaceCancel": "キャンセル",
+    "pausedLabel": "一時停止中",
+    "pausedAnnounce": "録音を一時停止しました。再開するまで音は記録されません。",
+    "resumedAnnounce": "録音を再開しました",
+    "startingLabel": "開始しています…",
+    "startedLoopback": "PCの音を取り込んでいます",
+    "startedMic": "マイクで録音しています",
+    "silentFinish": "録音はほぼ無音でした。音が再生されているか、マイクが接続されているか確認してください。",
+    "limitReachedFinish": "連続録音の上限(30分)に達したため、録音を終了しました。",
+    "cancelledAnnounce": "録音を取りやめました",
+    "micFallbackName": "マイク {n}",
+    "monitorStart": "入力レベルを確認",
+    "monitorLabel": "入力レベル",
+    "monitorAria": "入力レベルメーター",
+    "issue": {
+      "noDeviceLoopback": "既定の再生デバイスが見つかりません。PCで音を再生してからもう一度お試しください。",
+      "noDeviceMic": "マイクが見つかりません。マイクを接続してからもう一度お試しください。",
+      "busy": "別の録音が進行中です。",
+      "notActive": "録音が開始されていません。",
+      "unsupportedLoopback": "PCの音の取り込みはデスクトップアプリでのみ利用できます。",
+      "unsupportedMic": "この環境では録音を利用できません。",
+      "permissionLoopback": "オーディオデバイスへのアクセスが許可されていません。デバイスの状態を確認してからもう一度お試しください。",
+      "permissionMic": "マイクへのアクセスが許可されていません。Windowsの設定 → プライバシーとセキュリティ → マイク で、このアプリへのアクセスを許可してください。",
+      "interruptedLoopback": "録音デバイスとの接続が切れました。再生デバイスの状態を確認して、録音をやり直してください。",
+      "interruptedMic": "マイクとの接続が切れました。マイクを接続し直して、録音をやり直してください。",
+      "failed": "録音に失敗しました: {detail}"
+    }
   }
 }

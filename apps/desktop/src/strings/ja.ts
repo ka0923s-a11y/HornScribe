@@ -72,11 +72,14 @@ export const ja = {
     openProjectTooltip: "プロジェクトを開く（Ctrl+Shift+O）",
     transcribeTooltip: "採譜を開始する",
     retranscribeTooltip: "現在の設定でもう一度採譜する",
-    exportTooltip: "MusicXML・PDF・MIDIを書き出し",
+   exportTooltip: "MusicXML・PDF・MIDIを書き出し",
     reviewWithCount: "要確認（{count}）",
     /* #361: open issues are 0 but a decision history exists — the
      *  review button stays visible as the re-entry point to it. */
     reviewHistory: "要確認履歴",
+   /* #71: 取り込み(録音)メニューボタンのラベル — 録音中は
+    *  transport.recordingLabel/recordingLoopbackLabel に切り替わる。 */
+   captureLabel: "取り込み",
   },
 
   pitch: {
@@ -148,6 +151,10 @@ export const ja = {
     recordingLoopbackLabel: "取り込み中",
     auditionOn: "楽譜の演奏: オン",
     auditionOff: "楽譜の演奏: オフ",
+    /* #71: 自動演奏トグルの状態アナウンス(aria-live)。トグルラベルの
+     *  auditionOn/Off とは別物 — こちらは「〜しました」の通知文。 */
+    auditionOnAnnounce: "楽譜の自動演奏をオンにしました",
+    auditionOffAnnounce: "楽譜の自動演奏をオフにしました",
     /* #72: 元音源(取り込んだ音声)のミュート — 楽譜の演奏だけ聴く用途。 */
     muteSource: "元音源をミュート",
     unmuteSource: "元音源のミュートを解除",
@@ -239,6 +246,10 @@ export const ja = {
     pathPlaceholder: "自動検出",
     modelInfo: "モデル情報",
     backendLabel: "採譜エンジン",
+    /* #71: エンジン選択肢 — テンポの tempoAuto と文脈が違うので
+     *  専用キーを持つ(値は同じ「自動」)。 */
+    backendAuto: "自動",
+    backendPyin: "pYIN（単音）",
     // #175: pYIN tracks one continuous f0 line — better for a single
     // sung/played melody; Basic Pitch stays the polyphonic default.
     backendHint: BACKEND_HINT_PYIN,
@@ -1011,9 +1022,10 @@ export const ja = {
       /* #355: voice cap field shown for the voices/chords textures. */
       maxVoices: "最大声部数（2〜8）",
       /* #189: per-job engine override — "auto" inherits 設定→詳細設定. */
-      backend: "採譜エンジン",
-      backendAuto: "自動（設定に従う）",
-      backendHint: BACKEND_HINT_PYIN,
+     backend: "採譜エンジン",
+     backendAuto: "自動（設定に従う）",
+      backendPyin: "pYIN（単音）",
+     backendHint: BACKEND_HINT_PYIN,
       /* #187: opt-in vocal isolation (center extraction). */
       vocalIsolation: "ボーカル分離を使う（ミックス音源向け）",
       vocalIsolationHint:
@@ -1069,13 +1081,16 @@ export const ja = {
       projectRecovered: (name: string) =>
         `${name} は前回保存時のバックアップから復元しました。元のファイルは読み込めませんでした。保存し直すには Ctrl+S を押してください`,
       sourceRelinked: "元音源を関連付け直しました",
-      transcribeCancelled: "採譜をキャンセルしました",
+     transcribeCancelled: "採譜をキャンセルしました",
       playing: "再生中",
       paused: "一時停止中",
       stopped: "停止",
       position: (time: string) => `位置: ${time}`,
+     /* #71: 録音 → 取り込み完了のアナウンス(旧リテラルを deck 化)。 */
+     capturedLoopback: (name: string) => `PCの音を取り込みました(${name})`,
+     capturedMic: (name: string) => `録音を取り込みました(${name})`,
     },
-  },
+ },
 
   /* ============================ UI-040 ============================
    * 採譜失敗・診断 (issue #27, GUI_UX_SPEC §20/§19) —
@@ -2028,8 +2043,10 @@ export const ja = {
       when +
       " に自動保存）。復元しますか?",
     autosaveRestore: "復元する",
-    autosaveDecline: "破棄する",
+   autosaveDecline: "破棄する",
     autosaveRestored: "自動保存から復元しました",
+   /** #71: 自動保存復元時の仮プロジェクト名(タイトルバーに出る)。 */
+   autosaveName: "自動保存",
   },
 
   /** FEAT-001 follow-ups: 取り込みメニュー + 置き換え確認(#70-#76)。 */
@@ -2053,14 +2070,45 @@ export const ja = {
     resumedAnnounce: "録音を再開しました",
     /** デバイスを開いている間の表示(pre-session 開始中)。 */
     startingLabel: "開始しています…",
-    /** #79: 録音中にデバイスが切断・拒否された時の説明。 */
-    interruptedAnnounce:
-      "録音デバイスとの接続が切れました。録音をやり直してください。",
-   /** #42: 録音前の入力レベルモニター(取り込みメニュー内)。 */
-   monitorStart: "入力レベルを確認",
-   monitorLabel: "入力レベル",
-   monitorAria: "入力レベルメーター",
- },
+    /* #71: 録音の進行/完了アナウンス — controller が issueText と
+     *  同じくデッキを引く(直書き文言との二重管理を解消)。 */
+    startedLoopback: "PCの音を取り込んでいます",
+    startedMic: "マイクで録音しています",
+    silentFinish:
+      "録音はほぼ無音でした。音が再生されているか、マイクが接続されているか確認してください。",
+    limitReachedFinish:
+      "連続録音の上限(30分)に達したため、録音を終了しました。",
+    cancelledAnnounce: "録音を取りやめました",
+    /** ブラウザ dev のデバイス名フォールバック(enumerateDevices が
+     *  label を返さない環境用)。 */
+    micFallbackName: (n: number) => `マイク ${n}`,
+    /** CaptureIssue 分岐のメッセージ(capture/controller.ts issueText)。 */
+    issue: {
+      noDeviceLoopback:
+        "既定の再生デバイスが見つかりません。PCで音を再生してからもう一度お試しください。",
+      noDeviceMic:
+        "マイクが見つかりません。マイクを接続してからもう一度お試しください。",
+      busy: "別の録音が進行中です。",
+      notActive: "録音が開始されていません。",
+      unsupportedLoopback:
+        "PCの音の取り込みはデスクトップアプリでのみ利用できます。",
+      unsupportedMic: "この環境では録音を利用できません。",
+      permissionLoopback:
+        "オーディオデバイスへのアクセスが許可されていません。デバイスの状態を確認してからもう一度お試しください。",
+      permissionMic:
+        "マイクへのアクセスが許可されていません。Windowsの設定 → プライバシーとセキュリティ → マイク で、このアプリへのアクセスを許可してください。",
+      /* #79: 録音中にデバイスが切断・拒否された時の説明。 */
+      interruptedLoopback:
+        "録音デバイスとの接続が切れました。再生デバイスの状態を確認して、録音をやり直してください。",
+      interruptedMic:
+        "マイクとの接続が切れました。マイクを接続し直して、録音をやり直してください。",
+     failed: (detail: string) => `録音に失敗しました: ${detail}`,
+   },
+    /** #42: 録音前の入力レベルモニター(取り込みメニュー内)。 */
+    monitorStart: "入力レベルを確認",
+    monitorLabel: "入力レベル",
+    monitorAria: "入力レベルメーター",
+  },
   /** #18: 採譜キュー(複数ジョブの逐次実行)。 */
   queue: {
     title: "採譜キュー",
@@ -2086,8 +2134,10 @@ export const ja = {
     cancelEntry: "キャンセル",
     openResult: "開く",
     entryDone: "{name} の採譜が完了しました",
-    runFinished: "キューの採譜が終了しました",
+   runFinished: "キューの採譜が終了しました",
     addedToQueue: "{name} をキューに追加しました",
+   /* #71: 複数音源まとめて追加した時のアナウンス用の総称名。 */
+   audioItems: (count: number) => `${count} 件の音源`,
     /* #59: 行の params 要約 — 既定値以外の設定だけを短い断片で並べる。
      *  全既定なら行自体を出さないので空ラベルは要らない。 */
     paramSep: "・",
@@ -2120,12 +2170,18 @@ export const ja = {
     namePlaceholder: "例: サビ",
     nameAria: "ラベル名",
     needSelection: "先に波形で範囲を選んでください",
-    retranscribe: "この区間を再採譜",
-    remove: "ラベルを削除",
+   retranscribe: "この区間を再採譜",
+   remove: "ラベルを削除",
     // #51: inline edit affordances on each chip
     edit: "ラベルを編集",
     editConfirm: "変更",
     applySelection: "選択している範囲をこのラベルに適用",
+  },
+ /** #71: a11y — コンポーネントプリミティブのアクセシブル名
+   *  (deck: a11y.*)。Fluent の英語既定ラベルを上書きする場所。 */
+  a11y: {
+    numericIncrement: (label: string) => `${label}を増やす`,
+    numericDecrement: (label: string) => `${label}を減らす`,
   },
 } as const;
 
