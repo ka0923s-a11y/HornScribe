@@ -6,14 +6,22 @@ import "./styles.css";
 
 // UI-009 (issue #31): the preproduction prototype pack lives behind hash
 // routes (#/prototype/*) as a lazy chunk — it never loads in the normal shell.
-const PrototypeApp = lazy(() => import("./prototype/PrototypeApp"));
+// #76: DEV-only — without the gate the lazy chunk still ships in
+// production bundles (dead spike weight, same pattern as DevGallery).
+const PrototypeApp = import.meta.env.DEV
+  ? lazy(() => import("./prototype/PrototypeApp"))
+  : null;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     {window.location.hash.startsWith("#/prototype") ? (
-      <Suspense fallback={null}>
-        <PrototypeApp />
-      </Suspense>
+      PrototypeApp ? (
+        <Suspense fallback={null}>
+          <PrototypeApp />
+        </Suspense>
+      ) : (
+        <App />
+      )
     ) : (
       <App />
     )}
