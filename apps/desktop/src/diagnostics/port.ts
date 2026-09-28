@@ -19,6 +19,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import pkg from "../../package.json";
 import type { EngineCapabilities } from "../sidecar/protocol";
+import type { TimingCorrection } from "../sidecar/resultMeta";
 import { getShellInfo, isTauriRuntime } from "../tauri/bridge";
 import { MockDiagnosticsPort } from "./mockPort";
 import { detectTools, resolveToolWithOverride } from "./toolProbe";
@@ -73,6 +74,10 @@ export interface DiagnosticsSessionView {
   /** Engine handshake capabilities (#10) — demucs/ffmpeg visibility
    *  from inside the worker; null when the engine has not handshaken. */
   readonly capabilities?: EngineCapabilities | null;
+  /** #81: applied timing correction of the last completed job
+   *  (extractTimingCorrection output); undefined/null when none was
+   *  applied or no result exists yet. */
+  readonly timingCorrection?: TimingCorrection | null;
 }
 
 export interface ShellDiagnosticsDeps {
@@ -186,6 +191,7 @@ export class ShellDiagnosticsPort implements DiagnosticsPort {
       },
       paths: paths ?? { cache: null, logs: null },
       workerStatus: view ? toWorkerStatus(view.engine) : "unavailable",
+      timingCorrection: view?.timingCorrection ?? null,
     };
   }
   async copyText(text: string): Promise<boolean> {

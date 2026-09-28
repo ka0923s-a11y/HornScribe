@@ -54,6 +54,7 @@ import type {
 } from "./score/controller";
 import { openIssues } from "./score/review";
 import { waveformNoteOverlay } from "./score/noteOverlay";
+import { extractTimingCorrection } from "./sidecar/resultMeta";
 import { formatTimecode as formatScoreTimecode } from "./score/timecode";
 import {
   createCommandRegistry,
@@ -317,6 +318,9 @@ export default function App() {
             // #10: demucs/ffmpeg visibility rows come from the handshake
             // capabilities, not a second probe.
             capabilities: s.capabilities ?? null,
+            // #81: the applied timing correction rides the same meta —
+            // null (row omitted) when no nonzero shift was applied.
+            timingCorrection: extractTimingCorrection(s.lastResult),
           };
         },
         restartEngine: () => session.restartEngine(),

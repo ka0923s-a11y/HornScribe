@@ -482,13 +482,18 @@
   },
   "diagnostics": {
     "title": "診断情報",
+    "copy": "診断情報をコピー",
+    "copied": "診断情報をコピーしました",
+    "close": "閉じる",
     "fields": {
       "appVersion": "HornScribeのバージョン",
       "engineVersion": "Pythonエンジンのバージョン",
       "protocolVersion": "プロトコルバージョン",
       "backend": "採譜エンジン",
+      "timingCorrection": "タイミング補正",
       "ffmpeg": "FFmpeg",
       "musescore": "MuseScore",
+      "demucs": "demucs（ボーカル分離）",
       "verovio": "Verovio",
       "wavesurfer": "wavesurfer",
       "cachePath": "キャッシュの場所",
@@ -500,8 +505,6 @@
       "tools": "ツールの状態",
       "locations": "場所"
     },
-    "copy": "診断情報をコピー",
-    "copied": "診断情報をコピーしました",
     "copyFailed": "診断情報をコピーできませんでした",
     "openLogs": "ログフォルダを開く",
     "openLogsFailed": "ログフォルダを開けませんでした",
@@ -515,7 +518,8 @@
       "running": "稼働中",
       "stopped": "停止中",
       "unavailable": "未接続"
-    }
+    },
+    "timingCorrectionResolved": "（拍節解消）"
   },
   "dialogs": {
     "retranscribeConfirm": {
