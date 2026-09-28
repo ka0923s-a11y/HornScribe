@@ -92,11 +92,24 @@ it stays opt-in). The worker handshake reports `demucsAvailable` via
 the same resolver; the diagnostics sheet shows it as the
 demucs(ボーカル分離) row.
 
-## Size estimate
+## Measured size (0.1.0, 2026-09-29)
 
-onefile PyInstaller + ONNX model + onnxruntime + numpy/scipy lands
-around 150-250 MB, the cost of fully-offline free-tier inference.
-A bundled static ffmpeg adds ~80 MB (essentials build) up to ~220 MB
-(full build); a frozen demucs.exe adds roughly 1-2 GB — the demucs
-path stays opt-in for exactly this reason. Alternatives (one-dir
-layout, first-run model download) are noted on issue #83.
+From `dist/portable-size-report.md` (scripts/package_portable.py):
+
+| component | size |
+|---|---:|
+| HornScribe.exe | 24.2 MB |
+| engine/hornscribe-engine.exe | 171.2 MB |
+| tools/ffmpeg.exe (gyan essentials 9.0.2) | 105.4 MB |
+| tools/ffprobe.exe (gyan essentials 9.0.2) | 105.2 MB |
+| **payload total** | **~406 MB** |
+| **portable zip (deflated)** | **~255 MB** |
+
+The frozen engine embeds basic-pitch ONNX + onnxruntime + numpy/scipy
+-- the cost of fully-offline free-tier inference. ffmpeg is the
+gyan.dev *essentials* build; the *full* build (~227 MB per binary)
+roughly doubles the media-tool footprint without adding codecs the
+app uses (decode -> PCM, WAV/FLAC transcode). A frozen demucs.exe
+would add ~1-2 GB -- the demucs path stays opt-in for exactly this
+reason. Alternatives (one-dir layout, first-run model download) are
+noted on issue #83.
