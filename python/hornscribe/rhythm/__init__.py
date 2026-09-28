@@ -100,6 +100,7 @@ from hornscribe.rhythm.triplet import (
     enabled_triplet_regions,
     region_evidence,
     simple_meter_regions,
+    strict_triplet_regions,
 )
 
 __all__ = [
@@ -168,4 +169,5 @@ __all__ = [
     "snap_candidate_lattice",
     "snap_nearest_grid",
     "snap_to_grid_ql",
+    "strict_triplet_regions",
 ]

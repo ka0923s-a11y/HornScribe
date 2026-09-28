@@ -134,6 +134,8 @@ def generate_onset_candidates(
     max_candidates_per_grid: int = DEFAULT_MAX_CANDIDATES_PER_GRID,
     min_position_ql: Fraction = Fraction(0),
     triplet_regions: tuple[TripletRegion, ...] = (),
+    strict_triplet_regions: tuple[TripletRegion, ...] = (),
+    snap_mid_beat: TripletRegion | None = None,
 ) -> tuple[OnsetCandidate, ...]:
     """Onset candidates for one normalized note (design 8).
 
@@ -154,6 +156,16 @@ def generate_onset_candidates(
     passes the meter map's first segment start so no candidate can land
     before the covered timeline (design 8.3's ``>= 0`` clamp, extended in
     QNT-004 to meter-map coverage).
+
+    ``strict_triplet_regions`` (#88): run-qualified triplet beats where
+    binary positions strictly inside the region are removed - coherent
+    triplet passages commit to the third lattice instead of flipping
+    beat-by-beat onto sixteenths.
+
+    ``snap_mid_beat`` (#88): when the note's onset is a swung offbeat,
+    the containing beat keeps only its midpoint and boundary positions -
+    a shuffle writes straight eighths under the swingFeel direction
+    instead of dotted-sixteenth pairs.
     """
     if max_candidates_per_grid < 1:
         raise ValueError(
@@ -181,6 +193,31 @@ def generate_onset_candidates(
         # Degenerate case (e.g. onset far below the floor): always keep the
         # nearest valid grid point so every note has at least one candidate.
         points = [snap_to_grid_ql(x, step, minimum=Fraction(k_floor) * step)]
+
+    if strict_triplet_regions:
+        # Run-qualified triplet beats (#88): no interior binary positions.
+        s_starts = [r.start_ql for r in strict_triplet_regions]
+
+        def _strict_interior(pos: Fraction) -> bool:
+            i = bisect_right(s_starts, pos) - 1
+            return (
+                i >= 0
+                and strict_triplet_regions[i].start_ql
+                < pos
+                < strict_triplet_regions[i].end_ql
+            )
+
+        points = [p for p in points if not _strict_interior(p)]
+
+    if snap_mid_beat is not None:
+        # Swung offbeat (#88): inside the containing beat only the
+        # midpoint survives - the shuffle notates as straight eighths.
+        mid = snap_mid_beat.start_ql + snap_mid_beat.beat_unit_ql / 2
+        points = [
+            p
+            for p in points
+            if not (snap_mid_beat.start_ql < p < snap_mid_beat.end_ql and p != mid)
+        ]
 
     candidates = [
         OnsetCandidate(

@@ -686,6 +686,78 @@ def isolated_late_note() -> RhythmFixture:
     )
 
 
+def triplet_run_jittered() -> RhythmFixture:
+    """AMT-jittered 8th-triplet run (#88): every beat shows triplet
+    evidence but most regions see only one relevant onset — the
+    per-beat gate cannot open them alone. The contiguous run (with
+    first-third hits) must commit the whole passage to triplets."""
+    interior = (
+        (Fraction(31, 100), Fraction(13, 20)),
+        (Fraction(7, 25), Fraction(3, 5)),
+        (Fraction(27, 100), Fraction(31, 50)),
+        (Fraction(31, 100), Fraction(13, 20)),
+        (Fraction(7, 25), Fraction(3, 5)),
+        (Fraction(27, 100), Fraction(31, 50)),
+        (Fraction(3, 10), Fraction(31, 50)),
+        (Fraction(7, 25), Fraction(31, 50)),
+    )
+    onsets: list[Fraction] = []
+    for b, (a, c) in enumerate(interior):
+        onsets += [Fraction(b), Fraction(b) + a, Fraction(b) + c]
+    thirds = [Fraction(3 * b + k, 3) for b in range(8) for k in range(3)]
+    return straight_fixture(
+        "triplet_run_jittered",
+        onsets,
+        expected_ql=thirds,
+        duration_ql=Fraction(3, 10),
+        expected_durations_ql=[Fraction(1, 3)] * 24,
+        expected_rest_spans_ql=(),
+        expected_tuplet_groups=8,
+        layer="triplet",
+    )
+
+
+def swing_eighths_run() -> RhythmFixture:
+    """Swung eighths at 2:1 (#88): the 2/3-only offbeat run is a shuffle,
+    not triplets — notation must stay straight eighths so the
+    ``swingFeel`` direction can carry the feel."""
+    onsets: list[Fraction] = []
+    for b in range(8):
+        onsets += [Fraction(b), Fraction(b) + Fraction(2, 3)]
+    return straight_fixture(
+        "swing_eighths_run",
+        onsets,
+        expected_ql=[Fraction(i, 2) for i in range(16)],
+        duration_ql=Fraction(3, 10),
+        expected_durations_ql=[Fraction(1, 2)] * 16,
+        expected_rest_spans_ql=(),
+        expected_tuplet_groups=0,
+        layer="triplet",
+    )
+
+
+def swing_with_dotted_pickup() -> RhythmFixture:
+    """Swung passage with one real dotted-16th figure (#88): the
+    swing snap band ends below the dotted point, so the 0.75 onset
+    keeps its dotted notation amid the straightened eighths."""
+    onsets: list[Fraction] = []
+    for b in range(8):
+        if b == 5:
+            onsets += [Fraction(b), Fraction(b) + Fraction(3, 4)]
+        else:
+            onsets += [Fraction(b), Fraction(b) + Fraction(2, 3)]
+    expected = [Fraction(i, 2) for i in range(16)]
+    expected[11] = Fraction(23, 4)  # 5.75 stays dotted
+    return straight_fixture(
+        "swing_with_dotted_pickup",
+        onsets,
+        expected_ql=expected,
+        duration_ql=Fraction(3, 10),
+        expected_tuplet_groups=0,
+        layer="triplet",
+    )
+
+
 def binary_triplet_binary() -> RhythmFixture:
     """Binary -> triplet -> binary passage (design 38 fixture).
 

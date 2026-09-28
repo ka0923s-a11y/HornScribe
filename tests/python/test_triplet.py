@@ -32,6 +32,7 @@ from hornscribe.rhythm import (
     quantize_normalized,
     region_evidence,
     simple_meter_regions,
+    strict_triplet_regions,
 )
 from hornscribe.rhythm.dp import kbest_onset_paths
 from hornscribe.rhythm.lattice import CandidateGrid, OnsetCandidate
@@ -365,3 +366,89 @@ def test_triplet_quantization_deterministic() -> None:
         a = quantize_events(fixture.events, fixture.warp, fixture.meter_map)
         b = quantize_events(fixture.events, fixture.warp, fixture.meter_map)
         assert a == b
+
+
+# --- #88: triplet runs + swing snap -------------------------------------
+
+
+def test_jittered_triplet_run_commits_fully() -> None:
+    """#88: a detected-jitter triplet passage must not mix grids.
+
+    Per-beat evidence is below the two-relevant gate on most beats,
+    but the contiguous run carries first-third evidence — every beat
+    must land on the third lattice, never a sixteenth."""
+    fixture = fx.triplet_run_jittered()
+    alts = quantize_events(fixture.events, fixture.warp, fixture.meter_map)
+    best = alts[0]
+    assert _onsets(best) == list(fixture.expected_onsets_ql)
+    # interior positions are all thirds — no sixteenth leaked in
+    assert all(o.denominator == 3 for o in _onsets(best) if o.denominator != 1)
+    assert best.diagnostics.tuplet_group_count == 8
+
+
+def test_run_regions_open_strict() -> None:
+    """#88: the run qualifies every contiguous region — and goes
+    strict, so interior binary candidates cannot break it up."""
+    fixture = fx.triplet_run_jittered()
+    notes = normalize_to_score_time(fixture.events, fixture.warp)
+    evidence = region_evidence(notes, fixture.meter_map, PROFILE)
+    enabled = enabled_triplet_regions(evidence, PROFILE)
+    strict = strict_triplet_regions(evidence, PROFILE)
+    # regions 0..7 all carry >=1 relevant onset and the run holds
+    # first-third evidence — the whole passage enables
+    assert {r.start_ql for r in enabled} == {Fraction(b) for b in range(8)}
+    assert strict == tuple(enabled)
+
+
+def test_first_third_marks_real_triplets_not_shuffle() -> None:
+    """#88: first-third evidence distinguishes triplets from swing."""
+    triplet_notes = normalize_to_score_time(
+        fx.triplet_run_jittered().events, fx.triplet_run_jittered().warp
+    )
+    triplet_ev = region_evidence(triplet_notes, METER_44, PROFILE)
+    assert sum(ev.first_third_relevant for ev in triplet_ev) >= 1
+    swing_notes = normalize_to_score_time(
+        fx.swing_eighths_run().events, fx.swing_eighths_run().warp
+    )
+    swing_ev = region_evidence(swing_notes, METER_44, PROFILE)
+    assert sum(ev.first_third_relevant for ev in swing_ev) == 0
+    # the swing run does not qualify — the passage stays binary so
+    # the swing census can mark it straight + swingFeel
+    assert strict_triplet_regions(swing_ev, PROFILE) == ()
+
+
+def test_swung_run_writes_straight_eighths() -> None:
+    """#88: swung eighths notate straight under the swingFeel
+    direction — never dotted-16th pairs or literal triplets."""
+    fixture = fx.swing_eighths_run()
+    alts = quantize_events(fixture.events, fixture.warp, fixture.meter_map)
+    best = alts[0]
+    assert _onsets(best) == list(fixture.expected_onsets_ql)
+    assert _triplet_atoms(best) == []
+    assert best.diagnostics.tuplet_group_count == 0
+    # the swing census explains the off-grid evidence — no
+    # misleading 'maybe triplets' flag
+    assert "possible_triplet" not in best.diagnostics.review_reasons
+
+
+def test_swing_snap_preserves_real_dotted_figure() -> None:
+    """#88: a genuine dotted-16th onset (phase 0.75) sits outside the
+    snap band — it keeps its dotted notation inside a swung piece."""
+    fixture = fx.swing_with_dotted_pickup()
+    alts = quantize_events(fixture.events, fixture.warp, fixture.meter_map)
+    best = alts[0]
+    assert _onsets(best) == list(fixture.expected_onsets_ql)
+    assert Fraction(23, 4) in _onsets(best)
+
+
+def test_region_covering_first_beat_evaluated() -> None:
+    """#88: an onset a few ms into beat 0 still evaluates its
+    containing region — the beat is not silently skipped."""
+    regions = simple_meter_regions(METER_44, Fraction(1, 50), Fraction(4))
+    assert regions[0].start_ql == Fraction(0)
+    notes = normalize_to_score_time(
+        fx.triplet_run_jittered().events, fx.triplet_run_jittered().warp
+    )
+    evidence = region_evidence(notes, METER_44, PROFILE)
+    starts = {ev.region.start_ql for ev in evidence}
+    assert Fraction(0) in starts
