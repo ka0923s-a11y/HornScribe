@@ -213,6 +213,10 @@ class QuantizationDiagnostics:
     triplet_policy: TripletPolicy | None = None
     alignment_shift_sec: float = 0.0
     """Global latency shift applied before normalization (design 6.3)."""
+    alignment_meter_resolved: bool = False
+    """The shift search found competing phases and the metrical-strength
+    tie-break picked the winner (#78) — the applied shift is trustworthy,
+    but the surface was genuinely ambiguous to timing alone."""
     path_cost: float | None = None
     """Total cost of the best path."""
     alternative_cost: float | None = None

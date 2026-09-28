@@ -12,9 +12,12 @@ import pytest
 import rhythm_fixtures as fx
 from hornscribe.domain.ids import RawNoteEventId
 from hornscribe.rhythm import (
+    MeterMap,
+    MeterSegment,
     NormalizedNote,
     QuantizationAlternative,
     QuantizationProfile,
+    TimeWarp,
     TripletPolicy,
     estimate_alignment_shift,
     normalize_to_score_time,
@@ -88,20 +91,30 @@ def test_latency_estimate_is_deterministic() -> None:
     assert est1.shift_sec == pytest.approx(-0.040, abs=0.002)
 
 
-def test_latency_alias_marks_uncertain_at_120bpm() -> None:
-    """At 120 BPM the +85 ms alias sits inside the band -> flagged, not applied.
+def test_latency_alias_resolved_by_meter_pull_at_120bpm() -> None:
+    """The +85 ms alias now loses to the on-beat phase (design 6.3 + #78).
 
-    Design 6.3: competing minima -> no silent auto-apply + ReviewIssue. The
-    unshifted quantization still recovers the grid because the 0.08 ql
-    residual is inside the candidate window.
+    The meter-agnostic score still sees the periodic alias and reports
+    it ambiguous; with the meter map the competing minima go through the
+    metrical tie-break - the alias would land every onset on sixteenth
+    offbeats while -40 ms lands them on beats - so the true correction
+    applies cleanly.
     """
     fixture = fx.quarters_latency40()
     est = estimate_alignment_shift(fixture.events, fixture.warp, QuantizationProfile())
-    assert est.uncertain  # perfect periodic alias at +85 ms
+    assert est.uncertain  # raw surface: periodic alias at +85 ms
+    est_metered = estimate_alignment_shift(
+        fixture.events,
+        fixture.warp,
+        QuantizationProfile(),
+        meter_map=fixture.meter_map,
+    )
+    assert not est_metered.uncertain
+    assert est_metered.shift_sec == pytest.approx(-0.040, abs=0.002)
     alts = quantize_events(fixture.events, fixture.warp, fixture.meter_map)
     diag = alts[0].diagnostics
-    assert diag.alignment_shift_sec == 0.0  # not auto-applied
-    assert "beat_alignment_uncertain" in diag.review_reasons
+    assert diag.alignment_shift_sec == pytest.approx(-0.040, abs=0.002)
+    assert diag.review_reasons == ()
     assert _onsets(alts[0]) == _expected(fixture)
 
 
@@ -123,6 +136,35 @@ def test_alignment_search_disabled_via_profile() -> None:
     alts = quantize_events(fixture.events, fixture.warp, fixture.meter_map, profile=profile)
     assert alts[0].diagnostics.alignment_shift_sec == 0.0
     assert _onsets(alts[0]) == _expected(fixture)
+
+
+def test_alignment_prefers_strong_boundary_phase() -> None:
+    """#78: a clean eighth run must not phase-lock onto offbeat 16ths.
+
+    A real Basic Pitch run (6/8, 143 primary-beat BPM) showed a
+    systematic timing bias that made the *offbeat* sixteenth lattice fit
+    the eighth-note run tighter than the true on-eighth phase on the
+    fine-grid distance alone - the score then notated every note one
+    sixteenth off. The notatable-lattice residual plus the metrical
+    tie-break keeps the phase on the eighth grid. The onset seconds
+    below are the ones Basic Pitch actually reported for the bench
+    fixture.
+    """
+    meter_map = MeterMap((MeterSegment(Fraction(0), 6, 8),))
+    warp = TimeWarp.fixed_bpm(214.5)  # 143 dotted-quarter BPM in 6/8
+    onsets_sec = (
+        0.012, 0.139, 0.279, 0.406, 0.557, 0.697,
+        0.836, 0.964, 1.103, 1.254, 1.393, 1.533,
+    )
+    alts = quantize_events(
+        fx.make_events(onsets_sec),
+        warp,
+        meter_map,
+        QuantizationProfile(),
+    )
+    assert _onsets(alts[0]) == [
+        Fraction(i, 2) for i in range(len(onsets_sec))
+    ]
 
 
 # --- tempo change via explicit BeatMap (required fixture) -----------------------------
@@ -238,22 +280,33 @@ def test_ioi_cost_recovers_consistent_shift() -> None:
     complexity term alone also prefers [0, 1] — a 5/4 note span needs an
     ugly tie across a beat — so the IOI term's isolated contribution is
     shown through the timing-only (onset-only) ablation path.
+
+    #78: the pair is also a *global* ~60 ms latency, which the
+    meter-aware alignment stage resolves upstream of the DP — so the
+    ablation below runs with the shift search off to isolate the DP's
+    own IOI contribution.
     """
     fixture = fx.ioi_pair_fixture()
     profile = QuantizationProfile()
-    with_ioi = quantize_events(fixture.events, fixture.warp, profile=profile)
+    with_ioi = quantize_events(
+        fixture.events, fixture.warp, profile=profile, search_alignment=False
+    )
     no_ioi_profile = replace(profile, weights=replace(profile.weights, ioi=0.0))
     without_ioi = quantize_events(
         fixture.events,
         fixture.warp,
         profile=no_ioi_profile,
         realize_durations=False,
+        search_alignment=False,
     )
     assert _onsets(with_ioi[0]) == [Fraction(0), Fraction(1)]
     assert _onsets(without_ioi[0]) == [Fraction(0), Fraction(5, 4)]
     # Realization on: the span-notation cost recovers [0, 1] without IOI.
     realized_no_ioi = quantize_events(
-        fixture.events, fixture.warp, profile=no_ioi_profile
+        fixture.events,
+        fixture.warp,
+        profile=no_ioi_profile,
+        search_alignment=False,
     )
     assert _onsets(realized_no_ioi[0]) == [Fraction(0), Fraction(1)]
 

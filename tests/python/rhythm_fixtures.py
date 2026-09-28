@@ -327,10 +327,11 @@ def quarters_latency65() -> RhythmFixture:
 
     +65 ms exceeds the half-grid distance (62.5 ms at 120 BPM), so
     independent nearest-grid snapping lands on the wrong sixteenth for most
-    notes. The alignment search's band-aliased estimate is flagged
-    ``beat_alignment_uncertain`` and *not* applied (design 6.3) — the joint
-    DP still recovers the true grid through onset+IOI+realization
-    consistency, while flagging the run for review.
+    notes. The meter-aware alignment search (design 6.3 + #78) resolves the
+    band-aliased surface: among the competing phases the metrical tie-break
+    prefers -65 ms - it lands every onset on beats rather than odd
+    sixteenths - so the correct shift applies silently instead of surfacing
+    as ``beat_alignment_uncertain``.
     """
     return straight_fixture(
         "quarters_latency65",

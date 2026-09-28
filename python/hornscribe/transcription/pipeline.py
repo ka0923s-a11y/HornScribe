@@ -1827,6 +1827,9 @@ def run_transcription_job(
                     "partCount": len(payload.parts),
                     "pickupBeats": str(payload.pickup_beats),
                     "alignmentShiftSec": round(shift, 4),
+                    "alignmentMeterResolved": bool(
+                        best.diagnostics.alignment_meter_resolved
+                    ),
                     "reviewReasons": list(best.diagnostics.review_reasons),
                     # #272: the surfacing cap is never silent — how
                     # many detected issues were left out, by severity.

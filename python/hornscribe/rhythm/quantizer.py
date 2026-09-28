@@ -31,6 +31,7 @@ tuplets, swing, grace notes. Raw event durations are never mutated.
 
 from __future__ import annotations
 
+import bisect
 from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
@@ -75,12 +76,39 @@ ALIGNMENT_FINE_STEP_SEC = 0.001
 AMBIGUITY_MARGIN_PER_NOTE = 0.15
 #: Relative tolerance for competing local minima in the shift surface (6.3).
 ALIGNMENT_COMPETING_MIN_REL = 0.05
+#: "On the strong grid" tolerance for the metrical tie-break (6.3 +
+#: #78): an onset counts toward a phase when it sits within this many
+#: quarterLengths of a first-subdivision point (triangular kernel —
+#: humanized timing keeps partial credit instead of a hard cutoff).
+ALIGNMENT_STRONG_EPS_QL = 0.06
+#: Decisiveness margins for the tie-break: the leader must beat the
+#: runner-up by this fraction of the total confidence weight AND hold
+#: at least this fraction of it itself — below either bar the phase
+#: order stays genuinely ambiguous (e.g. an eighth-note run shifted by
+#: a whole eighth, where every phase looks identical).
+ALIGNMENT_STRONG_MARGIN = 0.15
+ALIGNMENT_STRONG_EVIDENCE = 0.30
+#: Metrical weights for the strong-grid kernel: onsets on a beat
+#: carry full credit, subdivision hits carry less - an all-on-beats
+#: phase must beat an all-on-triplet-thirds alias (they read
+#: identically under a flat union: design 6.3 + #78).
+ALIGNMENT_STRONG_WEIGHT_BEAT = 1.0
+ALIGNMENT_STRONG_WEIGHT_EIGHTH = 0.65
+ALIGNMENT_STRONG_WEIGHT_THIRD = 0.45
+ALIGNMENT_STRONG_WEIGHT_COMPOUND_EIGHTH = 0.6
+#: Widened eligibility for the tie-break (6.3 + #78): the competing-
+#: minima rule only watches minima within the 5% relative tolerance of
+#: the winner, but a systematic detection bias can make the offbeat
+#: phase fit *slightly tighter* than the true phase — honest
+#: candidates then sit a few per-weight units outside the band and
+#: never reach the tie-break. Eligible coarse local minima are those
+#: within this extra absolute margin (scaled by the total confidence
+#: weight); phases that are meaningfully worse still never compete.
+ALIGNMENT_TIEBREAK_PER_WEIGHT = 0.02
 #: Raw-offset overrun past the next onset (in grid steps) that counts as an
 #: "extreme" overlap worth a ``overlapping_candidates`` review reason
 #: (design 27); smaller overruns are clipped silently and only counted.
 OVERLAP_REVIEW_MIN_STEPS = 1.0
-
-
 @dataclass(frozen=True)
 class AlignmentEstimate:
     """Result of the global latency/alignment shift search (design 6.3).
@@ -99,6 +127,10 @@ class AlignmentEstimate:
     band_edge: bool
     competing_minima: int
     """Local minima other than the winner within the relative tolerance."""
+    meter_resolved: bool = False
+    """The surface had competing minima but the metrical-strength
+    tie-break picked a clear winner (#78) — reported so diagnostics can
+    tell a resolved ambiguity from a clean single minimum."""
 
     @property
     def uncertain(self) -> bool:
@@ -115,6 +147,7 @@ def estimate_alignment_shift(
     warp: TimeWarp,
     profile: QuantizationProfile,
     *,
+    meter_map: MeterMap | None = None,
     coarse_step_sec: float = ALIGNMENT_COARSE_STEP_SEC,
     fine_step_sec: float = ALIGNMENT_FINE_STEP_SEC,
 ) -> AlignmentEstimate:
@@ -129,6 +162,27 @@ def estimate_alignment_shift(
     ``[-max_alignment_shift_sec, +max_alignment_shift_sec]`` followed by a
     fine pass around the winner. Ties prefer the shift closest to zero,
     then the smaller value — no randomness.
+
+    When ``meter_map`` is given, the residual is measured against the
+    *notatable lattice* — the union of the fine grid and the segment's
+    ternary beat subdivision — instead of the fine grid alone (#78):
+    an onset sitting exactly on a triplet position is correctly placed
+    for notation purposes, so it must not carry a residual that a
+    global shift can "improve". Without this, swung or triplet-heavy
+    material lets a compromise phase win: nudging every onset slightly
+    off the true grid trades perfect on-beats for tighter triplet fits
+    (the Huber cost rewards spreading the residual). The union lattice
+    also resolves the classic eighth-run alias, where a systematic
+    detection bias made the *offbeat* sixteenth phase fit the fine
+    lattice tighter than the true on-eighth phase.
+
+    When competing minima remain (phases whose union-lattice residuals
+    tie within tolerance), a metrical tie-break counts the onsets each
+    phase lands on the strong first-subdivision grid and applies the
+    leader when the gap is decisive - resolving the index aliases
+    where every onset sits exactly one subdivision column off (flagged
+    ``meter_resolved`` on the estimate). Otherwise the estimate stays
+    ``uncertain`` as before.
     """
     events = tuple(events)
     if not events or profile.max_alignment_shift_sec <= 0:
@@ -143,11 +197,108 @@ def estimate_alignment_shift(
     k = profile.huber_k
     band = profile.max_alignment_shift_sec
 
+    # Per-segment lattices (see the docstring). ``third`` = beat/3 is the
+    # ternary subdivision unioned into the notatable lattice (a no-op in
+    # compound meters, where it IS the eighth grid). ``strong`` = the
+    # weighted strong points (beat-local ql offset, weight) the
+    # tie-break kernel scores against - beats first, then eighths,
+    # then triplet thirds, so a shuffle still counts as on-grid while
+    # an all-thirds alias loses to an all-beats phase. Stored as
+    # floats: the search is a heuristic score, not a contract boundary.
+    seg_lattices: tuple[
+        tuple[
+            float,
+            float,
+            float,
+            Fraction,
+            tuple[tuple[float, float], ...],
+        ],
+        ...,
+    ] = ()
+    if meter_map is not None and meter_map.segments:
+        seg_lattices = tuple(
+            (
+                float(seg.start_ql),
+                float(seg.measure_length_ql),
+                float(seg.measure_phase_ql),
+                seg.beat_unit_ql / 3,
+                (
+                    (
+                        (0.0, ALIGNMENT_STRONG_WEIGHT_BEAT),
+                        (
+                            float(seg.beat_unit_ql / 3),
+                            ALIGNMENT_STRONG_WEIGHT_COMPOUND_EIGHTH,
+                        ),
+                        (
+                            float(seg.beat_unit_ql * 2 / 3),
+                            ALIGNMENT_STRONG_WEIGHT_COMPOUND_EIGHTH,
+                        ),
+                    )
+                    if seg.is_compound
+                    else (
+                        (0.0, ALIGNMENT_STRONG_WEIGHT_BEAT),
+                        (
+                            float(seg.beat_unit_ql / 2),
+                            ALIGNMENT_STRONG_WEIGHT_EIGHTH,
+                        ),
+                        (
+                            float(seg.beat_unit_ql / 3),
+                            ALIGNMENT_STRONG_WEIGHT_THIRD,
+                        ),
+                        (
+                            float(seg.beat_unit_ql * 2 / 3),
+                            ALIGNMENT_STRONG_WEIGHT_THIRD,
+                        ),
+                    )
+                ),
+            )
+            for seg in meter_map.segments
+        )
+    seg_starts = tuple(row[0] for row in seg_lattices)
+
+    def _segment(
+        x: float,
+    ) -> tuple[
+        float, float, float, Fraction, tuple[tuple[float, float], ...]
+    ]:
+        i = bisect.bisect_right(seg_starts, x) - 1
+        return seg_lattices[max(0, i)]
+
     def score(delta_sec: float) -> float:
         total = 0.0
         for t, w in zip(onsets, weights, strict=True):
             x = float(warp.seconds_to_ql(t + delta_sec))
-            total += w * huber(grid_distance_ql(x, step_ql) / sigma, k)
+            d = grid_distance_ql(x, step_ql)
+            if seg_lattices:
+                start, mlen, phase, third, _steps = _segment(x)
+                local = (x - start + phase) % mlen
+                d = min(d, grid_distance_ql(local, third))
+            total += w * huber(d / sigma, k)
+        return total
+
+    def strong_hits(delta_sec: float) -> float:
+        """Weighted strength of the strong-grid points onsets land on
+        - the tie-break metric among near-equal lattice fits: a phase
+        putting every onset on odd sixteenths scores ~0, one putting
+        them on beats scores highest, and an all-triplet-thirds alias
+        sits below a real on-beats reading (#78). A per-onset max over
+        the tiered points, not a distance sum, so 'uniformly slightly
+        off beats' cannot outscore 'half the onsets exactly on
+        beats'."""
+        total = 0.0
+        for t, w in zip(onsets, weights, strict=True):
+            x = float(warp.seconds_to_ql(t + delta_sec))
+            start, mlen, phase, third, strong = _segment(x)
+            local = (x - start + phase) % mlen
+            beat_ql = float(third * 3)
+            hit = 0.0
+            for offset, level_w in strong:
+                d = grid_distance_ql(local - offset, beat_ql)
+                hit = max(
+                    hit,
+                    level_w * max(0.0, 1.0 - d / ALIGNMENT_STRONG_EPS_QL),
+                )
+            total += w * hit
         return total
 
     def search(lo: float, hi: float, step: float) -> tuple[float, float]:
@@ -167,20 +318,81 @@ def estimate_alignment_shift(
     coarse_deltas = [-band + i * coarse_step_sec for i in range(n_coarse + 1)]
     coarse_scores = [score(d) for d in coarse_deltas]
     margin = best_score * ALIGNMENT_COMPETING_MIN_REL + 1e-9
-    competing = 0
+    competing_deltas: list[float] = []
+    local_minima: list[tuple[float, float]] = []
     for i in range(1, len(coarse_deltas) - 1):
         s = coarse_scores[i]
         is_local_min = s < coarse_scores[i - 1] and s <= coarse_scores[i + 1]
         if (
             is_local_min
             and abs(coarse_deltas[i] - best) > fine_step_sec
-            and s <= best_score + margin
         ):
-            competing += 1
+            local_minima.append((coarse_deltas[i], s))
+            if s <= best_score + margin:
+                competing_deltas.append(coarse_deltas[i])
 
     band_edge = abs(abs(best) - band) <= fine_step_sec
+    total_weight = sum(weights)
+
+    # #78 metrical tie-break: near-equal lattice fits stay ambiguous to the
+    # residual alone (the classic case is a systematic detection bias where
+    # the *offbeat* sixteenth phase and the true on-beat phase tie). Among
+    # the competing phases, the one landing onsets on stronger boundaries
+    # is the musically consistent reading — apply it when the strength gap
+    # is decisive. A band-edge winner stays uncertain regardless: the true
+    # shift may live outside the search band and no tie-break fixes that.
+    # Eligibility is wider than the uncertainty tolerance: a systematic
+    # detection bias can make the offbeat phase fit *slightly tighter*
+    # than the true phase, so honest candidates sit a few per-weight
+    # units outside the relative band and never reach the tie-break
+    # (ALIGNMENT_TIEBREAK_PER_WEIGHT).
+    meter_resolved = False
+    if seg_lattices and not band_edge:
+        tiebreak_margin = max(
+            margin, ALIGNMENT_TIEBREAK_PER_WEIGHT * total_weight
+        )
+        eligible = [
+            d for d, s in local_minima if s <= best_score + tiebreak_margin
+        ]
+    else:
+        eligible = []
+    if eligible:
+        candidates = [best, *eligible]
+        by_strength = sorted(
+            candidates,
+            key=lambda d: (-strong_hits(d), abs(d), d),
+        )
+        lead, second = by_strength[0], by_strength[1]
+        if (
+            strong_hits(lead) - strong_hits(second)
+            >= ALIGNMENT_STRONG_MARGIN * total_weight
+            and strong_hits(lead) >= ALIGNMENT_STRONG_EVIDENCE * total_weight
+        ):
+            if abs(lead - best) > fine_step_sec:
+                # The strength-preferred phase is a competing minimum —
+                # refine it on the lattice score inside its own basin
+                # before applying (it may sit a few ms off its coarse
+                # grid point).
+                lead, _lead_score = search(
+                    max(-band, lead - coarse_step_sec),
+                    min(band, lead + coarse_step_sec),
+                    fine_step_sec,
+                )
+            best = lead
+            meter_resolved = True
+            competing_deltas = []
+        else:
+            # The widened set could not be separated by metrical
+            # strength either — every eligible phase is a live
+            # ambiguity, so flag rather than silently apply the winner.
+            competing_deltas = eligible
+
     return AlignmentEstimate(
-        shift_sec=best, score=best_score, band_edge=band_edge, competing_minima=competing
+        shift_sec=best,
+        score=score(best) if meter_resolved else best_score,
+        band_edge=band_edge,
+        competing_minima=0 if meter_resolved else len(competing_deltas),
+        meter_resolved=meter_resolved,
     )
 
 
@@ -401,6 +613,7 @@ def _quantize(
     *,
     alignment_shift_sec: float,
     alignment_uncertain: bool,
+    alignment_meter_resolved: bool = False,
     realize_durations: bool = True,
 ) -> tuple[QuantizationAlternative, ...]:
     """Core quantization over already-normalized notes.
@@ -491,6 +704,7 @@ def _quantize(
                 min_note_value_ql=profile.min_note_value_ql,
                 triplet_policy=profile.triplet_policy,
                 alignment_shift_sec=alignment_shift_sec,
+                alignment_meter_resolved=alignment_meter_resolved,
                 path_cost=path.cost,
                 alternative_cost=next_cost,
                 ambiguous_region_count=ambiguous,
@@ -520,6 +734,7 @@ def _quantize(
                 min_note_value_ql=profile.min_note_value_ql,
                 triplet_policy=profile.triplet_policy,
                 alignment_shift_sec=alignment_shift_sec,
+                alignment_meter_resolved=alignment_meter_resolved,
                 path_cost=path.cost,
                 alternative_cost=next_cost,
                 ambiguous_region_count=ambiguous,
@@ -569,6 +784,7 @@ def quantize_normalized(
         profile,
         alignment_shift_sec=0.0,
         alignment_uncertain=False,
+        alignment_meter_resolved=False,
         realize_durations=realize_durations,
     )
 
@@ -605,18 +821,22 @@ def quantize_events(
 
     shift = 0.0
     uncertain = False
+    resolved = False
     if alignment_shift_sec is not None:
         # #85: caller already estimated the global shift (voice 1 of a
         # multi-voice job) — additional voices must share that grid, not
         # search their own, or the parts would drift against each other.
         shift = alignment_shift_sec
     elif search_alignment and profile.max_alignment_shift_sec > 0:
-        estimate = estimate_alignment_shift(events, warp, profile)
+        estimate = estimate_alignment_shift(
+            events, warp, profile, meter_map=meter_map
+        )
         # Design 6.3: an untrustworthy estimate (band edge / competing peaks)
         # is *not* auto-applied — it becomes a review reason instead.
         if not estimate.uncertain:
             shift = estimate.shift_sec
         uncertain = estimate.uncertain
+        resolved = estimate.meter_resolved
 
     normalized = normalize_to_score_time(events, warp, alignment_shift_sec=shift)
     return _quantize(
@@ -625,5 +845,6 @@ def quantize_events(
         profile,
         alignment_shift_sec=shift,
         alignment_uncertain=uncertain,
+        alignment_meter_resolved=resolved,
         realize_durations=realize_durations,
     )
