@@ -29,6 +29,17 @@ describe("MockDiagnosticsPort.collect", () => {
     expect(info.paths.cache).toBeTruthy();
     expect(info.paths.logs).toBeTruthy();
     expect(info.workerStatus).toBe("running");
+    // #81: the mock reports a sample applied correction so the row
+    // renders in dev; null exercises the silent state.
+    expect(info.timingCorrection?.shiftSec).toBeGreaterThan(0);
+  });
+
+  it("timingCorrection null keeps the sheet silent (#81)", async () => {
+    const info = await new MockDiagnosticsPort({
+      latencyMs: 0,
+      timingCorrection: null,
+    }).collect();
+    expect(info.timingCorrection).toBeNull();
   });
 
   it("honours 設定 → ツール path overrides", async () => {
@@ -112,6 +123,7 @@ describe("ShellDiagnosticsPort.collect", () => {
     expect(info.protocolVersion).toBeNull();
     expect(info.backend).toBeNull();
     expect(info.workerStatus).toBe("unavailable");
+    expect(info.timingCorrection).toBeNull();
   });
 
   it("a wired session feeds engine/protocol/backend and liveness", async () => {
@@ -122,6 +134,7 @@ describe("ShellDiagnosticsPort.collect", () => {
         protocolVersion: 1,
         backend: "basicPitch",
         capabilities: { demucsAvailable: true, ffmpegAvailable: false },
+        timingCorrection: { shiftSec: -0.0308, meterResolved: true },
       }),
     }).collect();
     expect(info.engine?.name).toBe("hornscribe-engine");
@@ -131,6 +144,11 @@ describe("ShellDiagnosticsPort.collect", () => {
     // #10: demucs is an engine-side capability — the row tracks the
     // handshake, not a shell probe.
     expect(info.tools.demucs.status).toBe("found");
+    // #81: the session's applied correction passes through verbatim.
+    expect(info.timingCorrection).toEqual({
+      shiftSec: -0.0308,
+      meterResolved: true,
+    });
   });
 
   it("demucs row: missing when the engine says so, unknown without caps (#10)", async () => {

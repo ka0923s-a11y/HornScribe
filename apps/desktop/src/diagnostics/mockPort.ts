@@ -11,6 +11,7 @@
  */
 
 import { getShellInfo } from "../tauri/bridge";
+import type { TimingCorrection } from "../sidecar/resultMeta";
 import {
   withPathOverride,
   type DiagnosticsInfo,
@@ -26,6 +27,9 @@ export interface MockDiagnosticsPortOptions {
   ffmpeg?: ToolInfo;
   demucs?: ToolInfo;
   latencyMs?: number;
+  /** `undefined` → a sample applied correction exercises the row;
+   *  `null` → the sheet's silent state (no correction reported). */
+  timingCorrection?: TimingCorrection | null;
 }
 
 export class MockDiagnosticsPort implements DiagnosticsPort {
@@ -93,6 +97,10 @@ export class MockDiagnosticsPort implements DiagnosticsPort {
         logs: "C:\\Users\\user\\AppData\\Local\\HornScribe\\logs",
       },
       workerStatus: "running",
+      timingCorrection:
+        this.options.timingCorrection === undefined
+          ? { shiftSec: 0.017, meterResolved: true }
+          : this.options.timingCorrection,
     };
   }
 

@@ -9,6 +9,7 @@
  * user-facing projection used by the export dialog, the settings tools
  * section and the diagnostics sheet.
  */
+import type { TimingCorrection } from "../sidecar/resultMeta";
 
 /** Engine identity from `engine.handshake` response `engineInfo`. */
 export interface EngineInfo {
@@ -59,6 +60,10 @@ export interface DiagnosticsInfo {
     readonly logs: string | null;
   };
   readonly workerStatus: WorkerStatus;
+  /** #81: timing correction applied by the last completed job —
+   *  null when none was applied (zero shift, no result yet, or an
+   *  engine too old to report). The sheet omits the row entirely. */
+  readonly timingCorrection: TimingCorrection | null;
 }
 
 /** User-overridable tool paths (設定 → ツール). Empty string = auto-detect. */

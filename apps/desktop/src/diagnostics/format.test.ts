@@ -23,6 +23,7 @@ const FULL: DiagnosticsInfo = {
   },
   paths: { cache: "C:\\cache", logs: "C:\\logs" },
   workerStatus: "running",
+  timingCorrection: { shiftSec: 0.0124, meterResolved: true },
 };
 
 const EMPTY: DiagnosticsInfo = {
@@ -39,6 +40,7 @@ const EMPTY: DiagnosticsInfo = {
   },
   paths: { cache: null, logs: null },
   workerStatus: "unavailable",
+  timingCorrection: null,
 };
 
 describe("formatDiagnosticsText", () => {
@@ -73,5 +75,27 @@ describe("formatDiagnosticsText", () => {
     expect(text).toContain(ja.diagnostics.workerStates.unavailable);
     expect(text).not.toContain("undefined");
     expect(text).not.toContain("null");
+  });
+
+  it("renders the applied timing correction with its resolved tag (#81)", () => {
+    const text = formatDiagnosticsText(FULL);
+    expect(text).toContain(`${ja.diagnostics.fields.timingCorrection}: +12.4 ms`);
+    expect(text).toContain(ja.diagnostics.timingCorrectionResolved);
+  });
+
+  it("omits the timing-correction line when none was applied (#81)", () => {
+    const text = formatDiagnosticsText(EMPTY);
+    expect(text).not.toContain(ja.diagnostics.fields.timingCorrection);
+  });
+
+  it("an unresolved correction carries no tag", () => {
+    const text = formatDiagnosticsText({
+      ...FULL,
+      timingCorrection: { shiftSec: -0.0308, meterResolved: false },
+    });
+    expect(text).toContain(
+      `${ja.diagnostics.fields.timingCorrection}: -30.8 ms`,
+    );
+    expect(text).not.toContain(ja.diagnostics.timingCorrectionResolved);
   });
 });

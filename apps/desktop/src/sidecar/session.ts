@@ -31,6 +31,7 @@ import {
   type JobView,
 } from "./jobView";
 import { extractReviewIssueCount } from "./review";
+import { extractTimingCorrection } from "./resultMeta";
 
 /** Real transcription job kind; the spike worker only knows
  *  `demoLongTask`, so the session falls back to it when `transcription`
@@ -564,7 +565,7 @@ export class TranscriptionSession {
    *  session can honestly report; tool checks belong to UI-060). */
   buildDiagnostics(): string {
     const s = this.snap;
-    const correction = extractAlignmentCorrection(s.lastResult);
+    const correction = timingCorrectionLine(s.lastResult);
     const lines: string[] = [
       "HornScribe desktop — transcription session",
       `protocolVersion: ${s.protocolVersion ?? "?"}`,
@@ -592,25 +593,17 @@ function isSettled(job: JobView): boolean {
 }
 
 /**
- * #81: `result.meta.alignmentShiftSec` — the onset-lattice timing
- * correction the quantizer applied, surfaced on the diagnostics sheet
- * so a "the written notes sat off the recorded beat" question has a
- * visible, numeric answer. Silent when absent (older engine), not a
- * finite number, or exactly zero — no applied correction is the normal
- * case and the sheet stays noise-free. `alignmentMeterResolved` marks
- * corrections whose phase was disambiguated by metrical evidence
- * (quantizer tie-break) rather than a plain residual minimum.
+ * #81: technical-dump form of the applied timing correction —
+ * `timingCorrectionSec: ±0.0000` with a `(meter-resolved)` tag when
+ * metrical evidence disambiguated the phase (#78). Null inherits
+ * extractTimingCorrection's silence rules (no correction → no line).
+ * The user-facing §19 sheet renders the same value in Japanese via
+ * diagnostics/format.timingCorrectionText.
  */
-function extractAlignmentCorrection(result: unknown): string | null {
-  if (typeof result !== "object" || result === null) return null;
-  const meta = (result as Record<string, unknown>).meta;
-  if (typeof meta !== "object" || meta === null) return null;
-  const m = meta as Record<string, unknown>;
-  const shift = m.alignmentShiftSec;
-  if (typeof shift !== "number" || !Number.isFinite(shift) || shift === 0) {
-    return null;
-  }
-  const sign = shift >= 0 ? "+" : "";
-  const tag = m.alignmentMeterResolved === true ? " (meter-resolved)" : "";
-  return `timingCorrectionSec: ${sign}${shift.toFixed(4)}${tag}`;
+function timingCorrectionLine(result: unknown): string | null {
+  const c = extractTimingCorrection(result);
+  if (!c) return null;
+  const sign = c.shiftSec >= 0 ? "+" : "";
+  const tag = c.meterResolved ? " (meter-resolved)" : "";
+  return `timingCorrectionSec: ${sign}${c.shiftSec.toFixed(4)}${tag}`;
 }

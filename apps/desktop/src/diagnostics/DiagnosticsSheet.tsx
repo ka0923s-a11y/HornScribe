@@ -4,7 +4,7 @@ import { ja } from "../strings/ja";
 import { HsButton } from "../components/primitives/Button";
 import { HsSheet } from "../components/primitives/Sheet";
 import { StatusBadge, type StatusTone } from "../components/primitives/StatusBadge";
-import { formatDiagnosticsText } from "./format";
+import { formatDiagnosticsText, timingCorrectionText } from "./format";
 import type { DiagnosticsPort } from "./port";
 import type {
   DiagnosticsInfo,
@@ -198,6 +198,13 @@ export function DiagnosticsSheet({
               {info.protocolVersion ?? d.notConnected}
             </Row>
             <Row label={f.backend}>{info.backend ?? d.notConnected}</Row>
+            {/* #81: applied timing correction — row omitted entirely
+                when no correction was applied (silent by design). */}
+            {info.timingCorrection !== null ? (
+              <Row label={f.timingCorrection}>
+                {timingCorrectionText(info.timingCorrection)}
+              </Row>
+            ) : null}
           </section>
 
           <section className="hs-diag__section" aria-label={d.groups.tools}>

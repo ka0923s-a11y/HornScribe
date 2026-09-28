@@ -7,6 +7,7 @@
 
 import { ja } from "../strings/ja";
 import type { DiagnosticsInfo, ToolInfo, WorkerStatus } from "./types";
+import type { TimingCorrection } from "../sidecar/resultMeta";
 
 function toolLine(info: ToolInfo): string {
   const s = ja.dependencies;
@@ -37,6 +38,17 @@ function value(v: string | number | null | undefined): string {
   return v == null || v === "" ? ja.diagnostics.notConnected : String(v);
 }
 
+/** #81: "+12.4 ms" style value with the 拍節解消 tag — shared by the
+ *  sheet row and the copied text so both read identically. */
+export function timingCorrectionText(c: TimingCorrection): string {
+  const ms = c.shiftSec * 1000;
+  let mag = ms.toFixed(1);
+  if (mag === "-0.0") mag = "0.0";
+  const sign = ms > 0 ? "+" : "";
+  const tag = c.meterResolved ? ja.diagnostics.timingCorrectionResolved : "";
+  return `${sign}${mag} ms${tag}`;
+}
+
 /** One "ラベル: 値" per line — paste-ready for issue reports. */
 export function formatDiagnosticsText(info: DiagnosticsInfo): string {
   const f = ja.diagnostics.fields;
@@ -48,6 +60,15 @@ export function formatDiagnosticsText(info: DiagnosticsInfo): string {
     ],
     [f.protocolVersion, value(info.protocolVersion)],
     [f.backend, value(info.backend)],
+    // #81: silent by design — no applied correction prints no row.
+    ...(info.timingCorrection !== null
+      ? [
+          [
+            f.timingCorrection,
+            timingCorrectionText(info.timingCorrection),
+          ] as [string, string],
+        ]
+      : []),
     [f.ffmpeg, toolLine(info.tools.ffmpeg)],
     [f.musescore, toolLine(info.tools.museScore)],
     [f.demucs, toolLine(info.tools.demucs)],

@@ -1249,6 +1249,9 @@ export const ja = {
       engineVersion: "Pythonエンジンのバージョン",
       protocolVersion: "プロトコルバージョン",
       backend: "採譜エンジン",
+      // #81: quantizer timing correction — the row itself appears
+      // only when a nonzero shift was applied (silent by design).
+      timingCorrection: "タイミング補正",
       ffmpeg: "FFmpeg",
       musescore: "MuseScore",
       // #10: vocal-separation engine — engine-reported, not shell-probed
@@ -1278,6 +1281,9 @@ export const ja = {
       stopped: "停止中",
       unavailable: "未接続",
     },
+    /* #81: appended to the ms value when metrical evidence resolved
+       the correction phase (quantizer metrical tie-break, #78). */
+    timingCorrectionResolved: "（拍節解消）",
   },
 
   /* ====================== UI-030 score workspace ======================
