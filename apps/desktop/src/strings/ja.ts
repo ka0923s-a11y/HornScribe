@@ -80,6 +80,10 @@ export const ja = {
    /* #71: 取り込み(録音)メニューボタンのラベル — 録音中は
     *  transport.recordingLabel/recordingLoopbackLabel に切り替わる。 */
    captureLabel: "取り込み",
+    /* #103: 採譜キュー専用メニューボタン — 取り込み(録音)メニューから
+     *  ジョブ管理を分離。件数はキューの pending+running 件数。 */
+    queueLabel: "キュー",
+    queueWithCount: "キュー（{count}）",
   },
 
   pitch: {
@@ -276,6 +280,10 @@ export const ja = {
     recordingsRetention: "古い録音の自動削除",
     recordingsRetentionNever: "削除しない",
     recordingsRetentionDays: (n: number) => `${n} 日たったら削除`,
+    /* #99: 録音開始カウントイン — ループバック切替・楽器構えの猶予。 */
+    captureCountIn: "録音開始までのカウント",
+    captureCountInOff: "なし(すぐ開始)",
+    captureCountInSeconds: (n: number) => n + " 秒",
     recordingsPruned: (n: number) => `古い録音を ${n} 件削除しました`,
     recordingsUnavailable: "録音の管理はデスクトップアプリで利用できます。",
     /* #147: managed 音源 appDataDir/sources/ — プロジェクト保存時に
@@ -2093,6 +2101,9 @@ export const ja = {
     limitReachedFinish:
       "連続録音の上限(30分)に達したため、録音を終了しました。",
     cancelledAnnounce: "録音を取りやめました",
+    /** #99: 録音開始カウントイン — カウント中のボタン残数と開始告知。 */
+    countInLabel: (n: number) => "あと " + n + " 秒で開始",
+    countInAnnounce: (n: number) => n + " 秒後に録音を開始します",
     /** ブラウザ dev のデバイス名フォールバック(enumerateDevices が
      *  label を返さない環境用)。 */
     micFallbackName: (n: number) => `マイク ${n}`,

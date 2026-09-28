@@ -269,6 +269,47 @@ describe("CaptureController", () => {
     expect(completed).toHaveLength(1);
   });
 
+  it("#99: count-in delays the port start and counts down", async () => {
+    vi.useFakeTimers();
+    try {
+      const port = makePort();
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      c.setCountInSeconds(3);
+      const started = c.start("microphone");
+      expect(port.start).not.toHaveBeenCalled();
+      expect(c.getState().countInRemaining).toBe(3);
+      await vi.advanceTimersByTimeAsync(3000);
+      await started;
+      expect(port.start).toHaveBeenCalledTimes(1);
+      expect(c.getState().phase).toBe("recording");
+      // 録音中はカウント終了 — フィールドは未設定(undefined/null 同等)。
+      expect(c.getState().countInRemaining ?? null).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("#99: cancelling during count-in prevents the session", async () => {
+    vi.useFakeTimers();
+    try {
+      const port = makePort();
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      c.setCountInSeconds(5);
+      const started = c.start("microphone");
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(c.getState().countInRemaining).toBe(4);
+      await c.cancel();
+      await vi.advanceTimersByTimeAsync(10000);
+      await started;
+      expect(port.start).not.toHaveBeenCalled();
+      expect(c.getState().phase).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("pauses and resumes via the port (#80)", async () => {
     const pause = vi.fn(async () => {});
     const resume = vi.fn(async () => {});

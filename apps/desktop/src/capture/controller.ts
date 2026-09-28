@@ -51,6 +51,9 @@ export interface CaptureState {
   /** #42: 録音前の入力レベルモニター。非 null なら選択デバイスの
    *  プレビューキャプチャ(書き出しなし)が動いている。idle 時のみ。 */
   readonly monitor: MonitorState | null;
+  /** #99: 録音開始カウントインの残り秒数。非 null の間 phase は
+   *  "starting" — デバイスはまだ開かれておらず何も録っていない。 */
+  readonly countInRemaining?: number | null;
 }
 
 export const INITIAL_CAPTURE_STATE: CaptureState = {
@@ -158,6 +161,8 @@ export class CaptureController {
   /** #42: モニター用ポーリング(録音タイマーとは別系統)。 */
   private monitorTimer: ReturnType<typeof setInterval> | null = null;
   private startedAtMs = 0;
+  /** #99: 録音開始までのカウント秒数(0 = すぐ開始)。設定から App が流す。 */
+  private countInSeconds = 0;
   /** start 時に決めた保存/表示ファイル名(stop で使い回す)。 */
   private pendingFileName: string | null = null;
   /** ソース別の選択デバイス ID(#73)。null = 既定。 */
@@ -187,6 +192,11 @@ export class CaptureController {
   /** 選択中のデバイス ID(null = 既定)。 */
   selectedDeviceId(source: CaptureSource): string | null {
     return this.deviceIds[source];
+  }
+
+  /** #99: 録音開始カウントイン秒数を更新(設定の即時反映)。 */
+  setCountInSeconds(seconds: number): void {
+    this.countInSeconds = Math.max(0, Math.round(seconds));
   }
 
   /** デバイス選択を更新して保持する。null で既定に戻す。 */
@@ -250,6 +260,21 @@ export class CaptureController {
       paused: false,
       monitor: null,
     });
+    // #99: 録音開始カウントイン — デバイスを開く前の準備猶予。カウント中は
+    // ポートに触れないので何も録られない(鳴っていても捨てる安全側仕様)。
+    if (this.countInSeconds > 0) {
+      this.events.announce(
+        ja.capture.countInAnnounce(this.countInSeconds),
+      );
+      for (let s = this.countInSeconds; s > 0; s--) {
+        this.setState({ ...this.getState(), countInRemaining: s });
+        await new Promise<void>((r) => setTimeout(r, 1000));
+        // カウント中のキャンセル/中断 — phase が starting でなくなったら
+        // 抜ける(状態の後始末は cancel() 側が済ませている)。
+        if (this.getState().phase !== "starting") return;
+      }
+      this.setState({ ...this.getState(), countInRemaining: null });
+    }
     try {
       const fileName = source === "loopback"
         ? `PCの音_${timestampForFile()}.wav`
