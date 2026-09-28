@@ -554,6 +554,8 @@ export const ja = {
     toggleCountIn: "カウントイン",
     /* #104: プレイアロング録音 — 参照音源モニター付きのマイク録音。 */
     capturePlayalong: "参照音源を聴きながら録音",
+    /* #118: Ctrl+R — 直前の録音方法をそのまま再走するショートカット。 */
+    captureLastSource: "前回と同じ方法で録音開始",
     /* #100: project save */
     saveProject: "プロジェクトを保存",
     /* #221: Save As — distinct from 書き出し (export artifacts). */

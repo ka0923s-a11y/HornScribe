@@ -114,6 +114,8 @@ export interface CommandContext {
   captureMicrophone?(): void;
   /** #104: プレイアロング — 参照音源をモニターしながらマイク録音。 */
   capturePlayalong?(): void;
+  /** #118: 前回と同じ方法で録音開始(Ctrl+R)。 */
+  captureLastSource?(): void;
   /** 録音中なら停止して取り込む / 録音していなければ何もしない。 */
   stopCapture?(): void;
   /** 録音を中止して破棄する。 */
