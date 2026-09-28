@@ -45,6 +45,12 @@ TRIPLET_ATOM_FRACTIONS: tuple[tuple[Fraction, str], ...] = (
     (Fraction(2, 3), "quarter"),
 )
 
+#: Beat-local window (fraction of the beat unit) around the *first*
+#: triplet third that marks an onset as first-third evidence (#88). The
+#: same 0.12 window the swing census uses to keep the 1/3, 1/2 and 2/3
+#: clusters apart — a run of 2/3-only hits is a shuffle, not triplets.
+FIRST_THIRD_ZONE_BEAT = 0.12
+
 
 @dataclass(frozen=True)
 class TripletRegion:
@@ -112,6 +118,11 @@ class TripletRegionEvidence:
     relevant_onsets: int
     binary_cost: float
     triplet_cost: float
+    #: Relevant onsets sitting near the beat's *first* third (#88). A
+    #: run of relevant 2/3 hits without any first-third onset is a
+    #: shuffle — the swing census owns it, so it must not extend the
+    #: triplet gate.
+    first_third_relevant: int = 0
 
     def gate_open(self, profile: QuantizationProfile) -> bool:
         """Whether AUTO candidacy is justified for this region."""
@@ -146,10 +157,14 @@ def simple_meter_regions(
         # Beat starts satisfy (pos - start + phase) == 0 (mod unit).
         base = seg.start_ql - seg.measure_phase_ql
         seg_lo = max(lo, seg.start_ql)
-        k = -((base - seg_lo) // unit)  # first beat start >= seg_lo
+        # The beat *containing* seg_lo — #88: onsets just inside the
+        # range still live inside this beat; requiring the beat to
+        # start >= seg_lo left the first covered beat unable to gate
+        # (detection jitter puts the first onset a few ms into it).
+        k = (seg_lo - base) // unit
         pos = base + k * unit
         while pos < hi:
-            if pos >= seg_lo and (seg_end is None or pos + unit <= seg_end):
+            if pos >= seg.start_ql and (seg_end is None or pos + unit <= seg_end):
                 out.append(TripletRegion(start_ql=pos, beat_unit_ql=unit))
             pos += unit
     return tuple(out)
@@ -185,6 +200,7 @@ def evaluate_region_evidence(
     third = float(region.beat_unit_ql) / 3.0
     onset_count = 0
     relevant = 0
+    first_third = 0
     binary_cost = 0.0
     triplet_cost = 0.0
     for note in notes:
@@ -201,12 +217,15 @@ def evaluate_region_evidence(
         triplet_cost += triplet_dist
         if triplet_dist + margin < binary_dist:
             relevant += 1
+            if abs(rel - third) <= float(region.beat_unit_ql) * FIRST_THIRD_ZONE_BEAT:
+                first_third += 1
     return TripletRegionEvidence(
         region=region,
         onset_count=onset_count,
         relevant_onsets=relevant,
         binary_cost=binary_cost,
         triplet_cost=triplet_cost,
+        first_third_relevant=first_third,
     )
 
 
@@ -238,4 +257,60 @@ def enabled_triplet_regions(
         return ()
     if profile.triplet_policy is TripletPolicy.ALWAYS:
         return tuple(ev.region for ev in evidence)
-    return tuple(ev.region for ev in evidence if ev.gate_open(profile))
+    runs = _auto_run_members(evidence)
+    return tuple(
+        ev.region
+        for i, ev in enumerate(evidence)
+        if i in runs or ev.gate_open(profile)
+    )
+
+
+def _auto_run_members(
+    evidence: tuple[TripletRegionEvidence, ...],
+) -> frozenset[int]:
+    """Evidence indices that belong to a qualifying triplet run (#88).
+
+    A run is a maximal contiguous chain of regions each showing at
+    least one triplet-relevant onset; it qualifies only when some member
+    carries *first-third* evidence. Detection jitter splits a coherent
+    triplet passage into beats that individually miss the two-relevant
+    gate — the run restores them so the passage cannot come out as a
+    beat-by-beat mix of triplets and sixteenths. A 2/3-only chain is a
+    shuffle instead: no first-third onset means the swing census owns
+    the passage and the straight notation must survive for it.
+    """
+    members: set[int] = set()
+    i = 0
+    n = len(evidence)
+    while i < n:
+        if evidence[i].relevant_onsets < 1:
+            i += 1
+            continue
+        j = i
+        has_first = False
+        while j < n and evidence[j].relevant_onsets >= 1:
+            has_first = has_first or evidence[j].first_third_relevant >= 1
+            j += 1
+        if has_first:
+            members.update(range(i, j))
+        i = j
+    return frozenset(members)
+
+
+def strict_triplet_regions(
+    evidence: tuple[TripletRegionEvidence, ...],
+    profile: QuantizationProfile,
+) -> tuple[TripletRegion, ...]:
+    """Run-qualified regions whose interior is triplet-only (#88).
+
+    Inside a strict region, binary candidates at non-third positions
+    are suppressed — the evidence says the whole passage is in triplet
+    time, so an interior onset may not snap onto the sixteenth grid and
+    break the run's notation. Regions opened by their own per-beat gate
+    stay *additive* (mixed triplet/binary figures inside one beat are
+    real notation); only the coherent run commits fully.
+    """
+    if profile.triplet_policy is not TripletPolicy.AUTO:
+        return ()
+    runs = _auto_run_members(evidence)
+    return tuple(ev.region for i, ev in enumerate(evidence) if i in runs)

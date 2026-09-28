@@ -60,12 +60,20 @@ from hornscribe.rhythm.lattice import (
 from hornscribe.rhythm.meter import MeterMap, MeterSegment
 from hornscribe.rhythm.profile import QuantizationProfile
 from hornscribe.rhythm.realize import TINY_REST_MAX_QL, SpanRealizer
+from hornscribe.rhythm.swing import (
+    SWING_SNAP_PHASE_HI,
+    SWING_SNAP_PHASE_LO,
+    detect_swing,
+)
 from hornscribe.rhythm.timewarp import TimeWarp, normalize_to_score_time
 from hornscribe.rhythm.triplet import (
     TripletRegion,
     TripletRegionEvidence,
     enabled_triplet_regions,
+    region_containing,
     region_evidence,
+    simple_meter_regions,
+    strict_triplet_regions,
 )
 
 #: Coarse alignment-shift search step (design 6.3: ±120 ms band).
@@ -606,6 +614,53 @@ def _realization_diagnostics(
     return counts, tuple(reasons)
 
 
+def _swing_snap_beats(
+    ordered: tuple[NormalizedNote, ...],
+    meter_map: MeterMap,
+    strict_regions: tuple[TripletRegion, ...],
+) -> tuple[tuple[TripletRegion | None, ...], bool]:
+    """Per-note containing beat when its onset is a swung offbeat (#88).
+
+    A detected shuffle writes swung offbeats as *straight* eighths:
+    notation keeps equal halves and the payload's ``swingFeel`` carries
+    the feel — dotted-16th pairs plus a swing mark would double-apply
+    it. Notes inside a strict triplet region keep their triplet
+    lattice, and onsets outside the snap band keep normal candidates,
+    so genuine triplets and dotted pickups survive a swung context.
+    The flag doubles as the 'the off-grid evidence is swing' signal
+    that suppresses the ``possible_triplet`` review reason.
+    """
+    none = tuple(None for _ in ordered)
+    if not ordered:
+        return none, False
+    beat_ql = Fraction(4, meter_map.segments[0].denominator)
+    if not detect_swing((n.onset_ql for n in ordered), beat_ql).detected:
+        return none, False
+    beats = simple_meter_regions(
+        meter_map,
+        Fraction(ordered[0].onset_ql),
+        Fraction(ordered[-1].onset_ql) + Fraction(1),
+    )
+    strict_starts = [r.start_ql for r in strict_regions]
+    out: list[TripletRegion | None] = []
+    for note in ordered:
+        beat = region_containing(beats, note.onset_ql)
+        if beat is None:
+            out.append(None)
+            continue
+        rel = note.onset_ql - float(beat.start_ql)
+        unit = float(beat.beat_unit_ql)
+        if not (SWING_SNAP_PHASE_LO * unit <= rel <= SWING_SNAP_PHASE_HI * unit):
+            out.append(None)
+            continue
+        i = bisect.bisect_right(strict_starts, note.onset_ql) - 1
+        if i >= 0 and note.onset_ql < float(strict_regions[i].end_ql):
+            out.append(None)
+            continue
+        out.append(beat)
+    return tuple(out), True
+
+
 def _quantize(
     notes: tuple[NormalizedNote, ...],
     meter_map: MeterMap,
@@ -634,14 +689,18 @@ def _quantize(
     # with triplet atoms and a binary-mode onset is never secretly tuplet.
     evidence = region_evidence(ordered, meter_map, profile)
     triplet_regions = enabled_triplet_regions(evidence, profile)
+    strict_regions = strict_triplet_regions(evidence, profile)
+    snap_beats, swing_detected = _swing_snap_beats(ordered, meter_map, strict_regions)
     candidates = tuple(
         generate_onset_candidates(
             note,
             profile,
             min_position_ql=score_start,
             triplet_regions=triplet_regions,
+            strict_triplet_regions=strict_regions,
+            snap_mid_beat=snap_beats[i],
         )
-        for note in ordered
+        for i, note in enumerate(ordered)
     )
     realizer = (
         SpanRealizer(meter_map, profile, triplet_regions=triplet_regions)
@@ -681,7 +740,10 @@ def _quantize(
     reasons = (
         base_reasons
         + _phase_review_reasons(meter_map, ordered)
-        + _triplet_review_reasons(paths, evidence)
+        # A detected shuffle explains the off-grid evidence better than
+        # 'maybe triplets' (#88) — the pipeline's swing_feel issue
+        # carries the real reading.
+        + (() if swing_detected else _triplet_review_reasons(paths, evidence))
         + reasons_extra
     )
 
