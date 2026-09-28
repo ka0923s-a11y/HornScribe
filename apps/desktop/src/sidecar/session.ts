@@ -564,6 +564,7 @@ export class TranscriptionSession {
    *  session can honestly report; tool checks belong to UI-060). */
   buildDiagnostics(): string {
     const s = this.snap;
+    const correction = extractAlignmentCorrection(s.lastResult);
     const lines: string[] = [
       "HornScribe desktop — transcription session",
       `protocolVersion: ${s.protocolVersion ?? "?"}`,
@@ -574,6 +575,7 @@ export class TranscriptionSession {
       `cancellationFallback: ${String(s.capabilities?.cancellationFallback ?? "?")}`,
       `job: ${s.job ? `${s.job.jobId} ${s.job.phase}` : "(none)"}`,
       `failure: ${s.failure ? `${s.failure.kind} (${s.failure.detail})` : "(none)"}`,
+      ...(correction !== null ? [correction] : []),
       "— recent engine diagnostics —",
       ...s.diagnostics.slice(-30),
     ];
@@ -587,4 +589,28 @@ function isSettled(job: JobView): boolean {
     job.phase === "cancelled" ||
     job.phase === "failed"
   );
+}
+
+/**
+ * #81: `result.meta.alignmentShiftSec` — the onset-lattice timing
+ * correction the quantizer applied, surfaced on the diagnostics sheet
+ * so a "the written notes sat off the recorded beat" question has a
+ * visible, numeric answer. Silent when absent (older engine), not a
+ * finite number, or exactly zero — no applied correction is the normal
+ * case and the sheet stays noise-free. `alignmentMeterResolved` marks
+ * corrections whose phase was disambiguated by metrical evidence
+ * (quantizer tie-break) rather than a plain residual minimum.
+ */
+function extractAlignmentCorrection(result: unknown): string | null {
+  if (typeof result !== "object" || result === null) return null;
+  const meta = (result as Record<string, unknown>).meta;
+  if (typeof meta !== "object" || meta === null) return null;
+  const m = meta as Record<string, unknown>;
+  const shift = m.alignmentShiftSec;
+  if (typeof shift !== "number" || !Number.isFinite(shift) || shift === 0) {
+    return null;
+  }
+  const sign = shift >= 0 ? "+" : "";
+  const tag = m.alignmentMeterResolved === true ? " (meter-resolved)" : "";
+  return `timingCorrectionSec: ${sign}${shift.toFixed(4)}${tag}`;
 }

@@ -307,6 +307,60 @@ describe("TranscriptionSession", () => {
     await session.dispose();
   });
 
+  it("diagnostics report the applied timing correction (#81)", async () => {
+    const { session } = makeSession(
+      new MockSidecarPort({
+        transcriptionMeta: {
+          alignmentShiftSec: 0.0124,
+          alignmentMeterResolved: false,
+        },
+      }),
+    );
+    await session.startTranscription(FAST);
+    await until(() => session.getSnapshot().job?.phase === "completed");
+    const diag = session.buildDiagnostics();
+    expect(diag).toContain("timingCorrectionSec: +0.0124");
+    expect(diag).not.toContain("meter-resolved");
+    await session.dispose();
+  });
+
+  it("a meter-resolved correction carries its tag (#81)", async () => {
+    const { session } = makeSession(
+      new MockSidecarPort({
+        transcriptionMeta: {
+          alignmentShiftSec: -0.0308,
+          alignmentMeterResolved: true,
+        },
+      }),
+    );
+    await session.startTranscription(FAST);
+    await until(() => session.getSnapshot().job?.phase === "completed");
+    expect(session.buildDiagnostics()).toContain(
+      "timingCorrectionSec: -0.0308 (meter-resolved)",
+    );
+    await session.dispose();
+  });
+
+  it("no timing-correction line when none was applied (#81)", async () => {
+    // Zero shift — applied nothing; and a legacy engine with no `meta`
+    // at all. Both stay silent rather than printing +0.0000 noise.
+    for (const port of [
+      new MockSidecarPort({
+        transcriptionMeta: {
+          alignmentShiftSec: 0,
+          alignmentMeterResolved: false,
+        },
+      }),
+      new MockSidecarPort({ transcriptionMeta: null }),
+    ]) {
+      const { session } = makeSession(port);
+      await session.startTranscription(FAST);
+      await until(() => session.getSnapshot().job?.phase === "completed");
+      expect(session.buildDiagnostics()).not.toContain("timingCorrectionSec");
+      await session.dispose();
+    }
+  });
+
   it("watchdog unresponsiveness mid-job sets workerNotResponding", async () => {
     const { session, port } = makeSession();
     await session.startTranscription({ steps: 100, stepDurationMs: 5 });
