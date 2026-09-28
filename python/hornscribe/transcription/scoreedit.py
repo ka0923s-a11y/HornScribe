@@ -623,7 +623,7 @@ def _next_in_layer(
     """
     notes = part.notes
     sel = notes[note_index]
-    layers = note_layers(notes)
+    layers = note_layers(notes, part.rests)
     sel_layer = layers.get(sel.id, 0)
     # Earliest onset strictly after the selection's onset, on the same
     # layer. Chord mates share sel.start_beat and are excluded by the
@@ -661,6 +661,7 @@ def _clip_overlaps(
     *,
     edited_index: int,
     original: tuple[QuantizedNote, ...] | None = None,
+    rests: tuple[ScoreRest, ...] = (),
 ) -> list[QuantizedNote]:
     """Re-apply the per-layer monophonic contract inside the edit window.
 
@@ -675,7 +676,7 @@ def _clip_overlaps(
     not fit).
     """
     basis = original if original is not None else tuple(notes)
-    layers = note_layers(basis)
+    layers = note_layers(basis, rests)
     pre_starts = {n.id: n.start_beat for n in basis}
 
     def unmoved_pair(a: QuantizedNote, b: QuantizedNote) -> bool:
@@ -952,7 +953,8 @@ def _apply_timing_edit(
     notes.sort(key=lambda n: (n.start_beat, n.id))
     edited_index = next(i for i, n in enumerate(notes) if n.id == target.id)
     notes = _clip_overlaps(
-        notes, edited_index=edited_index, original=pre_edit
+        notes, edited_index=edited_index, original=pre_edit,
+        rests=part.rests,
     )
 
     # The rebuild window: every measure touching the union of old and

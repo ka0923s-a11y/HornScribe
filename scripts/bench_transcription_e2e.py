@@ -521,9 +521,9 @@ def _detected_notes(result: dict) -> list[tuple[float, int]]:
     meter = str(meta.get("meter") or "4/4")
     if "/" in meter:
         num_s, den_s = meter.split("/", 1)
-        num, den = int(num_s), int(den_s)
+        num = int(num_s)
     else:
-        num, den = 4, 4
+        num = 4
     # scoreDocument startBeat counts *denominator* units (scorebuild.py:
     # onset_ql / (4/den)) — for 6/8 one "beat" is an eighth. tempoBpm
     # counts *primary* beats (compound: dotted quarter = 3/2 ql).

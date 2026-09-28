@@ -316,6 +316,34 @@ class TestNoteLayers:
         assert layers[ScoreNoteId("sn-000002")] == 1
         assert layers[ScoreNoteId("sn-000003")] == 1
 
+    def test_note_inside_rest_span_gets_own_layer(self) -> None:
+        """#86: canonical rests occupy layer 0 — a folded note landing
+        inside a voice-1 rest must lift or strict tiling sees an
+        overlap (the merged-chords crash)."""
+        rest_atom = ScoreAtom(duration_beats=Fraction(3), symbol="half", dots=1)
+        notes = (_qn(1, 60, "0", "1"), _qn(2, 64, "2", "1"))
+        rests = (ScoreRest(start_beat=Fraction(1), atoms=(rest_atom,)),)
+        layers = note_layers(notes, rests)
+        assert layers[ScoreNoteId("sn-000001")] == 0
+        assert layers[ScoreNoteId("sn-000002")] == 1
+
+    def test_note_touching_rest_edge_stays_layer_zero(self) -> None:
+        """Boundary contact is not overlap — a note ending exactly at
+        a rest's start keeps layer 0."""
+        rest_atom = ScoreAtom(duration_beats=Fraction(3), symbol="half", dots=1)
+        notes = (_qn(1, 60, "0", "1"),)
+        rests = (ScoreRest(start_beat=Fraction(1), atoms=(rest_atom,)),)
+        assert note_layers(notes, rests) == {ScoreNoteId("sn-000001"): 0}
+
+    def test_rest_blocked_note_can_take_layer_one_first(self) -> None:
+        """#86: when every note sits inside rests, layer 0 is never
+        taken — the layer tracker must not index past its length."""
+        whole = ScoreAtom(duration_beats=Fraction(4), symbol="whole")
+        notes = (_qn(1, 60, "0", "1"),)
+        rests = (ScoreRest(start_beat=Fraction(0), atoms=(whole,)),)
+        layers = note_layers(notes, rests)
+        assert layers[ScoreNoteId("sn-000001")] == 1
+
 
 # --- build_score merge_voices -------------------------------------------------
 
@@ -482,6 +510,25 @@ class TestChordExport:
         )
         xml = export_concert_musicxml(doc)
         assert xml.count("<chord />") == 1
+        assert verify_rhythm_roundtrip(doc, xml) == []
+
+    def test_note_inside_rest_span_renders_as_second_voice(self) -> None:
+        """#86: a folded note landing inside a canonical rest must lift
+        to a secondary voice — previously the strict tiler raised
+        'canonical rests do not tile' and the whole job failed."""
+        atom = ScoreAtom(duration_beats=Fraction(1), symbol="quarter")
+        rest_atom = ScoreAtom(duration_beats=Fraction(3), symbol="half", dots=1)
+        doc = _doc(
+            [
+                _qn(1, 60, "0", "1", atoms=(atom,)),
+                _qn(2, 64, "2", "1", atoms=(atom,)),  # inside rest [1,4)
+            ],
+            rests=(
+                ScoreRest(start_beat=Fraction(1), atoms=(rest_atom,)),
+            ),
+        )
+        xml = export_concert_musicxml(doc)
+        assert "<backup>" in xml  # the lifted note renders as <voice>
         assert verify_rhythm_roundtrip(doc, xml) == []
 
     def test_hidden_gap_rest_stays_out_of_rest_ordinals(self) -> None:

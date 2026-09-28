@@ -107,6 +107,9 @@ ALLOWED_LATIN_TOKENS = {
     "Pitch",
     "Verovio",
     "pYIN",
+    # #10: the optional vocal-separation engine is a proper noun —
+    # the diagnostics tools row names it (demucs（ボーカル分離）).
+    "demucs",
     "Windows",
     "pip",
     "install",
