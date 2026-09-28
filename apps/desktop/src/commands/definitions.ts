@@ -246,6 +246,9 @@ export function createCommandDefinitions(): readonly Command[] {
       id: "media.stopCapture",
       title: ja.commands.stopCapture,
       section: "file",
+      // #98: the stop button's aria-keyshortcuts already advertises
+      // Ctrl+Enter and FEAT-001 §5 specifies it — wire the real binding.
+      shortcuts: ["Ctrl+Enter"],
       isEnabled: (s) => s.isRecording,
       isVisible: (s) => s.isRecording,
       run: (ctx) => ctx.stopCapture?.(),
