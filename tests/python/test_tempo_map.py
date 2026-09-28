@@ -135,3 +135,54 @@ def test_compound_meter_reports_primary_beat_bpm() -> None:
     # (4/denominator = 0.5 ql), so the boundary lands on beat 6.
     assert segs[1].start_beat == 6
     assert abs(segs[1].bpm - 100.0) < 0.5
+
+
+def test_median_bpm_uses_anchor_slope_not_interval_median() -> None:
+    """Alternating +-1-frame intervals: the interval median reports a
+    whole-frame quantum, while the anchor regression recovers the
+    mean period (frame-quantisation bias fix)."""
+    from hornscribe.transcription.tempo import estimate_tempo
+
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    times = [0.0]
+    for i in range(10):
+        times.append(times[-1] + (0.44 if i % 2 else 0.49))
+    est = estimate_tempo(
+        None,
+        22050,
+        meter,
+        tempo_bpm=None,
+        first_onset_sec=None,
+        beat_times=tuple(times),
+    )
+    # Mean interval 0.465 s -> ~129.0 bpm. The interval median picks
+    # 0.49 -> ~122.4 bpm; the slope must win within the outlier guard.
+    assert abs(est.median_bpm - 129.0) < 1.5
+
+
+def test_tempo_map_uses_warp_rate_at_measure_bounds() -> None:
+    """A tempo step's mixed interval crosses a barline: the slow measure
+    must keep ~100 while the fast side reports ~140 — the boundary-
+    interpolated warp rate, not an LSQ over inside anchors."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    times = [0.0]
+    for d in [0.6] * 7 + [0.45] + [0.43] * 8:
+        times.append(times[-1] + d)
+    anchors = tuple(
+        BeatAnchor(
+            time_sec=t,
+            score_pos_ql=Fraction(i),
+            source=BeatSource.BEAT_TRACKER,
+        )
+        for i, t in enumerate(times)
+    )
+    est = TempoEstimate(
+        warp=TimeWarp.from_beat_map(BeatMap(anchors)),
+        beat_times_sec=tuple(times),
+        median_bpm=120.0,
+        auto=True,
+    )
+    segs = tempo_map_from_estimate(est, meter)
+    assert abs(segs[0].bpm - 100.0) < 2.0
+    fast = [s for s in segs if s.start_beat >= 8]
+    assert fast and all(abs(s.bpm - 140.0) < 8.0 for s in fast)

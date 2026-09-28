@@ -174,6 +174,42 @@ _TEMPO_REGION_PAD_SEC = 0.6
 # A gap wider than interval * this between region tracks means the
 # boundary beat was lost -- refill it from the onset envelope.
 _TEMPO_GAP_FILL_RATIO = 1.4
+# The tracker quantizes anchors to whole hop frames (~23 ms at
+# 512/22050). On a regular pulse every anchor rounds to the SAME
+# integer interval, so the measured tempo inherits a systematic
+# bias (auto-3-4 read 129.2 bpm of a true 132 -- a 2 % drift that
+# pushes every mapped onset off-grid). Peak refinement inside
+# this radius recovers the fractional position.
+_SUBFRAME_RADIUS_FRAMES = 2
+
+
+def _refine_beat_frame(onset_env: Any, frame: int) -> float:
+    """Fractional frame of the envelope peak near the tracked frame.
+
+    Finds the strongest onset within +/-_SUBFRAME_RADIUS_FRAMES,
+    interpolates the peak parabolically, then clamps the result to
+    +-1 frame of the tracked position. The clamp matters: a 2-frame
+    argmax jump alternating sign turns into interval sawtooth, and
+    a 4-anchor measure slope swings ~5 % (tempo-step bench). Edge
+    or too-short windows return the integer frame unchanged.
+    """
+    n = len(onset_env)
+    lo = max(0, frame - _SUBFRAME_RADIUS_FRAMES)
+    hi = min(n, frame + _SUBFRAME_RADIUS_FRAMES + 1)
+    if hi - lo < 3:
+        return float(frame)
+    peak = lo + int(onset_env[lo:hi].argmax())
+    refined = float(peak)
+    if 0 < peak < n - 1:
+        a = float(onset_env[peak - 1])
+        b = float(onset_env[peak])
+        c = float(onset_env[peak + 1])
+        denom = a - 2.0 * b + c
+        shift = 0.5 * (a - c) / denom if denom != 0.0 else 0.0
+        refined += max(-1.0, min(1.0, shift))
+    # Pull toward the peak but never leave the tracked frame's
+    # neighbourhood -- the anchor moves at most +-1 frame.
+    return float(frame) + max(-1.0, min(1.0, refined - float(frame)))
 
 
 def _track_beats(
@@ -200,12 +236,15 @@ def _track_beats(
         times: list[float] = []
         strengths: list[float] = []
         for frame in frames:
-            idx = int(frame)
-            ft = float(librosa.frames_to_time(idx, sr=sample_rate))
+            refined = _refine_beat_frame(onset_env, int(frame))
+            ft = float(librosa.frames_to_time(refined, sr=sample_rate))
             if times and ft <= times[-1]:
                 continue
+            s_idx = int(round(refined))
             strength = (
-                float(onset_env[idx]) if 0 <= idx < len(onset_env) else 0.0
+                float(onset_env[s_idx])
+                if 0 <= s_idx < len(onset_env)
+                else 0.0
             )
             times.append(ft)
             strengths.append(strength)
@@ -272,7 +311,11 @@ def _track_beats(
                 peak = f_lo + int(onset_env[f_lo:f_hi].argmax())
                 if float(onset_env[peak]) <= 0:
                     break
-                prev_t = float(librosa.frames_to_time(peak, sr=sample_rate))
+                prev_t = float(
+                    librosa.frames_to_time(
+                        _refine_beat_frame(onset_env, peak), sr=sample_rate
+                    )
+                )
                 filled.append((prev_t, r_i))
         filled.append((t, r_i))
 

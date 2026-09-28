@@ -37,8 +37,38 @@ from hornscribe.rhythm.timewarp import TimeWarp
 from .backend import require_module
 
 # Merge adjacent tempo estimates differing by less than this ratio —
-# beat-tracker jitter under ~2 % is not a real tempo change.
-_TEMPO_MERGE_RATIO = 0.02
+# beat-tracker jitter under ~2.5 % is not a real tempo change. The
+# map's first job is reproducing the warp for onset mapping, so the
+# threshold stays tight: a one-bar blip may print a redundant mark,
+# which is cheaper than a merged constant that drifts off-warp.
+_TEMPO_MERGE_RATIO = 0.025
+# Off-slope guard: when most intervals deviate >10 % from the
+# regression line the track is genuinely multi-tempo, so the
+# dominant median stays the primary tempo. Frame-quantisation
+# jitter stays well under 10 % and never trips the guard.
+_LSQ_OFF_SLOPE_RATIO = 0.10
+_LSQ_MAX_OUTLIER_SHARE = 1.0 / 3.0
+
+
+def _anchor_slope_sec(times: tuple[float, ...]) -> float | None:
+    """Least-squares seconds-per-anchor over the tracked beats.
+
+    Whole-frame quantization makes every interval on a regular
+    pulse report the same integer hop count, so a median of
+    intervals inherits a ~2 % bias (129.2 bpm of a true 132).
+    The regression slope uses every anchor at once and cancels
+    it. Returns None for < 3 anchors or a non-positive slope.
+    """
+    n = len(times)
+    if n < 3:
+        return None
+    xbar = (n - 1) / 2.0
+    ybar = sum(times) / n
+    var = sum((i - xbar) ** 2 for i in range(n))
+    if var == 0:
+        return None
+    slope = sum((i - xbar) * (t - ybar) for i, t in enumerate(times)) / var
+    return slope if slope > 0 else None
 
 
 @dataclass(frozen=True)
@@ -261,6 +291,24 @@ def estimate_tempo(
     median_bpm = (
         float(beat_unit_ql) * 60.0 / (median_sec * float(meter.beat_unit_ql))
     )
+    # LSQ over the anchor row fixes the whole-frame quantization bias
+    # a median of intervals keeps (~2 % on a steady pulse). A track
+    # with genuinely two tempos shows >10 % off-slope intervals all
+    # over — the outlier-share guard keeps the dominant median there
+    # while pure quantisation jitter (well under 10 %) cannot trip it.
+    slope_sec = _anchor_slope_sec(beat_times)
+    if slope_sec is not None and intervals:
+        outliers = sum(
+            1
+            for d in intervals
+            if abs(d - slope_sec) / slope_sec > _LSQ_OFF_SLOPE_RATIO
+        )
+        if outliers <= len(intervals) * _LSQ_MAX_OUTLIER_SHARE:
+            median_bpm = (
+                float(beat_unit_ql)
+                * 60.0
+                / (slope_sec * float(meter.beat_unit_ql))
+            )
     # #358: keep the inference evidence — the pipeline decides whether
     # this pickup was confident enough to write silently.
     pickup_analysis = _build_pickup_analysis(
@@ -459,14 +507,10 @@ def tempo_map_from_estimate(
     if not estimate.auto or len(estimate.beat_times_sec) < 2:
         return (TempoSegment(start_beat=Fraction(0), bpm=round(estimate.median_bpm, 2)),)
 
-    # Tracked anchors sit on the *pulse* unit (eighths for auto-6/8);
-    # the exported BPM must be in primary-beat units (midi.py divides
-    # by meter.beat_unit), so convert through the ql ratio.
-    pulse_unit = (
-        estimate.pulse_unit_ql
-        if estimate.pulse_unit_ql is not None
-        else meter.beat_unit_ql
-    )
+    # The exported BPM must be in primary-beat units (midi.py divides
+    # by meter.beat_unit): the ql-space rate below converts directly
+    # through beat_unit_ql, so the tracked pulse unit needs no
+    # separate handling.
     beat_unit = meter.beat_unit_ql
     times = estimate.beat_times_sec
     beat_ql = Fraction(4, meter.denominator)
@@ -491,43 +535,35 @@ def tempo_map_from_estimate(
         ql = meter.start_ql + index * measure_len_ql - phase_ql
         return max(Fraction(0), ql) / beat_ql
 
-    # Least-squares slope of the anchors inside each measure. A median
-    # of per-interval bpms inherits the frame-quantisation bias of the
-    # tracker (~2% on a 0.42 s beat = 140->143.5 bpm), while the slope
-    # averages the whole measure's anchors at once (#93). Bucket by the
-    # measure containing each anchor's ql position (from the warp's
-    # beat map, which already carries the pickup shift).
-    measure_anchors: dict[int, list[tuple[float, float]]] = {}
-    for i, t in enumerate(times):
-        pos_ql = estimate.warp.seconds_to_ql(t)
-        measure_anchors.setdefault(measure_index(pos_ql), []).append(
-            (float(i), t)
-        )
-    # One value per measure; a segment is emitted only when the
-    # measure's tempo differs from the last EMITTED value by more than
-    # the merge ratio — a genuine rit./accel. survives as a stair-step
-    # across measure boundaries.
+    def measure_bounds_ql(index: int) -> tuple[Fraction, Fraction]:
+        a = meter.start_ql + index * measure_len_ql - phase_ql
+        b = meter.start_ql + (index + 1) * measure_len_ql - phase_ql
+        return max(Fraction(0), a), b
+
+    # Per-measure tempo = the warp's own local rate between the
+    # measure's ql bounds: ql_span / sec_span through the piecewise-
+    # linear beat map. The map then agrees with the warp at every
+    # barline by construction — no boundary drift — and each inside
+    # position interpolates within one interval. A median-of-
+    # intervals inherits frame-quantisation bias (~2 % on a 0.42 s
+    # beat); a 4-anchor LSQ swung ~5 %/bar on sub-frame-refined
+    # anchors (tempo-step bench).
     measure_bpm: dict[int, float] = {}
-    for index, pts in measure_anchors.items():
-        if len(pts) < 2:
-            # A lone anchor has no slope and no tempo evidence of its
-            # own — leave the neighbouring measures to carry it. The
-            # pickup measure typically holds just the anacrusis beat.
+    first_m = measure_index(estimate.warp.seconds_to_ql(times[0]))
+    last_m = measure_index(estimate.warp.seconds_to_ql(times[-1]))
+    for index in range(first_m, last_m + 1):
+        a_ql, b_ql = measure_bounds_ql(index)
+        if b_ql <= a_ql:
             continue
-        xs = [p[0] for p in pts]
-        ys = [p[1] for p in pts]
-        xbar = sum(xs) / len(xs)
-        ybar = sum(ys) / len(ys)
-        var = sum((x - xbar) ** 2 for x in xs)
-        slope = (
-            sum((x - xbar) * (y - ybar) for x, y in pts) / var
-            if var > 0
-            else 0.0
-        )
+        d_sec = estimate.warp.ql_to_seconds(
+            b_ql
+        ) - estimate.warp.ql_to_seconds(a_ql)
+        if d_sec <= 0:
+            continue
         measure_bpm[index] = (
-            float(pulse_unit) * 60.0 / (slope * float(beat_unit))
-            if slope > 0
-            else float(estimate.median_bpm)
+            60.0
+            * float(b_ql - a_ql)
+            / (d_sec * float(beat_unit))
         )
     indices = sorted(measure_bpm)
     if not indices:
