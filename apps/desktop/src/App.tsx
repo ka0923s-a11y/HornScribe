@@ -1082,6 +1082,11 @@ export default function App() {
    *        (マイクのギャップとモニターのギャップを揃え、再開時に
    *        参照と録音の拍がずれないように)。 */
   const playalongRef = useRef<"off" | "armed" | "live">("off");
+  /* #118: Ctrl+R — 直前に使った録音方法を記憶して同じ経路を再走する。
+   *  セッション内のみの記憶(再起動ではループバック=メニュー先頭に戻る)。 */
+  const lastCaptureRef = useRef<"loopback" | "microphone" | "playalong">(
+    "loopback",
+  );
   const capturePhase = captureState?.phase;
   const capturePaused = captureState?.paused;
   useEffect(() => {
@@ -1223,6 +1228,7 @@ export default function App() {
   // に含むため同じ混入が起きる)。
   const launchCapture = useCallback(
     (source: CaptureSource) => {
+      lastCaptureRef.current = source;
       if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
       // #101: メトロノームもアプリ由来の音 — audition と同じ混入経路。
       if (scoreState?.metronomeEnabled)
@@ -1272,6 +1278,7 @@ export default function App() {
     /* 既に録音セッションが動いているなら start() は早期 return し、
      * armed だけが残って後の録音に誤ってモニターを載せる — 先に弾く。 */
     if (captureSessionActive(captureState)) return;
+    lastCaptureRef.current = "playalong";
     playalongRef.current = "armed";
     if (scoreState?.auditionEnabled) scoreCtlRef.current?.toggleAudition();
     if (scoreState?.metronomeEnabled)
@@ -2194,6 +2201,11 @@ export default function App() {
       // #104: プレイアロング — 参照音源をモニターしながらマイク録音。
       capturePlayalong: () => {
         requestPlayalong();
+      },
+      // #118: Ctrl+R — 前回の録音方法を同じ確認経路で再走する。
+      captureLastSource: () => {
+        if (lastCaptureRef.current === "playalong") requestPlayalong();
+        else requestCapture(lastCaptureRef.current);
       },
       stopCapture: () => {
         void capture.stop();

@@ -257,6 +257,17 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.capturePlayalong?.(),
     },
     {
+      // #118: Ctrl+R — 直前に使った録音方法(ループバック/マイク/
+      // プレイアロング)をそのまま再走する。メニューには出さず
+      // ショートカットと F1 ヘルプ掲載のみ。
+      id: "media.captureLastSource",
+      title: ja.commands.captureLastSource,
+      section: "file",
+      shortcuts: ["Ctrl+R"],
+      isEnabled: (s) => !s.isTranscribing && !s.isRecording,
+      run: (ctx) => ctx.captureLastSource?.(),
+    },
+    {
       id: "media.openQueue",
       title: ja.commands.openQueue,
       section: "file",

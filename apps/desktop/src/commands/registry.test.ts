@@ -89,6 +89,7 @@ function mockContext(): CommandContext & { calls: string[] } {
     focusNextRegion: spy("focusNextRegion"),
     focusPreviousRegion: spy("focusPreviousRegion"),
     announce: spy("announce"),
+    captureLastSource: spy("captureLastSource"),
   };
 }
 
@@ -186,6 +187,30 @@ describe("command definitions", () => {
     expect(shortcutOf("score.zoomFit")).toContain("Ctrl+0");
     expect(shortcutOf("nav.nextRegion")).toContain("F6");
     expect(shortcutOf("nav.previousRegion")).toContain("Shift+F6");
+    // #118: Ctrl+R re-runs the last-used capture flow.
+    expect(shortcutOf("media.captureLastSource")).toContain("Ctrl+R");
+  });
+
+  it("#118: captureLastSource gates like the other capture commands", () => {
+    const ctx = mockContext();
+    const recording: CommandSnapshot = {
+      ...SNAPSHOT_EMPTY,
+      isRecording: true,
+    };
+    const transcribing: CommandSnapshot = {
+      ...SNAPSHOT_EMPTY,
+      isTranscribing: true,
+    };
+    expect(registry.invoke("media.captureLastSource", ctx, recording)).toBe(
+      false,
+    );
+    expect(registry.invoke("media.captureLastSource", ctx, transcribing)).toBe(
+      false,
+    );
+    expect(registry.invoke("media.captureLastSource", ctx, SNAPSHOT_EMPTY)).toBe(
+      true,
+    );
+    expect(ctx.calls).toEqual(["captureLastSource"]);
   });
 
   it("#221: project save pair gates on a score and invokes the ctx", () => {
