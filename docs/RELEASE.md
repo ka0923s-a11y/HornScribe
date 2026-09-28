@@ -60,21 +60,19 @@ npx tauri build --config src-tauri/tauri.bundled.json
 
 ## 4. ポータブル zip(手動構成)
 
-ポータブル版は専用ターゲットがないため手動で構成する:
+ポータブル zip は `scripts/package_portable.py` が構成する:
 
 ```powershell
-$stage = "dist/portable/HornScribe"
-New-Item -ItemType Directory -Force $stage/engine | Out-Null
-Copy-Item src-tauri/target/release/horn-scribe.exe $stage/
-Copy-Item src-tauri/resources/engine/hornscribe-engine.exe $stage/engine/
-# ffmpeg static binary を同梱する場合(#10):
-New-Item -ItemType Directory -Force $stage/tools | Out-Null
-Copy-Item path/to/ffmpeg.exe $stage/tools/
-# exe 隣の data/ がポータブルモードの印(#11): 録音・キャッシュ・
-# 自動保存がすべて同梱dir内に収まり %APPDATA% を触らない。
-New-Item -ItemType Directory -Force $stage/data | Out-Null
-Compress-Archive $stage dist/HornScribe-portable.zip
+python scripts/package_portable.py
+# -> dist/HornScribe-<version>-portable-win-x64.zip
+#    + dist/portable-size-report.{md,json} (計測サイズ記録)
 ```
+
+shell exe(既定 `src-tauri/target/release/hornscribe-desktop.exe`,
+`--shell-exe` で差し替え可)・`resources/engine/`・`resources/tools/`
+を集め、`data/` マーカーと `README-portable.txt` を追加して zip 化する。
+zip 化前に同梱エンジンを `smoke_engine.py` で疎通検証する
+(`--skip-smoke` で省略可)。
 
 exe の隣に `engine/` `tools/` `data/` を置けば、`tools.rs`/`engine.rs` の解決順(exe dir)で同梱エンジン・ffmpeg・ポータブルデータ配置がすべて有効になる(#10/#11)。`data/` を置かない従来配置は従来どおり %APPDATA% ベースで動く。
 

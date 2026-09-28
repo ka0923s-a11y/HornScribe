@@ -9,8 +9,9 @@ child also gets this dir prepended to PATH, so engine-side tools
 To ship a static ffmpeg (Windows):
   1. Place ffmpeg.exe (and ffprobe.exe for `doctor`/diagnostics) next
      to this README. A gyan.dev *essentials* build is the recommended
-     size/function trade-off (~80 MB vs ~220 MB for the full build);
-     include its LICENSE/README files — GPL builds require notice.
+     size/function trade-off (~105 MB per binary vs ~227 MB for the
+     full build); include its LICENSE/README files — GPL builds
+     require notice. Current staging: essentials 9.0.2.
   2. Build: npx tauri build --config src-tauri/tauri.bundled.json
   3. The diagnostics sheet's FFmpeg row should then show the bundled
      path (see docs/RELEASE.md section 6).
