@@ -158,6 +158,24 @@ NoteBackend = Callable[[str], tuple[RawNoteEvent, ...]]
 AudioLoader = Callable[[str], tuple[Any, int]]
 
 
+# _track_beats: tempo-change handling (#93). librosa's global tracker
+# forces ONE pulse for the whole file, so a mid-piece 100->140 step
+# leaves the fast section anchored off-grid (the warp then converts
+# score positions back to seconds ~60 ms wrong). The fix: segment the
+# frame-level tempo curve into stable regions and re-track each with
+# its own bpm. Frames inside this band stay in their region.
+_TEMPO_REGION_BAND = 0.10
+# Regions shorter than this merge into a neighbour -- a one-beat rit.
+# is not a tempo section.
+_TEMPO_REGION_MIN_SEC = 1.5
+# Region tracking windows overlap the nominal bounds by this much so
+# beats near the seam are still found; kept beats stay strictly inside.
+_TEMPO_REGION_PAD_SEC = 0.6
+# A gap wider than interval * this between region tracks means the
+# boundary beat was lost -- refill it from the onset envelope.
+_TEMPO_GAP_FILL_RATIO = 1.4
+
+
 def _track_beats(
     samples: Any, sample_rate: int
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
@@ -166,6 +184,9 @@ def _track_beats(
     Shared by the meter estimator (needs strengths at beats) and the
     tempo warp (needs the beat times themselves). A failed or empty
     track returns empty tuples — callers degrade to the 4/4 default.
+    When the frame-level tempo curve shows more than one stable
+    region, each region is re-tracked at its own tempo so a mid-piece
+    tempo step stays on-grid (#93).
     """
     require_module("librosa")
     import librosa  # noqa: PLC0415 - lazy optional dependency
@@ -174,19 +195,174 @@ def _track_beats(
     _tempo, beat_frames = librosa.beat.beat_track(
         y=samples, sr=sample_rate, onset_envelope=onset_env, units="frames"
     )
-    times: list[float] = []
-    strengths: list[float] = []
-    for frame in beat_frames:
-        ft = float(librosa.frames_to_time(frame, sr=sample_rate))
-        if times and ft <= times[-1]:
+
+    def collect(frames: Any) -> tuple[list[float], list[float]]:
+        times: list[float] = []
+        strengths: list[float] = []
+        for frame in frames:
+            idx = int(frame)
+            ft = float(librosa.frames_to_time(idx, sr=sample_rate))
+            if times and ft <= times[-1]:
+                continue
+            strength = (
+                float(onset_env[idx]) if 0 <= idx < len(onset_env) else 0.0
+            )
+            times.append(ft)
+            strengths.append(strength)
+        return times, strengths
+
+    times, strengths = collect(beat_frames)
+
+    regions = _tempo_regions(onset_env, sample_rate)
+    if len(regions) < 2 or not times:
+        return tuple(times), tuple(strengths)
+
+    duration = float(len(samples)) / sample_rate if len(samples) else 0.0
+    merged: list[tuple[float, int]] = []
+    region_intervals: list[float] = []
+    for r_i, (lo, hi, bpm) in enumerate(regions):
+        pad_lo = max(0.0, lo - _TEMPO_REGION_PAD_SEC)
+        pad_hi = min(duration, hi + _TEMPO_REGION_PAD_SEC)
+        f0 = int(librosa.time_to_frames(pad_lo, sr=sample_rate))
+        f1 = int(librosa.time_to_frames(pad_hi, sr=sample_rate)) + 1
+        seg = onset_env[f0:f1]
+        if len(seg) < 4:
             continue
-        idx = int(frame)
-        strength = (
-            float(onset_env[idx]) if 0 <= idx < len(onset_env) else 0.0
+        _seg_tempo, seg_frames = librosa.beat.beat_track(
+            onset_envelope=seg,
+            sr=sample_rate,
+            units="frames",
+            bpm=float(bpm),
         )
-        times.append(ft)
-        strengths.append(strength)
-    return tuple(times), tuple(strengths)
+        seg_times, _seg_strengths = collect(seg_frames + f0)
+        region_intervals.append(60.0 / float(bpm) if bpm > 0 else 0.5)
+        for t in seg_times:
+            if lo <= t < hi:
+                merged.append((t, r_i))
+    merged.sort()
+
+    if len(merged) < 2:
+        return tuple(times), tuple(strengths)
+
+    # Refill a beat the per-region DP dropped -- at a seam or inside a
+    # region. The expected interval is the region being ENTERED, so a
+    # fast region's short interval never judges the slow region's
+    # honest gaps (the first version filled those with phantom beats).
+    filled: list[tuple[float, int]] = []
+    for i, (t, r_i) in enumerate(merged):
+        if i:
+            prev_t = filled[-1][0]
+            interval = region_intervals[r_i]
+            while t - prev_t > interval * _TEMPO_GAP_FILL_RATIO:
+                predicted = prev_t + interval
+                f_lo = int(
+                    librosa.time_to_frames(
+                        max(prev_t + 0.05, predicted - 0.2 * interval),
+                        sr=sample_rate,
+                    )
+                )
+                f_hi = int(
+                    librosa.time_to_frames(
+                        min(t - 0.05, predicted + 0.2 * interval),
+                        sr=sample_rate,
+                    )
+                )
+                if not (0 <= f_lo < f_hi <= len(onset_env)):
+                    break
+                peak = f_lo + int(onset_env[f_lo:f_hi].argmax())
+                if float(onset_env[peak]) <= 0:
+                    break
+                prev_t = float(librosa.frames_to_time(peak, sr=sample_rate))
+                filled.append((prev_t, r_i))
+        filled.append((t, r_i))
+
+    # Onset-strength samples must stay index-parallel with the merged
+    # beats (the tempo estimate consumes them pairwise).
+    out_times: list[float] = []
+    out_strengths: list[float] = []
+    for t, _r in filled:
+        if out_times and t <= out_times[-1]:
+            continue
+        idx = int(librosa.time_to_frames(t, sr=sample_rate))
+        strength = float(onset_env[idx]) if 0 <= idx < len(onset_env) else 0.0
+        out_times.append(t)
+        out_strengths.append(strength)
+    return tuple(out_times), tuple(out_strengths)
+
+
+def _tempo_regions(
+    onset_env: Any, sample_rate: int
+) -> list[tuple[float, float, float]]:
+    """Stable-tempo regions from the frame-level tempo curve.
+
+    Returns (start_sec, end_sec, median_bpm) per region in order. The
+    band test compares each frame to the RUNNING region median so a
+    drifting rit./accel. stays one region while a genuine step splits.
+    Regions shorter than _TEMPO_REGION_MIN_SEC fold into the tempo-
+    nearer neighbour.
+    """
+    require_module("librosa")
+    import librosa  # noqa: PLC0415 - lazy optional dependency
+    import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+    dyn = np.asarray(
+        librosa.feature.tempo(
+            onset_envelope=onset_env, sr=sample_rate, aggregate=None
+        ),
+        dtype=float,
+    )
+    dyn = dyn[np.isfinite(dyn) & (dyn > 0)]
+    if len(dyn) < 4:
+        return []
+
+    bounds: list[int] = [0]
+    run = [float(dyn[0])]
+    for i in range(1, len(dyn)):
+        med = float(np.median(run))
+        v = float(dyn[i])
+        if med > 0 and abs(v - med) / med > _TEMPO_REGION_BAND:
+            bounds.append(i)
+            run = [v]
+        else:
+            run.append(v)
+    bounds.append(len(dyn))
+
+    frame_sec = 512.0 / float(sample_rate)
+    regions: list[list[float]] = []
+    for a, b in zip(bounds, bounds[1:], strict=False):
+        med = float(np.median(dyn[a:b]))
+        regions.append([a * frame_sec, b * frame_sec, med])
+
+    # Fold too-short regions into the tempo-nearer neighbour.
+    changed = True
+    while changed and len(regions) > 1:
+        changed = False
+        for i, r in enumerate(regions):
+            if r[1] - r[0] >= _TEMPO_REGION_MIN_SEC:
+                continue
+            left = regions[i - 1] if i > 0 else None
+            right = regions[i + 1] if i + 1 < len(regions) else None
+            if left is None and right is None:
+                break
+            merge_left = left is not None and (
+                right is None
+                or abs(left[2] - r[2]) <= abs(right[2] - r[2])
+            )
+            if merge_left and left is not None:
+                left[1] = r[1]
+                left[2] = (left[2] + r[2]) / 2.0
+                regions.pop(i)
+            elif right is not None:
+                right[0] = r[0]
+                right[2] = (right[2] + r[2]) / 2.0
+                regions.pop(i)
+            else:
+                break
+            changed = True
+            break
+    if len(regions) < 2:
+        return []
+    return [(r[0], r[1], r[2]) for r in regions]
 
 
 def _event_accents(
