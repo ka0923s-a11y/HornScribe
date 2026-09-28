@@ -27,11 +27,13 @@ Defaults to the repo dev engine (.venv-bp312) with PYTHONPATH=python.
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import math
 import queue
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -60,10 +62,22 @@ class Note:
 @dataclass(frozen=True)
 class Fixture:
     name: str
-    meter: str  # hinted meter to keep the scoring deterministic
-    tempo_bpm: float  # hinted primary-beat BPM
     notes: tuple[Note, ...]
     note: str = ""  # shown in the report for hard-case trackers
+    # Job hints. "auto"/None = the engine must estimate (the product
+    # default) — estimation is then part of what the row measures.
+    meter: str = "auto"
+    tempo_bpm: float | None = None
+    texture: str = "mono"
+    # Ground truth for the report. Empty/0 means "same as the hint".
+    expect_meter: str = ""
+    expect_tempo_bpm: float = 0.0
+
+    def truth_meter(self) -> str:
+        return self.expect_meter or self.meter
+
+    def truth_tempo(self) -> float | None:
+        return self.expect_tempo_bpm or self.tempo_bpm
 
 
 def _synth(path: Path, notes: tuple[Note, ...], sr: int = 22050) -> None:
@@ -99,7 +113,7 @@ def _waltz() -> Fixture:
         Note(i * beat, (i + 1) * beat - 0.03, p, 0.9 if i % 3 == 0 else 0.35)
         for i, p in enumerate(pitches)
     )
-    return Fixture("waltz-3-4", "3/4", 120.0, notes)
+    return Fixture("waltz-3-4", notes, meter="3/4", tempo_bpm=120.0)
 
 
 def _six_eight() -> Fixture:
@@ -118,7 +132,7 @@ def _six_eight() -> Fixture:
         )
         for i, p in enumerate(pitches)
     )
-    return Fixture("eighths-6-8", "6/8", 143.0, notes)
+    return Fixture("eighths-6-8", notes, meter="6/8", tempo_bpm=143.0)
 
 
 def _sustained_scale() -> Fixture:
@@ -130,7 +144,7 @@ def _sustained_scale() -> Fixture:
         Note(i * 2 * beat, (i + 1) * 2 * beat - 0.08, p, 0.8)
         for i, p in enumerate(pitches)
     )
-    return Fixture("sustained-scale-4-4", "4/4", 120.0, notes)
+    return Fixture("sustained-scale-4-4", notes, meter="4/4", tempo_bpm=120.0)
 
 
 def _legato_scale() -> Fixture:
@@ -146,14 +160,253 @@ def _legato_scale() -> Fixture:
     )
     return Fixture(
         "legato-scale-4-4",
-        "4/4",
-        120.0,
         notes,
+        meter="4/4",
+        tempo_bpm=120.0,
         note="hard case: legato transitions without silence gaps",
     )
 
 
-FIXTURES = (_waltz, _six_eight, _sustained_scale, _legato_scale)
+def _triplets() -> Fixture:
+    # 4/4 at 120: a pure eighth-note triplet run — triplet region
+    # detection must fire or every third onset lands off-grid.
+    beat = 0.5
+    third = beat / 3.0
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72] * 3  # 24 = 8 beats = 2 bars
+    notes = tuple(
+        Note(i * third, (i + 1) * third - 0.02, p, 0.85 if i % 3 == 0 else 0.4)
+        for i, p in enumerate(pitches)
+    )
+    return Fixture(
+        "triplets-4-4",
+        notes,
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="eighth-note triplets — triplet-region detection",
+    )
+
+
+def _sixteenths() -> Fixture:
+    # 16ths at 120 — 125 ms notes, the minDuration boundary.
+    beat = 0.5
+    sixteenth = beat / 4.0
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72] * 4  # 32 = 8 beats
+    notes = tuple(
+        Note(
+            i * sixteenth,
+            (i + 1) * sixteenth - 0.015,
+            p,
+            0.85 if i % 4 == 0 else 0.35,
+        )
+        for i, p in enumerate(pitches)
+    )
+    return Fixture(
+        "sixteenths-4-4",
+        notes,
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="16th-note run — min-duration boundary",
+    )
+
+
+def _pickup() -> Fixture:
+    # 4/4 anacrusis: one eighth pickup, then 2 bars of quarters. If the
+    # pickup is missed the whole score shifts half a beat (onset F1 dies).
+    beat = 0.5
+    notes = [Note(0.0, 0.22, 67, 0.8)]
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72]
+    notes += [
+        Note(0.25 + i * beat, 0.25 + (i + 1) * beat - 0.03, p, 0.8)
+        for i, p in enumerate(pitches)
+    ]
+    return Fixture(
+        "pickup-4-4",
+        tuple(notes),
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="anacrusis — pickup-beat detection",
+    )
+
+
+def _rests() -> Fixture:
+    # Quarter note + quarter rest alternating — detection must not
+    # merge across the silences into sustained notes.
+    beat = 0.5
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72]
+    notes = tuple(
+        Note(i * 2 * beat, i * 2 * beat + beat - 0.05, p, 0.8)
+        for i, p in enumerate(pitches)
+    )
+    return Fixture(
+        "rests-4-4",
+        notes,
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="note/rest alternation — merge discipline",
+    )
+
+
+def _swing() -> Fixture:
+    # Swung eighths at 120: long/short = 2:1 inside each beat — swing
+    # feel vs triplet grid is what the engine must choose.
+    beat = 0.5
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72] * 2  # 16 = 8 beats
+    notes: list[Note] = []
+    t = 0.0
+    for i, p in enumerate(pitches):
+        dur = beat * (2.0 / 3.0 if i % 2 == 0 else 1.0 / 3.0)
+        notes.append(Note(t, t + dur - 0.02, p, 0.85 if i % 2 == 0 else 0.45))
+        t += dur
+    return Fixture(
+        "swing-4-4",
+        tuple(notes),
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="swung eighths — swingFeel vs triplet grid",
+    )
+
+
+def _mixed_divisions() -> Fixture:
+    # Quarters + 8ths + triplets + 16ths mixed per beat — the realistic
+    # rhythm variety a JPOP melody carries.
+    beat = 0.5
+    patterns = ((1.0,), (0.5, 0.5), (1.0 / 3.0,) * 3, (0.25,) * 4)
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72, 71, 69, 67, 65, 64, 62, 60, 57]
+    notes: list[Note] = []
+    t = 0.0
+    i = 0
+    for b in range(8):
+        for frac in patterns[b % 4]:
+            dur = beat * frac
+            notes.append(
+                Note(t, t + dur - 0.015, pitches[i % len(pitches)],
+                     0.85 if frac >= 0.5 else 0.4)
+            )
+            t += dur
+            i += 1
+    return Fixture(
+        "mixed-divisions-4-4",
+        tuple(notes),
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="q + 8th + triplets + 16ths mixed — realistic rhythm",
+    )
+
+
+def _dyads() -> Fixture:
+    # Two-voice thirds as chords — texture=chords keeps both lines in
+    # one part. Sorted by (onset, pitch) so the order-aligned pitch
+    # scoring still applies.
+    beat = 0.5
+    lows = [48, 50, 52, 53, 55, 57, 59, 60]
+    notes: list[Note] = []
+    for i, p in enumerate(lows):
+        notes.append(Note(i * beat, (i + 1) * beat - 0.03, p, 0.6))
+        notes.append(Note(i * beat, (i + 1) * beat - 0.03, p + 4, 0.5))
+    notes.sort(key=lambda n: (n.onset, n.midi))
+    return Fixture(
+        "dyads-4-4",
+        tuple(notes),
+        meter="4/4",
+        tempo_bpm=120.0,
+        texture="chords",
+        note="third dyads — chord texture voice tracking",
+    )
+
+
+def _auto_44() -> Fixture:
+    # No hints — the product default. Estimation must find 4/4 @ 96.
+    beat = 60.0 / 96.0
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72] * 2
+    notes = tuple(
+        Note(i * beat, (i + 1) * beat - 0.03, p, 0.9 if i % 4 == 0 else 0.4)
+        for i, p in enumerate(pitches)
+    )
+    return Fixture(
+        "auto-4-4-96",
+        notes,
+        expect_meter="4/4",
+        expect_tempo_bpm=96.0,
+        note="unhinted: meter + tempo estimated",
+    )
+
+
+def _auto_34() -> Fixture:
+    # Unhinted waltz at 132 — triple meter with beat accents.
+    beat = 60.0 / 132.0
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72] * 3
+    notes = tuple(
+        Note(i * beat, (i + 1) * beat - 0.03, p, 0.9 if i % 3 == 0 else 0.4)
+        for i, p in enumerate(pitches)
+    )
+    return Fixture(
+        "auto-3-4-132",
+        notes,
+        expect_meter="3/4",
+        expect_tempo_bpm=132.0,
+        note="unhinted waltz — triple-meter estimation",
+    )
+
+
+def _auto_68() -> Fixture:
+    # Unhinted 6/8 — compound meter is the hardest auto case (it can
+    # legitimately read as 2/4 or 3/4 depending on accent weight).
+    pulse = 60.0 / 143.0 / 3.0
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72, 71, 69, 67, 65] * 3
+    notes = tuple(
+        Note(
+            i * pulse,
+            (i + 1) * pulse - 0.02,
+            p,
+            0.9 if i % 6 == 0 else (0.55 if i % 3 == 0 else 0.3),
+        )
+        for i, p in enumerate(pitches)
+    )
+    return Fixture(
+        "auto-6-8-143",
+        notes,
+        expect_meter="6/8",
+        expect_tempo_bpm=143.0,
+        note="unhinted compound meter",
+    )
+
+
+def _tempo_step() -> Fixture:
+    # 2 bars at 100 then 2 bars at 140 — the score's tempoMap must carry
+    # both segments for the beat->sec conversion to score correctly.
+    notes: list[Note] = []
+    t = 0.0
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72] * 2
+    seg_bpm = [100.0] * 8 + [140.0] * 8
+    for i, p in enumerate(pitches):
+        dur = 60.0 / seg_bpm[i]
+        notes.append(Note(t, t + dur - 0.03, p, 0.85 if i % 4 == 0 else 0.5))
+        t += dur
+    return Fixture(
+        "tempo-step-4-4",
+        tuple(notes),
+        expect_meter="4/4",
+        note="100->140 mid-piece — tempo-map tracking (auto tempo)",
+    )
+
+
+FIXTURES = (
+    _waltz,
+    _six_eight,
+    _sustained_scale,
+    _legato_scale,
+    _triplets,
+    _sixteenths,
+    _pickup,
+    _rests,
+    _swing,
+    _mixed_divisions,
+    _dyads,
+    _auto_44,
+    _auto_34,
+    _auto_68,
+    _tempo_step,
+)
 
 
 # ------------------------------------------------------- protocol driver
@@ -220,10 +473,14 @@ def _run_job(proc: subprocess.Popen, audio: Path, fx: Fixture) -> dict:
             "jobKind": "transcription",
             "params": {
                 "audioPath": str(audio),
-                "tempoBpm": fx.tempo_bpm,
                 "meter": fx.meter,
-                "texture": "mono",
+                "texture": fx.texture,
                 "backend": "basicPitch",
+                **(
+                    {"tempoBpm": fx.tempo_bpm}
+                    if fx.tempo_bpm is not None
+                    else {}
+                ),
             },
         },
     )
@@ -254,12 +511,13 @@ def _frac(value) -> float:
 
 
 def _detected_notes(result: dict) -> list[tuple[float, int]]:
-    """(onset_sec, midi) rows — beats converted via the result's own
-    tempo map so a wrong tempo pick shows up as onset error."""
+    """(onset_sec, midi) rows — beats converted piecewise via the
+    result's own tempoMap so a wrong tempo pick (or a missing tempo
+    segment) shows up as onset error."""
     doc = result.get("scoreDocument") or {}
-    parts = ((doc.get("content") or {}).get("parts")) or []
+    content = doc.get("content") or {}
+    parts = content.get("parts") or []
     meta = result.get("meta") or {}
-    bpm = float(meta.get("tempoBpm") or 120.0)
     meter = str(meta.get("meter") or "4/4")
     if "/" in meter:
         num_s, den_s = meter.split("/", 1)
@@ -269,18 +527,41 @@ def _detected_notes(result: dict) -> list[tuple[float, int]]:
     # scoreDocument startBeat counts *denominator* units (scorebuild.py:
     # onset_ql / (4/den)) — for 6/8 one "beat" is an eighth. tempoBpm
     # counts *primary* beats (compound: dotted quarter = 3/2 ql).
-    measure_ql = num * 4.0 / den
     beat_count = num // 3 if (num % 3 == 0 and num > 3) else num
-    primary_ql = measure_ql / beat_count
-    sec_per_ql = 60.0 / bpm / primary_ql
-    doc_beat_ql = 4.0 / den
-    sec_per_beat = doc_beat_ql * sec_per_ql
+    # tempoMap bpm counts *primary* beats; a doc beat (denominator unit)
+    # is 1/doc_per_primary of a primary beat (6/8 -> 3 eighths each).
+    doc_per_primary = num / beat_count
+    # Piecewise conversion over the score's own tempoMap so multi-segment
+    # scores (tempo changes) are scored on their real map, not a median.
+    segs: list[tuple[float, float]] = []
+    for s in content.get("tempoMap") or []:
+        try:
+            segs.append((_frac(s["startBeat"]), float(s["bpm"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    segs.sort()
+    if not segs:
+        segs = [(0.0, float(meta.get("tempoBpm") or 120.0))]
+    if segs[0][0] > 0.0:
+        segs.insert(0, (0.0, segs[0][1]))
+    seg_starts = [s for s, _ in segs]
+    seg_sec = [0.0]
+    for i in range(1, len(segs)):
+        span = segs[i][0] - segs[i - 1][0]
+        seg_sec.append(
+            seg_sec[-1] + span * (60.0 / segs[i - 1][1]) / doc_per_primary
+        )
+
+    def beat_to_sec(b: float) -> float:
+        i = bisect.bisect_right(seg_starts, b) - 1
+        return seg_sec[i] + (b - seg_starts[i]) * (60.0 / segs[i][1]) / doc_per_primary
+
     out: list[tuple[float, int]] = []
     for part in parts:
         for n in part.get("notes") or []:
             if n.get("deleted"):
                 continue
-            out.append((_frac(n["startBeat"]) * sec_per_beat, int(n["pitchMidi"])))
+            out.append((beat_to_sec(_frac(n["startBeat"])), int(n["pitchMidi"])))
     out.sort()
     return out
 
@@ -370,6 +651,10 @@ def _onset_f1(expected: list[float], got: list[float]) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    # Console can be cp932 on Windows — the report text (arrows,
+    # em-dashes in notes) must not die on encode.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap.add_argument("--engine", type=Path, default=None,
                     help="frozen hornscribe-engine binary")
     ap.add_argument(
@@ -389,16 +674,31 @@ def main() -> int:
             _synth(wav, fx.notes)
             proc = _spawn(args)
             t0 = time.monotonic()
+            result: dict | None = None
+            job_error: str | None = None
             try:
                 _request(proc, "engine.handshake", {"protocolVersion": 1})
                 hs = _read_frame(proc, HANDSHAKE_TIMEOUT_S)
                 if hs.get("error"):
                     raise RuntimeError(f"handshake: {hs['error']}")
                 result = _run_job(proc, wav, fx)
+            except Exception as exc:  # a failing job is a result too
+                job_error = str(exc)
             finally:
                 proc.kill()
             elapsed = time.monotonic() - t0
 
+            if job_error is not None:
+                row = {
+                    "fixture": fx.name,
+                    "note": fx.note,
+                    "error": job_error,
+                    "runtimeSec": round(elapsed, 1),
+                }
+                rows.append(row)
+                print(json.dumps(row, ensure_ascii=False))
+                continue
+            assert result is not None
             got = _detected_notes(result)
             exp_p = [n.midi for n in fx.notes]
             got_p = [m for _, m in got]
@@ -410,6 +710,12 @@ def main() -> int:
                 "note": fx.note,
                 "tempoBpmDetected": meta.get("tempoBpm"),
                 "meterDetected": meta.get("meter"),
+                "meterOk": meta.get("meter") == fx.truth_meter(),
+                "tempoRatio": (
+                    round(float(meta.get("tempoBpm")) / fx.truth_tempo(), 3)
+                    if meta.get("tempoBpm") and fx.truth_tempo()
+                    else None
+                ),
                 "runtimeSec": round(elapsed, 1),
                 **seq,
                 **ons,
@@ -425,14 +731,23 @@ def main() -> int:
     md = ["# E2E transcription accuracy benchmark", ""]
     md.append(
         "| fixture | pitch acc | octaveOff | miss/extra | onset F1@150ms"
-        " | med err ms | tempo | meter | s | note |"
+        " | med err ms | tempo (ratio) | meter (ok) | s | note |"
     )
     md.append("|---|---|---|---|---|---|---|---|---|---|")
     for r in rows:
         md.append(
-            f"| {r['fixture']} | {r['pitchAccuracy']} | {r['octaveOff']} "
-            f"| {r['missing']}/{r['extra']} | {r['onsetF1@150ms']} | {r['medianOnsetErrMs']} "
-            f"| {r['tempoBpmDetected']} | {r['meterDetected']} | {r['runtimeSec']} | {r['note']} |"
+            (
+                f"| {r['fixture']} | {r['pitchAccuracy']} | {r['octaveOff']} "
+                f"| {r['missing']}/{r['extra']} | {r['onsetF1@150ms']} | {r['medianOnsetErrMs']} "
+                f"| {r['tempoBpmDetected']} ({r['tempoRatio']}) "
+                f"| {r['meterDetected']} ({r['meterOk']}) "
+                f"| {r['runtimeSec']} | {r['note']} |"
+            )
+            if "error" not in r
+            else (
+                f"| {r['fixture']} | - | - | - | - | - | - | - "
+                f"| {r['runtimeSec']} | **job failed**: {r['error']} |"
+            )
         )
     stem.with_suffix(".md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print(f"wrote {stem.with_suffix('.md')}")
