@@ -44,6 +44,8 @@ interface RustCaptureStatus {
   paused: boolean;
   error: string | null;
   monitoring: boolean;
+  waveformTotal: number;
+  waveformPeaks: number[];
 }
 interface RustDevice {
   id: string;
@@ -109,6 +111,8 @@ class TauriCapturePort implements CapturePort {
       paused: s.paused,
       error: s.error,
       monitoring: s.monitoring ?? false,
+      waveformTotal: s.waveformTotal,
+      waveformPeaks: s.waveformPeaks,
     };
   }
   async listDevices(): Promise<CaptureDeviceList> {

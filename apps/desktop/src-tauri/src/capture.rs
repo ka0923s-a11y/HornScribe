@@ -127,6 +127,24 @@ struct SharedBuf {
     /// 直近パケットのピーク(0.0–1.0)。status ポーリングで減衰させる
     /// 簡易レベルメーター(#71)。
     level: f32,
+    /// #105: 録音中ライブ波形 — ~25Hz ピーク列。status が末尾を返し、
+    /// UI は総数との差分で追記する。30分でも ~45K エントリ。
+    peaks: Vec<f32>,
+    /// バケット集計中のピーク/フレーム数(次の peaks 要素の未確定分)。
+    peak_acc: f32,
+    peak_acc_frames: u64,
+}
+
+/// #105: 1パケット分のピークを ~25Hz バケットへ集計する。
+/// 余りフレームは次バケットへ持ち越すので、波形軸は実時間に揃う。
+fn push_take_peak(s: &mut SharedBuf, frames: u64, peak: f32, bucket_frames: u64) {
+    s.peak_acc = s.peak_acc.max(peak);
+    s.peak_acc_frames += frames;
+    while s.peak_acc_frames >= bucket_frames {
+        s.peaks.push(s.peak_acc);
+        s.peak_acc = 0.0;
+        s.peak_acc_frames -= bucket_frames;
+    }
 }
 
 /// 進行中の録音セッション。`capture_start` で生成、stop/cancel で消費。
@@ -175,6 +193,11 @@ pub struct CaptureStatus {
     /// #42: このセッションが書き出しを伴わないレベルモニターなら真。
     /// モニター中に録音開始ボタンを「録音中」に見せないために使う。
     pub monitoring: bool,
+    /// #105: ライブ波形の確定ピーク総数(バケット列の長さ)。
+    pub waveform_total: u32,
+    /// #105: ピーク列の末尾(最大512)。UI は waveform_total との
+    /// 差分で新規分だけを追記する。
+    pub waveform_peaks: Vec<f32>,
 }
 
 #[tauri::command]
@@ -191,6 +214,10 @@ pub fn capture_status() -> CaptureStatus {
             // 読むたびに減衰させてメーターの「落ち」を作る。
             let level = shared.level;
             shared.level *= 0.7;
+            // #105: ライブ波形の末尾 — 複数読者がいても total 差分で
+            // 各自が整合できるよう、読み取りでは消費しない。
+            const WAVEFORM_TAIL: usize = 512;
+            let tail_from = shared.peaks.len().saturating_sub(WAVEFORM_TAIL);
             CaptureStatus {
                 active: true,
                 source: Some(s.info.source.clone()),
@@ -200,6 +227,8 @@ pub fn capture_status() -> CaptureStatus {
                 paused: shared.paused,
                 error: shared.error.clone(),
                 monitoring: s.monitor_only,
+                waveform_total: shared.peaks.len() as u32,
+                waveform_peaks: shared.peaks[tail_from..].to_vec(),
             }
         }
         None => CaptureStatus {
@@ -211,6 +240,8 @@ pub fn capture_status() -> CaptureStatus {
             paused: false,
             error: None,
             monitoring: false,
+            waveform_total: 0,
+            waveform_peaks: Vec::new(),
         },
     }
 }
@@ -270,6 +301,9 @@ pub fn capture_start(
         silent_frames: 0,
         limit_reached: false,
         level: 0.0,
+        peaks: Vec::new(),
+        peak_acc: 0.0,
+        peak_acc_frames: 0,
     }));
     let cancel = Arc::new(AtomicBool::new(false));
 
@@ -1118,6 +1152,8 @@ fn run_capture(
         let max_frames = (sample_rate as u64)
             .saturating_mul((MAX_SECONDS + MAX_SECONDS_SLACK) as u64);
         let mut io_error: Option<String> = None;
+        // #105: ライブ波形は ~25Hz バケット — 30分でも ~45K ピークに収まる。
+        let bucket_frames = ((sample_rate as u64) / 25).max(1);
 
         // #80 一時停止: クライアント自体を止めてパケットを捨てる。
         // バッファを貯めて後で読む方式にすると「止めていた間の音」が
@@ -1197,6 +1233,9 @@ fn run_capture(
                             }
                             s.silent_frames += num_frames as u64;
                             s.frames += num_frames as u64;
+                            // 無音区間も波形は平線として進める(録音時間と
+                            // 波形の横軸がずれないよう 0 ピークを積む)。
+                            push_take_peak(&mut s, num_frames as u64, 0.0, bucket_frames);
                         } else {
                             let src = std::slice::from_raw_parts(data_ptr, byte_len);
                             let mut pcm = Vec::with_capacity(num_frames as usize * channels * 2);
@@ -1225,6 +1264,7 @@ fn run_capture(
                             // レベルメーター(#71): パケットピークを採用し、
                             // 減衰は status ポーリング側で行う。
                             if packet_peak > s.level { s.level = packet_peak; }
+                            push_take_peak(&mut s, written_frames, packet_peak, bucket_frames);
                             if let Some(w) = writer.as_mut() {
                                 if let Err(e) = w.write_all(&pcm) {
                                     io_error =
@@ -1526,5 +1566,36 @@ mod tests {
         let wav = encode_wav(&[1.5f32, -2.0], 44_100, 1);
         assert_eq!(i16::from_le_bytes(wav[44..46].try_into().unwrap()), 32767);
         assert_eq!(i16::from_le_bytes(wav[46..48].try_into().unwrap()), -32768);
+    }
+
+    /// #105: ピークの ~25Hz バケット集計 — 余りフレームは次バケットへ
+    /// 持ち越し、各ピークはバケット内の最大値を採る。
+    #[test]
+    fn take_peak_buckets() {
+        let mut s = SharedBuf {
+            temp_path: None,
+            stopping: false,
+            paused: false,
+            error: None,
+            frames: 0,
+            silent_frames: 0,
+            limit_reached: false,
+            level: 0.0,
+            peaks: Vec::new(),
+            peak_acc: 0.0,
+            peak_acc_frames: 0,
+        };
+        let bucket = 100u64; // テスト用小バケット
+        // パケット境界がバケットを跨ぐ — 余りは次へ持ち越される。
+        push_take_peak(&mut s, 150, 0.5, bucket);
+        assert_eq!(s.peaks, vec![0.5]);
+        assert_eq!(s.peak_acc_frames, 50);
+        // 次バケットは残り 50 + 新規 60 で満たる。
+        push_take_peak(&mut s, 60, 0.9, bucket);
+        assert_eq!(s.peaks, vec![0.5, 0.9]);
+        assert_eq!(s.peak_acc_frames, 10);
+        // 無音パケットも平線として進む。
+        push_take_peak(&mut s, 100, 0.0, bucket);
+        assert_eq!(s.peaks, vec![0.5, 0.9, 0.0]);
     }
 }

@@ -42,6 +42,8 @@ import {
 const MINIMAP_MIN_DURATION_SEC = 300;
 /** Peaks columns in the minimap — fixed, so the strip stays cheap. */
 const MINIMAP_COLUMNS = 160;
+/** #105: 録音中ライブ波形の表示列数 — take 全体を全幅に圧縮。 */
+const LIVE_PEAK_COLUMNS = 320;
 
 /** Downsample peaks to `columns` max-per-bucket values for the minimap. */
 function minimapPeaks(
@@ -314,6 +316,13 @@ export function WaveformView({
     [audio, view, duration],
   );
   const path = useMemo(() => peaksPath(visiblePeaks), [visiblePeaks]);
+  // #105: 録音中は take 全体を全幅に圧縮したライブ波形。200ms の状態
+  // tick 毎に再計算するが、列数は固定なので描画コストは一定。
+  const livePeaks =
+    captureState?.phase === "recording"
+      ? minimapPeaks(captureState.takePeaks ?? [], LIVE_PEAK_COLUMNS)
+      : [];
+  const livePath = peaksPath(livePeaks);
 
   // #376: review-issue markers — clustered so dense detections stay
   //  one reachable tick each (listbox semantics: ←→ moves, Enter jumps).
@@ -660,32 +669,45 @@ export function WaveformView({
           {ja.import.waveform.loading}
         </span>
       ) : captureState?.phase === "recording" ? (
-        <span
-          className="hs-waveform__recording"
-          role="status"
-          aria-live="polite"
-        >
-          {captureState.source === "loopback"
-            ? ja.transport.recordingLoopbackLabel
-            : ja.transport.recordingLabel}
-          {" - "}
-          {formatTimecode(captureState.elapsedSeconds)}
-          {captureState.deviceName ? ` · ${captureState.deviceName}` : ""}
-          {/* #71: 入力レベルの簡易メーター(0-1 のピーク)。 */}
+        <>
+          {/* #105: 録りながらのライブ波形 — takePeaks を全幅に圧縮。
+              無音区間は平線として残る(時間軸がテイクと一致)。 */}
+          {livePath ? (
+            <svg
+              className="hs-waveform__peaks"
+              viewBox={`0 0 ${Math.max(1, livePeaks.length)} 100`}
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path d={livePath} />
+            </svg>
+          ) : null}
           <span
-            className="hs-waveform__level"
-            aria-hidden="true"
+            className="hs-waveform__recording"
+            role="status"
+            aria-live="polite"
           >
-            <span
-              className="hs-waveform__level-fill"
-              style={{
-                width: `${Math.round(
-                  Math.min(1, Math.max(0, captureState.level ?? 0)) * 100,
-                )}%`,
-              }}
-            />
+            {captureState.source === "loopback"
+              ? ja.transport.recordingLoopbackLabel
+              : ja.transport.recordingLabel}
+            {" - "}
+            {formatTimecode(captureState.elapsedSeconds)}
+            {captureState.deviceName
+              ? ` · ${captureState.deviceName}`
+              : ""}
+            {/* #71: 入力レベルの簡易メーター(0-1 のピーク)。 */}
+            <span className="hs-waveform__level" aria-hidden="true">
+              <span
+                className="hs-waveform__level-fill"
+                style={{
+                  width: `${Math.round(
+                    Math.min(1, Math.max(0, captureState.level ?? 0)) * 100,
+                  )}%`,
+                }}
+              />
+            </span>
           </span>
-        </span>
+        </>
       ) : audio ? (
         <>
           <svg
