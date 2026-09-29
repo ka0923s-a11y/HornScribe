@@ -810,7 +810,27 @@ def _detected_notes(result: dict) -> list[tuple[float, int]]:
             seg_sec[-1] + span * (60.0 / segs[i - 1][1]) / doc_per_primary
         )
 
+    # #131: the score's own swing direction (offbeat phase as a beat
+    # fraction) — None when straight.
+    swing_feel: float | None = None
+    raw_feel = content.get("swingFeel")
+    if raw_feel is not None:
+        try:
+            swing_feel = _frac(raw_feel)
+        except (TypeError, ValueError):
+            swing_feel = None
+
     def beat_to_sec(b: float) -> float:
+        # #131: under a swing feel the notation is straight but the
+        # performance warps the offbeat eighth late — the doc's own
+        # swingFeel (offbeat phase as a beat fraction, e.g. 2/3) shifts
+        # the half-beat grid position before the tempo map applies.
+        # Other subdivisions are left alone: swing lives on the
+        # eighth-pair grid.
+        if swing_feel is not None:
+            base = math.floor(b)
+            if abs(b - base - 0.5) < 1e-6:
+                b = base + swing_feel
         i = bisect.bisect_right(seg_starts, b) - 1
         return seg_sec[i] + (b - seg_starts[i]) * (60.0 / segs[i][1]) / doc_per_primary
 

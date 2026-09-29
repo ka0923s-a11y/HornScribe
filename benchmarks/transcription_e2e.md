@@ -10,7 +10,7 @@
 | sixteenths-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 120.0 (1.0) | 4/4 (True) | 7.2 | 16th-note run — min-duration boundary |
 | pickup-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 120.0 (1.0) | 4/4 (True) | 6.8 | anacrusis — pickup-beat detection |
 | rests-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 120.0 (1.0) | 4/4 (True) | 7.6 | note/rest alternation — merge discipline |
-| swing-4-4 | 1.0 | 0 | 0/0 | 0.9375 | 41.7 | 120.0 (1.0) | 4/4 (True) | 7.0 | swung eighths — swingFeel vs triplet grid |
+| swing-4-4 | 1.0 | 0 | 0/0 | 1.0 | 19.0 | 120.0 (1.0) | 4/4 (True) | 8.0 | swung eighths — swingFeel vs triplet grid |
 | mixed-divisions-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 120.0 (1.0) | 4/4 (True) | 8.8 | q + 8th + triplets + 16ths mixed — realistic rhythm |
 | dyads-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 120.0 (1.0) | 4/4 (True) | 7.8 | third dyads — chord texture voice tracking |
 | jpop-mix-raw | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 128.0 (1.0) | 4/4 (True) | 8.3 | 4-layer mix, no separation — lead survival baseline |

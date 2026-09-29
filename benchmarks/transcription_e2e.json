@@ -199,7 +199,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 7.0,
+      "runtimeSec": 8.0,
       "expected": 16,
       "detected": 16,
       "matched": 16,
@@ -210,11 +210,11 @@
       "extra": 0,
       "pitchAccuracy": 1.0,
       "noteRatio": 1.0,
-      "onsetF1@150ms": 0.9375,
-      "medianOnsetErrMs": 41.7,
-      "tp": 15,
-      "fp": 1,
-      "fn": 1
+      "onsetF1@150ms": 1.0,
+      "medianOnsetErrMs": 19.0,
+      "tp": 16,
+      "fp": 0,
+      "fn": 0
     },
     {
       "fixture": "mixed-divisions-4-4",
