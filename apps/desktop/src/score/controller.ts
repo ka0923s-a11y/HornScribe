@@ -90,6 +90,10 @@ export interface ScoreWorkspaceController {
   /** #130 (spec 14): re-quantize the whole score under changed
    *  quantization settings — undoable engine edit. */
   requantize?(settings: Record<string, unknown>): void;
+  /** #123: fold voices/chords into the single playable melody line —
+   *  top voice per simultaneity, extra parts dropped, one undoable
+   *  canonical edit (collapseToMelody). */
+  collapseToMelody?(): void;
   /** #131 (spec 13 post-MVP): split the selected note at its grid-snapped
    *  midpoint / merge it with the contiguous next same-pitch note. */
   splitSelectedNote?(): void;

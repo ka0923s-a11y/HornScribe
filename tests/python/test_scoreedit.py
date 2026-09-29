@@ -2065,3 +2065,159 @@ class TestDeletedNotes:
         # The live note keeps its own id; rest ordinals are untouched.
         pitched = [el for el in notes if el.find("rest") is None]
         assert [el.get("id") for el in pitched] == ["hs-sn-000002"]
+
+
+class TestCollapseToMelody:
+    """#123: collapseToMelody folds voices/chords into the playable line."""
+
+    def test_chords_collapse_to_top_voice(self) -> None:
+        # Three chords: each keeps its highest pitch (the top voice).
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 64, "0", "1"),  # chord member — top voice
+                _note(3, 67, "0", "1"),
+                _note(4, 62, "1", "1"),
+                _note(5, 65, "1", "1"),  # top
+                _note(6, 69, "2", "1"),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        part = out.payload.parts[0]
+        assert [n.pitch_midi for n in part.notes] == [67, 65, 69]
+        assert [str(n.id) for n in part.notes] == [
+            "sn-000003",
+            "sn-000005",
+            "sn-000006",
+        ]
+        # Strict monophony: no shared onsets, no overlaps.
+        starts = [n.start_beat for n in part.notes]
+        assert len(set(starts)) == len(starts)
+        for a, b in zip(part.notes, part.notes[1:], strict=False):
+            assert a.end_beat <= b.start_beat
+
+    def test_extra_parts_dropped(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        payload = doc.payload
+        doc2 = replace(
+            doc,
+            payload=replace(
+                payload,
+                parts=(
+                    payload.parts[0],
+                    Part(
+                        id="part-2",
+                        name="Horn in F (2nd voice)",
+                        notes=(_note(9, 55, "0", "2"),),
+                    ),
+                ),
+            ),
+        )
+        out = apply_score_edit(doc2, _edit("collapseToMelody", ""))
+        assert len(out.payload.parts) == 1
+        assert [n.pitch_midi for n in out.payload.parts[0].notes] == [60, 62]
+
+    def test_monophonic_passthrough_keeps_ids(self) -> None:
+        doc = _doc([_note(1, 60, "0", "1"), _note(2, 62, "1", "1")])
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        part = out.payload.parts[0]
+        assert [(str(n.id), n.pitch_midi) for n in part.notes] == [
+            ("sn-000001", 60),
+            ("sn-000002", 62),
+        ]
+
+    def test_sustained_member_clips_at_next_onset(self) -> None:
+        # A long low note sustained under melody onsets is NOT a chord
+        # (different onsets) — it survives, clipped at the next onset.
+        doc = _doc(
+            [
+                _note(1, 48, "0", "4"),  # sustained bass
+                _note(2, 72, "1", "1"),
+                _note(3, 74, "2", "1"),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        part = out.payload.parts[0]
+        assert [n.pitch_midi for n in part.notes] == [48, 72, 74]
+        assert part.notes[0].end_beat == Fraction(1)
+
+    def test_live_preferred_over_deleted(self) -> None:
+        # Same-onset group whose top pitch is deleted -> the live lower
+        # voice is the melody candidate.
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 64, "0", "1", deleted=True),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        notes = out.payload.parts[0].notes
+        assert [n.pitch_midi for n in notes] == [60]
+        assert not notes[0].deleted
+
+    def test_all_deleted_group_keeps_tombstone(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1", deleted=True),
+                _note(2, 64, "0", "1", deleted=True),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        notes = out.payload.parts[0].notes
+        assert [n.pitch_midi for n in notes] == [64]
+        assert notes[0].deleted
+
+    def test_rests_retile_measures(self) -> None:
+        # Dropped members leave no holes: rests + notes tile the whole
+        # measure grid exactly.
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1"),
+                _note(2, 64, "0", "1"),
+                _note(3, 62, "2", "1"),
+                _note(4, 65, "2", "1"),
+            ]
+        )
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        part = out.payload.parts[0]
+        assert _total_span(part) == Fraction(4)  # one 4/4 measure
+
+    def test_dangling_ties_cleared(self) -> None:
+        # The tied partner drops with the chord member; the survivor
+        # must not keep a one-sided tie flag.
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1", tie_start=True),
+                _note(2, 64, "0", "1", tie_start=True),  # dropped
+                _note(3, 60, "1", "1", tie_stop=True),
+                _note(4, 64, "1", "1", tie_stop=True),  # dropped
+            ]
+        )
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        notes = out.payload.parts[0].notes
+        # Top voices 64/64 survive; the kept pair is same-pitch and
+        # contiguous, so its tie flags stay.
+        assert [n.pitch_midi for n in notes] == [64, 64]
+        assert notes[0].tie_start and notes[1].tie_stop
+
+    def test_dangling_tie_when_partner_drops(self) -> None:
+        doc = _doc(
+            [
+                _note(1, 60, "0", "1", tie_start=True),
+                _note(2, 60, "1", "1", tie_stop=True),  # deleted member
+                _note(3, 70, "1", "1"),  # wins the group
+            ]
+        )
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        notes = out.payload.parts[0].notes
+        assert [n.pitch_midi for n in notes] == [60, 70]
+        assert not notes[0].tie_start and not notes[1].tie_stop
+
+    def test_empty_part_is_noop(self) -> None:
+        doc = _doc([])
+        out = apply_score_edit(doc, _edit("collapseToMelody", ""))
+        assert out.payload.parts[0].notes == ()
+
+    def test_kind_rejects_garbage_still(self) -> None:
+        with pytest.raises(ScoreEditError):
+            ScoreEdit.from_dict({"kind": "collapseMelody", "noteId": ""})

@@ -562,6 +562,15 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.hasScore && !s.reviewOpen,
       run: (ctx) => ctx.openRequantizeDialog?.(),
     },
+    // #123: fold a voices/chords score into the single playable line —
+    // a canonical collapseToMelody edit, undoable, no re-transcription.
+    {
+      id: "score.collapseToMelody",
+      title: ja.commands.collapseToMelody,
+      section: "score",
+      isEnabled: (s) => s.hasScore && s.hasPolyphony && !s.reviewOpen,
+      run: (ctx) => ctx.collapseToMelody?.(),
+    },
     // #131 (spec 13 post-MVP): split/merge — engine edits on the
     // selected note, same gate as the other rhythm edits.
     {

@@ -20,6 +20,7 @@ import type { KeyEventLike } from "./keys";
 const EMPTY: CommandSnapshot = {
   hasAudio: false,
   hasScore: false,
+  hasPolyphony: false,
   isTranscribing: false,
   isPlaying: false,
   loopEnabled: false,

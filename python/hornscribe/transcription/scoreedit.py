@@ -138,6 +138,7 @@ class ScoreEdit:
             "transposeNote",
             "transposeRange",
             "setPickup",
+            "collapseToMelody",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
@@ -145,7 +146,8 @@ class ScoreEdit:
                 "setKey/keyChangeAt/removeKeyChange/restToNote/"
                 "tempoChangeAt/removeTempoChange/"
                 "scaleTempo/applyAlternative/applyTriplet/setMetadata/"
-                "transposeNote/transposeRange/setPickup, "
+                "transposeNote/transposeRange/setPickup/"
+                "collapseToMelody, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -165,6 +167,7 @@ class ScoreEdit:
             "setMetadata",
             "transposeRange",
             "setPickup",
+            "collapseToMelody",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -2169,6 +2172,80 @@ def _apply_transpose_range(
     )
 
 
+def _apply_collapse_to_melody(
+    payload: ScoreRevisionPayload,
+) -> ScoreRevisionPayload:
+    """#123: fold a voices/chords score into a single melody line.
+
+    Part 1 (the lead voice) survives; every additional part is dropped.
+    Inside the surviving part each same-onset group — a written chord or
+    layered simultaneity — collapses to its top voice: highest pitch
+    wins, with live notes preferred over canonical-deleted ones (an
+    all-deleted group keeps its top tombstone so selection/issue links
+    survive). Survivors then clip at the next kept onset so the result
+    honours the per-layer monophonic contract, and the whole part
+    re-tiles atoms + rests through the same realizer every structural
+    edit uses.
+
+    The choice is deliberately deterministic — highest pitch is the
+    conventional melody voice; smarter line-picking (voice-leading
+    analysis) would be a separate feature.
+    """
+    if not payload.parts:
+        return payload
+    part = payload.parts[0]
+    groups: dict[Fraction, list[QuantizedNote]] = {}
+    for n in part.notes:
+        groups.setdefault(n.start_beat, []).append(n)
+    kept: list[QuantizedNote] = []
+    for onset in sorted(groups):
+        group = groups[onset]
+        live = [n for n in group if not n.deleted]
+        pool = live if live else group
+        kept.append(max(pool, key=lambda n: n.pitch_midi))
+    # Monophonic contract: a kept note that overhangs the next kept
+    # onset clips at it.
+    clipped: list[QuantizedNote] = []
+    for i, n in enumerate(kept):
+        nxt = kept[i + 1] if i + 1 < len(kept) else None
+        if nxt is not None and n.end_beat > nxt.start_beat:
+            n = replace(n, duration_beats=nxt.start_beat - n.start_beat)
+        clipped.append(n)
+    # A note-level tie is only honest while both partners survive and
+    # stay contiguous at the same pitch — dropped members would leave
+    # dangling ties (same cleanup the alternative-rhythm edit applies).
+    for j in range(len(clipped)):
+        prev = clipped[j - 1] if j > 0 else None
+        cur = clipped[j]
+        nxt = clipped[j + 1] if j + 1 < len(clipped) else None
+        keep_in = (
+            prev is not None
+            and prev.pitch_midi == cur.pitch_midi
+            and prev.end_beat == cur.start_beat
+            and cur.tie_stop
+        )
+        keep_out = (
+            nxt is not None
+            and nxt.pitch_midi == cur.pitch_midi
+            and cur.end_beat == nxt.start_beat
+            and cur.tie_start
+            and nxt.tie_stop
+        )
+        if cur.tie_stop and not keep_in:
+            cur = replace(cur, tie_stop=False)
+        if cur.tie_start and not keep_out:
+            cur = replace(cur, tie_start=False)
+        clipped[j] = cur
+    spans = measure_spans(payload)
+    if spans:
+        new_part = _retile_part(
+            payload, part, clipped, spans[0].start_beat, spans[-1].end_beat
+        )
+    else:
+        new_part = replace(part, notes=tuple(clipped), rests=())
+    return replace(payload, parts=(new_part,))
+
+
 def _edit_boundary_beat(
     payload: ScoreRevisionPayload, edit: ScoreEdit
 ) -> Fraction:
@@ -2315,6 +2392,11 @@ def apply_score_edit(
             edit.start_beat,
             edit.end_beat,
         )
+        return replace(document, payload=new_payload)
+    if edit.kind == "collapseToMelody":
+        # #123: voices/chords -> single playable line (PRODUCT_BOUNDARY:
+        # the solo F-horn part is the primary deliverable).
+        new_payload = _apply_collapse_to_melody(payload)
         return replace(document, payload=new_payload)
     if edit.kind == "transposeNote":
         if edit.semitones is None:

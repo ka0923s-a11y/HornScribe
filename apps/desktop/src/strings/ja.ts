@@ -583,6 +583,10 @@ export const ja = {
      *  F管 written-pitch projection), one canonical edit. */
     scoreOctaveUp: "全曲を1オクターブ上げる",
     scoreOctaveDown: "全曲を1オクターブ下げる",
+    /* #123: voices/chords スコアを1人で演奏できる単旋律に畳み込む
+     * (PRODUCT_BOUNDARY: ソロF管パートが主成果物)。最上声部を残す
+     * 決定的ルール — 採譜し直し不要・undo可能。 */
+    collapseToMelody: "単旋律にまとめる",
     /* #318: F1 keyboard-shortcuts help (matches ja.shortcutsHelp.title). */
     help: "キーボードショートカット",
     /* #406: Ctrl+K command palette (matches ja.commandPalette.title). */
@@ -628,6 +632,8 @@ export const ja = {
     keyChangeRemoved: "転調を削除しました",
     metadataChanged: "譜面情報を更新しました",
     octaveShifted: "実音を1オクターブ変更しました",
+    /* #123: 和音/複数声部を単旋律へ畳み込んだ旨。 */
+    collapsedToMelody: "単旋律にまとめました（同時発音は最上声部を残しました）",
     requantized: "採譜設定を適用して楽譜を更新しました",
     // #226: the document carries no raw transcription evidence (older
     // projects / imported scores) — the requantize re-rounds the

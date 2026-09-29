@@ -17,6 +17,7 @@ import type {
 const SNAPSHOT_EMPTY: CommandSnapshot = {
   hasAudio: false,
   hasScore: false,
+  hasPolyphony: false,
   isTranscribing: false,
   isPlaying: false,
   loopEnabled: false,
@@ -90,6 +91,7 @@ function mockContext(): CommandContext & { calls: string[] } {
     focusPreviousRegion: spy("focusPreviousRegion"),
     announce: spy("announce"),
     captureLastSource: spy("captureLastSource"),
+    collapseToMelody: spy("collapseToMelody"),
   };
 }
 
@@ -252,6 +254,28 @@ describe("command definitions", () => {
     // Review owns the arrows/keys — rhythm edits stay disabled inside it.
     const reviewing: CommandSnapshot = { ...SNAPSHOT_SCORE, reviewOpen: true };
     expect(registry.invoke("score.toggleTie", ctx, reviewing)).toBe(false);
+  });
+
+  it("#123: collapseToMelody gates on playable polyphony", () => {
+    const ctx = mockContext();
+    // EMPTY: no score. SNAPSHOT_SCORE has a score but monophonic
+    // content — hasPolyphony stays false, so the command stays off.
+    expect(registry.invoke("score.collapseToMelody", ctx, SNAPSHOT_EMPTY)).toBe(
+      false,
+    );
+    expect(registry.invoke("score.collapseToMelody", ctx, SNAPSHOT_SCORE)).toBe(
+      false,
+    );
+    const poly: CommandSnapshot = { ...SNAPSHOT_SCORE, hasPolyphony: true };
+    expect(registry.invoke("score.collapseToMelody", ctx, poly)).toBe(true);
+    // Inside review the score-writing commands stay off.
+    expect(
+      registry.invoke("score.collapseToMelody", ctx, {
+        ...poly,
+        reviewOpen: true,
+      }),
+    ).toBe(false);
+    expect(ctx.calls).toEqual(["collapseToMelody"]);
   });
 
   // #366: the score clock is the fallback transport — these stay

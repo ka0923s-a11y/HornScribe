@@ -35,7 +35,8 @@ export type RhythmEditKind =
   | "setMetadata"
   | "transposeNote"
   | "transposeRange"
-  | "setPickup";
+  | "setPickup"
+  | "collapseToMelody";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
