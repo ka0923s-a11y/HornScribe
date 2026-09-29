@@ -27,6 +27,12 @@ duplicates — so this stage repairs them *before* quantization:
   that starts under a sustained note is almost always a Basic Pitch
   overtone artifact — clipping the sustained note to the ghost's onset
   silently deletes the tail of a real note.
+* contained-lower suppression (``prefer="onset"``, #129): an event
+  fully inside a sustained note's span, lower in pitch and at a real
+  confidence deficit, is a rumble/subharmonic artifact — the mono
+  contract is one sounding line, and real melodic motion is
+  sequential (it extends past the sustain's end), never contained.
+  Dropping it keeps the sustain whole instead of clipping the tail.
 
 Pitch is rounded to the nearest semitone here — canonical notes are
 integer MIDI (pitch spelling is a downstream concern, flagged via
@@ -84,6 +90,17 @@ BLIP_EXTEND_MAX_SEC = 0.3  # cap on the restored tail
 # gets to "own" the melody as its overtone (#130).
 CONCURRENT_GHOST_SPAN_RATIO = 0.5
 
+# Mono (prefer="onset") contained-lower suppression (#129): an event
+# that lives ENTIRELY inside a sustained note's span (its tail does
+# not extend past), sits lower in pitch and carries a real confidence
+# deficit is a rumble/subharmonic/bleed artifact — breath noise, key
+# clicks, room rumble make Basic Pitch posit low hypotheses mid-
+# sustain, and onset-clipping at them deletes the sustain's tail.
+# Sequential movement is safe: a real next note extends past the
+# sustain's end, so it is never "contained".
+CONTAINED_GHOST_CONF_RATIO = 0.7
+CONTAINED_GHOST_CONF_GAP = 0.15
+
 
 @dataclass(frozen=True)
 class CleanedEvents:
@@ -96,7 +113,9 @@ class CleanedEvents:
     """Overlaps between *different* pitch classes — likely real
     polyphony (or strong octave ghosts), worth a review warning."""
     ghost_dropped: int = 0
-    """Short harmonic-interval overlaps suppressed as overtone ghosts"""
+    """Overtone-family artifacts suppressed instead of clipping —
+    harmonic-interval ghosts, concurrent octave ghosts and (#129)
+    contained-lower rumble hypotheses."""
     interruption_dropped: int = 0
     """Short off-line blips suppressed under prefer="top" (#130)"""
 
@@ -258,6 +277,15 @@ def clean_monophonic(
                 ):
                     # Overtone artifact under a sustained note — drop the
                     # ghost instead of clipping the real note's tail.
+                    ghosts += 1
+                    continue
+                # #129: under the mono contract a fully-contained
+                # lower hypothesis is a rumble/subharmonic artifact —
+                # drop it rather than amputating the sustain's tail.
+                # (prefer="top" already drops every lower overlap.)
+                if prefer == "onset" and _is_contained_lower_ghost(
+                    prev, ev
+                ):
                     ghosts += 1
                     continue
                 if (
@@ -424,6 +452,37 @@ def _is_harmonic_ghost(
             >= CONCURRENT_GHOST_CONF_GAP
         )
     return ev.confidence < prev.confidence
+
+
+def _is_contained_lower_ghost(
+    prev: RawNoteEvent,
+    ev: RawNoteEvent,
+) -> bool:
+    """True when *ev* is a contained lower hypothesis inside *prev*'s
+    sustain (#129).
+
+    Under the monophonic contract a note entirely inside a longer
+    sounding note's span — attacking after its onset AND releasing
+    before its offset — that sits lower and carries a real confidence
+    deficit is a rumble/subharmonic artifact (handling noise, key
+    clicks, room modes make Basic Pitch posit brief low notes mid-
+    sustain). Real melodic motion is sequential: the next note
+    extends past the sustain's end, so it is never contained.
+    Both a ratio and an absolute confidence gap are required so a
+    genuinely quiet real interleave is not eaten (#129 caution).
+    """
+    if ev.onset_sec - prev.onset_sec < GHOST_MIN_LEAD_SEC:
+        return False
+    if ev.offset_sec > prev.offset_sec:
+        return False
+    if ev.pitch_midi >= prev.pitch_midi:
+        return False
+    if ev.confidence is None or prev.confidence is None:
+        return False
+    return (
+        ev.confidence < prev.confidence * CONTAINED_GHOST_CONF_RATIO
+        and prev.confidence - ev.confidence >= CONTAINED_GHOST_CONF_GAP
+    )
 
 
 def _drop_interruption_blips(

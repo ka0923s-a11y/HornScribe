@@ -572,9 +572,11 @@ class TestClean:
         assert out.merged == 0
 
     def test_onset_prefer_keeps_fragment_behaviour(self) -> None:
-        # prefer="onset" (mono solos) is unchanged: an interleaved lower
-        # note is real content there, so bridging it would hide a true
-        # re-articulation.
+        # prefer="onset" (mono solos): a confident interleaved lower
+        # note stays real content — only weak FULLY-CONTAINED lowers are
+        # artifacts (#129), and this bass extends the sustain while
+        # carrying comparable confidence, so bridging it would hide a
+        # true re-articulation.
         frag_a = RawNoteEvent(
             id=RawNoteEventId("rne-000001"),
             transcription_revision=_REV,
@@ -606,6 +608,154 @@ class TestClean:
     def test_prefer_rejects_unknown_value(self) -> None:
         with pytest.raises(ValueError, match="prefer"):
             clean_monophonic(make_events([60]), prefer="loud")
+
+    # ---- #129: contained-lower ghosts under the mono contract ----
+
+    def test_onset_contained_lower_ghost_dropped(self) -> None:
+        # A weak, lower note entirely inside a sustained note's span
+        # is a rumble/subharmonic artifact: drop it and keep the
+        # sustain's full tail instead of clipping at its onset.
+        sustain = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.0,
+            offset_sec=2.0,
+            confidence=0.81,
+        )
+        rumble = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=41,  # ~85 Hz handling rumble, not harmonic
+            onset_sec=0.8,
+            offset_sec=1.2,
+            confidence=0.43,
+        )
+        nxt = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=70,
+            onset_sec=2.1,
+            offset_sec=2.6,
+            confidence=0.8,
+        )
+        out = clean_monophonic((sustain, rumble, nxt))
+        assert len(out.events) == 2
+        assert out.events[0].offset_sec == pytest.approx(2.0)
+        assert out.events[1].pitch_midi == pytest.approx(70)
+        assert out.ghost_dropped == 1
+        assert out.clipped_overlaps == 0
+
+    def test_onset_contained_lower_strong_interleave_kept(self) -> None:
+        # The conf margin protects a genuinely loud interleave: a bass
+        # note at near-equal confidence is real content (or evidence
+        # the source is not mono) — clip, don't delete (#129 caution).
+        sustain = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.0,
+            offset_sec=2.0,
+            confidence=0.81,
+        )
+        bass = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=41,
+            onset_sec=0.8,
+            offset_sec=1.2,
+            confidence=0.75,
+        )
+        out = clean_monophonic((sustain, bass))
+        assert len(out.events) == 2
+        assert out.events[0].offset_sec == pytest.approx(0.8)
+        assert out.clipped_overlaps == 1
+        assert out.polyphonic_overlaps == 1
+        assert out.ghost_dropped == 0
+
+    def test_onset_lower_overlap_past_end_is_real(self) -> None:
+        # A lower note that continues PAST the sustain's end is real
+        # melodic motion even when weak — containment (tail inside)
+        # is what marks the artifact.
+        sustain = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.0,
+            offset_sec=1.0,
+            confidence=0.9,
+        )
+        lower = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.5,
+            offset_sec=1.4,
+            confidence=0.3,
+        )
+        out = clean_monophonic((sustain, lower))
+        assert len(out.events) == 2
+        assert out.events[0].offset_sec == pytest.approx(0.5)
+        assert out.events[1].pitch_midi == pytest.approx(60)
+        assert out.clipped_overlaps == 1
+        assert out.ghost_dropped == 0
+
+    def test_onset_contained_higher_kept(self) -> None:
+        # Contained notes ABOVE the sustain are not the rumble
+        # signature — a non-harmonic higher interleave still clips.
+        sustain = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.0,
+            offset_sec=2.0,
+            confidence=0.9,
+        )
+        higher = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=74,  # 14 semitones — not a ghost interval
+            onset_sec=0.8,
+            offset_sec=1.2,
+            confidence=0.5,
+        )
+        out = clean_monophonic((sustain, higher))
+        assert len(out.events) == 2
+        assert out.events[0].offset_sec == pytest.approx(0.8)
+        assert out.clipped_overlaps == 1
+        assert out.ghost_dropped == 0
+
+    def test_onset_multiple_contained_ghosts_dropped(self) -> None:
+        # The observed BP signature emits several weak low hypotheses
+        # inside one sustain — every contained one is suppressed.
+        sustain = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.0,
+            offset_sec=2.2,
+            confidence=0.81,
+        )
+        g1 = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=41,
+            onset_sec=0.8,
+            offset_sec=1.2,
+            confidence=0.43,
+        )
+        g2 = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=57,
+            onset_sec=1.9,
+            offset_sec=2.05,
+            confidence=0.37,
+        )
+        out = clean_monophonic((sustain, g1, g2))
+        assert len(out.events) == 1
+        assert out.events[0].offset_sec == pytest.approx(2.2)
+        assert out.ghost_dropped == 2
 
 
 class TestSplitVoices:
