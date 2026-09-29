@@ -39,7 +39,10 @@ import { exportErrorCode, type ExportFormatId } from "./export/types";
 import { createDefaultDiagnosticsPort } from "./diagnostics/port";
 import { useAppSettings, type SettingsCategory } from "./settings/store";
 import type { PitchView } from "./components/PitchSegmented";
-import { createFixtureScoreDocument } from "./score/fixtureDocument";
+import {
+  createFixtureScoreDocument,
+  fixtureVoicesCanonical,
+} from "./score/fixtureDocument";
 import { scoreHandoffFromResult } from "./score/jobResult";
 import {
   createEngineScoreDocument,
@@ -192,10 +195,21 @@ const DevGallery = import.meta.env.DEV
 
 function screenFromHash(hash: string): ScreenState | null {
   if (!import.meta.env.DEV || !hash.startsWith(STATE_HASH_PREFIX)) return null;
-  const name = hash.slice(STATE_HASH_PREFIX.length);
+  const name = hash.slice(STATE_HASH_PREFIX.length).replace(/-poly$/, "");
   return (SCREEN_STATES as readonly string[]).includes(name)
     ? (name as ScreenState)
     : null;
+}
+
+/* #123: "#/dev/state/<screen>-poly" — dev-state modifier swapping the
+ *  fixture canonical for the two-voice fixture so polyphonic surfaces
+ *  (collapseToMelody gating, multi-part rendering) can be reviewed
+ *  without running a job. */
+function polyModifierFromHash(hash: string): boolean {
+  if (!import.meta.env.DEV || !hash.startsWith(STATE_HASH_PREFIX)) {
+    return false;
+  }
+  return hash.slice(STATE_HASH_PREFIX.length).endsWith("-poly");
 }
 
 /** #234: content-derived audio identity for score ownership — the
@@ -2474,7 +2488,20 @@ export default function App() {
         // supplies one until engine output flows through the job result.
         if (commandStateFor(forced).hasScore) {
           setHasScore(true);
-          setScoreDocument((doc) => doc ?? createFixtureScoreDocument());
+          // #123: the -poly modifier swaps in the two-voice fixture so
+          // polyphonic-only surfaces stay reachable in dev states. The
+          // canonicalDocument key must stay absent (not undefined) in the
+          // mono case — an explicit undefined reads as "no canonical".
+          const poly = polyModifierFromHash(h);
+          setScoreDocument(
+            (doc) =>
+              doc ??
+              (poly
+                ? createFixtureScoreDocument({
+                    canonicalDocument: fixtureVoicesCanonical(),
+                  })
+                : createFixtureScoreDocument()),
+          );
         }
         setScreen(forced);
         setView("workspace");

@@ -18,6 +18,7 @@
 import concertXml from "./fixtures/score_concert.musicxml?raw";
 import hornXml from "./fixtures/score_horn_in_f.musicxml?raw";
 import canonicalScaleJson from "./fixtures/canonical_scale_doc.json?raw";
+import canonicalVoicesJson from "./fixtures/canonical_voices_doc.json?raw";
 import type { ScoreDocumentPort } from "./document";
 import type { ScoreReviewIssue } from "./review";
 import { XmlScoreDocument } from "./xmlDocument";
@@ -38,6 +39,18 @@ function fixtureCanonical(): unknown {
     fixtureCanonicalCache = JSON.parse(canonicalScaleJson);
   }
   return fixtureCanonicalCache;
+}
+
+/* #123: two-voice companion fixture — the same scale with a harmony
+ *  part a third below plus one intra-part chord tone. Lets dev states
+ *  (#/dev/state/scoreReady-poly) exercise the voices/chords surfaces
+ *  (collapseToMelody gating, multi-part rendering) without a job. */
+let fixtureVoicesCanonicalCache: unknown;
+export function fixtureVoicesCanonical(): unknown {
+  if (fixtureVoicesCanonicalCache === undefined) {
+    fixtureVoicesCanonicalCache = JSON.parse(canonicalVoicesJson);
+  }
+  return fixtureVoicesCanonicalCache;
 }
 
 const FIXTURE_ISSUES: readonly ScoreReviewIssue[] = [

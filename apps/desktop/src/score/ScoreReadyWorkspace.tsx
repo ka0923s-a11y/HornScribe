@@ -599,6 +599,13 @@ export function ScoreReadyWorkspace({
    *  a document the app already swapped out. */
   const [pendingEdits, setPendingEdits] = useState(0);
   const mountedRef = useRef(true);
+  /* onStateChange arrives as a fresh inline wrapper on every parent
+   * render (App -> ScoreWorkspace -> here). Keeping it in the mirror
+   * effect below made the effect re-fire on every commit — looping
+   * effect -> setScoreState -> parent render -> new prop -> effect.
+   * A ref keeps the latest callback callable without being a dep. */
+  const onStateChangeRef = useRef(onStateChange);
+  onStateChangeRef.current = onStateChange;
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -2353,7 +2360,7 @@ const setKey = useCallback(
   /* --------------------------- state mirror ------------------------------ */
 
   useEffect(() => {
-    onStateChange?.({
+    onStateChangeRef.current?.({
       hasSelection: selection !== null,
       // #163: a rest glyph is selected (canonicalId null + hs-rest id) —
       // gates the score.restToNote command.
@@ -2396,7 +2403,6 @@ const setKey = useCallback(
     allIssues,
     reviewIndex,
     zoom,
-    onStateChange,
     session,
     pendingCount,
     docVersion,
