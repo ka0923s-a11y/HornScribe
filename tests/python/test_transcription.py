@@ -749,6 +749,67 @@ class TestSplitVoices:
         assert [e.pitch_midi for e in out.events] == [48.0]
         assert out.events[0].offset_sec == pytest.approx(0.5)
 
+    def test_top_fragment_over_long_pad_is_not_a_ghost(self) -> None:
+        # #130: under melody texture the stronger concurrent note at a
+        # harmonic interval is usually accompaniment, not a
+        # fundamental. A real ghost rides the whole span -- a melody
+        # fragment ringing only part of a sustained pad must survive.
+        from hornscribe.transcription.clean import clean_monophonic
+
+        pad = self._ev(1, 57, 0.0, 1.0, confidence=0.55)
+        melody = self._ev(2, 76, 0.02, 0.2, confidence=0.38)  # +19
+        out = clean_monophonic((pad, melody), prefer="top")
+        assert out.ghost_dropped == 0
+        assert [e.pitch_midi for e in out.events] == [76.0]
+
+        # prefer="onset" keeps the strict signature -- same input is a
+        # concurrent ghost there.
+        out = clean_monophonic((pad, melody))
+        assert out.ghost_dropped == 1
+        assert [e.pitch_midi for e in out.events] == [57.0]
+
+    def test_top_still_drops_a_full_span_concurrent_ghost(self) -> None:
+        # The coverage requirement must not reopen #92: a weak octave
+        # error that really does ring with the fundamental still dies.
+        from hornscribe.transcription.clean import clean_monophonic
+
+        real = self._ev(1, 48, 0.0, 0.5, confidence=0.65)
+        ghost = self._ev(2, 60, 0.02, 0.48, confidence=0.4)
+        out = clean_monophonic((real, ghost), prefer="top")
+        assert out.ghost_dropped == 1
+        assert [e.pitch_midi for e in out.events] == [48.0]
+
+    def test_top_higher_note_with_marginal_deficit_is_movement(self) -> None:
+        # #130: a higher note cutting in IS the melody contract —
+        # "overtone of the lower note" needs a real confidence deficit,
+        # not a hairline one (a 0.40 melody fragment was being eaten by
+        # a 0.42 strum a fifth below).
+        from hornscribe.transcription.clean import clean_monophonic
+
+        strum = self._ev(1, 69, 0.0, 0.4, confidence=0.42)
+        melody = self._ev(2, 76, 0.1, 0.19, confidence=0.40)  # +7, short
+        out = clean_monophonic((strum, melody), prefer="top")
+        assert out.ghost_dropped == 0
+        pitches = [e.pitch_midi for e in out.events]
+        assert pitches == [69.0, 76.0]
+        assert out.events[0].offset_sec == pytest.approx(0.1)
+
+        # Onset mode is unchanged: the same pair is still a ghost.
+        out = clean_monophonic((strum, melody))
+        assert out.ghost_dropped == 1
+        assert [e.pitch_midi for e in out.events] == [69.0]
+
+    def test_top_higher_note_with_real_deficit_still_dies(self) -> None:
+        # A genuine upward flicker ghost keeps losing: the deficit
+        # requirement only spares near-equal-confidence movement.
+        from hornscribe.transcription.clean import clean_monophonic
+
+        real = self._ev(1, 69, 0.0, 0.4, confidence=0.75)
+        ghost = self._ev(2, 76, 0.1, 0.19, confidence=0.40)
+        out = clean_monophonic((real, ghost), prefer="top")
+        assert out.ghost_dropped == 1
+        assert [e.pitch_midi for e in out.events] == [69.0]
+
     def test_crossing_lines_keep_their_own_voice(self) -> None:
         # #85: free voices are chosen by pitch proximity, so a line
         # that dips under a held note still continues its own stream

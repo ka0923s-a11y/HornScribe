@@ -65,6 +65,25 @@ CONCURRENT_GHOST_INTERVALS = (12, 19, 24)  # octave, octave+P5, 2oct
 CONCURRENT_GHOST_CONF_RATIO = 0.7
 CONCURRENT_GHOST_CONF_GAP = 0.15
 
+# prefer="top" interruption repair: a short note that deviates on
+# BOTH sides of the line and is locally weak (or an octave-scale
+# excursion) is a bleed/flicker artifact, not melody — on a mix the
+# backend emits high/low blips that ride ON the melodic note and clip
+# it. Drop the blip and restore the tail it interrupted (#130).
+BLIP_MAX_SEC = 0.12
+BLIP_MIN_DEVIATION = 3  # semitones from each neighbour
+BLIP_EXCURSION = 12     # octave-scale deviation needs no conf test
+BLIP_MAX_CONF = 0.5
+BLIP_EXTEND_MAX_SEC = 0.3  # cap on the restored tail
+
+# prefer="top" adds a span-coverage requirement: a true concurrent
+# ghost rides its fundamental -- attacks with it AND rings most of its
+# length. On mixes the stronger concurrent note at a harmonic interval
+# is usually a sustained pad/bass (accompaniment), while the real
+# melody fragment above it is short; without coverage the accompaniment
+# gets to "own" the melody as its overtone (#130).
+CONCURRENT_GHOST_SPAN_RATIO = 0.5
+
 
 @dataclass(frozen=True)
 class CleanedEvents:
@@ -78,6 +97,8 @@ class CleanedEvents:
     polyphony (or strong octave ghosts), worth a review warning."""
     ghost_dropped: int = 0
     """Short harmonic-interval overlaps suppressed as overtone ghosts"""
+    interruption_dropped: int = 0
+    """Short off-line blips suppressed under prefer="top" (#130)"""
 
     def stats(self) -> dict[str, Any]:
         return {
@@ -87,6 +108,7 @@ class CleanedEvents:
             "octaveCorrected": self.octave_corrected,
             "polyphonicOverlaps": self.polyphonic_overlaps,
             "ghostDropped": self.ghost_dropped,
+            "interruptionDropped": self.interruption_dropped,
             "eventCount": len(self.events),
         }
 
@@ -154,7 +176,15 @@ def clean_monophonic(
     if prefer not in ("onset", "top"):
         raise ValueError(f"prefer must be 'onset' or 'top', got {prefer!r}")
     ordered = sorted(events, key=lambda e: (e.onset_sec, e.offset_sec))
-    concurrent_ghosts = _concurrent_ghost_ids(ordered, min_event_sec)
+    concurrent_ghosts = _concurrent_ghost_ids(
+        ordered,
+        min_event_sec,
+        # Melody texture: the stronger concurrent note at a harmonic
+        # interval is usually accompaniment, not a fundamental that
+        # owns the weaker note above it — require the ghost to ride
+        # most of the span before suppressing (#130).
+        span_coverage=prefer == "top",
+    )
     kept: list[RawNoteEvent] = []
     dropped = 0
     merged = 0
@@ -210,7 +240,22 @@ def clean_monophonic(
         if final_events:
             prev = final_events[-1]
             if prev.offset_sec > ev.onset_sec:
-                if _is_harmonic_ghost(prev, ev):
+                if _is_harmonic_ghost(
+                    prev,
+                    ev,
+                    # Melody texture: a higher note cutting in is the
+                    # mode's own contract, so calling it the lower
+                    # note's overtone needs a real confidence deficit,
+                    # not merely "less than" (#130 — a weak melody
+                    # fragment at conf 0.40 was being eaten by a strum
+                    # at conf 0.42 a fifth below).
+                    conf_ratio=(
+                        CONCURRENT_GHOST_CONF_RATIO
+                        if prefer == "top"
+                        and ev.pitch_midi > prev.pitch_midi
+                        else 0.0
+                    ),
+                ):
                     # Overtone artifact under a sustained note — drop the
                     # ghost instead of clipping the real note's tail.
                     ghosts += 1
@@ -232,6 +277,14 @@ def clean_monophonic(
     # A clip can leave a zero-length note; drop it honestly.
     final = [e for e in kept if e.offset_sec - e.onset_sec >= min_event_sec]
     dropped += len(kept) - len(final)
+
+    # Melody texture: suppress interruption blips — short notes that
+    # leave the line on both sides. The artifact clipped the real
+    # note's tail when it cut in, so dropping it also restores the
+    # interrupted span (#130).
+    interruptions = 0
+    if prefer == "top":
+        final, interruptions = _drop_interruption_blips(final)
 
     # Octave-flicker repair: a note exactly +/-12 semitones off a pitch
     # class shared by BOTH neighbours is almost always the model
@@ -262,11 +315,15 @@ def clean_monophonic(
         octave_corrected=octave_fixed,
         polyphonic_overlaps=polyphonic,
         ghost_dropped=ghosts,
+        interruption_dropped=interruptions,
     )
 
 
 def _is_concurrent_ghost(
-    ev: RawNoteEvent, other: RawNoteEvent
+    ev: RawNoteEvent,
+    other: RawNoteEvent,
+    *,
+    span_coverage: bool = False,
 ) -> bool:
     """True when *ev* is an overtone artifact attacking with *other*.
 
@@ -274,6 +331,12 @@ def _is_concurrent_ghost(
     attack: the octave error starts at the fundamental's own onset and
     sustains as long as the real note, so the signal is the
     simultaneous attack plus a large confidence deficit (#92).
+
+    When ``span_coverage`` is set (melody texture, #130) the candidate
+    must also ring at least CONCURRENT_GHOST_SPAN_RATIO of the
+    fundamental's span — the "rides the whole note" half of the ghost
+    signature. Without it a sustained accompaniment note owns every
+    weak same-interval melody fragment starting near its attack.
     """
     if abs(ev.onset_sec - other.onset_sec) > CONCURRENT_GHOST_ONSET_SEC:
         return False
@@ -281,6 +344,11 @@ def _is_concurrent_ghost(
         int(round(ev.pitch_midi)) - int(round(other.pitch_midi))
     )
     if interval not in CONCURRENT_GHOST_INTERVALS:
+        return False
+    if span_coverage and (
+        ev.offset_sec - ev.onset_sec
+        < (other.offset_sec - other.onset_sec) * CONCURRENT_GHOST_SPAN_RATIO
+    ):
         return False
     if ev.confidence is None or other.confidence is None:
         return False
@@ -291,7 +359,10 @@ def _is_concurrent_ghost(
 
 
 def _concurrent_ghost_ids(
-    ordered: list[RawNoteEvent], min_event_sec: float
+    ordered: list[RawNoteEvent],
+    min_event_sec: float,
+    *,
+    span_coverage: bool = False,
 ) -> set[int]:
     """Indexes of concurrent octave ghosts inside one event list.
 
@@ -308,13 +379,20 @@ def _concurrent_ghost_ids(
                 continue
             if other.offset_sec - other.onset_sec < min_event_sec:
                 continue
-            if _is_concurrent_ghost(ev, other):
+            if _is_concurrent_ghost(
+                ev, other, span_coverage=span_coverage
+            ):
                 out.add(i)
                 break
     return out
 
 
-def _is_harmonic_ghost(prev: RawNoteEvent, ev: RawNoteEvent) -> bool:
+def _is_harmonic_ghost(
+    prev: RawNoteEvent,
+    ev: RawNoteEvent,
+    *,
+    conf_ratio: float = 0.0,
+) -> bool:
     """True when *ev* is an overtone artifact riding on *prev*.
 
     Basic Pitch frequently emits a short, weaker note a stable harmonic
@@ -323,6 +401,12 @@ def _is_harmonic_ghost(prev: RawNoteEvent, ev: RawNoteEvent) -> bool:
     the ghost's onset throws away the real tail, so the ghost loses.
     Deliberately conservative: requires a short span, a later attack,
     a harmonic interval, and strictly lower confidence.
+
+    ``conf_ratio`` > 0 tightens the confidence leg to a real deficit
+    (below ``prev * conf_ratio`` AND the absolute gap) — melody mode
+    uses it when the candidate sits ABOVE the sustained note, where a
+    near-equal-confidence note is melodic movement, not an overtone
+    (#130).
     """
     if ev.offset_sec - ev.onset_sec > GHOST_MAX_SEC:
         return False
@@ -333,7 +417,83 @@ def _is_harmonic_ghost(prev: RawNoteEvent, ev: RawNoteEvent) -> bool:
         return False
     if ev.confidence is None or prev.confidence is None:
         return False
+    if conf_ratio:
+        return (
+            ev.confidence < prev.confidence * conf_ratio
+            and prev.confidence - ev.confidence
+            >= CONCURRENT_GHOST_CONF_GAP
+        )
     return ev.confidence < prev.confidence
+
+
+def _drop_interruption_blips(
+    events: list[RawNoteEvent],
+) -> tuple[list[RawNoteEvent], int]:
+    """Suppress short off-line blips in a monophonic top line (#130).
+
+    On mixes the backend emits brief high/low artifacts that ride ON
+    the melodic note and clip it (an 84 fragment splitting a sustained
+    76, bass bleed during a rest). The signature: the note is short,
+    deviates at least BLIP_MIN_DEVIATION semitones from BOTH
+    neighbours, and is locally weak — or deviates a full octave, which
+    needs no confidence evidence. The underlying note was still
+    sounding when the blip cut in, so dropping it also restores the
+    interrupted tail (same pitch on both sides re-merges into one
+    note; a pitch change restores the tail up to the next onset).
+    """
+    if len(events) < 3:
+        return events, 0
+    out: list[RawNoteEvent] = [events[0]]
+    dropped = 0
+    k = 1
+    while k < len(events) - 1:
+        ev = events[k]
+        nxt = events[k + 1]
+        prev = out[-1]
+        duration = ev.offset_sec - ev.onset_sec
+        dev = min(
+            abs(ev.pitch_midi - prev.pitch_midi),
+            abs(ev.pitch_midi - nxt.pitch_midi),
+        )
+        weak = False
+        if (
+            ev.confidence is not None
+            and prev.confidence is not None
+            and nxt.confidence is not None
+        ):
+            weak = ev.confidence <= BLIP_MAX_CONF or ev.confidence < (
+                max(prev.confidence, nxt.confidence)
+                * CONCURRENT_GHOST_CONF_RATIO
+            )
+        is_blip = (
+            duration <= BLIP_MAX_SEC
+            and dev >= BLIP_MIN_DEVIATION
+            and (weak or dev >= BLIP_EXCURSION)
+        )
+        if not is_blip:
+            out.append(ev)
+            k += 1
+            continue
+        dropped += 1
+        contiguous = prev.offset_sec >= ev.onset_sec - 1e-6
+        if contiguous:
+            same_pitch = int(round(prev.pitch_midi)) == int(
+                round(nxt.pitch_midi)
+            )
+            if same_pitch:
+                # The blip split one note: absorb the far fragment.
+                out[-1] = _extend(
+                    prev, nxt.offset_sec, nxt.confidence, nxt.pitch_bends
+                )
+                k += 2
+                continue
+            extension = nxt.onset_sec - prev.offset_sec
+            if 0 < extension <= BLIP_EXTEND_MAX_SEC:
+                out[-1] = _replace_offset(prev, nxt.onset_sec)
+        k += 1
+    out.append(events[-1])
+    return out, dropped
+
 
 @dataclass(frozen=True)
 class VoiceSplit:
