@@ -54,6 +54,7 @@ import type {
 } from "./score/controller";
 import { openIssues } from "./score/review";
 import { waveformNoteOverlay } from "./score/noteOverlay";
+import { scoreHasPolyphony } from "./score/polyphony";
 import { extractTimingCorrection } from "./sidecar/resultMeta";
 import { formatTimecode as formatScoreTimecode } from "./score/timecode";
 import {
@@ -1403,6 +1404,11 @@ export default function App() {
     () => ({
       ...commandStateFor(screen),
       hasScore: commandStateFor(screen).hasScore && scoreDocument !== null,
+      // #123: extra parts or same-onset groups -> 単旋律にまとめる
+      // has something to fold.
+      hasPolyphony: scoreHasPolyphony(
+        scoreDocument?.canonicalDocument?.() ?? null,
+      ),
       // #219: a source-missing score is viewable/editable but has no
       // audio — audio-gated commands (採譜, source playback) stay
       // off until the relink lands.
@@ -2349,6 +2355,8 @@ export default function App() {
       // score through the workspace's serialized edit queue.
       transposeScore: (semitones) =>
         scoreCtlRef.current?.transposeScore?.(semitones),
+      // #123: single-melody collapse via the workspace (undoable edit).
+      collapseToMelody: () => scoreCtlRef.current?.collapseToMelody?.(),
       openSettings: () => {
         setSettingsFocus(undefined);
         setView("settings");

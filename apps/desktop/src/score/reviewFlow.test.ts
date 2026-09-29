@@ -178,6 +178,7 @@ function setup(count = 20) {
   const snapshot = (): CommandSnapshot => ({
     hasAudio: true,
     hasScore: true,
+    hasPolyphony: false,
     isTranscribing: false,
     isPlaying: false,
     loopEnabled: false,
@@ -361,6 +362,7 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
       hasScore: true,
       isTranscribing: false,
       isPlaying: false,
+      hasPolyphony: false,
       loopEnabled: false,
       pitch: "concert",
       canUndo: session.canUndo,

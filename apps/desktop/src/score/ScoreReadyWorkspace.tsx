@@ -1956,6 +1956,16 @@ const setKey = useCallback(
     [applyRhythmEdit],
   );
 
+  /* #123: fold voices/chords into the single playable melody — the
+   *  engine keeps the top voice per simultaneity and drops extra
+   *  parts; undo restores the pre-collapse document in one entry. */
+  const collapseToMelody = useCallback(() => {
+    applyRhythmEdit(
+      () => ({ kind: "collapseToMelody", noteId: "" }),
+      ja.commandFeedback.collapsedToMelody,
+    );
+  }, [applyRhythmEdit]);
+
   /* #130 (spec 14): re-quantize the whole score under changed
    * quantization settings — the engine replays the canonical notes
    * through the DP with the merged profile. */
@@ -2286,6 +2296,7 @@ const setKey = useCallback(
       removeTempoChange: (args) => removeTempoChange(args),
       setMetadata: (md) => setMetadata(md),
       transposeScore: (s) => transposeScore(s),
+      collapseToMelody: () => collapseToMelody(),
       requantize: (settings) => requantize(settings),
       splitSelectedNote: () => splitSelectedNote(),
       mergeSelectedNotes: () => mergeSelectedNotes(),
@@ -2330,6 +2341,7 @@ const setKey = useCallback(
     removeTempoChange,
     setMetadata,
     transposeScore,
+    collapseToMelody,
     requantize,
     splitSelectedNote,
     mergeSelectedNotes,

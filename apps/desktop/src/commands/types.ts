@@ -34,6 +34,9 @@ export interface CommandSnapshot {
   readonly hasAudio: boolean;
   /** A canonical score exists (SCORE_READY+). */
   readonly hasScore: boolean;
+  /** #123: the score carries playable polyphony — extra parts or
+   *  same-onset groups — so 単旋律にまとめる has something to fold. */
+  readonly hasPolyphony: boolean;
   /** Transcription is running — score-writing commands disable (§5). */
   readonly isTranscribing: boolean;
   /** Audio is currently playing (drives the play/pause affordance). */
@@ -200,6 +203,10 @@ export interface CommandContext {
   /** #267: whole-score arrangement transpose — canonical engine edit,
    *  one undo entry; ±12 for the octave actions. */
   transposeScore?(semitones: number): void;
+  /** #123: fold voices/chords down to the single playable melody line
+   *  (top voice per simultaneity, extra parts dropped) — one canonical
+   *  undoable engine edit; no re-transcription needed. */
+  collapseToMelody?(): void;
   /** #113: Esc on a waveform selection (AUDIO_READY) - clears the range
    *  back to "all" (spec 8: Esc -> 選択解除). Optional: absent = no-op. */
   clearWaveformSelection?(): void;
