@@ -158,6 +158,18 @@ def clean_monophonic(
     kept: list[RawNoteEvent] = []
     dropped = 0
     merged = 0
+    # prefer="top" (melody texture): merge a fragment back into the last
+    # kept event *of the same pitch*, not only the adjacent one. On a
+    # mix the backend splits a sustained lead note on each strong grid
+    # position (drum/pad transients) and interleaves lower hypotheses
+    # between the fragments — the adjacent-only merge never sees them.
+    # The merge is only allowed across interleaved events that are all
+    # lower than the fragment: a higher event is real melodic movement,
+    # and under "top" those lowers would be dropped as accompaniment in
+    # the clip pass anyway. prefer="onset" keeps the old behaviour —
+    # there an interleaved lower note is kept, so bridging it would
+    # swallow the re-articulation.
+    last_same_pitch: dict[int, int] = {}  # rounded midi -> kept index
     for i, ev in enumerate(ordered):
         if i in concurrent_ghosts:
             continue  # overtone artifact -- counted with ghosts below
@@ -173,7 +185,22 @@ def clean_monophonic(
                 )
                 merged += 1
                 continue
+        if prefer == "top" and kept:
+            pi = int(round(ev.pitch_midi))
+            j = last_same_pitch.get(pi)
+            if j is not None and ev.onset_sec - kept[j].offset_sec < merge_gap_sec:
+                crossed_higher = any(
+                    int(round(k.pitch_midi)) > pi for k in kept[j + 1 :]
+                )
+                if not crossed_higher:
+                    kept[j] = _extend(
+                        kept[j], ev.offset_sec, ev.confidence, ev.pitch_bends
+                    )
+                    merged += 1
+                    continue
         kept.append(ev)
+        if prefer == "top":
+            last_same_pitch[int(round(ev.pitch_midi))] = len(kept) - 1
 
     clipped = 0
     polyphonic = 0

@@ -467,6 +467,142 @@ class TestClean:
         assert out.events[0].offset_sec == pytest.approx(0.9)
         assert out.ghost_dropped == 1
 
+    def test_melody_prefer_repairs_fragmented_sustain(self) -> None:
+        # jpop-mix lesson: on a multi-layer source the backend splits a
+        # sustained lead note on strong grid positions (drum/pad
+        # transients) and interleaves lower accompaniment hypotheses
+        # between the fragments. The adjacent-only merge never saw
+        # them, so every split survived as an extra note. prefer="top"
+        # now merges a fragment back into the last kept event of the
+        # same pitch when only lower events interleave.
+        frag_a = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.0,
+            offset_sec=0.5,
+            confidence=0.9,
+        )
+        bass = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=43,
+            onset_sec=0.25,
+            offset_sec=0.4,
+            confidence=0.8,
+        )
+        frag_b = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.51,
+            offset_sec=0.9,
+            confidence=0.8,
+        )
+        out = clean_monophonic((frag_a, bass, frag_b), prefer="top")
+        assert len(out.events) == 1
+        assert out.events[0].offset_sec == pytest.approx(0.9)
+        assert out.merged == 1
+
+    def test_melody_prefer_no_merge_across_higher_interleave(self) -> None:
+        # A higher event between the fragments is real melodic movement
+        # — bridging it would swallow the second attack.
+        frag_a = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.0,
+            offset_sec=0.5,
+            confidence=0.9,
+        )
+        higher = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=81,
+            onset_sec=0.2,
+            offset_sec=0.4,
+            confidence=0.9,
+        )
+        frag_b = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.51,
+            offset_sec=0.9,
+            confidence=0.9,
+        )
+        out = clean_monophonic((frag_a, higher, frag_b), prefer="top")
+        # 76a clips at the 81 onset; 76b stays its own note after the
+        # higher note ends.
+        assert len(out.events) == 3
+        assert out.events[0].offset_sec == pytest.approx(0.2)
+        assert int(out.events[1].pitch_midi) == 81
+        assert int(out.events[2].pitch_midi) == 76
+        assert out.merged == 0
+
+    def test_melody_prefer_no_merge_beyond_gap(self) -> None:
+        # A real gap (> merge_gap_sec) between the fragments means the
+        # second onset is a re-articulation, not a split — kept apart.
+        frag_a = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.0,
+            offset_sec=0.5,
+            confidence=0.9,
+        )
+        bass = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=43,
+            onset_sec=0.3,
+            offset_sec=0.45,
+            confidence=0.8,
+        )
+        frag_b = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.6,
+            offset_sec=0.9,
+            confidence=0.8,
+        )
+        out = clean_monophonic((frag_a, bass, frag_b), prefer="top")
+        assert len(out.events) == 2
+        assert out.merged == 0
+
+    def test_onset_prefer_keeps_fragment_behaviour(self) -> None:
+        # prefer="onset" (mono solos) is unchanged: an interleaved lower
+        # note is real content there, so bridging it would hide a true
+        # re-articulation.
+        frag_a = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.0,
+            offset_sec=0.5,
+            confidence=0.9,
+        )
+        bass = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=43,
+            onset_sec=0.25,
+            offset_sec=0.4,
+            confidence=0.8,
+        )
+        frag_b = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.51,
+            offset_sec=0.9,
+            confidence=0.8,
+        )
+        out = clean_monophonic((frag_a, bass, frag_b), prefer="onset")
+        assert len(out.events) == 3
+        assert out.merged == 0
+
     def test_prefer_rejects_unknown_value(self) -> None:
         with pytest.raises(ValueError, match="prefer"):
             clean_monophonic(make_events([60]), prefer="loud")

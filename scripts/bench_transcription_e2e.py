@@ -31,6 +31,7 @@ import bisect
 import json
 import math
 import queue
+import random
 import struct
 import subprocess
 import sys
@@ -57,6 +58,11 @@ class Note:
     offset: float
     midi: int
     amp: float = 0.8
+    # lead | pad | bass | noise — the renderer picks a waveform per
+    # timbre; "noise" ignores midi (pitched content would fake a tone).
+    timbre: str = "lead"
+    # -1..1 stereo position. Only honoured by the stereo renderer.
+    pan: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -72,6 +78,16 @@ class Fixture:
     # Ground truth for the report. Empty/0 means "same as the hint".
     expect_meter: str = ""
     expect_tempo_bpm: float = 0.0
+    # Non-truth accompaniment rendered into the audio but excluded
+    # from scoring — the JPOP-mix rows carry pad/bass/drums here while
+    # `notes` stays the lead line the report measures against.
+    backing: tuple[Note, ...] = ()
+    # Stereo render for vocal-isolation rows — the center extractor is
+    # a no-op on mono input.
+    stereo: bool = False
+    # Pass vocalIsolation to the job (pipeline.py: solo-melody
+    # preprocess — skipped under voices/chords textures).
+    vocal_isolation: bool = False
 
     def truth_meter(self) -> str:
         return self.expect_meter or self.meter
@@ -80,29 +96,83 @@ class Fixture:
         return self.expect_tempo_bpm or self.tempo_bpm
 
 
-def _synth(path: Path, notes: tuple[Note, ...], sr: int = 22050) -> None:
-    """Sine render with a soft attack/decay and a light 2nd harmonic —
-    enough for Basic Pitch to lock on without a realistic-timbre gap."""
-    total = int((max(n.offset for n in notes) + 0.3) * sr)
-    buf = [0.0] * total
-    for n in notes:
-        f = 440.0 * 2 ** ((n.midi - 69) / 12)
-        s0, s1 = int(n.onset * sr), int(n.offset * sr)
-        for s in range(s0, min(s1, total)):
-            t = (s - s0) / sr
-            env = min(1.0, t / 0.01) * min(1.0, (s1 - s) / sr / 0.02)
-            buf[s] += n.amp * env * (
+def _note_samples(n: Note, sr: int) -> list[float]:
+    """Per-note mono signal — the timbre shapes the waveform and the
+    envelope edges (a pad fades in, a noise burst is attack-only).
+    timbre="lead" reproduces the original sine+h2 fixture tone."""
+    s0, s1 = int(n.onset * sr), int(n.offset * sr)
+    count = s1 - s0
+    if count <= 0:
+        return []
+    if n.timbre == "noise":
+        rng = random.Random(int(n.onset * 1000) * 131 + n.midi)
+        out = []
+        for i in range(count):
+            env = min(1.0, i / sr / 0.004) * math.exp(-i / sr / 0.045)
+            out.append(env * (rng.random() * 2.0 - 1.0))
+        return out
+    f = 440.0 * 2 ** ((n.midi - 69) / 12)
+    attack = 0.03 if n.timbre == "pad" else 0.01
+    decay = 0.05 if n.timbre == "pad" else 0.02
+    detune = (2 ** (3 / 1200), 1.0, 2 ** (-3 / 1200))
+    out = []
+    for i in range(count):
+        t = i / sr
+        env = min(1.0, t / attack) * min(1.0, (count - i) / sr / decay)
+        if n.timbre == "pad":
+            sig = sum(math.sin(2 * math.pi * f * d * t) for d in detune) / 3.0
+        elif n.timbre == "bass":
+            sig = (
                 math.sin(2 * math.pi * f * t)
-                + 0.25 * math.sin(2 * math.pi * f * 2 * t)
+                + 0.5 * math.sin(2 * math.pi * f * 2 * t)
+                + 0.3 * math.sin(2 * math.pi * f * 3 * t)
             )
-    peak = max(abs(x) for x in buf) or 1.0
+        else:
+            sig = math.sin(2 * math.pi * f * t) + 0.25 * math.sin(
+                2 * math.pi * f * 2 * t
+            )
+        out.append(env * sig)
+    return out
+
+
+def _synth(
+    path: Path,
+    notes: tuple[Note, ...],
+    sr: int = 22050,
+    stereo: bool = False,
+) -> None:
+    """Render `notes` to wav. stereo=True writes a 2-channel file with
+    equal-power panning; the mono path is byte-identical to the original
+    renderer (timbre="lead", pan ignored)."""
+    total = int((max(n.offset for n in notes) + 0.3) * sr)
+    chans = [[0.0] * total for _ in range(2 if stereo else 1)]
+    for n in notes:
+        sig = _note_samples(n, sr)
+        s0 = int(n.onset * sr)
+        if stereo:
+            gl = math.cos((n.pan + 1.0) * math.pi / 4.0)
+            gr = math.sin((n.pan + 1.0) * math.pi / 4.0)
+        else:
+            gl = gr = 1.0
+        for i, v in enumerate(sig):
+            s = s0 + i
+            if s >= total:
+                break
+            if stereo:
+                chans[0][s] += n.amp * v * gl
+                chans[1][s] += n.amp * v * gr
+            else:
+                chans[0][s] += n.amp * v
+    peak = max(abs(x) for c in chans for x in c) or 1.0
+    frames = []
+    for i in range(total):
+        for c in chans:
+            frames.append(struct.pack("<h", int(c[i] / peak * 30000)))
     with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
+        w.setnchannels(len(chans))
         w.setsampwidth(2)
         w.setframerate(sr)
-        w.writeframes(
-            b"".join(struct.pack("<h", int(x / peak * 30000)) for x in buf)
-        )
+        w.writeframes(b"".join(frames))
 
 
 def _waltz() -> Fixture:
@@ -314,6 +384,102 @@ def _dyads() -> Fixture:
     )
 
 
+def _jpop_mix_parts() -> tuple[tuple[Note, ...], tuple[Note, ...]]:
+    """8-bar 4/4 @128 JPOP-style mix — returns (lead truth, backing).
+
+    Lead: a pentatonic-ish melody with eighth/sixteenth/syncopation
+    variety, panned dead center the way pop production places vocals.
+    Backing: per-bar triad pads spread wide, center-ish bass quarters,
+    and noise-burst drums — none of it counts toward the truth, so the
+    report reads "how much of the lead survived the arrangement"."""
+    sixteenth = 60.0 / 128.0 / 4.0
+    melody = (
+        # Am F C G x2 — the classic JPOP progression.
+        (4, 76), (4, 79), (2, 81), (2, 79), (4, 76),
+        (2, 77), (2, 76), (2, 77), (2, 79), (8, 81),
+        (4, 79), (4, 76), (2, 74), (2, 72), (4, 74),
+        # bar4 starts a step off 74: a same-pitch hit across the barline
+        # would merge under the 20 ms truth gap (< the 30 ms merge gap)
+        # and score as a miss that is really a legato seam.
+        (2, 72), (2, 76), (2, 74), (2, 71), (8, 74),
+        (4, 76), (2, 77), (2, 79), (4, 81), (4, 79),
+        # bar6 likewise — 79 would continue bar5's held 79.
+        (2, 74), (2, 77), (4, 76), (4, 74), (4, 72),
+        (4, 74), (2, 72), (2, 74), (4, 76), (4, 72),
+        (2, 71), (2, 74), (12, 76),
+    )
+    lead: list[Note] = []
+    t = 0.0
+    for dur, midi in melody:
+        lead.append(Note(t, t + dur * sixteenth - 0.02, midi, 0.75))
+        t += dur * sixteenth
+    backing: list[Note] = []
+    chords = (
+        (57, 60, 64, 45),  # Am
+        (53, 57, 60, 41),  # F
+        (55, 60, 64, 48),  # C
+        (55, 59, 62, 43),  # G
+    )
+    bar = 16 * sixteenth
+    for b in range(8):
+        pad, bass_root = chords[b % 4][:3], chords[b % 4][3]
+        for k, p in enumerate(pad):
+            backing.append(
+                Note(b * bar, (b + 1) * bar - 0.05, p, 0.22, "pad",
+                     (-0.55, 0.55, -0.3)[k])
+            )
+        for q in range(4):
+            backing.append(
+                Note(b * bar + q * 4 * sixteenth,
+                     b * bar + (q + 1) * 4 * sixteenth - 0.03,
+                     bass_root, 0.4, "bass", -0.15)
+            )
+        # kick 1+3, snare 2+4, hats on offbeat eighths.
+        for q, pan, amp in ((0, 0.2, 0.5), (1, -0.2, 0.4), (2, 0.2, 0.5),
+                            (3, -0.2, 0.4)):
+            backing.append(
+                Note(b * bar + q * 4 * sixteenth,
+                     b * bar + q * 4 * sixteenth + 0.06,
+                     60, amp, "noise", pan)
+            )
+        for e in range(4):
+            backing.append(
+                Note(b * bar + (e * 2 + 1) * 2 * sixteenth,
+                     b * bar + (e * 2 + 1) * 2 * sixteenth + 0.04,
+                     60, 0.18, "noise", 0.4)
+            )
+    return tuple(lead), tuple(backing)
+
+
+def _jpop_mix_raw() -> Fixture:
+    lead, backing = _jpop_mix_parts()
+    return Fixture(
+        "jpop-mix-raw",
+        lead,
+        backing=backing,
+        stereo=True,
+        meter="4/4",
+        tempo_bpm=128.0,
+        texture="melody",
+        note="4-layer mix, no separation — lead survival baseline",
+    )
+
+
+def _jpop_mix_vocal() -> Fixture:
+    lead, backing = _jpop_mix_parts()
+    return Fixture(
+        "jpop-mix-vocal",
+        lead,
+        backing=backing,
+        stereo=True,
+        vocal_isolation=True,
+        meter="4/4",
+        tempo_bpm=128.0,
+        texture="melody",
+        note="same mix + vocalIsolation — center-extraction payoff",
+    )
+
+
 def _auto_44() -> Fixture:
     # No hints — the product default. Estimation must find 4/4 @ 96.
     beat = 60.0 / 96.0
@@ -402,6 +568,8 @@ FIXTURES = (
     _swing,
     _mixed_divisions,
     _dyads,
+    _jpop_mix_raw,
+    _jpop_mix_vocal,
     _auto_44,
     _auto_34,
     _auto_68,
@@ -481,6 +649,7 @@ def _run_job(proc: subprocess.Popen, audio: Path, fx: Fixture) -> dict:
                     if fx.tempo_bpm is not None
                     else {}
                 ),
+                **({"vocalIsolation": True} if fx.vocal_isolation else {}),
             },
         },
     )
@@ -663,15 +832,24 @@ def main() -> int:
         default=REPO / ".venv-bp312" / "Scripts" / "python.exe",
     )
     ap.add_argument("--out", type=Path, default=REPO / "benchmarks" / "transcription_e2e")
+    ap.add_argument(
+        "--only",
+        type=str,
+        default="",
+        help="comma-separated fixture names to run (default: all)",
+    )
     args = ap.parse_args()
+    only = {s.strip() for s in args.only.split(",") if s.strip()}
 
     rows = []
     with tempfile.TemporaryDirectory() as td:
         tdp = Path(td)
         for make in FIXTURES:
             fx = make()
+            if only and fx.name not in only:
+                continue
             wav = tdp / (fx.name + ".wav")
-            _synth(wav, fx.notes)
+            _synth(wav, fx.notes + fx.backing, stereo=fx.stereo)
             proc = _spawn(args)
             t0 = time.monotonic()
             result: dict | None = None
