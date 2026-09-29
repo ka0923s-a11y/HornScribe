@@ -58,8 +58,10 @@ class Note:
     offset: float
     midi: int
     amp: float = 0.8
-    # lead | pad | bass | noise — the renderer picks a waveform per
-    # timbre; "noise" ignores midi (pitched content would fake a tone).
+    # lead | vox | pad | strum | bass | noise — the renderer picks a
+    # waveform per timbre; "noise" ignores midi (pitched content would
+    # fake a tone). "vox" carries vibrato+tremolo — the real-JPOP lead
+    # shape these rows exist to exercise.
     timbre: str = "lead"
     # -1..1 stereo position. Only honoured by the stereo renderer.
     pan: float = 0.0
@@ -127,6 +129,26 @@ def _note_samples(n: Note, sr: int) -> list[float]:
                 + 0.5 * math.sin(2 * math.pi * f * 2 * t)
                 + 0.3 * math.sin(2 * math.pi * f * 3 * t)
             )
+        elif n.timbre == "vox":
+            # Vibrato as phase modulation (~+-35 cents at 5.5 Hz) plus a
+            # matching tremolo — the shape a sung JPOP lead has.
+            vib_hz = 5.5
+            depth = f * (2 ** (35 / 1200) - 1) / vib_hz
+            phase = 2 * math.pi * f * t + depth * math.sin(
+                2 * math.pi * vib_hz * t
+            )
+            trem = 1.0 + 0.12 * math.sin(2 * math.pi * vib_hz * t)
+            sig = trem * (
+                math.sin(phase) + 0.4 * math.sin(2 * phase)
+                + 0.2 * math.sin(3 * phase)
+            )
+        elif n.timbre == "strum":
+            # Strummed chord tone — additive harmonics, fast attack,
+            # gentle decay; mid-range pitch competing with the lead.
+            sig = sum(
+                math.sin(2 * math.pi * f * k * t) / k for k in (1, 2, 3, 4)
+            )
+            env *= math.exp(-t / 0.6)
         else:
             sig = math.sin(2 * math.pi * f * t) + 0.25 * math.sin(
                 2 * math.pi * f * 2 * t
@@ -480,6 +502,71 @@ def _jpop_mix_vocal() -> Fixture:
     )
 
 
+def _jpop_mix_hard_parts() -> tuple[tuple[Note, ...], tuple[Note, ...]]:
+    """Harder variant of the JPOP mix: the lead sings with vibrato
+    (timbre="vox") while an eighth-note strummed chord arpeggio lives
+    in the same octave — pitched accompaniment competing directly with
+    the melody band, not safely below it."""
+    lead_raw, backing = _jpop_mix_parts()
+    lead = tuple(
+        Note(n.onset, n.offset, n.midi, 0.6, "vox", n.pan) for n in lead_raw
+    )
+    strum: list[Note] = []
+    chords = (
+        (57, 60, 64),  # Am
+        (53, 57, 60),  # F
+        (55, 60, 64),  # C
+        (55, 59, 62),  # G
+    )
+    sixteenth = 60.0 / 128.0 / 4.0
+    bar = 16 * sixteenth
+    tones = [0, 1, 2, 1]  # low-mid-high-mid arpeggio per beat
+    for b in range(8):
+        chord = chords[b % 4]
+        for e in range(8):
+            p = chord[tones[e % 4]] + 12  # compete in the lead octave
+            strum.append(
+                Note(
+                    b * bar + e * 2 * sixteenth,
+                    b * bar + (e + 1) * 2 * sixteenth - 0.02,
+                    p,
+                    0.26,
+                    "strum",
+                    (-0.4, 0.4)[e % 2],
+                )
+            )
+    return lead, backing + tuple(strum)
+
+
+def _jpop_mix_hard_vocal() -> Fixture:
+    lead, backing = _jpop_mix_hard_parts()
+    return Fixture(
+        "jpop-mix-hard-vocal",
+        lead,
+        backing=backing,
+        stereo=True,
+        vocal_isolation=True,
+        meter="4/4",
+        tempo_bpm=128.0,
+        texture="melody",
+        note="vibrato lead + same-octave strum — the hard JPOP case",
+    )
+
+
+def _jpop_mix_hard_raw() -> Fixture:
+    lead, backing = _jpop_mix_hard_parts()
+    return Fixture(
+        "jpop-mix-hard-raw",
+        lead,
+        backing=backing,
+        stereo=True,
+        meter="4/4",
+        tempo_bpm=128.0,
+        texture="melody",
+        note="hard mix without separation — contrast row",
+    )
+
+
 def _auto_44() -> Fixture:
     # No hints — the product default. Estimation must find 4/4 @ 96.
     beat = 60.0 / 96.0
@@ -570,6 +657,8 @@ FIXTURES = (
     _dyads,
     _jpop_mix_raw,
     _jpop_mix_vocal,
+    _jpop_mix_hard_raw,
+    _jpop_mix_hard_vocal,
     _auto_44,
     _auto_34,
     _auto_68,
@@ -903,6 +992,25 @@ def main() -> int:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     stem = args.out
+    if only:
+        # A filtered run must not erase the rows it skipped — merge over
+        # the existing report, ordered by the FIXTURES list.
+        prior = {}
+        try:
+            prior = {
+                r["fixture"]: r
+                for r in json.loads(
+                    stem.with_suffix(".json").read_text(encoding="utf-8")
+                ).get("rows", [])
+                if isinstance(r, dict) and "fixture" in r
+            }
+        except Exception:
+            prior = {}
+        prior.update({r["fixture"]: r for r in rows})
+        order = {make().name: k for k, make in enumerate(FIXTURES)}
+        rows = sorted(
+            prior.values(), key=lambda r: order.get(r["fixture"], 999)
+        )
     stem.with_suffix(".json").write_text(
         json.dumps({"rows": rows}, indent=2, ensure_ascii=False), encoding="utf-8"
     )
