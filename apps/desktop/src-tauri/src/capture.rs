@@ -23,13 +23,35 @@ use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
     AUDCLNT_STREAMFLAGS_LOOPBACK,
     DEVICE_STATE_ACTIVE,
+    // #100: プロセス単位ループバック — 対象アプリの出力だけを録る。
+    ActivateAudioInterfaceAsync, IActivateAudioInterfaceAsyncOperation,
+    IActivateAudioInterfaceCompletionHandler,
+    IActivateAudioInterfaceCompletionHandler_Impl,
+    IAudioSessionControl, IAudioSessionControl2, IAudioSessionEnumerator,
+    IAudioSessionManager2,
+    AUDIOCLIENT_ACTIVATION_PARAMS, AUDIOCLIENT_ACTIVATION_PARAMS_0,
+    AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+    AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS,
+    PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
+    VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+    AudioSessionStateActive,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
     COINIT_MULTITHREADED, STGM_READ,
 };
+use windows::Win32::System::Com::BLOB;
+use windows::Win32::System::Variant::VT_BLOB;
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
+use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION,
+};
+use windows::Win32::Foundation::CloseHandle;
+use windows::core::{implement, HRESULT, Interface, IUnknown, PWSTR};
 
 /// 録音ソース。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -277,6 +299,7 @@ pub fn capture_start(
     device_id: Option<String>,
     suggested_name: Option<String>,
     monitor_only: Option<bool>,
+    target_pid: Option<u32>,
 ) -> Result<CaptureSessionInfo, String> {
     let src = match source.as_str() {
         "loopback" => CaptureSource::Loopback,
@@ -309,7 +332,11 @@ pub fn capture_start(
 
     // スレッド内でデバイス情報を確定させるため、先に 1 回同期で掴む。
     // (デバイス列挙自体は速いので UI スレッドで実行してよい。)
-    let (device_name, sample_rate, channels) = probe_device(src, device_id.as_deref())?;
+    // #100: 対象アプリ指定のときはデバイスではなくプロセス名を出す。
+    let (device_name, sample_rate, channels) = match (src, target_pid) {
+        (CaptureSource::Loopback, Some(pid)) => probe_process_loopback(pid)?,
+        _ => probe_device(src, device_id.as_deref())?,
+    };
     let info = CaptureSessionInfo {
         source: src.canonical_name().to_string(),
         device_name,
@@ -337,7 +364,7 @@ pub fn capture_start(
     let handle = std::thread::Builder::new()
         .name("hornscribe-capture".into())
         .spawn(move || {
-            capture_thread(src, device_id_t, rec_dir, shared_t, cancel_t)
+            capture_thread(src, device_id_t, target_pid, rec_dir, shared_t, cancel_t)
         })
         .map_err(|e| format!("spawn capture thread: {e}"))?;
 
@@ -1011,11 +1038,225 @@ fn device_friendly_name(device: &IMMDevice) -> Option<String> {
     }
 }
 
+/* ------------------------- process loopback (#100) ------------------------ */
+
+/// `capture_audio_sessions` の1項目 — 「対象アプリ」メニューの選択肢。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioSessionApp {
+    /// 対象プロセス ID(`capture_start` の `target_pid` に渡す)。
+    pub pid: u32,
+    /// 実行ファイル名(例: chrome.exe)。セッションの表示名はほぼ空なので
+    /// プロセスイメージから取る。
+    pub name: String,
+    /// セッションが現在音を鳴らしている(AudioSessionStateActive)か。
+    /// メニューでは鳴っているアプリを先に出す。
+    pub active: bool,
+}
+
+/// #100: 対象のループバック端点上でオーディオセッションを持つ
+/// プロセス一覧。ブラウザのようなマルチプロセスアプリでも、
+/// セッションを持つ実プロセスがそのまま選ばれる。システム音
+/// セッションは対象外(通知音だけを録っても意味がない)。
+#[tauri::command]
+pub fn capture_audio_sessions(
+    device_id: Option<String>,
+) -> Result<Vec<AudioSessionApp>, String> {
+    unsafe {
+        let _com = ComInit::new()?;
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                .map_err(|e| format!("MMDeviceEnumerator: {}", hresult_message(&e)))?;
+        let device: IMMDevice = get_endpoint(
+            &enumerator,
+            CaptureSource::Loopback,
+            device_id.as_deref(),
+        )
+        .map_err(|e| format!("audio endpoint: {}", hresult_message(&e)))?;
+        let mgr: IAudioSessionManager2 = device
+            .Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
+            .map_err(|e| format!("IAudioSessionManager2: {}", hresult_message(&e)))?;
+        let sessions: IAudioSessionEnumerator = mgr
+            .GetSessionEnumerator()
+            .map_err(|e| format!("GetSessionEnumerator: {}", hresult_message(&e)))?;
+        let count = sessions
+            .GetCount()
+            .map_err(|e| format!("GetSessionCount: {}", hresult_message(&e)))?;
+        let mut by_pid: std::collections::BTreeMap<u32, AudioSessionApp> =
+            std::collections::BTreeMap::new();
+        for i in 0..count {
+            let ctl: IAudioSessionControl = match sessions.GetSession(i) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let active = ctl.GetState() == Ok(AudioSessionStateActive);
+            let ctl2 = match ctl.cast::<IAudioSessionControl2>() {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            // S_OK = システム音セッション — 対象外。
+            if ctl2.IsSystemSoundsSession().is_ok() {
+                continue;
+            }
+            let pid = match ctl2.GetProcessId() {
+                Ok(p) if p != 0 => p,
+                _ => continue,
+            };
+            let entry = by_pid.entry(pid).or_insert_with(|| AudioSessionApp {
+                pid,
+                name: process_image_name(pid)
+                    .unwrap_or_else(|| format!("PID {}", pid)),
+                active: false,
+            });
+            if active {
+                entry.active = true;
+            }
+        }
+        let mut apps: Vec<AudioSessionApp> = by_pid.into_values().collect();
+        apps.sort_by(|a, b| b.active.cmp(&a.active).then(a.name.cmp(&b.name)));
+        Ok(apps)
+    }
+}
+
+/// プロセス ID → 実行ファイル名(セッション表示名の代替)。
+fn process_image_name(pid: u32) -> Option<String> {
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 260];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(
+            h,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        );
+        let _ = CloseHandle(h);
+        ok.ok()?;
+        let path = String::from_utf16(&buf[..len as usize]).ok()?;
+        Some(
+            path.rsplit(['\\', '/'])
+                .next()
+                .unwrap_or(&path)
+                .to_string(),
+        )
+    }
+}
+
+/// #100: プロセスループバック用クライアントの有効化(Windows 10 2004+)。
+/// `VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK` + INCLUDE_TARGET_PROCESS で
+/// 対象 PID が出す音だけを受ける IAudioClient を得る。非同期 API のため
+/// 完了ハンドラが結果を返すまで同期的に待つ(10s 上限)。
+fn activate_process_loopback(pid: u32) -> Result<IAudioClient, String> {
+    let (tx, rx) =
+        std::sync::mpsc::sync_channel::<Result<IAudioClient, String>>(1);
+    let handler: IActivateAudioInterfaceCompletionHandler =
+        ActivationDone { tx }.into();
+    // プロセスループバックの起動パラメータは PROPVARIANT の VT_BLOB に
+    // 包んで渡す(API の activationParams は PROPVARIANT 型 — 構造体を
+    // 直接渡すのではなく blob として中身をコピーする)。
+    // INCLUDE_TARGET_PROCESS_TREE: ブラウザ等の子プロセスが持つ
+    // セッションも対象プロセスの音として拾える。
+    let params = AUDIOCLIENT_ACTIVATION_PARAMS {
+        ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+        Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
+            ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
+                TargetProcessId: pid,
+                ProcessLoopbackMode:
+                    PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
+            },
+        },
+    };
+    unsafe {
+        let mut prop = PROPVARIANT::default();
+        let inner = &mut *prop.Anonymous.Anonymous;
+        inner.vt = VT_BLOB;
+        inner.Anonymous.blob = BLOB {
+            cbSize: core::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>()
+                as u32,
+            pBlobData: &params as *const AUDIOCLIENT_ACTIVATION_PARAMS
+                as *mut u8,
+        };
+        let _op = ActivateAudioInterfaceAsync(
+            VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+            &IAudioClient::IID,
+            Some(&prop as *const PROPVARIANT),
+            &handler,
+        )
+        .map_err(|e| {
+            format!("ActivateAudioInterfaceAsync: {}", hresult_message(&e))
+        })?;
+    }
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(r) => r,
+        Err(_) => Err(
+            "対象アプリのオーディオ有効化がタイムアウトしました".to_string(),
+        ),
+    }
+}
+
+#[implement(IActivateAudioInterfaceCompletionHandler)]
+struct ActivationDone {
+    tx: std::sync::mpsc::SyncSender<Result<IAudioClient, String>>,
+}
+
+impl IActivateAudioInterfaceCompletionHandler_Impl for ActivationDone_Impl {
+    fn ActivateCompleted(
+        &self,
+        activateoperation: windows_core::Ref<'_, IActivateAudioInterfaceAsyncOperation>,
+    ) -> windows::core::Result<()> {
+        let result = (|| -> Result<IAudioClient, String> {
+            let op = activateoperation
+                .ok()
+                .map_err(|_| "activation completed without operation".to_string())?;
+            let mut hr = HRESULT(0);
+            let mut iface: Option<IUnknown> = None;
+            unsafe {
+                op.GetActivateResult(&mut hr, &mut iface)
+                    .map_err(|e| format!("GetActivateResult: {}", hresult_message(&e)))?;
+            }
+            if hr.is_err() {
+                return Err(format!(
+                    "process loopback activate: 0x{:08X}",
+                    hr.0 as u32,
+                ));
+            }
+            let unk = iface
+                .ok_or_else(|| "activation returned no interface".to_string())?;
+            unk.cast::<IAudioClient>()
+                .map_err(|e| format!("cast IAudioClient: {}", hresult_message(&e)))
+        })();
+        let _ = self.tx.send(result);
+        Ok(())
+    }
+}
+
+/// #100: 対象アプリ指定時のプローブ — プロセス名と共有モード形式を掴む。
+fn probe_process_loopback(pid: u32) -> Result<(String, u32, u16), String> {
+    unsafe {
+        let _com = ComInit::new()?;
+        let audio = activate_process_loopback(pid)?;
+        let fmt_ptr = audio
+            .GetMixFormat()
+            .map_err(|e| format!("GetMixFormat: {}", hresult_message(&e)))?;
+        if fmt_ptr.is_null() {
+            return Err("GetMixFormat returned null".to_string());
+        }
+        let fmt = &*fmt_ptr;
+        let rate = fmt.nSamplesPerSec;
+        let ch = fmt.nChannels;
+        CoTaskMemFree(Some(fmt_ptr as *const _));
+        let name =
+            process_image_name(pid).unwrap_or_else(|| format!("PID {}", pid));
+        Ok((name, rate, ch))
+    }
+}
+
 /// 取得ループ本体。#235: サンプルは temp WAV へ逐次書き出し、共有状態には
 /// 統計・パスだけを残す。`stopping`/`cancel` で抜ける。
 fn capture_thread(
     source: CaptureSource,
     device_id: Option<String>,
+    target_pid: Option<u32>,
     // #42: None = level monitor — the loop runs and meters but no
     // temp WAV is opened, so monitoring never touches the disk.
     rec_dir: Option<std::path::PathBuf>,
@@ -1025,6 +1266,7 @@ fn capture_thread(
     if let Err(e) = run_capture(
         source,
         device_id.as_deref(),
+        target_pid,
         rec_dir.as_deref(),
         &shared,
         &cancel,
@@ -1078,6 +1320,7 @@ fn wav_header(data_len: u32, sample_rate: u32, channels: u16) -> [u8; 44] {
 fn run_capture(
     source: CaptureSource,
     device_id: Option<&str>,
+    target_pid: Option<u32>,
     rec_dir: Option<&std::path::Path>,
     shared: &Arc<Mutex<SharedBuf>>,
     cancel: &Arc<AtomicBool>,
@@ -1085,14 +1328,21 @@ fn run_capture(
     unsafe {
         use std::io::{Seek, SeekFrom, Write};
         let _com = ComInit::new()?;
-        let enumerator: IMMDeviceEnumerator =
-            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
-                .map_err(|e| format!("MMDeviceEnumerator: {}", hresult_message(&e)))?;
-        let device: IMMDevice = get_endpoint(&enumerator, source, device_id)
-            .map_err(|e| format!("audio endpoint: {}", hresult_message(&e)))?;
-        let audio: IAudioClient = device
-            .Activate::<IAudioClient>(CLSCTX_ALL, None)
-            .map_err(|e| format!("IAudioClient activate: {}", hresult_message(&e)))?;
+        let audio: IAudioClient = match (source, target_pid) {
+            // #100: プロセスループバック — 仮想デバイスを async 有効化し
+            // 対象プロセスの出力だけを受け取るクライアントを得る。
+            (CaptureSource::Loopback, Some(pid)) => activate_process_loopback(pid)?,
+            _ => {
+                let enumerator: IMMDeviceEnumerator =
+                    CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                        .map_err(|e| format!("MMDeviceEnumerator: {}", hresult_message(&e)))?;
+                let device: IMMDevice = get_endpoint(&enumerator, source, device_id)
+                    .map_err(|e| format!("audio endpoint: {}", hresult_message(&e)))?;
+                device
+                    .Activate::<IAudioClient>(CLSCTX_ALL, None)
+                    .map_err(|e| format!("IAudioClient activate: {}", hresult_message(&e)))?
+            }
+        };
         let fmt_ptr = audio
             .GetMixFormat()
             .map_err(|e| format!("GetMixFormat: {}", hresult_message(&e)))?;

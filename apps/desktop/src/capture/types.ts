@@ -72,6 +72,17 @@ export interface CaptureDeviceList {
   microphone: CaptureDevice[];
 }
 
+/** #100: オーディオセッションを持つプロセス — ループバックの
+ *  「対象アプリ」選択肢(Rust `AudioSessionApp` に対応)。
+ *  pid はプロセス固有なので永続化しない — 名前で再解決する。 */
+export interface AudioSessionApp {
+  pid: number;
+  /** 実行ファイル名(chrome.exe 等)。 */
+  name: string;
+  /** セッションが現在音を出しているか。 */
+  active: boolean;
+}
+
 /** UI 表示用のエラー分類。Rust のエラーコードをここで正規化する。 */
 export type CaptureIssue =
   /** 対応デバイスが無い(マイク無し/ループバック非対応等)。 */

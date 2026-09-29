@@ -42,6 +42,7 @@ import {
 } from "../workspace/screen";
 import type { CaptureState } from "../capture/controller";
 import type {
+  AudioSessionApp,
   CaptureDeviceList,
   CaptureSource,
 } from "../capture/types";
@@ -106,6 +107,9 @@ export function CommandBar({
   captureDevices,
   captureSelectedDevice,
   onSelectCaptureDevice,
+  captureAudioSessions,
+  captureSelectedTargetApp,
+  onSelectCaptureTargetApp,
   onCaptureMenuOpen,
   onCaptureMenuClose,
   onToggleCaptureMonitor,
@@ -130,6 +134,12 @@ export function CommandBar({
   /** 選択中のデバイス ID(null = 既定)。 */
   captureSelectedDevice?(source: CaptureSource): string | null;
   onSelectCaptureDevice?(source: CaptureSource, id: string | null): void;
+  /** #100: ループバックの対象アプリ一覧(メニュー開時に最新化)。 */
+  captureAudioSessions?: AudioSessionApp[] | null;
+  /** #100: 選択中の対象アプリ(null = デバイス全体のミックス)。 */
+  captureSelectedTargetApp?: AudioSessionApp | null;
+  /** #100: 対象アプリを選ぶ(null = 全ミックスに戻す)。 */
+  onSelectCaptureTargetApp?(app: AudioSessionApp | null): void;
   /** メニューが開いた時にデバイス一覧を取り直す。 */
   onCaptureMenuOpen?(): void;
   /** #42: メニューが閉じた時にレベルモニターを畳む。 */
@@ -361,6 +371,60 @@ export function CommandBar({
     });
     return items;
   };
+  /* #100: ループバックの「対象アプリ」セクション — 選んだアプリの
+   *  音だけを録る(プロセスループバック)。セッションを持つアプリ
+   *  だけが並び、既定は「このPCのすべての音」(従来の全ミックス)。
+   *  選択状態は pid があれば pid、なければ名前(再起動復元)で照合。 */
+  const loopbackAppItems = (): HsMenuItem[] => {
+    const sessions = captureAudioSessions;
+    if (!sessions || sessions.length === 0) return [];
+    const sel = captureSelectedTargetApp ?? null;
+    const items: HsMenuItem[] = [
+      {
+        key: "loopback-app-hdr",
+        label: ja.capture.loopbackAppLabel,
+        disabled: true,
+      },
+      {
+        key: "loopback:app:all",
+        label:
+          sel === null
+            ? "\u2713 " + ja.capture.loopbackAllApps
+            : ja.capture.loopbackAllApps,
+        persistOnClick: true,
+      },
+    ];
+    for (const s of sessions) {
+      const selected =
+        sel !== null &&
+        (sel.pid > 0 ? sel.pid === s.pid : sel.name === s.name);
+      items.push({
+        key: `loopback:app:${s.pid}`,
+        label:
+          (selected ? "\u2713 " : "") +
+          s.name +
+          (s.active ? "" : ` ${ja.capture.loopbackAppInactive}`),
+        persistOnClick: true,
+      });
+    }
+    // 選択中のアプリがセッション一覧から消えた(終了/まだ音を出して
+    // いない)時は、✓ 付きの行を残して「選ばれているが鳴っていない」
+    // を見せる — 何も無いと選択状態が宙に浮いて解除手段が分からない。
+    const selVisible =
+      sel !== null &&
+      sessions.some(
+        (s) => (sel.pid > 0 ? s.pid === sel.pid : s.name === sel.name),
+      );
+    if (sel !== null && !selVisible) {
+      items.push({
+        key: "loopback:app:missing",
+        label:
+          "\u2713 " + sel.name + ` ${ja.capture.loopbackAppInactive}`,
+        disabled: true,
+      });
+    }
+    return items;
+  };
   const captureMenuItems: HsMenuItem[] = [
     {
       key: "loopback",
@@ -369,11 +433,13 @@ export function CommandBar({
       disabled: !commands.isEnabled("media.captureSystemAudio"),
     },
     // #100: ループバックは出力デバイス全体のミックス録音 — 通知音や
-    // 他アプリの再生もテイクに入る。選択前に一度だけ見せる注意書き
-    // (無効行 = セクションラベルと同じ表現)。
+    // 他アプリの再生もテイクに入る。対象アプリが選ばれている時は
+    // 範囲が1アプリに絞られるので、ヒントもその旨に差し替える。
     {
       key: "loopback-mix-hint",
-      label: ja.capture.loopbackMixHint,
+      label: captureSelectedTargetApp
+        ? ja.capture.loopbackTargetHint(captureSelectedTargetApp.name)
+        : ja.capture.loopbackMixHint,
       disabled: true,
     },
     {
@@ -403,6 +469,7 @@ export function CommandBar({
       ? ([
           { key: "devices-divider", divider: true },
           ...deviceItems("loopback", captureDevices.loopback),
+          ...loopbackAppItems(),
           ...deviceItems("microphone", captureDevices.microphone),
         ] satisfies HsMenuItem[])
       : []),
@@ -515,7 +582,15 @@ export function CommandBar({
               onToggleCaptureMonitor?.("loopback");
             else if (key === "microphone:monitor")
               onToggleCaptureMonitor?.("microphone");
-            else if (key === "loopback:default")
+            // #100: 対象アプリ行は "loopback:" プレフィックスを共有する
+            // ので、デバイス ID として誤配されないよう先に捌く。
+            else if (key === "loopback:app:all")
+              onSelectCaptureTargetApp?.(null);
+            else if (key.startsWith("loopback:app:")) {
+              const pid = Number(key.slice("loopback:app:".length));
+              const app = captureAudioSessions?.find((s) => s.pid === pid);
+              if (app) onSelectCaptureTargetApp?.(app);
+            } else if (key === "loopback:default")
               onSelectCaptureDevice?.("loopback", null);
             else if (key === "microphone:default")
               onSelectCaptureDevice?.("microphone", null);

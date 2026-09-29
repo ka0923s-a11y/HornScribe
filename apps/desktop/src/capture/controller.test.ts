@@ -684,4 +684,81 @@ describe("starting phase (pre-session)", () => {
       expect(c.getState().phase).toBe("idle");
     },
   );
+
+  it("#100: forwards the selected app's pid for loopback capture", async () => {
+    const port = makePort({
+      listAudioSessions: vi.fn(async () => [
+        { pid: 4242, name: "music.exe", active: true },
+        { pid: 1111, name: "other.exe", active: false },
+      ]),
+    });
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+    c.selectTargetApp({ pid: 4242, name: "music.exe", active: true });
+    await c.start("loopback");
+    expect(port.start).toHaveBeenCalledWith(
+      "loopback",
+      expect.objectContaining({ targetPid: 4242 }),
+    );
+  });
+
+  it("#100: re-resolves a stale pid by app name", async () => {
+    // アプリ再起動で pid が変わった — 名前一致で新しい pid を拾う。
+    const port = makePort({
+      listAudioSessions: vi.fn(async () => [
+        { pid: 9000, name: "music.exe", active: true },
+      ]),
+    });
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+    c.selectTargetApp({ pid: 4242, name: "music.exe", active: true });
+    await c.start("loopback");
+    expect(port.start).toHaveBeenCalledWith(
+      "loopback",
+      expect.objectContaining({ targetPid: 9000 }),
+    );
+  });
+
+  it("#100: falls back to the whole mix when the app has no session",
+    async () => {
+      const port = makePort({
+        listAudioSessions: vi.fn(async () => []),
+      });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      c.selectTargetApp({ pid: 4242, name: "gone.exe", active: true });
+      await c.start("loopback");
+      const opts = vi.mocked(port.start).mock.calls[0]?.[1];
+      expect(opts?.targetPid).toBeUndefined();
+    },
+  );
+
+  it("#100: selecting null returns to whole-mix capture", async () => {
+    const port = makePort({
+      listAudioSessions: vi.fn(async () => [
+        { pid: 4242, name: "music.exe", active: true },
+      ]),
+    });
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+   c.selectTargetApp({ pid: 4242, name: "music.exe", active: true });
+   c.selectTargetApp(null);
+   await c.start("loopback");
+    const opts = vi.mocked(port.start).mock.calls[0]?.[1];
+    expect(opts?.targetPid).toBeUndefined();
+  });
+
+  it("#100: microphone capture never carries a target pid", async () => {
+    const port = makePort({
+      listAudioSessions: vi.fn(async () => [
+        { pid: 4242, name: "music.exe", active: true },
+      ]),
+    });
+    const { events } = makeEvents();
+    const c = new CaptureController(port, events);
+   c.selectTargetApp({ pid: 4242, name: "music.exe", active: true });
+   await c.start("microphone");
+    const opts = vi.mocked(port.start).mock.calls[0]?.[1];
+    expect(opts?.targetPid).toBeUndefined();
+  });
 });

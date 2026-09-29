@@ -12,6 +12,7 @@
  */
 import type { CapturePort } from "./ports";
 import type {
+  AudioSessionApp,
   CaptureDeviceList,
   CaptureIssue,
   CaptureSource,
@@ -120,6 +121,9 @@ export interface CaptureEvents {
 
 /** デバイス選択の保存キー(localStorage)。#73。 */
 const DEVICE_PREF_KEY = "hornscribe.capture.deviceId";
+/** #100: ループバックの「対象アプリ」保存キー。pid は起動毎に
+ *  変わるので実行ファイル名だけを持ち、開始時に再解決する。 */
+const TARGET_APP_PREF_KEY = "hornscribe.capture.targetApp";
 
 /** Rust のエラー文字列を分類する。 */
 function classifyError(err: unknown, source: CaptureSource): CaptureIssue {
@@ -176,6 +180,11 @@ export class CaptureController {
     loopback: null,
     microphone: null,
   };
+  /** #100: メニューで選択された対象アプリ(生きている pid 入り)。
+   *  null ならデバイス全体のミックスを録る。 */
+  private targetApp: AudioSessionApp | null = null;
+  /** #100: 再起動を跨ぐために残すアプリ名(選択の復元元)。 */
+  private targetAppName: string | null = null;
 
   constructor(
     private readonly port: CapturePort,
@@ -190,6 +199,9 @@ export class CaptureController {
         this.deviceIds.loopback = parsed.loopback ?? null;
         this.deviceIds.microphone = parsed.microphone ?? null;
       }
+      const savedApp =
+        globalThis.localStorage?.getItem(TARGET_APP_PREF_KEY);
+      if (savedApp) this.targetAppName = savedApp;
     } catch {
       /* storage が使えない環境では既定デバイスのまま */
     }
@@ -227,6 +239,72 @@ export class CaptureController {
       return await this.port.listDevices();
     } catch {
       return { loopback: [], microphone: [] };
+    }
+  }
+
+  /** #100: ループバック端点上の対象アプリ一覧(選択中デバイス基準)。
+   *  ポート未対応/失敗は空リストに畳む。 */
+  async listAudioSessions(): Promise<AudioSessionApp[]> {
+    try {
+      return (
+        (await this.port.listAudioSessions?.(
+          this.deviceIds.loopback ?? undefined,
+        )) ?? []
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  /** #100: 選択中の対象アプリ。null = デバイス全体のミックス。
+   *  メニュー選択直後は pid 入り、再起動後は名前だけの復元値。 */
+  selectedTargetApp(): AudioSessionApp | null {
+    return (
+      this.targetApp ??
+      (this.targetAppName
+        ? { pid: 0, name: this.targetAppName, active: false }
+        : null)
+    );
+  }
+
+  /** #100: 対象アプリを選ぶ(null で全ミックスに戻す)。
+   *  pid は再起動で変わるので永続化するのは名前だけ。 */
+  selectTargetApp(app: AudioSessionApp | null): void {
+    this.targetApp = app;
+    this.targetAppName = app?.name ?? null;
+    try {
+      if (this.targetAppName) {
+        globalThis.localStorage?.setItem(
+          TARGET_APP_PREF_KEY,
+          this.targetAppName,
+        );
+      } else {
+        globalThis.localStorage?.removeItem(TARGET_APP_PREF_KEY);
+      }
+    } catch {
+      /* storage 不可は無視 */
+    }
+  }
+
+  /** #100: 選択中アプリを現在のセッション一覧から pid へ解決する。
+   *  pid 一致を優先し、無ければ名前一致(アプリ再起動で pid が変わった
+   *  ケース)。見つからなければ undefined = 全ミックスにフォールバック
+   *  (アプリ未起動で録音自体を失敗させない)。 */
+  private async resolveTargetPid(): Promise<number | undefined> {
+    const want = this.selectedTargetApp();
+    if (!want) return undefined;
+    try {
+      const sessions =
+        (await this.port.listAudioSessions?.(
+          this.deviceIds.loopback ?? undefined,
+        )) ?? [];
+      const match =
+        (want.pid > 0
+          ? sessions.find((s) => s.pid === want.pid)
+          : undefined) ?? sessions.find((s) => s.name === want.name);
+      return match?.pid;
+    } catch {
+      return undefined;
     }
   }
 
@@ -285,9 +363,13 @@ export class CaptureController {
       const fileName = source === "loopback"
         ? `PCの音_${timestampForFile()}.wav`
         : `録音_${timestampForFile()}.wav`;
+      // #100: 対象アプリ指定時は pid を再解決してプロセスループバックへ。
+      const targetPid =
+        source === "loopback" ? await this.resolveTargetPid() : undefined;
       const info = await this.port.start(source, {
         deviceId: this.deviceIds[source] ?? undefined,
         suggestedName: fileName,
+        targetPid,
       });
       // 開始待ちの間にキャンセル/中断された — 開いてしまった
       // セッションを畳んで終了する(録音だけが走り続ける孤児化防止)。
@@ -525,9 +607,14 @@ export class CaptureController {
       /* セッション無しなら何も起きない */
     }
     try {
+      // #100: ループバックのモニターも対象アプリフィルタに従う —
+      // 録るものと同じ信号を事前に聴ける。
+      const targetPid =
+        source === "loopback" ? await this.resolveTargetPid() : undefined;
       await this.port.start(source, {
         deviceId: deviceId ?? undefined,
         monitorOnly: true,
+        targetPid,
       });
       this.setState({
         ...this.state,

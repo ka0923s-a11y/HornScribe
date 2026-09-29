@@ -47,6 +47,9 @@ windows = { version = "0.61", features = [
   "Win32_System_ProcessStatus",
   "Win32_System_Threading",
 ] }
+# #100: #[implement] の展開が ::windows_core を参照するため直接依存にする
+# (windows からの再エクスポートでは extern 名が解決できない)。
+windows-core = "0.61"
 
 [profile.release]
 # Spike defaults: keep symbols for profiling startup/memory.
