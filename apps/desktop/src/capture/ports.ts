@@ -7,6 +7,7 @@
  * `getUserMedia`+`MediaRecorder` にフォールバックする。
  */
 import type {
+  AudioSessionApp,
   CaptureDeviceList,
   CaptureResult,
   CaptureSessionInfo,
@@ -25,6 +26,10 @@ export interface CapturePort {
       /** #42: 真なら書き出しの無いレベルモニターとして動く。
        *  stop() は呼べず、終了は cancel()。 */
       monitorOnly?: boolean;
+      /** #100: ループバックの録音対象プロセス ID。指定時は
+       *  そのプロセス(と子プロセス)の音だけを拾うプロセスループバック
+       *  に切り替わる。loopback 以外では無視される。 */
+      targetPid?: number;
     },
   ): Promise<CaptureSessionInfo>;
   /** 録音停止して結果を返す(Tauri は保存パス、ブラウザは bytes)。 */
@@ -39,4 +44,8 @@ export interface CapturePort {
   status(): Promise<CaptureStatus>;
   /** 取り込み可能なデバイス一覧(#73)。 */
   listDevices(): Promise<CaptureDeviceList>;
+  /** #100: ループバック端点上でオーディオセッションを持つアプリ一覧。
+   *  対応しないポート(ブラウザ dev 等)は未実装でよい — 呼び出し側は
+   *  空リストに畳む。 */
+  listAudioSessions?(deviceId?: string): Promise<AudioSessionApp[]>;
 }

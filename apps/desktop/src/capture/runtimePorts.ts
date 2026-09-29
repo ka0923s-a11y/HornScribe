@@ -11,6 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "../tauri/bridge";
 import type { CapturePort } from "./ports";
 import type {
+  AudioSessionApp,
   CaptureDeviceList,
   CaptureResult,
   CaptureSessionInfo,
@@ -64,13 +65,19 @@ function toSource(s: string): CaptureSource {
 class TauriCapturePort implements CapturePort {
   async start(
     source: CaptureSource,
-    opts?: { deviceId?: string; suggestedName?: string; monitorOnly?: boolean },
+    opts?: {
+      deviceId?: string;
+      suggestedName?: string;
+      monitorOnly?: boolean;
+      targetPid?: number;
+    },
   ): Promise<CaptureSessionInfo> {
     const info = await invoke<RustSessionInfo>("capture_start", {
       source,
       deviceId: opts?.deviceId ?? null,
       suggestedName: opts?.suggestedName ?? null,
       monitorOnly: opts?.monitorOnly ?? false,
+      targetPid: opts?.targetPid ?? null,
     });
     return {
       source: toSource(info.source),
@@ -121,6 +128,12 @@ class TauriCapturePort implements CapturePort {
       loopback: d.loopback,
       microphone: d.microphone,
     };
+  }
+  /** #100: オーディオセッションを持つアプリ一覧(Tauri のみ)。 */
+  async listAudioSessions(deviceId?: string): Promise<AudioSessionApp[]> {
+    return await invoke<AudioSessionApp[]>("capture_audio_sessions", {
+      deviceId: deviceId ?? null,
+    });
   }
 }
 

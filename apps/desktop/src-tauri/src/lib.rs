@@ -130,6 +130,7 @@ pub fn run() {
             capture::capture_cancel,
             capture::capture_status,
             capture::capture_devices,
+            capture::capture_audio_sessions,
             capture::capture_pause,
             capture::capture_resume,
             capture::recordings_info,

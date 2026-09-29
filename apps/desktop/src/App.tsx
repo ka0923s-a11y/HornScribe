@@ -111,7 +111,11 @@ import {
   updateSourceRef,
 } from "./capture/recordings";
 import { createCapturePort } from "./capture/runtimePorts";
-import type { CaptureDeviceList, CaptureSource } from "./capture/types";
+import type {
+  AudioSessionApp,
+  CaptureDeviceList,
+  CaptureSource,
+} from "./capture/types";
 import {
   MediaElementTransport,
   SUPPORTED_RATES,
@@ -698,6 +702,10 @@ export default function App() {
   // #73: 取り込みデバイス選択(capture_devices の結果)。
   const [captureDevices, setCaptureDevices] =
     useState<CaptureDeviceList | null>(null);
+  // #100: ループバックの対象アプリ一覧(capture_audio_sessions の
+  // 結果 — メニューを開く度にデバイス一覧と一緒に取り直す)。
+  const [captureAudioSessions, setCaptureAudioSessions] =
+    useState<AudioSessionApp[] | null>(null);
 
   // #18: ImportController と採譜キューが共有するポート群。
   // #365: route project opens through the engine's project.open —
@@ -1233,6 +1241,12 @@ export default function App() {
       .listDevices()
       .then(setCaptureDevices)
       .catch(() => setCaptureDevices(null));
+    // #100: 対象アプリ一覧も同じタイミングで取り直す(アプリの
+    // 起動/終了に追従 — セッションが無ければ行は出ない)。
+    void capture
+      .listAudioSessions()
+      .then(setCaptureAudioSessions)
+      .catch(() => setCaptureAudioSessions(null));
   }, [capture]);
 
   // #76: 録音は現在の音源(と楽譜)を置き換える単一ドキュメントのため、
@@ -2762,6 +2776,14 @@ export default function App() {
                   // 選択は localStorage 側に持つので React state は
                   // 変わらない — ✓ を即座に反映するため再描画を起こす。
                   setCaptureDevices((d) => (d ? { ...d } : d));
+                }}
+                captureAudioSessions={captureAudioSessions}
+                captureSelectedTargetApp={capture.selectedTargetApp()}
+                onSelectCaptureTargetApp={(app) => {
+                  capture.selectTargetApp(app);
+                  // デバイス選択と同じく controller 側に持つので、
+                  // ✓ の即時反映のために再描画を起こす。
+                  setCaptureAudioSessions((s) => (s ? [...s] : s));
                 }}
                 onCaptureMenuOpen={refreshCaptureDevices}
                 onCaptureMenuClose={() => void capture.stopMonitor()}
