@@ -1,6 +1,6 @@
 [package]
 name = "hornscribe-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "HornScribe desktop shell (UI-001 spike)"
 authors = ["HornScribe project"]
 edition = "2021"

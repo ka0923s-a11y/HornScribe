@@ -5,7 +5,7 @@ Windows向けデスクトップアプリ（Tauri 2 + React + Verovio）。日本
 ### ファイル
 
 - `*-setup.exe` — NSISインストーラー
-- `*-portable.zip` — インストール不要のポータブル版（展開して `hornscribe-desktop.exe` を実行）
+- `*-portable.zip` — インストール不要のポータブル版（展開して `HornScribe.exe` を実行）
 
 ### 要件
 
