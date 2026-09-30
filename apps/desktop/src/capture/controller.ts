@@ -284,6 +284,17 @@ export class CaptureController {
     } catch {
       /* storage 不可は無視 */
     }
+    // ループバックのレベルモニターが動いているなら新しい対象で
+    // 張り直す — フィルタ違いの古いストリームを聴き続けさせない
+    // (デバイス変更時と同じ startMonitor の再起動経路)。
+    if (
+      this.state.phase === "idle" &&
+      this.state.monitor?.source === "loopback"
+    ) {
+      this.stopMonitorTimer();
+      this.setState({ ...this.state, monitor: null });
+      void this.startMonitor("loopback");
+    }
   }
 
   /** #100: 選択中アプリを現在のセッション一覧から pid へ解決する。

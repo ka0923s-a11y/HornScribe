@@ -37,8 +37,8 @@ use windows::Win32::Media::Audio::{
     AudioSessionStateActive,
 };
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
-    COINIT_MULTITHREADED, STGM_READ,
+    CoCreateInstance, CoInitializeEx, CoTaskMemAlloc, CoTaskMemFree,
+    CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
 };
 use windows::Win32::System::Com::BLOB;
 use windows::Win32::System::Variant::VT_BLOB;
@@ -1094,8 +1094,10 @@ pub fn capture_audio_sessions(
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            // S_OK = システム音セッション — 対象外。
-            if ctl2.IsSystemSoundsSession().is_ok() {
+            // IsSystemSoundsSession は HRESULT で返す: S_OK=システム音,
+            // S_FALSE=通常セッション。is_ok() だと S_FALSE も成功扱いに
+            // なり全セッションを除外してしまう — 明示的に S_OK と比較。
+            if ctl2.IsSystemSoundsSession() == HRESULT(0) {
                 continue;
             }
             let pid = match ctl2.GetProcessId() {
@@ -1166,17 +1168,29 @@ fn activate_process_loopback(pid: u32) -> Result<IAudioClient, String> {
             },
         },
     };
-    unsafe {
+    // VT_BLOB passes the pointer shallowly. The activation teardown frees
+    // the blob payload, so a stack pointer corrupts the heap on teardown
+    // (0xC0000374). Put the payload in CoTaskMem and never free it here.
+    let params_heap = unsafe {
+        let p = CoTaskMemAlloc(
+            core::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>(),
+        ) as *mut AUDIOCLIENT_ACTIVATION_PARAMS;
+        if p.is_null() {
+            return Err("CoTaskMemAlloc failed".to_string());
+        }
+        core::ptr::write(p, params);
+        p
+    };
+    let op = unsafe {
         let mut prop = PROPVARIANT::default();
         let inner = &mut *prop.Anonymous.Anonymous;
         inner.vt = VT_BLOB;
         inner.Anonymous.blob = BLOB {
             cbSize: core::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>()
                 as u32,
-            pBlobData: &params as *const AUDIOCLIENT_ACTIVATION_PARAMS
-                as *mut u8,
+            pBlobData: params_heap as *mut u8,
         };
-        let _op = ActivateAudioInterfaceAsync(
+        ActivateAudioInterfaceAsync(
             VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
             &IAudioClient::IID,
             Some(&prop as *const PROPVARIANT),
@@ -1184,14 +1198,43 @@ fn activate_process_loopback(pid: u32) -> Result<IAudioClient, String> {
         )
         .map_err(|e| {
             format!("ActivateAudioInterfaceAsync: {}", hresult_message(&e))
-        })?;
-    }
-    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        })?
+    };
+    let out = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
         Ok(r) => r,
         Err(_) => Err(
             "対象アプリのオーディオ有効化がタイムアウトしました".to_string(),
         ),
-    }
+    };
+    drop(op);
+    out
+}
+
+/// プロセスループバック用の候補フォーマット。仮想デバイスの
+/// IAudioClient は GetMixFormat が E_NOTIMPL を返すので、クライアント
+/// 側がフォーマットを決めて Initialize を試す。48kHz float32 stereo
+/// を第一候補に、ダメなら 16bit PCM に落とす。
+fn loopback_format_candidates() -> [WAVEFORMATEX; 2] {
+    [
+        WAVEFORMATEX {
+            wFormatTag: 3, // WAVE_FORMAT_IEEE_FLOAT
+            nChannels: 2,
+            nSamplesPerSec: 48_000,
+            nAvgBytesPerSec: 48_000 * 2 * 4,
+            nBlockAlign: 2 * 4,
+            wBitsPerSample: 32,
+            cbSize: 0,
+        },
+        WAVEFORMATEX {
+            wFormatTag: 1, // WAVE_FORMAT_PCM
+            nChannels: 2,
+            nSamplesPerSec: 48_000,
+            nAvgBytesPerSec: 48_000 * 2 * 2,
+            nBlockAlign: 2 * 2,
+            wBitsPerSample: 16,
+            cbSize: 0,
+        },
+    ]
 }
 
 #[implement(IActivateAudioInterfaceCompletionHandler)]
@@ -1235,19 +1278,28 @@ fn probe_process_loopback(pid: u32) -> Result<(String, u32, u16), String> {
     unsafe {
         let _com = ComInit::new()?;
         let audio = activate_process_loopback(pid)?;
-        let fmt_ptr = audio
-            .GetMixFormat()
-            .map_err(|e| format!("GetMixFormat: {}", hresult_message(&e)))?;
-        if fmt_ptr.is_null() {
-            return Err("GetMixFormat returned null".to_string());
-        }
-        let fmt = &*fmt_ptr;
-        let rate = fmt.nSamplesPerSec;
-        let ch = fmt.nChannels;
-        CoTaskMemFree(Some(fmt_ptr as *const _));
+        // GetMixFormat is E_NOTIMPL on process loopback clients — open
+        // with a self-specified format to prove the client is usable.
+        let fmt = loopback_format_candidates()
+            .into_iter()
+            .find(|cand| {
+                audio
+                    .Initialize(
+                        AUDCLNT_SHAREMODE_SHARED,
+                        AUDCLNT_STREAMFLAGS_LOOPBACK,
+                        1_000_000,
+                        0,
+                        cand,
+                        None,
+                    )
+                    .is_ok()
+            })
+            .ok_or_else(|| {
+                "process loopback: no supported format".to_string()
+            })?;
         let name =
             process_image_name(pid).unwrap_or_else(|| format!("PID {}", pid));
-        Ok((name, rate, ch))
+        Ok((name, fmt.nSamplesPerSec, fmt.nChannels))
     }
 }
 
@@ -1343,37 +1395,66 @@ fn run_capture(
                     .map_err(|e| format!("IAudioClient activate: {}", hresult_message(&e)))?
             }
         };
-        let fmt_ptr = audio
-            .GetMixFormat()
-            .map_err(|e| format!("GetMixFormat: {}", hresult_message(&e)))?;
-        if fmt_ptr.is_null() {
-            return Err("GetMixFormat returned null".to_string());
-        }
-        // 共有モードはデバイスの mix フォーマットでしか開けない。float32
-        // か 16bit PCM を想定し、それ以外は WAVEFORMATEXTENSIBLE の
-        // SubFormat を見て判定する。
-        let fmt: WAVEFORMATEX = *fmt_ptr;
-        let (sample_rate, channels, is_float, bits) = describe_format(&fmt);
-        // nChannels >= 1 per WASAPI, but clamp so a broken driver cannot
-        // turn stride math into a division/chunk panic.
-        let channels = channels.max(1);
-        let block_align = fmt.nBlockAlign as usize;
-
         // 100ms バッファで十分大きく取る。ループバックはイベント駆動不可
         // (AUDCLNT_STREAMFLAGS_LOOPBACK はイベントと併用できない)ので
         // ポーリング sleep に切り替える。
         let buffer_duration_100ns: i64 = 1_000_000; // 100 ms
         let is_loopback = source == CaptureSource::Loopback;
-        audio
-            .Initialize(
-                AUDCLNT_SHAREMODE_SHARED,
-                source.stream_flags(),
-                buffer_duration_100ns,
-                0,
-                fmt_ptr,
-                None,
-            )
-            .map_err(|e| format!("IAudioClient::Initialize: {}", hresult_message(&e)))?;
+        let process_loopback = is_loopback && target_pid.is_some();
+        let fmt: WAVEFORMATEX;
+        if process_loopback {
+            // 仮想デバイスは GetMixFormat が E_NOTIMPL — クライアントが
+            // フォーマットを決めて Initialize を試す。
+            fmt = loopback_format_candidates()
+                .into_iter()
+                .find(|cand| {
+                    audio
+                        .Initialize(
+                            AUDCLNT_SHAREMODE_SHARED,
+                            source.stream_flags(),
+                            buffer_duration_100ns,
+                            0,
+                            cand,
+                            None,
+                        )
+                        .is_ok()
+                })
+                .ok_or_else(|| {
+                    "対象アプリのオーディオ形式を開けませんでした"
+                        .to_string()
+                })?;
+        } else {
+            let fmt_ptr = audio
+                .GetMixFormat()
+                .map_err(|e| format!("GetMixFormat: {}", hresult_message(&e)))?;
+            if fmt_ptr.is_null() {
+                return Err("GetMixFormat returned null".to_string());
+            }
+            // 共有モードはデバイスの mix フォーマットでしか開けない。
+            // float32 か 16bit PCM を想定し、それ以外は
+            // WAVEFORMATEXTENSIBLE の SubFormat を見て判定する。
+            fmt = *fmt_ptr;
+            audio
+                .Initialize(
+                    AUDCLNT_SHAREMODE_SHARED,
+                    source.stream_flags(),
+                    buffer_duration_100ns,
+                    0,
+                    fmt_ptr,
+                    None,
+                )
+                .map_err(|e| {
+                    format!("IAudioClient::Initialize: {}", hresult_message(&e))
+                })?;
+            // Initialize は同期的にフォーマットを読むので即解放できる
+            // (以後の早期 return でもリークしない)。
+            CoTaskMemFree(Some(fmt_ptr as *const _));
+        }
+        let (sample_rate, channels, is_float, bits) = describe_format(&fmt);
+        // nChannels >= 1 per WASAPI, but clamp so a broken driver cannot
+        // turn stride math into a division/chunk panic.
+        let channels = channels.max(1);
+        let block_align = fmt.nBlockAlign as usize;
         let capture: IAudioCaptureClient = audio
             .GetService::<IAudioCaptureClient>()
             .map_err(|e| format!("IAudioCaptureClient: {}", hresult_message(&e)))?;
@@ -1542,7 +1623,6 @@ fn run_capture(
             }
         }
         let _ = audio.Stop();
-        CoTaskMemFree(Some(fmt_ptr as *const _));
 
         // #235: finalize the temp WAV — patch the header with the real
         // data length, flush, then hand the path to capture_stop via
@@ -1847,5 +1927,38 @@ mod tests {
         // 無音パケットも平線として進む。
         push_take_peak(&mut s, 100, 0.0, bucket);
         assert_eq!(s.peaks, vec![0.5, 0.9, 0.0]);
+    }
+
+    /// #100: 実機 WASAPI — オーディオセッション列挙がエラーなく動き、
+    /// 返すプロセスに非ゼロ pid と名前が付くこと。レンダリング端末の
+    /// 無い環境(ヘッドレス CI 等)では Err を環境由来として許容する
+    /// (検証対象は列挙ロジックであり、端末の有無ではない)。
+    #[test]
+    fn audio_sessions_enumerate_on_this_machine() {
+        match capture_audio_sessions(None) {
+            Ok(apps) => {
+                for a in &apps {
+                    assert!(a.pid != 0);
+                    assert!(!a.name.is_empty());
+                }
+            }
+            Err(e) => eprintln!("capture_audio_sessions unavailable: {e}"),
+        }
+    }
+
+    /// #100: 対象プロセスのプロセスループバック有効化の実機検証 —
+    /// 実在のセッションを持つプロセスに対し ActivateAudioInterface
+    /// Async + VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK が成功し、
+    /// mix format が取れること。セッションの無い環境ではスキップ。
+    #[test]
+    fn process_loopback_activates_for_a_live_session() {
+        let apps = match capture_audio_sessions(None) {
+            Ok(a) if !a.is_empty() => a,
+            _ => return,
+        };
+        let (name, rate, ch) =
+            probe_process_loopback(apps[0].pid).expect("process loopback");
+        assert!(!name.is_empty());
+        assert!(rate > 0 && ch > 0);
     }
 }
