@@ -20,3 +20,7 @@ Windows向けデスクトップアプリ（Tauri 2 + React + Verovio）。日本
 
 - コード署名なし — SmartScreen警告が表示されます
 - Narrator実機・200%スケーリング実機確認は手順のみ文書化（`docs/UI_070_VALIDATION_RESULTS.md`）
+
+### v0.2.0 について
+
+v0.2.0 は WebView2Loader.dll 未同梱で起動できない不具合がありました（#141）。**v0.2.0 は使わず、このバージョン以降を使用してください。**

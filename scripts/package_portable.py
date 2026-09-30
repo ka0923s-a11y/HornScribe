@@ -4,6 +4,9 @@
 Everything the app needs sits in one folder next to the shell exe:
 
     HornScribe.exe                  - Tauri shell (--shell-exe)
+    WebView2Loader.dll              - copied when the shell build emits
+                                      it (gnu toolchain needs it next to
+                                      the exe, #141; MSVC links it in)
     engine/hornscribe-engine.exe    - frozen Python worker (#83)
     tools/ffmpeg.exe, ffprobe.exe   - bundled media tools (#10)
     data/                           - portable-mode marker: its mere
@@ -53,7 +56,7 @@ PORTABLE_README = """HornScribe - portable build
 Run:    HornScribe.exe
 Layout:
     HornScribe.exe              the app
-    engine/                     bundled transcription engine
+{loader}    engine/                     bundled transcription engine
                                 (no Python install needed)
     tools/                      bundled ffmpeg/ffprobe
     data/                       your recordings, projects, cache
@@ -67,6 +70,8 @@ basic-pitch (ONNX) for offline transcription.
 
 Optional: `pip install demucs` into your own Python adds neural vocal
 separation (tools/demucs.exe also works if you stage one)."""
+
+LOADER_README_LINE = "    WebView2Loader.dll        WebView2 loader library\n"
 
 
 def _version() -> str:
@@ -129,13 +134,22 @@ def main() -> int:
     # -- assemble ----------------------------------------------------------
     shell_name = "HornScribe.exe" if sys.platform == "win32" else "HornScribe"
     shutil.copy2(args.shell_exe, stage / shell_name)
+    # gnu-built shells need WebView2Loader.dll next to the exe (#141); MSVC
+    # links it statically and emits nothing — copy only when it exists.
+    loader = args.shell_exe.parent / "WebView2Loader.dll"
+    loader_copied = loader.is_file()
+    if loader_copied:
+        shutil.copy2(loader, stage / loader.name)
     engine_name = args.engine_exe.name
     shutil.copy2(args.engine_exe, stage / "engine" / engine_name)
     for item in sorted(args.tools_dir.iterdir()):
         if item.is_file() and item.name != "README.txt":
             shutil.copy2(item, stage / "tools" / item.name)
     (stage / "data" / "README.txt").write_text(DATA_MARKER_README, encoding="utf-8")
-    (stage / "README-portable.txt").write_text(PORTABLE_README, encoding="utf-8")
+    readme = PORTABLE_README.replace(
+        "{loader}", LOADER_README_LINE if loader_copied else ""
+    )
+    (stage / "README-portable.txt").write_text(readme, encoding="utf-8")
 
     # -- verify ------------------------------------------------------------
     if not args.skip_smoke:
@@ -159,12 +173,12 @@ def main() -> int:
                 zf.write(p, p.relative_to(stage.parent))
 
     # -- size report --------------------------------------------------------
-    rows = []
-    for label, p in (
-        (shell_name, stage / shell_name),
-        ("engine/" + engine_name, stage / "engine" / engine_name),
-    ):
-        rows.append((label, p.stat().st_size))
+    rows = [
+        (shell_name, (stage / shell_name).stat().st_size),
+        ("engine/" + engine_name, (stage / "engine" / engine_name).stat().st_size),
+    ]
+    if loader_copied:
+        rows.insert(1, (loader.name, (stage / loader.name).stat().st_size))
     for item in sorted((stage / "tools").iterdir()):
         if item.is_file():
             rows.append(("tools/" + item.name, item.stat().st_size))

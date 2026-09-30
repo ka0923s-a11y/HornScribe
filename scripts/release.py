@@ -17,10 +17,13 @@ Pipeline:
     2. tests — tsc/eslint/vitest (apps/desktop), cargo check, pytest
     3. engine — scripts/build_engine.py inside the PyInstaller venv,
        then scripts/smoke_engine.py against the frozen binary
-    4. bundle — npx tauri build --config src-tauri/tauri.bundled.json
-       (NSIS installer; engine+tools staged by tauri.bundled.json)
+    4. bundle — npx tauri build --config <merged> where <merged> is
+       tauri.bundled.json plus a WebView2Loader.dll resource whenever
+       the gnu toolchain is in effect (#141 — gnu shells load it
+       dynamically; MSVC links it statically and emits no DLL)
     5. portable — scripts/package_portable.py (stages + smoke + zip)
     6. verify — both assets exist, >=50 MB, zip contains the engine
+       (and WebView2Loader.dll when the gnu toolchain emitted one)
     7. publish — tag v<version> (push), gh release create --prerelease
 
 Flags worth knowing:
@@ -52,6 +55,9 @@ SRC_TAURI = DESKTOP / "src-tauri"
 PKG_JSON = DESKTOP / "package.json"
 TAURI_CONF = SRC_TAURI / "tauri.conf.json"
 ENGINE_EXE = SRC_TAURI / "resources" / "engine" / "hornscribe-engine.exe"
+BUNDLED_CONF = SRC_TAURI / "tauri.bundled.json"
+MERGED_CONF = SRC_TAURI / "target" / "tauri.release.merged.json"
+WEBVIEW2_LOADER = SRC_TAURI / "target" / "release" / "WebView2Loader.dll"
 NSIS_DIR = SRC_TAURI / "target" / "release" / "bundle" / "nsis"
 RELEASE_NOTES = REPO / ".github" / "RELEASE_NOTES.md"
 MIN_ASSET_BYTES = 50 * 1024 * 1024  # engine-bundled artifacts are >50 MB
@@ -156,6 +162,46 @@ def _find_portable(version: str) -> Path:
     return cands[-1]
 
 
+def _rustc_host(env: dict[str, str]) -> str:
+    """rustc host triple under the given env; "" when undetectable."""
+    merged = None if not env else {**os.environ, **env}
+    try:
+        r = subprocess.run(
+            [_resolve("rustc"), "-vV"], capture_output=True, text=True, env=merged
+        )
+    except OSError:
+        return ""
+    if r.returncode != 0:
+        return ""
+    for line in r.stdout.splitlines():
+        if line.startswith("host:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def _bundled_config(need_loader: bool) -> Path:
+    """Bundle config for tauri build --config (#141).
+
+    tauri.bundled.json stages engine/ + tools/ as install-root resources.
+    gnu-built shells additionally need WebView2Loader.dll next to the
+    exe; webview2-com-sys drops it into target/release during the cargo
+    build, i.e. before the bundler resolves resources — so injecting the
+    entry is safe even on a fresh target/ as long as the host triple is
+    gnu. MSVC links the loader statically and never emits the file, so
+    the entry is skipped there (a missing resource fails the build).
+    """
+    merged = json.loads(BUNDLED_CONF.read_text(encoding="utf-8"))
+    if need_loader:
+        merged.setdefault("bundle", {}).setdefault("resources", {})[
+            "target/release/WebView2Loader.dll"
+        ] = "WebView2Loader.dll"
+    MERGED_CONF.parent.mkdir(parents=True, exist_ok=True)
+    MERGED_CONF.write_text(
+        json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return MERGED_CONF
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--skip-tests", action="store_true", help="skip the test gate")
@@ -240,9 +286,13 @@ def main() -> int:
     )
 
     # -- 4. tauri bundle ----------------------------------------------------
+    host = _rustc_host(rust_env)
+    need_loader = "gnu" in host or WEBVIEW2_LOADER.is_file()
+    print(f"\nrustc host: {host or '(unknown)'} — WebView2Loader.dll resource: "
+          f"{'on' if need_loader else 'off'}")
     if not args.skip_tauri:
         _run(
-            ["npx", "tauri", "build", "--config", "src-tauri/tauri.bundled.json"],
+            ["npx", "tauri", "build", "--config", str(_bundled_config(need_loader))],
             cwd=DESKTOP,
             env=rust_env or None,
             what="tauri build (NSIS installer)",
@@ -266,8 +316,14 @@ def main() -> int:
                 f"{asset.name} is only {size / 1e6:.1f} MB — engine bundle likely missing"
             )
     with zipfile.ZipFile(portable_zip) as zf:
-        if not any("engine/hornscribe-engine.exe" in n for n in zf.namelist()):
+        names = zf.namelist()
+        if not any("engine/hornscribe-engine.exe" in n for n in names):
             raise _die(f"{portable_zip.name} does not contain engine/hornscribe-engine.exe")
+        if need_loader and not any(n.endswith("/WebView2Loader.dll") for n in names):
+            raise _die(
+                f"{portable_zip.name} does not contain WebView2Loader.dll — "
+                "gnu-built shells crash without it next to the exe (#141)"
+            )
     print("\nassets verified:")
     for asset in (setup_exe, portable_zip):
         print(f"  {asset.name}  {asset.stat().st_size / 1e6:,.1f} MB")
