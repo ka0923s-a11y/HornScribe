@@ -12,19 +12,19 @@ same steps the workflow described, entirely on the local machine.
 
 Pipeline:
 
-    1. preflight — version parity (package.json == tauri.conf.json),
+    1. preflight - version parity (package.json == tauri.conf.json),
        gh CLI present, no existing v<version> Release, tag sanity
-    2. tests — tsc/eslint/vitest (apps/desktop), cargo check, pytest
-    3. engine — scripts/build_engine.py inside the PyInstaller venv,
+    2. tests - tsc/eslint/vitest (apps/desktop), cargo check, pytest
+    3. engine - scripts/build_engine.py inside the PyInstaller venv,
        then scripts/smoke_engine.py against the frozen binary
-    4. bundle — npx tauri build --config <merged> where <merged> is
+    4. bundle - npx tauri build --config <merged> where <merged> is
        tauri.bundled.json plus a WebView2Loader.dll resource whenever
-       the gnu toolchain is in effect (#141 — gnu shells load it
+       the gnu toolchain is in effect (#141 - gnu shells load it
        dynamically; MSVC links it statically and emits no DLL)
-    5. portable — scripts/package_portable.py (stages + smoke + zip)
-    6. verify — both assets exist, >=50 MB, zip contains the engine
+    5. portable - scripts/package_portable.py (stages + smoke + zip)
+    6. verify - both assets exist, >=50 MB, zip contains the engine
        (and WebView2Loader.dll when the gnu toolchain emitted one)
-    7. publish — tag v<version> (push), gh release create --prerelease
+    7. publish - tag v<version> (push), gh release create --prerelease
 
 Flags worth knowing:
 
@@ -33,7 +33,7 @@ Flags worth knowing:
     --toolchain {auto,gnu}
         gnu sets RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu and
         RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes" for the
-        cargo/tauri steps — needed on machines where only the gnu
+        cargo/tauri steps - needed on machines where only the gnu
         toolchain works. auto (default) inherits the environment.
     --yes   Skip the interactive confirmation before publishing.
 """
@@ -119,7 +119,7 @@ def _venv_python() -> Path:
             return py
     raise _die(
         "no venv with PyInstaller found (tried .venv-bp312/.venv-bp311/.venv) "
-        "— pip install pyinstaller into the engine venv first"
+        "- pip install pyinstaller into the engine venv first"
     )
 
 
@@ -185,7 +185,7 @@ def _bundled_config(need_loader: bool) -> Path:
     tauri.bundled.json stages engine/ + tools/ as install-root resources.
     gnu-built shells additionally need WebView2Loader.dll next to the
     exe; webview2-com-sys drops it into target/release during the cargo
-    build, i.e. before the bundler resolves resources — so injecting the
+    build, i.e. before the bundler resolves resources - so injecting the
     entry is safe even on a fresh target/ as long as the host triple is
     gnu. MSVC links the loader statically and never emits the file, so
     the entry is skipped there (a missing resource fails the build).
@@ -220,6 +220,12 @@ def main() -> int:
     if sys.platform != "win32":
         raise _die("the release path is Windows-only (NSIS + WebView2 shell)")
 
+    # The cp932 console cannot encode characters like - in our own
+    # messages; replacing beats a silent UnicodeEncodeError mid-release.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
     # -- 1. preflight -------------------------------------------------------
     pkg_v, tauri_v = _versions()
     if pkg_v != tauri_v:
@@ -229,7 +235,7 @@ def main() -> int:
     if shutil.which("gh") is None:
         raise _die("gh CLI not found on PATH")
     if _release_exists(tag):
-        raise _die(f"GitHub Release {tag} already exists — bump version or delete it")
+        raise _die(f"GitHub Release {tag} already exists - bump version or delete it")
     tag_sha = _out(["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}"])
     head = _out(["git", "rev-parse", "HEAD"])
     if tag_sha:
@@ -241,7 +247,7 @@ def main() -> int:
         print(f"release: warning: tracked changes under apps/scripts/docs/python:\n{dirty}")
     if head != _out(["git", "rev-parse", "--verify", "origin/main"]):
         print(
-            "release: warning: HEAD != origin/main — the tag will point at a "
+            "release: warning: HEAD != origin/main - the tag will point at a "
             "commit that is not on the pushed main branch"
         )
 
@@ -288,8 +294,10 @@ def main() -> int:
     # -- 4. tauri bundle ----------------------------------------------------
     host = _rustc_host(rust_env)
     need_loader = "gnu" in host or WEBVIEW2_LOADER.is_file()
-    print(f"\nrustc host: {host or '(unknown)'} — WebView2Loader.dll resource: "
-          f"{'on' if need_loader else 'off'}")
+    print(
+        f"\nrustc host: {host or '(unknown)'} "
+        f"- WebView2Loader.dll resource: {'on' if need_loader else 'off'}"
+    )
     if not args.skip_tauri:
         _run(
             ["npx", "tauri", "build", "--config", str(_bundled_config(need_loader))],
@@ -313,7 +321,7 @@ def main() -> int:
         size = asset.stat().st_size
         if size < MIN_ASSET_BYTES:
             raise _die(
-                f"{asset.name} is only {size / 1e6:.1f} MB — engine bundle likely missing"
+                f"{asset.name} is only {size / 1e6:.1f} MB - engine bundle likely missing"
             )
     with zipfile.ZipFile(portable_zip) as zf:
         names = zf.namelist()
@@ -321,7 +329,7 @@ def main() -> int:
             raise _die(f"{portable_zip.name} does not contain engine/hornscribe-engine.exe")
         if need_loader and not any(n.endswith("/WebView2Loader.dll") for n in names):
             raise _die(
-                f"{portable_zip.name} does not contain WebView2Loader.dll — "
+                f"{portable_zip.name} does not contain WebView2Loader.dll - "
                 "gnu-built shells crash without it next to the exe (#141)"
             )
     print("\nassets verified:")
@@ -362,7 +370,7 @@ def main() -> int:
     if RELEASE_NOTES.is_file():
         gh_args += ["--notes-file", str(RELEASE_NOTES)]
     else:
-        # non-interactive fallback — curated notes file missing
+        # non-interactive fallback - curated notes file missing
         gh_args += ["--generate-notes"]
     _run(gh_args, cwd=REPO, what="gh release create")
     print(f"\nrelease {tag} published")
