@@ -761,4 +761,28 @@ describe("starting phase (pre-session)", () => {
     const opts = vi.mocked(port.start).mock.calls[0]?.[1];
     expect(opts?.targetPid).toBeUndefined();
   });
+
+  it("#138: changing the target app restarts a running loopback monitor",
+    async () => {
+      const port = makePort({
+        listAudioSessions: vi.fn(async () => [
+          { pid: 4242, name: "music.exe", active: true },
+          { pid: 7777, name: "game.exe", active: true },
+        ]),
+      });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      c.selectTargetApp({ pid: 4242, name: "music.exe", active: true });
+      await c.startMonitor("loopback");
+      expect(c.getState().monitor?.source).toBe("loopback");
+      expect(vi.mocked(port.start).mock.calls.at(-1)?.[1]?.targetPid)
+        .toBe(4242);
+      // モニター中に対象を変える → 新しい pid でモニターを張り直す。
+      c.selectTargetApp({ pid: 7777, name: "game.exe", active: true });
+      await vi.waitFor(() => {
+        expect(vi.mocked(port.start).mock.calls.at(-1)?.[1]?.targetPid)
+          .toBe(7777);
+      });
+    },
+  );
 });
