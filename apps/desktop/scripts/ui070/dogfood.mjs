@@ -84,6 +84,10 @@ async function main() {
     await waitForServer(dev.url);
     console.log(`dev server: ${dev.url}  browser: ${executablePath}`);
     const page = await newPage(browser, { width: 1920, height: 1080 });
+    // The browser-dev beforeunload guard (#81/#221) prompts on full
+    // navigations while a score is dirty — Task H's reload() hits it.
+    // Accept the leave-confirmation so scripted navigations proceed.
+    page.on("dialog", (d) => void d.accept());
 
     /* ---- Task A: open + transcribe ------------------------------- */
     // Automated leg: AUDIO_READY → click 採譜 → wait SCORE_READY.
@@ -165,6 +169,22 @@ async function main() {
       const t0 = Date.now();
       await c.click(page, "要確認");
       await page.waitForSelector(".hs-score-reviewbar", { timeout: 15000 });
+      // #148: the focused issue may carry no note targets (real-engine
+      // results lead with e.g. key/tempo findings — correction buttons
+      // honestly disabled). Walk to a pitch-editable issue like a user
+      // would, then correct.
+      let pitchEditable = false;
+      for (let i = 0; i < 15; i += 1) {
+        pitchEditable = await page.evaluate(() =>
+          [
+            ...document.querySelectorAll(".hs-score-reviewbar button"),
+          ].some(
+            (b) => !b.disabled && b.textContent?.includes("半音上げる"),
+          ),
+        );
+        if (pitchEditable) break;
+        await c.key(page, "ArrowRight"); // 次の問題
+      }
       await c.key(page, "Alt+ArrowUp"); // +1 semitone correction
       const undoEnabled = await page.evaluate(
         () =>
@@ -180,7 +200,7 @@ async function main() {
         clicks: c.clicks,
         keystrokes: c.keys,
         success: undoEnabled,
-        note: "Alt+↑ correction then Ctrl+Z; undo availability asserted",
+        note: `Alt+↑ correction then Ctrl+Z; undo availability asserted (editable issue found: ${pitchEditable})`,
       });
       console.log(`D correct+undo: ${dur}ms, undo=${undoEnabled}`);
     }
