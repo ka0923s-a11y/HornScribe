@@ -136,6 +136,7 @@ import { formatTimecode } from "./import/format";
 import { audioFormatOf } from "./import/formats";
 import type { SelectionRange } from "./import/selection";
 import { requestRetranscription } from "./import/retranscribe";
+import { devFixtureAudio } from "./import/devFixture";
 import { TranscriptionQueue } from "./queue/controller";
 import type { QueueEntry, QueueSnapshot } from "./queue/types";
 import { INITIAL_QUEUE_SNAPSHOT } from "./queue/types";
@@ -2517,6 +2518,19 @@ export default function App() {
                 : createFixtureScoreDocument()),
           );
         }
+        // #148: an audio-bearing forced screen needs a live audio slot —
+        // the #219 hasAudio gate requires importState.audio != null and a
+        // forced state never imported one, so 採譜 was a dead click here.
+        // Seed the deterministic dev fixture (real WAV blob) so the mock
+        // engine job path runs end to end. Seeds before setScreen so the
+        // controller's "ready"-phase screen change loses to the forced
+        // state inside the same batch.
+        if (
+          commandStateFor(forced).hasAudio &&
+          importer.getState().audio == null
+        ) {
+          importer.devSeedAudio(devFixtureAudio());
+        }
         setScreen(forced);
         setView("workspace");
       }
@@ -2524,21 +2538,25 @@ export default function App() {
     window.addEventListener("hashchange", onHashChange);
     onHashChange();
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
+    // importer is a stable useMemo — the seed only reads its live slot.
+  }, [importer]);
 
   // Dev-only entry: "#/dev/transcribing" auto-starts a real job once the
   // shell is up so the whole TRANSCRIBING flow can be reviewed directly.
   const devAutoStarted = useRef(false);
   useEffect(() => {
-    if (
-      import.meta.env.DEV &&
-      hash === DEV_TRANSCRIBING_HASH &&
-      !devAutoStarted.current
-    ) {
+    if (!import.meta.env.DEV || hash !== DEV_TRANSCRIBING_HASH) return;
+    // #148: the job needs a live audio slot (#219) — seed the dev fixture
+    // first, then invoke once the re-rendered snapshot reports hasAudio.
+    if (importer.getState().audio == null) {
+      importer.devSeedAudio(devFixtureAudio());
+      return;
+    }
+    if (!devAutoStarted.current) {
       devAutoStarted.current = true;
       commands.invoke("score.transcribe");
     }
-  }, [hash, commands]);
+  }, [hash, commands, importer, importState.audio]);
 
   // §26 session restore: window geometry (size/position) persists across
   // restarts; panel sizes/visibility persist via useWorkspaceLayout.

@@ -821,6 +821,25 @@ export class ImportController {
     this.events.onRecentChange(list);
   }
 
+  /** DEV only (#148): seed a fixture audio into the slot so a forced
+   *  dev screen (#/dev/state/*, #/dev/transcribing) can drive a real
+   *  job — the #219 hasAudio gate reads the slot and a layout-forced
+   *  screen never imported one. Fires the normal onAudioReady wiring
+   *  so transport load + identity bookkeeping stay identical to a real
+   *  import. The screen lands wherever the caller forced it: the
+   *  "ready"-phase onScreenChange here is superseded by the forced
+   *  setScreen in the same React batch. */
+  devSeedAudio(audio: LoadedAudio): void {
+    this.setState({
+      ...this.state,
+      phase: "ready",
+      audio,
+      issue: null,
+      sourceMissing: null,
+    });
+    this.events.onAudioReady(audio);
+  }
+
   private async blobFor(ref: AudioFileRef): Promise<Blob> {
     return ref.kind === "file" ? ref.file : this.ports.readAudioBytes(ref.path);
   }
