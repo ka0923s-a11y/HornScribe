@@ -175,7 +175,12 @@ fn mime_of(ext: &str) -> &'static str {
 fn sha256_file(path: &str) -> Result<String, String> {
     let mut f = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
     let mut hasher = Sha256::new();
-    let mut buf = [0u8; 1 << 20];
+    // Heap buffer, deliberately: Tauri sync commands run on a thread whose
+    // stack reserve is the PE header value (1 MiB on Windows), so a 1 MiB
+    // stack array here consumed the entire reserve and crashed real-file
+    // imports with STATUS_STACK_OVERFLOW (0xC00000FD) — see issue #149.
+    // Never put a large stack array on this code path.
+    let mut buf = vec![0u8; 1 << 20];
     loop {
         let n = f.read(&mut buf).map_err(|e| format!("read {path}: {e}"))?;
         if n == 0 {
@@ -778,6 +783,55 @@ mod memory_gate {
         assert!(
             out.status.success(),
             "memory gate child failed\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Child-process body for the stack-reserve gate: run sha256_file
+    /// on a thread whose stack matches the Windows command-thread
+    /// reserve (1 MiB, the release PE SizeOfStackReserve). A 1 MiB
+    /// stack buffer inside sha256_file overflowed that reserve and
+    /// killed the process with STATUS_STACK_OVERFLOW on real-file
+    /// imports — see issue #149. #[ignore] — the parent spawns it.
+    #[test]
+    #[ignore]
+    fn sha256_stack_gate_child() {
+        let dir = std::env::temp_dir()
+            .join(format!("hs-stackgate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let wav = dir.join("big.wav");
+        write_test_wav(&wav, 60); // ~10 MB — the first read fills the buffer
+        let path = wav.to_str().expect("utf8 path").to_string();
+        let hash = std::thread::Builder::new()
+            .stack_size(1 << 20) // mirror the release stack reserve
+            .spawn(move || sha256_file(&path))
+            .expect("spawn 1 MiB stack thread")
+            .join()
+            .expect("sha256 thread panicked")
+            .expect("sha256_file failed");
+        assert_eq!(hash.len(), 64);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Regression gate for #149: sha256_file must fit inside the 1 MiB
+    /// stack reserve the command thread actually gets on Windows. A
+    /// stack-allocated buffer aborts the child; a heap buffer passes.
+    #[test]
+    fn sha256_file_fits_in_one_mib_stack() {
+        let exe = std::env::current_exe().expect("test exe");
+        let out = std::process::Command::new(exe)
+            .args([
+                "audio::memory_gate::sha256_stack_gate_child",
+                "--exact",
+                "--nocapture",
+                "--include-ignored",
+            ])
+            .output()
+            .expect("spawn stack gate child");
+        assert!(
+            out.status.success(),
+            "stack gate child failed\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
