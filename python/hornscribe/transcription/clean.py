@@ -82,6 +82,21 @@ BLIP_EXCURSION = 12     # octave-scale deviation needs no conf test
 BLIP_MAX_CONF = 0.5
 BLIP_EXTEND_MAX_SEC = 0.3  # cap on the restored tail
 
+# Melody texture (prefer="top") overlay rescue (#143): a strummed
+# chord tone above the melody claims the top slot when the mode
+# blindly keeps the higher pitch. Two signatures rescue the real
+# line: the interrupted lower line resumes its own pitch inside or
+# right after the higher claimant's span; and a simultaneous lower
+# attack outlives the top while carrying melody evidence (vibrato or
+# decisively higher confidence). Both arbitrate only inside a
+# melody-band interval — a bass two octaves down is accompaniment
+# even when it is louder.
+OVERLAY_MAX_INTERVAL = 12
+OVERLAY_RESUME_GAP_SEC = 0.08
+LOWER_LINE_CONF_RATIO = 1.3
+VIBRATO_MIN_BENDS = 5
+VIBRATO_MIN_SPAN_SEMITONES = 0.5
+
 # prefer="top" adds a span-coverage requirement: a true concurrent
 # ghost rides its fundamental -- attacks with it AND rings most of its
 # length. On mixes the stronger concurrent note at a harmonic interval
@@ -229,17 +244,39 @@ def clean_monophonic(
             prev = kept[-1]
             same_pitch = int(round(prev.pitch_midi)) == int(round(ev.pitch_midi))
             if same_pitch and ev.onset_sec - prev.offset_sec < merge_gap_sec:
-                kept[-1] = _extend(
-                    prev, ev.offset_sec, ev.confidence, ev.pitch_bends
+                # Under prefer="top" the same crossing guard applies to
+                # adjacent fragments too: a higher attack inside the
+                # bridged span is real melodic movement, not a split —
+                # merging across it would hide the overlap the clip
+                # pass must resolve (#143).
+                pi_adj = int(round(ev.pitch_midi))
+                crossed = prefer == "top" and any(
+                    int(round(k.pitch_midi)) > pi_adj
+                    and k.onset_sec < ev.onset_sec
+                    and k.offset_sec > prev.onset_sec
+                    for k in kept
                 )
-                merged += 1
-                continue
+                if not crossed:
+                    kept[-1] = _extend(
+                        prev, ev.offset_sec, ev.confidence, ev.pitch_bends
+                    )
+                    merged += 1
+                    continue
         if prefer == "top" and kept:
             pi = int(round(ev.pitch_midi))
             j = last_same_pitch.get(pi)
             if j is not None and ev.onset_sec - kept[j].offset_sec < merge_gap_sec:
+                # Interleaved = rings at any point inside the bridged
+                # span [anchor.onset, ev.onset). An index scan misses a
+                # higher event indexed earlier — e.g. a merged melody
+                # note that attacked before the fragment but still
+                # rings while the bridge would hide the overlap (#143).
+                anchor = kept[j]
                 crossed_higher = any(
-                    int(round(k.pitch_midi)) > pi for k in kept[j + 1 :]
+                    int(round(k.pitch_midi)) > pi
+                    and k.onset_sec < ev.onset_sec
+                    and k.offset_sec > anchor.onset_sec
+                    for k in kept
                 )
                 if not crossed_higher:
                     kept[j] = _extend(
@@ -255,7 +292,7 @@ def clean_monophonic(
     polyphonic = 0
     ghosts = len(concurrent_ghosts)
     final_events: list[RawNoteEvent] = []
-    for ev in kept:
+    for i, ev in enumerate(kept):
         if final_events:
             prev = final_events[-1]
             if prev.offset_sec > ev.onset_sec:
@@ -293,13 +330,41 @@ def clean_monophonic(
                     != int(round(ev.pitch_midi)) % 12
                 ):
                     polyphonic += 1
-                if prefer == "top" and ev.pitch_midi < prev.pitch_midi:
-                    # Melody mode: the lower overlapping hypothesis is
-                    # accompaniment, not the line — drop it rather than
-                    # clipping the melody's tail.
-                    continue
+                if prefer == "top":
+                    if ev.pitch_midi < prev.pitch_midi:
+                        # Melody mode: the lower overlapping hypothesis
+                        # is accompaniment, not the line — unless it
+                        # attacked with the current top, outlives it,
+                        # and shows melody evidence, in which case the
+                        # top was the overlay (#143).
+                        if not _lower_line_survives(kept, i, ev, prev):
+                            continue
+                    elif ev.pitch_midi > prev.pitch_midi and (
+                        _line_resumes_under(kept, i, prev, ev)
+                    ):
+                        # The interrupted lower line resumes its own
+                        # pitch inside the claimant's span — a strum
+                        # stab riding over the melody, not melodic
+                        # movement (#143).
+                        ghosts += 1
+                        continue
                 final_events[-1] = _replace_offset(prev, ev.onset_sec)
                 clipped += 1
+            elif (
+                prefer == "top"
+                and merge_gap_sec > 0
+                and int(round(prev.pitch_midi))
+                == int(round(ev.pitch_midi))
+                and ev.onset_sec - prev.offset_sec < merge_gap_sec
+            ):
+                # Recompose the line: dropping an overlay can leave a
+                # pitch split into adjacent fragments that the merge
+                # pass never saw side by side (#143).
+                final_events[-1] = _extend(
+                    prev, ev.offset_sec, ev.confidence, ev.pitch_bends
+                )
+                merged += 1
+                continue
         final_events.append(ev)
     kept = final_events
     # A clip can leave a zero-length note; drop it honestly.
@@ -483,6 +548,122 @@ def _is_contained_lower_ghost(
         ev.confidence < prev.confidence * CONTAINED_GHOST_CONF_RATIO
         and prev.confidence - ev.confidence >= CONTAINED_GHOST_CONF_GAP
     )
+
+
+def _bend_span(ev: RawNoteEvent) -> float:
+    """Peak-to-peak pitch modulation in semitones — the vibrato marker
+    (#143). A steady tone (synth strum, pad) bends ~0 even with many
+    bend samples; a sung lead oscillates ±25c+."""
+    bends = ev.pitch_bends or ()
+    if len(bends) < VIBRATO_MIN_BENDS:
+        return 0.0
+    vals = [b.bend_semitones for b in bends]
+    return max(vals) - min(vals)
+
+
+def _pitch_resumes(
+    kept: list[RawNoteEvent],
+    i: int,
+    pitch_midi: float,
+    span_end: float,
+    *,
+    inside_only: bool = False,
+) -> bool:
+    """A later kept event at ~pitch_midi starts inside span_end or just
+    after it — the line at that pitch continues under the top note's
+    span instead of ending where it does (#143). inside_only requires
+    the resume to land strictly inside the span — a note that returns
+    only after the top ended is ordinary succession, not a buried
+    line."""
+    resume_until = (
+        span_end if inside_only else span_end + OVERLAY_RESUME_GAP_SEC
+    )
+    target = int(round(pitch_midi))
+    for cand in kept[i + 1 :]:
+        if cand.onset_sec > resume_until:
+            break
+        if int(round(cand.pitch_midi)) == target:
+            return True
+    return False
+
+
+def _lower_line_survives(
+    kept: list[RawNoteEvent],
+    i: int,
+    ev: RawNoteEvent,
+    prev: RawNoteEvent,
+) -> bool:
+    """prefer="top" rescue (#143): the lower overlapping event is the
+    melody — not accompaniment — when it attacked together with the
+    current top, continues under it (outlives the top's span or its own
+    pitch resumes inside/right after it), and carries melody evidence
+    (vibrato, or decisively higher confidence than the top claimant).
+
+    A strum stab shares the melody's attack while the line keeps
+    running underneath; a pad or bass root does not modulate. The
+    interval guard keeps a loud bass two octaves down from outvoting
+    the lead.
+    """
+    if abs(
+        int(round(prev.pitch_midi)) - int(round(ev.pitch_midi))
+    ) > OVERLAY_MAX_INTERVAL:
+        return False
+    same_onset = (
+        abs(ev.onset_sec - prev.onset_sec) <= CONCURRENT_GHOST_ONSET_SEC
+    )
+    if same_onset:
+        continues = ev.offset_sec > prev.offset_sec or _pitch_resumes(
+            kept, i, ev.pitch_midi, prev.offset_sec
+        )
+    else:
+        # A late attack inside a held note: the lower line must still
+        # be running underneath — resuming strictly inside the top's
+        # span (after its honest end is ordinary succession) or
+        # continuing well past it.
+        continues = _pitch_resumes(
+            kept, i, ev.pitch_midi, prev.offset_sec, inside_only=True
+        ) or ev.offset_sec > prev.offset_sec + 0.15
+    if not continues:
+        return False
+    if same_onset:
+        # Simultaneous attack — the overlay shape: vibrato or a
+        # decisively stronger lower line identifies the melody.
+        if _bend_span(ev) >= VIBRATO_MIN_SPAN_SEMITONES:
+            return True
+        if ev.confidence is not None and prev.confidence is not None:
+            return ev.confidence >= prev.confidence * LOWER_LINE_CONF_RATIO
+        return False
+    # The late-attacking lower wins only when it is at least as loud as
+    # the tail it would displace; a weaker repetition under a sustained
+    # melody stays accompaniment.
+    if ev.confidence is not None and prev.confidence is not None:
+        return ev.confidence >= prev.confidence
+    return False
+
+
+def _line_resumes_under(
+    kept: list[RawNoteEvent],
+    i: int,
+    prev: RawNoteEvent,
+    ev: RawNoteEvent,
+) -> bool:
+    """prefer="top" rescue (#143): the higher claimant *ev* is an
+    overlay stab — not melodic movement — when the line it interrupts
+    (*prev*) continues at ~the same pitch inside ev's span or just
+    after it, and ev is not stronger than the line it would displace.
+    The melody-band guard keeps a repeating bass arpeggio underneath
+    a real high note from cancelling the melody.
+    """
+    if (
+        int(round(ev.pitch_midi)) - int(round(prev.pitch_midi))
+        > OVERLAY_MAX_INTERVAL
+    ):
+        return False
+    if prev.confidence is None or ev.confidence is None:
+        return False
+    if ev.confidence > prev.confidence:
+        return False
+    return _pitch_resumes(kept, i, prev.pitch_midi, ev.offset_sec)
 
 
 def _drop_interruption_blips(
