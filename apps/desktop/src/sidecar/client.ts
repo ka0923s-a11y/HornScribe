@@ -59,6 +59,15 @@ export type SidecarClientState =
 export interface SidecarClientOptions {
   /** Default per-request timeout. */
   requestTimeoutMs?: number;
+  /** job.start timeout — separate because the worker synchronously
+   *  warms the engine import stack (librosa/basic_pitch) on the main
+   *  thread before answering "accepted" (#155). A frozen-packaged cold
+   *  start takes tens of seconds here; the generic 10 s request timeout
+   *  made every first transcription fail with a spurious timeout and
+   *  dropped the late response as an unknown id. The watchdog cannot
+   *  fire while this request pends (the job is not active until the
+   *  response resolves), so a long window is safe. */
+  jobStartTimeoutMs?: number;
   /** Handshake timeout — interpreter cold start can be slow (UI-002
    *  measured ≈200 ms locally; packaged first-run may be far slower). */
   handshakeTimeoutMs?: number;
@@ -77,6 +86,7 @@ interface PendingRequest {
 
 const DEFAULTS: Required<SidecarClientOptions> = {
   requestTimeoutMs: 10_000,
+  jobStartTimeoutMs: 120_000,
   handshakeTimeoutMs: 30_000,
   watchdogMs: 15_000,
   pingTimeoutMs: 5_000,
@@ -304,10 +314,12 @@ export class SidecarClient {
   /** `job.start` — returns {jobId, jobKind, state:"accepted"}.
    *  JOB_ALREADY_RUNNING is enforced engine-side. */
   async startJob(jobKind: string, params: unknown): Promise<JobStartResult> {
-    const res = await this.request<JobStartResult>("job.start", {
-      jobKind,
-      params,
-    });
+    const res = await this.requestRaw<JobStartResult>(
+      "job.start",
+      { jobKind, params },
+      this.opts.jobStartTimeoutMs,
+      false,
+    );
     this.activeJobs.add(res.jobId);
     this.armWatchdog();
     return res;

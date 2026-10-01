@@ -18,8 +18,10 @@ import {
 } from "./protocol";
 import { UnsupportedSidecarPort } from "./port";
 
-function connect(opts: ConstructorParameters<typeof SidecarClient>[1] = {}) {
-  const port = new MockSidecarPort();
+function connect(
+  opts: ConstructorParameters<typeof SidecarClient>[1] = {},
+  port: MockSidecarPort = new MockSidecarPort(),
+) {
   const client = new SidecarClient(port, {
     requestTimeoutMs: 250,
     handshakeTimeoutMs: 500,
@@ -37,6 +39,30 @@ function connect(opts: ConstructorParameters<typeof SidecarClient>[1] = {}) {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** #155 - a port that answers job.start only after delayMs, modelling
+ *  the real worker's synchronous engine-warmup block (librosa/basic_pitch
+ *  cold import) that stalls the dispatch loop for tens of seconds on a
+ *  packaged first run. Every other frame is handled immediately. */
+class DelayedJobStartPort extends MockSidecarPort {
+  constructor(private readonly delayMs: number) {
+    super();
+  }
+  override writeLine(line: string): void {
+    let isJobStart = false;
+    try {
+      const f = JSON.parse(line) as { method?: unknown };
+      isJobStart = f.method === "job.start";
+    } catch {
+      // not parseable - hand it to the mock's malformed-frame path as-is
+    }
+    if (isJobStart) {
+      setTimeout(() => super.writeLine(line), this.delayMs);
+      return;
+    }
+    super.writeLine(line);
+  }
+}
 
 async function until(cond: () => boolean, ms = 1000): Promise<void> {
   const deadline = Date.now() + ms;
@@ -200,6 +226,48 @@ describe("job lifecycle", () => {
     const failed = events.find((e) => e.phase === "failed");
     expect(failed?.error?.code).toBe(ERR.JOB_TIMEOUT);
     await client.shutdown();
+  });
+
+  it("#155: a slow job.start (engine warmup) still resolves past requestTimeoutMs", async () => {
+    // The worker blocks its dispatch loop warming librosa/basic_pitch
+    // before answering job.start - far beyond requestTimeoutMs on a cold
+    // packaged start. jobStartTimeoutMs covers that window; the watchdog
+    // cannot fire meanwhile (the job is not active until the response
+    // resolves), so the request must simply wait.
+    const { client, events } = connect(
+      { jobStartTimeoutMs: 2000 },
+      new DelayedJobStartPort(400), // > requestTimeoutMs (250)
+    );
+    await client.start();
+    const res = await client.startJob("demoLongTask", {
+      steps: 2,
+      stepDurationMs: 1,
+    });
+    expect(res.state).toBe("accepted");
+    await until(() => events.some((e) => e.phase === "completed"));
+    expect(client.getState()).toBe("ready");
+    await client.shutdown();
+  });
+
+  it("#155: job.start still rejects REQUEST_TIMEOUT past jobStartTimeoutMs", async () => {
+    const { client, diags } = connect(
+      { jobStartTimeoutMs: 120 },
+      new DelayedJobStartPort(400),
+    );
+    await client.start();
+    await expect(
+      client.startJob("demoLongTask", { steps: 2, stepDurationMs: 1 }),
+    ).rejects.toMatchObject({ code: ERR.REQUEST_TIMEOUT });
+    // The late response for the abandoned id is dropped as a diagnostic,
+    // never correlated to a live request; the client stays usable.
+    await sleep(450);
+    expect(client.getState()).toBe("ready");
+    await client.shutdown();
+    expect(
+      diags.some(
+        (l) => l.includes("response for unknown id") && l.includes("dropped"),
+      ),
+    ).toBe(true);
   });
 });
 
