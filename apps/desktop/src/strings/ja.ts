@@ -1138,6 +1138,16 @@ export const ja = {
       retry: "再試行",
       diagnostics: "診断情報",
     },
+    /** #153: NO_PITCHED_CONTENT is a content outcome, not a malfunction —
+     *  name the likely cause and lead with "pick another source" instead
+     *  of a retry that deterministically fails on the same audio. */
+    noPitchedContent: {
+      title: "音程のある音が見つかりませんでした",
+      body: "無音、または音程のない音が録音・取り込みされた可能性があります。元音源とプロジェクトは保持されています。",
+      chooseAnother: "音源を選び直す",
+      retry: "同じ音源でもう一度試す",
+      diagnostics: "診断情報",
+    },
     workerCrashed: {
       title: "採譜エンジンが停止しました",
       body: "現在のプロジェクトと保存済みの採譜結果は失われていません。",

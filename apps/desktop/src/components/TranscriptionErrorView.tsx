@@ -48,25 +48,34 @@ export function TranscriptionErrorView({
   // #195: a missing engine package can never succeed on retry — the
   // surface names the package and makes diagnostics the lead action.
   const dependencyMissing = errorCode === "ENGINE_DEPENDENCY_MISSING";
-  const copy =
-    dependencyMissing
-      ? {
-          title: ja.errors.dependencyMissing.title,
-          body: ja.errors.dependencyMissing.body(
-            errorPackage ?? ja.errors.dependencyMissing.unknownPackage,
-          ),
-        }
+  // #153: NO_PITCHED_CONTENT is a content outcome — the audio is fine,
+  // it just has no pitched notes. Retry on the same audio fails
+  // deterministically, so the lead action becomes "pick another
+  // source" (dismiss → back to import/record) and retry drops to the
+  // subtle slot.
+  const noPitchedContent =
+    !dependencyMissing && errorCode === "NO_PITCHED_CONTENT";
+  const copy = dependencyMissing
+    ? {
+        title: ja.errors.dependencyMissing.title,
+        body: ja.errors.dependencyMissing.body(
+          errorPackage ?? ja.errors.dependencyMissing.unknownPackage,
+        ),
+      }
+    : noPitchedContent
+      ? ja.errors.noPitchedContent
       : kind === "transcriptionFailed"
-      ? ja.errors.transcriptionFailed
-      : kind === "workerCrashed"
-        ? ja.errors.workerCrashed
-        : ja.errors.workerNotResponding;
-  const primaryLabel =
-    dependencyMissing
-      ? ja.errors.dependencyMissing.diagnostics
+        ? ja.errors.transcriptionFailed
+        : kind === "workerCrashed"
+          ? ja.errors.workerCrashed
+          : ja.errors.workerNotResponding;
+  const primaryLabel = dependencyMissing
+    ? ja.errors.dependencyMissing.diagnostics
+    : noPitchedContent
+      ? ja.errors.noPitchedContent.chooseAnother
       : kind === "transcriptionFailed"
-      ? ja.errors.transcriptionFailed.retry
-      : ja.errors.workerCrashed.restartEngine;
+        ? ja.errors.transcriptionFailed.retry
+        : ja.errors.workerCrashed.restartEngine;
 
   const copyDiagnostics = async () => {
     try {
@@ -89,7 +98,11 @@ export function TranscriptionErrorView({
             variant="primary"
             loading={restarting}
             onClick={
-              dependencyMissing ? () => setDiagOpen(true) : onPrimary
+              dependencyMissing
+                ? () => setDiagOpen(true)
+                : noPitchedContent
+                  ? onClose
+                  : onPrimary
             }
           >
             {primaryLabel}
@@ -97,8 +110,13 @@ export function TranscriptionErrorView({
           <HsButton variant="secondary" onClick={() => setDiagOpen(true)}>
             {ja.common.diagnostics}
           </HsButton>
-          <HsButton variant="subtle" onClick={onClose}>
-            {ja.errors.close}
+          <HsButton
+            variant="subtle"
+            onClick={noPitchedContent ? onPrimary : onClose}
+          >
+            {noPitchedContent
+              ? ja.errors.noPitchedContent.retry
+              : ja.errors.close}
           </HsButton>
         </div>
       </div>

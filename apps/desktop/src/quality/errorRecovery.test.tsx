@@ -22,6 +22,7 @@ import {
 } from "../import/types";
 import { TranscriptionErrorView } from "../components/TranscriptionErrorView";
 import type { FailureKind } from "../sidecar";
+import { ja } from "../strings/ja";
 import type { ScreenState } from "../workspace/screen";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -187,6 +188,51 @@ describe("error-recovery surfaces (§13)", () => {
       expect(STACK_TRACE_RE.test(text)).toBe(false);
     },
   );
+
+  // #153: NO_PITCHED_CONTENT is a content outcome — the surface names the
+  // cause, leads with "pick another source" (onClose), and demotes the
+  // deterministically-failing retry to the subtle slot (onPrimary).
+  it("NO_PITCHED_CONTENT leads with choose-another-source, keeps retry", async () => {
+    let primaryCalls = 0;
+    let closeCalls = 0;
+    await render(
+      <TranscriptionErrorView
+        kind="transcriptionFailed"
+        errorCode="NO_PITCHED_CONTENT"
+        restarting={false}
+        diagnostics={() => "diagnostic text"}
+        onPrimary={() => {
+          primaryCalls += 1;
+        }}
+        onClose={() => {
+          closeCalls += 1;
+        }}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain(ja.errors.noPitchedContent.title);
+    expect(text).toContain("音程のある音");
+    const primary = document.querySelector<HTMLButtonElement>(
+      '.hs-error-surface__actions button[class*="primary"]',
+    );
+    expect(primary?.textContent).toBe(
+      ja.errors.noPitchedContent.chooseAnother,
+    );
+    await act(async () => {
+      primary?.click();
+    });
+    expect(closeCalls).toBe(1);
+    expect(primaryCalls).toBe(0);
+    const subtle = [...document.querySelectorAll<HTMLButtonElement>(
+      ".hs-error-surface__actions button",
+    )].find(
+      (b) => b.textContent === ja.errors.noPitchedContent.retry,
+    );
+    await act(async () => {
+      subtle?.click();
+    });
+    expect(primaryCalls).toBe(1);
+  });
 
   it("audioReady keeps the workspace live (transcribe action present)", async () => {
     await render(
