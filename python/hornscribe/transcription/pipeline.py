@@ -93,7 +93,7 @@ from .backend import (
     predict_note_events_pyin,
     require_module,
 )
-from .boundary import boundary_flags
+from .boundary import boundary_flags, compute_envelopes, seam_evidence
 from .chord import (
     LOW_CONFIDENCE as CHORD_LOW_CONFIDENCE,
 )
@@ -169,8 +169,12 @@ AudioLoader = Callable[[str], tuple[Any, int]]
 # leaves the fast section anchored off-grid (the warp then converts
 # score positions back to seconds ~60 ms wrong). The fix: segment the
 # frame-level tempo curve into stable regions and re-track each with
-# its own bpm. Frames inside this band stay in their region.
-_TEMPO_REGION_BAND = 0.10
+# its own bpm.
+# Plateau tolerance for the dyn curve: autocorr quantizes tempo to lag
+# bins, so adjacent plateau levels sit ~4-5 % apart — 2 % splits each
+# level (catching a continuous rit./accel. as a staircase) while in-
+# plateau jitter stays inside its run (rubato-4-4).
+_TEMPO_PLATEAU_BAND = 0.02
 # Regions shorter than this merge into a neighbour -- a one-beat rit.
 # is not a tempo section.
 _TEMPO_REGION_MIN_SEC = 1.5
@@ -344,11 +348,12 @@ def _tempo_regions(
 ) -> list[tuple[float, float, float]]:
     """Stable-tempo regions from the frame-level tempo curve.
 
-    Returns (start_sec, end_sec, median_bpm) per region in order. The
-    band test compares each frame to the RUNNING region median so a
-    drifting rit./accel. stays one region while a genuine step splits.
+    Returns (start_sec, end_sec, mean_bpm) per region in order. The
+    curve comes from librosa's autocorr tracker; the grouping itself is
+    pure so the unit tests drive it without a librosa install.
     Regions shorter than _TEMPO_REGION_MIN_SEC fold into the tempo-
-    nearer neighbour.
+    nearer neighbour; fewer than two survivors returns [] (the caller
+    keeps the single global track).
     """
     require_module("librosa")
     import librosa  # noqa: PLC0415 - lazy optional dependency
@@ -361,26 +366,42 @@ def _tempo_regions(
         dtype=float,
     )
     dyn = dyn[np.isfinite(dyn) & (dyn > 0)]
+    return _tempo_regions_from_dyn(dyn, 512.0 / float(sample_rate))
+
+
+def _tempo_regions_from_dyn(
+    dyn: Any, frame_sec: float
+) -> list[tuple[float, float, float]]:
+    """Plateau-group a frame-level tempo curve into stable regions.
+
+    The autocorr tempo curve is piecewise-constant (one lag bin per
+    run). Grouping by the run's own mean — not the whole region's
+    running median — lets a continuous rit./accel. surface as a
+    staircase of regions to re-track individually, instead of
+    collapsing to a single averaged tempo the per-region DP cannot
+    follow (rubato-4-4: a 120->90 drift previously read as one 112-bpm
+    region and the tracker lost the first five beats).
+    """
+    import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
     if len(dyn) < 4:
         return []
 
-    bounds: list[int] = [0]
+    regions: list[list[float]] = []
     run = [float(dyn[0])]
+    start = 0
     for i in range(1, len(dyn)):
-        med = float(np.median(run))
+        mean = float(np.mean(run))
         v = float(dyn[i])
-        if med > 0 and abs(v - med) / med > _TEMPO_REGION_BAND:
-            bounds.append(i)
+        if mean > 0 and abs(v - mean) / mean > _TEMPO_PLATEAU_BAND:
+            regions.append([start * frame_sec, i * frame_sec, mean])
             run = [v]
+            start = i
         else:
             run.append(v)
-    bounds.append(len(dyn))
-
-    frame_sec = 512.0 / float(sample_rate)
-    regions: list[list[float]] = []
-    for a, b in zip(bounds, bounds[1:], strict=False):
-        med = float(np.median(dyn[a:b]))
-        regions.append([a * frame_sec, b * frame_sec, med])
+    regions.append(
+        [start * frame_sec, len(dyn) * frame_sec, float(np.mean(run))]
+    )
 
     # Fold too-short regions into the tempo-nearer neighbour.
     changed = True
@@ -1213,10 +1234,32 @@ def run_transcription_job(
                 )
                 step(2, 2 + i, clean_total)
         else:
+            # boundary-4-4: same-pitch re-articulations (tongued
+            # repeats) were being merged into one note. The boundary
+            # expert's seam evidence arbitrates — but only under the
+            # mono contract, where any attack on the seam belongs to
+            # this line. Under melody/voices textures accompaniment
+            # and other-voice onsets pollute the envelope, so their
+            # merges stay unconditional (a mix transient is exactly
+            # the false attack healing exists for). pyin already
+            # splits articulations itself, hence clean_merge_gap > 0.
+            edge_ev = None
+            if prefer == "onset" and clean_merge_gap > 0:
+                edge_env = compute_envelopes(
+                    samples,
+                    sample_rate,
+                    time_offset_sec=selection_offset_sec,
+                )
+
+                def _separated(a: RawNoteEvent, b: RawNoteEvent) -> bool:
+                    return seam_evidence(a, b, edge_env).separated
+
+                edge_ev = _separated
             cleaned = clean_monophonic(
                 ranged,
                 merge_gap_sec=clean_merge_gap,
                 prefer=prefer,
+                edge_evidence=edge_ev,
             )
             cleaned_lowers = []
             step(2, 1, 1)

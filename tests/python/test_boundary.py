@@ -25,7 +25,11 @@ from hornscribe.domain.ids import (
 from hornscribe.domain.review import ReviewReason, Severity
 from hornscribe.domain.score import Part, QuantizedNote
 from hornscribe.rhythm.timewarp import TimeWarp
-from hornscribe.transcription.boundary import boundary_flags
+from hornscribe.transcription.boundary import (
+    boundary_flags,
+    compute_envelopes,
+    seam_evidence,
+)
 from hornscribe.transcription.clean import CleanedEvents
 from hornscribe.transcription.pipeline import _boundary_issues
 
@@ -123,6 +127,64 @@ class TestMergeFlags:
         )
         flags = boundary_flags(_held_tone(), _SR, (a, b))
         assert "merge" not in [f.kind for f in flags]
+
+
+class TestSeamEvidence:
+    """seam_evidence — the merge flag's rule table, exported so the
+    cleaner can arbitrate BEFORE stitching a seam away."""
+
+    def test_attack_at_same_pitch_seam_separates(self) -> None:
+        # 440 Hz, a 30 ms dip, then a hard re-attack at t=1.0 — a
+        # tongued repeat reads as separated even with no written gap.
+        dip = _tone(0.03, 440.0, amp=0.05, t0=0.97)
+        sig = np.concatenate(
+            [_tone(0.97, 440.0), dip, _tone(1.0, 440.0, t0=1.0)]
+        )
+        env = compute_envelopes(sig, _SR)
+        seam = seam_evidence(
+            _ev(1, 60, 0.0, 1.0), _ev(2, 60, 1.0, 2.0), env
+        )
+        assert seam.separated
+        assert seam.onset_peak >= 0.30
+
+    def test_release_edge_is_not_an_attack(self) -> None:
+        # The seam sits ON the predecessor's release: a broadband click
+        # spikes the flux, but energy collapses right after — the
+        # sustain check keeps it a merge (rubato-4-4 tail fragment).
+        rng = np.random.RandomState(0)
+        click = 0.4 * rng.uniform(-1.0, 1.0, int(0.03 * _SR))
+        sig = np.concatenate([_tone(1.0, 440.0), click, _silence(0.6)])
+        env = compute_envelopes(sig, _SR)
+        seam = seam_evidence(
+            _ev(1, 60, 0.0, 1.0), _ev(2, 60, 1.0, 1.08), env
+        )
+        # The click may spike the flux leg — the sustain leg must be
+        # what vetoes separation, so assert the peak was high enough
+        # to need it.
+        assert seam.onset_peak >= 0.30
+        assert not seam.separated
+
+    def test_silence_trough_separates(self) -> None:
+        sig = np.concatenate(
+            [
+                _tone(1.0, 440.0),
+                _silence(0.05),
+                _tone(1.0, 440.0, t0=1.05),
+            ]
+        )
+        env = compute_envelopes(sig, _SR)
+        seam = seam_evidence(
+            _ev(1, 60, 0.0, 1.0), _ev(2, 60, 1.05, 2.05), env
+        )
+        assert seam.separated
+        assert seam.gap_sec == pytest.approx(0.05, abs=1e-6)
+
+    def test_unbroken_tone_does_not_separate(self) -> None:
+        env = compute_envelopes(_held_tone(), _SR)
+        seam = seam_evidence(
+            _ev(1, 60, 0.0, 1.0), _ev(2, 60, 1.0, 2.0), env
+        )
+        assert not seam.separated
 
 
 class TestSplitFlags:
@@ -353,5 +415,3 @@ class TestBoundaryIssues:
         ]
         assert len(unc) == 1
         assert unc[0].severity is Severity.INFO
-
-

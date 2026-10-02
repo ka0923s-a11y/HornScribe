@@ -46,6 +46,16 @@ MERGE_ONSET_MIN = 0.30
 MERGE_RMS_FLOOR = 0.10
 MERGE_F0_JUMP_MAX = 0.75
 
+# Seam attack verification: a flux bump at the seam can be the
+# predecessor's RELEASE edge (the backend often splits a note right at
+# its decay transient) rather than a real attack. A real re-
+# articulation sustains — RMS ~110 ms after the seam still reads near
+# the pre-seam level; a release edge has collapsed by then
+# (rubato-4-4: 0.05 vs 0.75+ on true attacks).
+SEAM_SUSTAIN_SEC = 0.11
+SEAM_SUSTAIN_WIN_SEC = 0.05
+SEAM_SUSTAIN_RATIO = 0.40
+
 # Split: an interior onset must rival the note own attack AND clear
 # an absolute floor — quiet pieces carry small fluxes, so the attack
 # ratio keeps the check working where an absolute floor stays blind.
@@ -85,6 +95,101 @@ class BoundaryFlag:
     boundary_sec: float
     score: float
     detail: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class EdgeEnvelopes:
+    """Precomputed spectral envelopes shared by edge re-scoring.
+
+    ``offset`` maps event (absolute-source) seconds into the samples
+    clock, exactly like ``boundary_flags``' ``time_offset_sec``.
+    """
+
+    times: Any
+    flux: Any
+    rms: Any
+    spf: float
+    offset: float = 0.0
+
+
+def compute_envelopes(
+    samples: Any, sample_rate: int, *, time_offset_sec: float = 0.0
+) -> EdgeEnvelopes:
+    """Build the flux/RMS envelopes once so several consumers (merge
+    arbitration, flag re-scoring) share one FFT pass."""
+    times, flux, rms, spf = _envelopes(samples, sample_rate)
+    return EdgeEnvelopes(
+        times=times, flux=flux, rms=rms, spf=spf, offset=time_offset_sec
+    )
+
+
+@dataclass(frozen=True)
+class SeamEvidence:
+    """Audio evidence on the seam between two same-pitch events.
+
+    ``separated`` is True when the seam carries a real articulation —
+    an onset attack, an audible silence trough, or an f0 move — so a
+    merge across it would hide a re-articulated note. False means the
+    seam has no acoustic backing: one held note the backend split.
+    """
+
+    separated: bool
+    gap_sec: float
+    onset_peak: float
+    f0_jump: float
+
+
+def seam_evidence(
+    a: RawNoteEvent, b: RawNoteEvent, env: EdgeEnvelopes
+) -> SeamEvidence:
+    """Classify the seam between same-pitch neighbours *a* -> *b*.
+
+    Same rule table the ``merge`` flag uses, exported so the cleaner
+    can ask the same question *before* stitching events the boundary
+    expert would never get to see (a merged seam disappears).
+    """
+    gap = b.onset_sec - a.offset_sec
+    boundary = 0.5 * (a.offset_sec + b.onset_sec)
+    onset_pk = _peak(
+        env.flux, env.spf, boundary - env.offset, _BOUNDARY_HALF_WINDOW_SEC
+    )
+    jump = _f0_jump(a, b)
+    separated = gap > MERGE_MAX_GAP_SEC
+    if not separated and onset_pk >= MERGE_ONSET_MIN:
+        # Confirm the bump is an attack, not the predecessor's release
+        # edge: a real articulation still sounds SEAM_SUSTAIN_SEC later,
+        # a decay transient has collapsed. When the pre-seam level is
+        # already ~0 the seam sits inside a rest — the attack is real.
+        pre = _peak(
+            env.rms,
+            env.spf,
+            boundary - env.offset - 0.07,
+            0.035,
+        )
+        post = _peak(
+            env.rms,
+            env.spf,
+            b.onset_sec - env.offset + SEAM_SUSTAIN_SEC,
+            SEAM_SUSTAIN_WIN_SEC,
+        )
+        separated = pre <= 0.0 or post >= SEAM_SUSTAIN_RATIO * pre
+    if not separated and gap > 0.02:
+        trough = _trough(
+            env.rms,
+            env.spf,
+            a.offset_sec - env.offset,
+            b.onset_sec - env.offset,
+        )
+        if trough is not None and trough <= MERGE_RMS_FLOOR:
+            separated = True  # audible silence — a real separation
+    if not separated and jump > MERGE_F0_JUMP_MAX:
+        separated = True  # the line actually moved
+    return SeamEvidence(
+        separated=separated,
+        gap_sec=gap,
+        onset_peak=onset_pk,
+        f0_jump=jump,
+    )
 
 
 def _envelopes(
@@ -180,31 +285,31 @@ def _at_bend_extremum(e: RawNoteEvent, t: float) -> bool:
 
 def _split_flag(
     e: RawNoteEvent,
-    times: Any,
-    flux: Any,
-    spf: float,
-    offset: float,
+    env: EdgeEnvelopes,
 ) -> BoundaryFlag | None:
     """One interior onset worth flagging inside a long event."""
     span = e.offset_sec - e.onset_sec
     if span < SPLIT_MIN_SPAN_SEC:
         return None
-    lo = e.onset_sec - offset + _EDGE_INSET_HEAD * span
-    hi = e.offset_sec - offset - _EDGE_INSET_TAIL * span
+    lo = e.onset_sec - env.offset + _EDGE_INSET_HEAD * span
+    hi = e.offset_sec - env.offset - _EDGE_INSET_TAIL * span
+    spf = env.spf
     i0 = max(0, int(lo / spf))
-    i1 = min(len(flux), int(hi / spf) + 1)
+    i1 = min(len(env.flux), int(hi / spf) + 1)
     if i1 <= i0:
         return None
-    window = flux[i0:i1]
+    window = env.flux[i0:i1]
     ci = i0 + int(np.argmax(window))
-    peak = float(flux[ci])
+    peak = float(env.flux[ci])
     if peak < SPLIT_ONSET_MIN:
         return None
-    attack = _peak(flux, spf, e.onset_sec - offset, _ATTACK_HALF_WINDOW_SEC)
+    attack = _peak(
+        env.flux, spf, e.onset_sec - env.offset, _ATTACK_HALF_WINDOW_SEC
+    )
     if peak < SPLIT_ATTACK_RATIO * max(attack, SPLIT_ATTACK_FLOOR):
         return None
     score = min(1.0, peak / max(attack, SPLIT_ATTACK_FLOOR))
-    boundary = float(times[ci]) + offset
+    boundary = float(env.times[ci]) + env.offset
     damped = _at_bend_extremum(e, boundary)
     if damped:
         score *= SPLIT_VIBRATO_DAMP
@@ -224,40 +329,29 @@ def _split_flag(
 def _edge_flag(
     a: RawNoteEvent,
     b: RawNoteEvent,
-    flux: Any,
-    rms: Any,
-    spf: float,
-    offset: float,
+    env: EdgeEnvelopes,
 ) -> BoundaryFlag | None:
     """Shared-edge re-scoring — merge candidates and weak boundaries."""
     gap = b.onset_sec - a.offset_sec
     boundary = 0.5 * (a.offset_sec + b.onset_sec)
-    onset_pk = _peak(flux, spf, boundary - offset, _BOUNDARY_HALF_WINDOW_SEC)
+    onset_pk = _peak(
+        env.flux, env.spf, boundary - env.offset, _BOUNDARY_HALF_WINDOW_SEC
+    )
     if int(round(a.pitch_midi)) == int(round(b.pitch_midi)):
-        if gap > MERGE_MAX_GAP_SEC:
+        seam = seam_evidence(a, b, env)
+        if seam.separated:
             return None
-        if onset_pk >= MERGE_ONSET_MIN:
-            return None
-        if gap > 0.02:
-            trough = _trough(
-                rms, spf, a.offset_sec - offset, b.onset_sec - offset
-            )
-            if trough is not None and trough <= MERGE_RMS_FLOOR:
-                return None  # audible silence — a real separation
-        jump = _f0_jump(a, b)
-        if jump > MERGE_F0_JUMP_MAX:
-            return None  # the line actually moved — not one held note
         return BoundaryFlag(
             kind="merge",
             event_ids=(str(a.id), str(b.id)),
             boundary_sec=boundary,
-            score=round(1.0 - onset_pk, 3),
+            score=round(1.0 - seam.onset_peak, 3),
             detail={
-                "gapSec": round(gap, 4),
-                "onsetPeak": round(onset_pk, 3),
-                "f0Jump": round(jump, 3),
-            },
-        )
+                "gapSec": round(seam.gap_sec, 4),
+                "onsetPeak": round(seam.onset_peak, 3),
+                "f0Jump": round(seam.f0_jump, 3),
+           },
+       )
     if gap <= WEAK_GAP_MAX_SEC and onset_pk < WEAK_ONSET_MAX:
         return BoundaryFlag(
             kind="uncertain",
@@ -288,14 +382,16 @@ def boundary_flags(
     ordered = sorted(events, key=lambda e: (e.onset_sec, e.offset_sec))
     if not ordered:
         return ()
-    times, flux, rms, spf = _envelopes(samples, sample_rate)
+    env = compute_envelopes(
+        samples, sample_rate, time_offset_sec=time_offset_sec
+    )
     flags: list[BoundaryFlag] = []
     for e in ordered:
-        flag = _split_flag(e, times, flux, spf, time_offset_sec)
+        flag = _split_flag(e, env)
         if flag is not None:
             flags.append(flag)
     for a, b in pairwise(ordered):
-        flag = _edge_flag(a, b, flux, rms, spf, time_offset_sec)
+        flag = _edge_flag(a, b, env)
         if flag is not None:
             flags.append(flag)
     flags.sort(key=lambda f: f.boundary_sec)

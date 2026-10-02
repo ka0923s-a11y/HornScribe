@@ -229,14 +229,23 @@ def estimate_tempo(
                 strengths = strengths[1:]
         elif gap >= 1.5 * median_sec:
             # Multiple missing beats: walk back on the median grid and
-            # land the earliest grid point on the onset itself.
-            n_missing = int(gap / median_sec + 0.5)
+            # land the earliest grid point on the onset itself. The
+            # spacing is the LOCAL interval at the track boundary
+            # (median of the first few tracked IBIs), not the global
+            # median — on a rit./accel. the early beats run at the
+            # piece's fastest tempo and a global median lands every
+            # synthesized anchor tens of ms off (rubato-4-4).
+            local = [d for d in intervals[:4]]
+            local_sec = (
+                sorted(local)[len(local) // 2] if local else median_sec
+            )
+            n_missing = int(gap / local_sec + 0.5)
             for k in range(n_missing, 0, -1):
                 if k == n_missing:
                     leading_beats.append(float(first_onset_sec))
                 else:
                     leading_beats.append(
-                        float(first_onset_sec) + (n_missing - k) * median_sec
+                        float(first_onset_sec) + (n_missing - k) * local_sec
                     )
     all_beats = tuple(leading_beats) + beat_times
     neutral_strength = (

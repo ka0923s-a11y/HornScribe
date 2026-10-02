@@ -41,6 +41,7 @@ integer MIDI (pitch spelling is a downstream concern, flagged via
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -81,6 +82,23 @@ BLIP_MIN_DEVIATION = 3  # semitones from each neighbour
 BLIP_EXCURSION = 12     # octave-scale deviation needs no conf test
 BLIP_MAX_CONF = 0.5
 BLIP_EXTEND_MAX_SEC = 0.3  # cap on the restored tail
+# Seam-evidence pollution guard (reverb-4-4): when ANOTHER event
+# attacks inside the seam's flux window, the measured onset peak is
+# that attack's energy — not evidence the same-pitch pair re-
+# articulated. A ringing tail that re-triggers under the next note's
+# onset shows exactly this shape; abstain from the seam check so the
+# fragment merges back instead of clipping the real note away.
+SEAM_BUSY_SEC = 0.09
+# Tail re-trigger (reverb-4-4): a note's ringing tail re-attacks a
+# frame or two after the real next onset, producing a short event
+# contained inside the new note at the PREDECESSOR's pitch. A plain
+# confidence deficit alone cannot separate it from a quiet real
+# interleave (#129 caution); the pitch match with the pre-container
+# note is the tell. Bounded length: re-detected tails are short.
+TAIL_RETRIGGER_MAX_SEC = 0.25
+# The tail must connect to the pre-container note — a pitch twin
+# that ended long ago is a coincidence, not a re-trigger.
+TAIL_RETRIGGER_GAP_SEC = 0.12
 
 # Melody texture (prefer="top") overlay rescue (#143): a strummed
 # chord tone above the melody claims the top slot when the mode
@@ -193,6 +211,7 @@ def clean_monophonic(
     min_event_sec: float = MIN_EVENT_SEC,
     merge_gap_sec: float = MERGE_GAP_SEC,
     prefer: str = "onset",
+    edge_evidence: Callable[[RawNoteEvent, RawNoteEvent], bool] | None = None,
 ) -> CleanedEvents:
     """Enforce the monophonic contract on raw backend output.
 
@@ -206,6 +225,16 @@ def clean_monophonic(
     ``"top"`` keeps the higher pitch instead - the melody line for
     polyphonic mixes like JPOP (a lower overlapping hypothesis is
     dropped, a higher one cuts in at its own onset).
+
+    ``edge_evidence`` is an ``(a, b) -> bool`` seam check consulted
+    only under ``prefer="onset"`` when two same-pitch events sit
+    within ``merge_gap_sec``: True means the audio carries a real
+    articulation at the seam (attack / silence trough / f0 move), so
+    the re-articulated note stays separate instead of merging away
+    (boundary-4-4: a tongued repeat was being absorbed into one note).
+    Polyphonic textures must not supply it — accompaniment and other
+    -voice onsets pollute the seam envelope, and under "top" a mix
+    transient is precisely the false attack a merge exists to heal.
     """
     if prefer not in ("onset", "top"):
         raise ValueError(f"prefer must be 'onset' or 'top', got {prefer!r}")
@@ -256,7 +285,26 @@ def clean_monophonic(
                     and k.offset_sec > prev.onset_sec
                     for k in kept
                 )
-                if not crossed:
+                # Mono texture only: the boundary expert's seam
+                # evidence vetoes the merge when the audio shows a real
+                # articulation — a re-detected attack at the same pitch
+                # is a tongued repeat, not a split of one held note.
+                # The check abstains while a third event attacks on the
+                # seam: the flux peak then belongs to that attack
+                # (tail re-trigger under the next note, reverb-4-4).
+                separated = (
+                    prefer == "onset"
+                    and edge_evidence is not None
+                    and not any(
+                        k is not ev
+                        and k is not prev
+                        and abs(k.onset_sec - ev.onset_sec)
+                        <= SEAM_BUSY_SEC
+                        for k in ordered
+                    )
+                    and edge_evidence(prev, ev)
+                )
+                if not crossed and not separated:
                     kept[-1] = _extend(
                         prev, ev.offset_sec, ev.confidence, ev.pitch_bends
                     )
@@ -322,6 +370,22 @@ def clean_monophonic(
                 # (prefer="top" already drops every lower overlap.)
                 if prefer == "onset" and _is_contained_lower_ghost(
                     prev, ev
+                ):
+                    ghosts += 1
+                    continue
+                # Tail re-trigger (reverb-4-4): a short event contained
+                # inside prev at the pitch of the note just before it
+                # is that note's ringing tail re-firing under the new
+                # attack — suppress it instead of letting it clip the
+                # real note down to a too-short stub. The confidence
+                # test stays a plain deficit: the pitch match is the
+                # discriminator, not the depth of the gap (#129).
+                if (
+                    prefer == "onset"
+                    and len(final_events) > 1
+                    and _is_tail_retrigger(
+                        final_events[-2], prev, ev
+                    )
                 ):
                     ghosts += 1
                     continue
@@ -548,6 +612,40 @@ def _is_contained_lower_ghost(
         ev.confidence < prev.confidence * CONTAINED_GHOST_CONF_RATIO
         and prev.confidence - ev.confidence >= CONTAINED_GHOST_CONF_GAP
     )
+
+
+def _is_tail_retrigger(
+    before: RawNoteEvent | None,
+    prev: RawNoteEvent,
+    ev: RawNoteEvent,
+) -> bool:
+    """True when *ev* is *before*'s ringing tail re-firing under *prev*.
+
+    Shape (reverb-4-4): ``before`` and ``ev`` share a pitch, ``before``
+    ended just as ``prev`` attacked, and ``ev`` is a short event fully
+    contained in ``prev``'s span at lower confidence. Reverb tails keep
+    the old pitch detectable past the written end; the new note's
+    attack re-triggers the backend on the residual energy. Sequential
+    melody is safe: a real continuation of ``before``'s pitch starts
+    AFTER ``prev`` releases, so it is never contained.
+    """
+    if before is None:
+        return False
+    if int(round(ev.pitch_midi)) != int(round(before.pitch_midi)):
+        return False
+    if int(round(ev.pitch_midi)) == int(round(prev.pitch_midi)):
+        return False
+    if ev.onset_sec - prev.onset_sec < GHOST_MIN_LEAD_SEC:
+        return False
+    if ev.offset_sec > prev.offset_sec:
+        return False
+    if ev.offset_sec - ev.onset_sec > TAIL_RETRIGGER_MAX_SEC:
+        return False
+    if before.offset_sec < ev.onset_sec - TAIL_RETRIGGER_GAP_SEC:
+        return False
+    if ev.confidence is None or prev.confidence is None:
+        return False
+    return ev.confidence < prev.confidence
 
 
 def _bend_span(ev: RawNoteEvent) -> float:
