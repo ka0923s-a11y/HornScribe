@@ -23,17 +23,19 @@ function port(options?: ConstructorParameters<typeof MockExportPort>[0]) {
 describe("MockExportPort.export", () => {
   it("writes only the requested formats with ENG-001 artifact names", async () => {
     const res = await port().export({
-      formats: ["hornMusicxml", "playbackMidi"],
+      formats: ["hornMusicxml", "bFlatMusicxml", "playbackMidi"],
       destination: "C:\\out",
       basename: "take1",
     });
     expect(res.destination).toBe("C:\\out");
     expect(res.files.map((f) => f.name)).toEqual([
       "take1_horn_in_f.musicxml",
+      "take1_b_flat.musicxml",
       "take1_playback.mid",
     ]);
     expect(res.files.map((f) => f.path)).toEqual([
       "C:\\out\\take1_horn_in_f.musicxml",
+      "C:\\out\\take1_b_flat.musicxml",
       "C:\\out\\take1_playback.mid",
     ]);
   });

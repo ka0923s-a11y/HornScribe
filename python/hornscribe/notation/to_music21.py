@@ -27,9 +27,10 @@ Responsibilities:
   whole-rest-as-measure-rest convention
 * splitting notes that cross barlines into tied fragments (legacy path)
 * inserting rests for gaps inside measures (legacy path)
-* written-pitch projection for the Horn in F presentation
-  (``PitchSpace.WRITTEN_HORN_F``), including the transposed key signature
-  and the ``instrument.Horn`` that produces ``<transpose>-4/-7`` metadata
+* written-pitch projection for the transposing presentations
+  (``PitchSpace.WRITTEN_HORN_F`` / ``WRITTEN_B_FLAT``), including the
+  transposed key signature and the ``<transpose>`` metadata the spec in
+  ``instruments.transposition`` drives
 * tempo map -> ``MetronomeMark`` placement
 
 Non-responsibilities: free enharmonic respelling beyond the key-aware
@@ -49,6 +50,7 @@ from music21 import (
     clef,
     duration,
     instrument,
+    interval,
     key,
     metadata,
     meter,
@@ -80,7 +82,7 @@ from hornscribe.domain.score import (
     note_layers,
     primary_beat_beats,
 )
-from hornscribe.instruments import horn_f
+from hornscribe.instruments import transposition
 from hornscribe.notation.tone_spelling import fifths_at_beat, spell_name
 
 
@@ -321,10 +323,8 @@ def _measure_entries(
 
 
 def _pitch_midi(note_: QuantizedNote, presentation: PitchSpace) -> int:
-    return (
-        horn_f.concert_to_written_midi(note_.pitch_midi)
-        if presentation is PitchSpace.WRITTEN_HORN_F
-        else note_.pitch_midi
+    return transposition.concert_to_written_midi(
+        note_.pitch_midi, presentation
     )
 
 
@@ -530,11 +530,11 @@ def _render_layer(
             fifths = fifths_at_beat(
                 head_fifths, key_changes, m.note_.start_beat
             )
-            if presentation is PitchSpace.WRITTEN_HORN_F:
-                # #257: same projection policy as the written key
-                # signature — a concert +7 key spells against written
-                # -4 (enharmonic fold), matching the printed signature.
-                fifths = horn_f.written_fifths(fifths)
+            # #257: same projection policy as the written key
+            # signature — a concert +7 key spells against written
+            # -4 (enharmonic fold) in F view / -3 in Bb view,
+            # matching the printed signature.
+            fifths = transposition.written_fifths(fifths, presentation)
             m21_note.pitch = pitch.Pitch(
                 spell_name(_pitch_midi(m.note_, presentation), fifths)
             )
@@ -630,11 +630,7 @@ def _clef_plan(
     signals: dict[int, str] = {}
     for idx, span in enumerate(spans):
         pitches = [
-            (
-                horn_f.concert_to_written_midi(n.pitch_midi)
-                if presentation is PitchSpace.WRITTEN_HORN_F
-                else n.pitch_midi
-            )
+            transposition.concert_to_written_midi(n.pitch_midi, presentation)
             for n in part_notes
             if span.start_beat <= n.start_beat < span.end_beat
         ]
@@ -685,8 +681,17 @@ def _build_part_measures(
     strict = bool(part_rests)
     part = stream.Part()
     part.partName = part_name
-    if presentation is PitchSpace.WRITTEN_HORN_F:
-        part.insert(0, instrument.Horn())
+    spec = transposition.spec_for(presentation)
+    if spec is not None:
+        # Every written view keeps the Horn instrument identity (the
+        # Bb view is the same double horn's upper side); only the
+        # written->sounding transposition differs. The spec value
+        # drives the emitted <transpose>, which export re-verifies.
+        horn_inst = instrument.Horn()
+        horn_inst.transposition = interval.Interval(
+            spec.written_to_sounding_chromatic
+        )
+        part.insert(0, horn_inst)
 
     tempo_marks: dict[int, list[tuple[Fraction, tempo.MetronomeMark]]] = {}
     for seg in payload.tempo_map:
@@ -733,8 +738,7 @@ def _build_part_measures(
     if payload.key_changes:
         for change in payload.key_changes:
             ks = change.key_signature
-            if presentation is PitchSpace.WRITTEN_HORN_F:
-                ks = horn_f.written_key_signature(ks)
+            ks = transposition.written_key_signature(ks, presentation)
             ks_mark = key.KeySignature(ks.fifths)
             # KeySignature alone exports only <fifths>; assigning .mode
             # makes music21 emit <mode> so minor keys survive (#252).
@@ -776,8 +780,7 @@ def _build_part_measures(
 
         if idx == 0 and not key_marks.get(0):
             ks = payload.key_signature
-            if presentation is PitchSpace.WRITTEN_HORN_F:
-                ks = horn_f.written_key_signature(ks)
+            ks = transposition.written_key_signature(ks, presentation)
             head_mark = key.KeySignature(ks.fifths)
             head_mark.mode = ks.mode  # type: ignore[attr-defined]
             measure.insert(0, head_mark)
@@ -836,9 +839,9 @@ def build_music21_score(
     """Render *score* (canonical concert pitch) into a music21 ``Score``.
 
     ``presentation`` selects the export presentation: ``CONCERT`` renders
-    sounding pitches verbatim; ``WRITTEN_HORN_F`` renders every part
-    projected +P5 with the written key signature and Horn in F
-    ``<transpose>`` metadata.
+    sounding pitches verbatim; ``WRITTEN_HORN_F`` / ``WRITTEN_B_FLAT``
+    render every part in the written projection (key signature and
+    ``<transpose>`` metadata included) via ``instruments.transposition``.
     """
     if score.pitch_space is not PitchSpace.CONCERT:
         raise NotationError("canonical ScoreDocument must be concert pitch")
@@ -861,7 +864,15 @@ def build_music21_score(
         ordered = sorted(part.notes, key=lambda n: (n.start_beat, n.pitch_midi, n.id))
         m21_score.append(
             _build_part_measures(
-                payload, list(ordered), part.rests, part.name, spans, presentation
+                payload,
+                list(ordered),
+                part.rests,
+                # The printed staff label follows the presentation
+                # (a written Bb part reads Horn in Bb, not Horn in F);
+                # see transposition.display_part_name (#156).
+                transposition.display_part_name(part.name, presentation),
+                spans,
+                presentation,
             )
         )
     return m21_score

@@ -53,8 +53,14 @@ from hornscribe.domain.review import (
     Severity,
     TimeRange,
 )
-from hornscribe.domain.score import ChordSymbol, KeyChange, QuantizedNote
+from hornscribe.domain.score import (
+    ChordSymbol,
+    KeyChange,
+    PitchSpace,
+    QuantizedNote,
+)
 from hornscribe.export.musicxml import (
+    export_b_flat_musicxml,
     export_concert_musicxml,
     export_horn_in_f_musicxml,
 )
@@ -1960,20 +1966,24 @@ def run_transcription_job(
         # ---- rendering -------------------------------------------------
         stage(6)
         musicxml_concert = export_concert_musicxml(document)
-        # #385: two exports plus three per-part verification passes —
+        # #385: three exports plus five per-part verification passes -
         # every unit is a real completed check, nothing estimated.
-        render_total = 2 + 3 * len(payload.parts)
+        render_total = 3 + 5 * len(payload.parts)
         render_done = 0
         step(6, 1, render_total)
         musicxml_horn = export_horn_in_f_musicxml(document)
         step(6, 2, render_total)
+        # #156: the B-flat view is a third artifact — same canonical
+        # document, +M2 projection, -M2 <transpose> declaration.
+        musicxml_b_flat = export_b_flat_musicxml(document)
+        step(6, 3, render_total)
 
         # The export path is verified, not trusted: read the emitted
         # MusicXML back and compare committed rhythm per part (multi-
         # voice scores verify every part, not just the first).
         from hornscribe.export.musicxml import (  # noqa: PLC0415
-            verify_horn_f_projection,
             verify_rhythm_roundtrip,
+            verify_written_projection,
         )
         rhythm_problems: list[str] = []
         for pi in range(len(payload.parts)):
@@ -1984,7 +1994,7 @@ def run_transcription_job(
                 )
             ]
             render_done += 1
-            step(6, 2 + render_done, render_total)
+            step(6, 3 + render_done, render_total)
         # #370: the Horn in F file is the product's main artifact — it
         # gets the same structural round-trip plus the written->sounding
         # projection invariant (transpose block, per-note pitch
@@ -1998,16 +2008,43 @@ def run_transcription_job(
                 )
             ]
             render_done += 1
-            step(6, 2 + render_done, render_total)
+            step(6, 3 + render_done, render_total)
         for pi in range(len(payload.parts)):
             rhythm_problems += [
                 f"hornF part {pi}: {p}"
-                for p in verify_horn_f_projection(
-                    document, musicxml_horn, part_index=pi
+                for p in verify_written_projection(
+                    document,
+                    musicxml_horn,
+                    PitchSpace.WRITTEN_HORN_F,
+                    part_index=pi,
                 )
             ]
             render_done += 1
-            step(6, 2 + render_done, render_total)
+            step(6, 3 + render_done, render_total)
+        # #156: the B-flat view gets the identical structural +
+        # projection verification - a third artifact is only useful
+        # when it is held to the same contract as the F-horn file.
+        for pi in range(len(payload.parts)):
+            rhythm_problems += [
+                f"bFlat part {pi}: {p}"
+                for p in verify_rhythm_roundtrip(
+                    document, musicxml_b_flat, part_index=pi
+                )
+            ]
+            render_done += 1
+            step(6, 3 + render_done, render_total)
+        for pi in range(len(payload.parts)):
+            rhythm_problems += [
+                f"bFlat part {pi}: {p}"
+                for p in verify_written_projection(
+                    document,
+                    musicxml_b_flat,
+                    PitchSpace.WRITTEN_B_FLAT,
+                    part_index=pi,
+                )
+            ]
+            render_done += 1
+            step(6, 3 + render_done, render_total)
         if rhythm_problems:
             # Late verification issue: allocate an id like the others
             # (issue ids were already renumbered above — keep them
@@ -2043,6 +2080,7 @@ def run_transcription_job(
                 "omittedReviewIssues": [i.to_dict() for i in omitted_extras],
                 "musicXmlConcert": musicxml_concert,
                 "musicXmlHornF": musicxml_horn,
+                "musicXmlBFlat": musicxml_b_flat,
                 "meta": {
                     "backend": backend_id,
                     "backendVersion": backend_version,

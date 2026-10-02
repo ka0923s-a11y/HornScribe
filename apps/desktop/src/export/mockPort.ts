@@ -38,8 +38,10 @@ import type { ExportedFile } from "./types";
 const ARTIFACT_NAMES: Record<ExportFormatId, string> = {
   concertMusicxml: "concert.musicxml",
   hornMusicxml: "horn_in_f.musicxml",
+  bFlatMusicxml: "b_flat.musicxml",
   concertPdf: "concert.pdf",
   hornPdf: "horn_in_f.pdf",
+  bFlatPdf: "b_flat.pdf",
   playbackMidi: "playback.mid",
   sourceAudio: "source.wav",
 };

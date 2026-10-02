@@ -8,7 +8,7 @@
 
 /** Pitch display modes (GUI_UX_SPEC §7). Kept literal here so the command
  *  layer does not depend on a component file. */
-export type PitchViewSetting = "concert" | "hornF";
+export type PitchViewSetting = "concert" | "hornF" | "bFlat";
 
 /** Top-level screens that gate command availability. */
 export type AppView = "workspace" | "settings";
@@ -45,6 +45,10 @@ export interface CommandSnapshot {
   readonly loopEnabled: boolean;
   /** Current pitch display mode. */
   readonly pitch: PitchViewSetting;
+  /** #156: the document carries a B-flat written presentation - gates
+   *  the B♭ segment + view.bFlat command (legacy projects get one
+   *  backfilled by project.open; fixtures/dev docs may lack it). */
+  readonly bFlatAvailable: boolean;
   /** Undo/redo stacks (§14 — all edits are commands). */
   readonly canUndo: boolean;
   readonly canRedo: boolean;

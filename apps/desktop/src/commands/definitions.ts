@@ -333,6 +333,17 @@ export function createCommandDefinitions(): readonly Command[] {
       shortcuts: ["Ctrl+2"],
       run: (ctx) => ctx.setPitchView("hornF"),
     },
+    {
+      // #156: B♭管 written view — disabled (not hidden) on legacy
+      //  documents without a bFlat projection so the user can see the
+      //  option exists and why it is unavailable.
+      id: "view.bFlat",
+      title: ja.commands.bFlat,
+      section: "view",
+      shortcuts: ["Ctrl+3"],
+      isEnabled: (s) => s.bFlatAvailable,
+      run: (ctx) => ctx.setPitchView("bFlat"),
+    },
 
     // ---- review (§12, UI-050 keyboard-first flow) ----
     {

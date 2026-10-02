@@ -147,6 +147,10 @@ tempoChanges: [],
     expect(concert.keyLabel).toBe("ヘ長調");
     expect(horn.keyLabel).toBe("ハ長調");
     expect(horn.keyFifths).toBe(0);
+    // #156: B♭ projects +2 fifths — concert -1 (ヘ長調) writes +1 (ト長調).
+    const bFlat = buildScoreInspector(meta, 0, copy, "bFlat");
+    expect(bFlat.keyFifths).toBe(1);
+    expect(bFlat.keyLabel).toBe("ト長調");
     // Fold: concert +7 (嬰ハ長調) writes as -4 (変イ長調).
     const sharp = buildScoreInspector({ ...meta, keyFifths: 7 }, 0, copy, "hornF");
     expect(sharp.keyFifths).toBe(-4);
@@ -328,6 +332,9 @@ describe("headlinePitch", () => {
     expect(headlinePitch(model, "concert").primary).toBe("C4");
     expect(headlinePitch(model, "hornF").primary).toBe("G4");
     expect(headlinePitch(model, "hornF").secondary).toBe("C4");
+    // #156: any written view leads — the model's written row is the
+    // viewed projection (the workspace parses the matching XML).
+    expect(headlinePitch(model, "bFlat").primary).toBe("G4");
   });
 });
 

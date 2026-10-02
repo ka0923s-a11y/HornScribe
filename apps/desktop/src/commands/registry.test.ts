@@ -22,6 +22,7 @@ const SNAPSHOT_EMPTY: CommandSnapshot = {
   isPlaying: false,
   loopEnabled: false,
   pitch: "concert",
+  bFlatAvailable: true,
   canUndo: false,
   canRedo: false,
   hasSelection: false,
@@ -110,6 +111,7 @@ describe("command definitions", () => {
       "transport.toggleLoop",
       "view.concertPitch",
       "view.hornF",
+      "view.bFlat",
       "review.open",
       "review.next",
       "review.previous",
@@ -167,6 +169,7 @@ describe("command definitions", () => {
     expect(shortcutOf("transport.toggleLoop")).toContain("Ctrl+L");
     expect(shortcutOf("view.concertPitch")).toContain("Ctrl+1");
     expect(shortcutOf("view.hornF")).toContain("Ctrl+2");
+    expect(shortcutOf("view.bFlat")).toContain("Ctrl+3");
     expect(shortcutOf("edit.undo")).toContain("Ctrl+Z");
     expect(shortcutOf("edit.redo")).toContain("Ctrl+Shift+Z");
     // UI-050 review keys (P4-validated set).

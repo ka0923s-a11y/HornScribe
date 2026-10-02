@@ -23,8 +23,10 @@ const NOOP = () => undefined;
 const ALL_SELECTED: Record<ExportFormatId, boolean> = {
   concertMusicxml: true,
   hornMusicxml: true,
+  bFlatMusicxml: true,
   concertPdf: false,
   hornPdf: false,
+  bFlatPdf: false,
   playbackMidi: true,
   sourceAudio: false,
 };

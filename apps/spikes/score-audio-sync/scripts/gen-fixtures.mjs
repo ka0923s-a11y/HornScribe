@@ -1,5 +1,6 @@
 // Deterministic generator for the UI-005 sync fixtures.
 // Emits fixtures/sync_concert.musicxml + fixtures/sync_horn_in_f.musicxml
+// + fixtures/sync_b_flat.musicxml (#156)
 // following the ENG-001 ID rules (python/hornscribe/domain/ids.py):
 //   canonical note -> hs-sn-<6 digits>          (tie fragment k>1 -> hs-sn-<6 digits>-k)
 //   rest           -> hs-rest-<6 digits>         (presentation-only)
@@ -8,8 +9,9 @@
 // Known onsets: every canonical note's onset in ql is derivable from the
 // note table below — vitest asserts the parsed SyncMap against them.
 // Horn fixture is the same canonical content in written pitch (concert +P5,
-// key sig 0 -> 1 fifth, transpose diatonic -4 / chromatic -7), so the pair
-// exercises the Concert<->F管ホルン switch with identical hs-sn-* ids.
+// key sig 0 -> 1 fifth, transpose diatonic -4 / chromatic -7); the B-flat
+// fixture is concert +M2 (key sig 0 -> 2 fifths, transpose -1 / -2), so the
+// trio exercises Concert<->F管<->B♭管 switches with identical hs-sn-* ids.
 //
 // Run: npm run gen:fixtures  (output is committed; regenerate only to change content)
 
@@ -116,29 +118,67 @@ const MEASURES = [
   ],
 ];
 
-// Horn in F: written pitch = concert + perfect 5th (+7 semitones, +4 diatonic).
+// Written views (ENG-001 presentations): horn in F projects concert up a
+// perfect 5th (+7 semitones, +4 diatonic, key +1 fifth, <transpose> -4/-7);
+// horn in B♭ projects up a major 2nd (+2 semitones, +1 diatonic, key +2
+// fifths, <transpose> -1/-2). Same projection shape as
+// python/hornscribe/instruments/transposition.py — keep them in lockstep.
 const STEP_INDEX = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
 const STEP_SEMITONE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const INDEX_STEP = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
 
-function toHornPitch(step, alter = 0, octave) {
-  // Transpose sounding midi up a perfect 5th, then re-spell +4 diatonic steps
-  // (the F-horn convention: written pitch sits a P5 above sounding pitch).
-  const midi = (octave + 1) * 12 + STEP_SEMITONE[step] + alter + 7;
+// Key signature -> implicit alter per step: sharp keys sharpen the first
+// `fifths` of F,C,G,D,A,E,B; flat keys flatten the first |fifths| of
+// B,E,A,D,G,C,F. (Fixture fifths stay within [-2, 2].)
+const SHARP_ORDER = ['F', 'C', 'G', 'D', 'A', 'E', 'B'];
+const FLAT_ORDER = ['B', 'E', 'A', 'D', 'G', 'C', 'F'];
+function implicitAlter(step, fifths) {
+  if (fifths > 0) return SHARP_ORDER.slice(0, fifths).includes(step) ? 1 : 0;
+  if (fifths < 0) return FLAT_ORDER.slice(0, -fifths).includes(step) ? -1 : 0;
+  return 0;
+}
+
+const WRITTEN_VIEWS = {
+  hornF: {
+    semitones: 7,
+    diatonic: 4,
+    fifths: 1,
+    transposeDiatonic: -4,
+    transposeChromatic: -7,
+    label: 'Horn in F',
+    titleSuffix: ' (Horn in F)',
+    movementSuffix: ' — F管ホルン',
+  },
+  bFlat: {
+    semitones: 2,
+    diatonic: 1,
+    fifths: 2,
+    transposeDiatonic: -1,
+    transposeChromatic: -2,
+    label: 'Horn in B♭',
+    titleSuffix: ' (Horn in B♭)',
+    movementSuffix: ' — B♭管ホルン',
+  },
+};
+
+function toWrittenPitch(step, alter = 0, octave, view) {
+  // Transpose sounding midi up the view's interval, then re-spell the
+  // diatonic steps (written pitch sits above sounding pitch for both).
+  const midi = (octave + 1) * 12 + STEP_SEMITONE[step] + alter + view.semitones;
   const newOctave = Math.floor(midi / 12) - 1;
   const pc = midi % 12;
-  const newStep = INDEX_STEP[(STEP_INDEX[step] + 4) % 7];
+  const newStep = INDEX_STEP[(STEP_INDEX[step] + view.diatonic) % 7];
   const newAlter = pc - STEP_SEMITONE[newStep];
   return { step: newStep, alter: newAlter, octave: newOctave };
 }
 
-// Accidental name for the *written* pitch given the horn key sig (G major:
-// F is sharp by default). Emit only when the written alter deviates from
-// the key signature — e.g. concert Bb -> written F natural needs 'natural',
-// concert F# -> written C# needs 'sharp' (same convention as golden_v1_horn).
-function hornAccidental(step, alter) {
-  const implicit = step === 'F' ? 1 : 0; // fifths = 1
-  if (alter === implicit) return null;
+// Accidental name for the *written* pitch under the view's key signature.
+// Emit only when the written alter deviates from the signature — e.g.
+// concert Bb -> written C natural in the B♭ view needs 'natural' (D
+// major's C is sharp by default), concert F# -> written C# needs 'sharp'
+// in the F view but is implicit in the B♭ view.
+function writtenAccidental(step, alter, fifths) {
+  if (alter === implicitAlter(step, fifths)) return null;
   if (alter === 1) return 'sharp';
   if (alter === -1) return 'flat';
   return 'natural';
@@ -179,7 +219,8 @@ function noteXml(n, id, pitch /* {step, alter, octave} */, accidental) {
   return lines.join('\n');
 }
 
-function emit(xmlNoteTable, { horn }) {
+function emit(xmlNoteTable, viewId) {
+  const view = WRITTEN_VIEWS[viewId] ?? null;
   noteSeq = 0;
   restSeq = 0;
 
@@ -190,7 +231,7 @@ function emit(xmlNoteTable, { horn }) {
       body.push(`      <attributes>
         <divisions>${DIVISIONS}</divisions>
         <key>
-          <fifths>${horn ? 1 : 0}</fifths>
+          <fifths>${view ? view.fifths : 0}</fifths>
         </key>
         <time>
           <beats>4</beats>
@@ -199,10 +240,10 @@ function emit(xmlNoteTable, { horn }) {
         <clef>
           <sign>G</sign>
           <line>2</line>
-        </clef>${horn ? `
+        </clef>${view ? `
         <transpose>
-          <diatonic>-4</diatonic>
-          <chromatic>-7</chromatic>
+          <diatonic>${view.transposeDiatonic}</diatonic>
+          <chromatic>${view.transposeChromatic}</chromatic>
         </transpose>` : ''}
       </attributes>`);
       body.push(`      <direction>
@@ -239,13 +280,13 @@ function emit(xmlNoteTable, { horn }) {
       }
       const pitch = n.rest
         ? null
-        : horn
-          ? toHornPitch(n.step, n.alter ?? 0, n.octave)
+        : view
+          ? toWrittenPitch(n.step, n.alter ?? 0, n.octave, view)
           : { step: n.step, alter: n.alter ?? 0, octave: n.octave };
       const accidental = n.rest
         ? null
-        : horn
-          ? hornAccidental(pitch.step, pitch.alter)
+        : view
+          ? writtenAccidental(pitch.step, pitch.alter, view.fifths)
           : n.accidental ?? null;
       body.push(noteXml(n, id, pitch, accidental));
     }
@@ -256,9 +297,9 @@ function emit(xmlNoteTable, { horn }) {
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="4.0">
   <work>
-    <work-title>Sync Fixture${horn ? ' (Horn in F)' : ''}</work-title>
+    <work-title>Sync Fixture${view ? view.titleSuffix : ''}</work-title>
   </work>
-  <movement-title>UI-005 Sync Fixture${horn ? ' — F管ホルン' : ''}</movement-title>
+  <movement-title>UI-005 Sync Fixture${view ? view.movementSuffix : ''}</movement-title>
   <identification>
     <creator type="composer">HornScribe spike generator</creator>
     <encoding>
@@ -276,9 +317,9 @@ function emit(xmlNoteTable, { horn }) {
   </defaults>
   <part-list>
     <score-part id="P1">
-      <part-name>Horn in F</part-name>${horn ? `
+      <part-name>${view ? view.label : 'Horn in F'}</part-name>${view ? `
       <score-instrument id="I1">
-        <instrument-name>Horn in F</instrument-name>
+        <instrument-name>${view.label}</instrument-name>
       </score-instrument>
       <midi-instrument id="I1">
         <midi-channel>1</midi-channel>
@@ -293,8 +334,10 @@ ${measuresOut.join('\n')}
 `;
 }
 
-const concert = emit(MEASURES, { horn: false });
-const horn = emit(MEASURES, { horn: true });
+const concert = emit(MEASURES, 'concert');
+const horn = emit(MEASURES, 'hornF');
+const bFlat = emit(MEASURES, 'bFlat');
 writeFileSync(join(outDir, 'sync_concert.musicxml'), concert, 'utf8');
 writeFileSync(join(outDir, 'sync_horn_in_f.musicxml'), horn, 'utf8');
-console.log(`wrote sync_concert.musicxml + sync_horn_in_f.musicxml (${noteSeq} canonical notes, ${restSeq} rests, ${MEASURES.length} measures, ${BPM} BPM)`);
+writeFileSync(join(outDir, 'sync_b_flat.musicxml'), bFlat, 'utf8');
+console.log(`wrote sync_concert/horn_in_f/b_flat.musicxml (${noteSeq} canonical notes, ${restSeq} rests, ${MEASURES.length} measures, ${BPM} BPM)`);

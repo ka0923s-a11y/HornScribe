@@ -4,11 +4,12 @@ import {
   type SegmentedOption,
 } from "./primitives/SegmentedControl";
 
-export type PitchView = "concert" | "hornF";
+export type PitchView = "concert" | "hornF" | "bFlat";
 
 const OPTIONS: readonly SegmentedOption<PitchView>[] = [
   { value: "concert", label: ja.pitch.concert },
   { value: "hornF", label: ja.pitch.hornF },
+  { value: "bFlat", label: ja.pitch.bFlat },
 ];
 
 /**
@@ -20,13 +21,23 @@ const OPTIONS: readonly SegmentedOption<PitchView>[] = [
 export function PitchSegmented({
   value,
   onChange,
+  bFlatAvailable = true,
 }: {
   value: PitchView;
   onChange: (v: PitchView) => void;
+  /** #156: false disables the B♭ segment with a reason (documents
+   *  without a B♭ presentation - e.g. mock/fixture sources - can
+   *  never show written-Bb pitches, so the option stays honest). */
+  bFlatAvailable?: boolean;
 }) {
+  const options = OPTIONS.map((o) =>
+    o.value === "bFlat" && !bFlatAvailable
+      ? { ...o, disabled: true, ariaLabel: ja.pitch.bFlatUnavailable }
+      : o,
+  );
   return (
     <SegmentedControl
-      options={OPTIONS}
+      options={options}
       value={value}
       onChange={onChange}
       ariaLabel={ja.pitch.regionLabel}

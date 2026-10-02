@@ -252,16 +252,17 @@ function IconButtonSection() {
 const SEGMENT_OPTIONS = [
   { value: "concert", label: ja.pitch.concert },
   { value: "hornF", label: ja.pitch.hornF },
+  { value: "bFlat", label: ja.pitch.bFlat },
 ] as const;
 
 function SegmentedFixture({
   value,
   disabled,
 }: {
-  value: "concert" | "hornF";
+  value: "concert" | "hornF" | "bFlat";
   disabled?: boolean;
 }) {
-  const [v, setV] = useState<"concert" | "hornF">(value);
+  const [v, setV] = useState<"concert" | "hornF" | "bFlat">(value);
   return (
     <SegmentedControl
       options={SEGMENT_OPTIONS}

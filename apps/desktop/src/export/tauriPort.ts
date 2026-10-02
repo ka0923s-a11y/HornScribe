@@ -34,8 +34,10 @@ import {
 const ARTIFACT_NAMES: Record<ExportFormatId, string> = {
   concertMusicxml: "concert.musicxml",
   hornMusicxml: "horn_in_f.musicxml",
+  bFlatMusicxml: "b_flat.musicxml",
   concertPdf: "concert.pdf",
   hornPdf: "horn_in_f.pdf",
+  bFlatPdf: "b_flat.pdf",
   playbackMidi: "playback.mid",
   // The real artifact keeps the source's own extension — this is only
   // the display-name fallback when the copy result has no file name.
@@ -241,7 +243,7 @@ export class TauriExportPort implements ExportPort {
     const wantsAudio =
       request.formats.includes("sourceAudio") && source.audioPath != null;
     const pdfFormats = request.formats.filter(
-      (f) => f === "concertPdf" || f === "hornPdf",
+      (f) => f === "concertPdf" || f === "hornPdf" || f === "bFlatPdf",
     );
     const plan = (stem: string) => {
       const names = new Map<ExportFormatId, string>();
@@ -325,6 +327,8 @@ export class TauriExportPort implements ExportPort {
         batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("concert")) });
       } else if (format === "hornMusicxml") {
         batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("hornF")) });
+      } else if (format === "bFlatMusicxml") {
+        batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("bFlat")) });
       } else if (format === "playbackMidi") {
         // #256/#390: prefer the engine's canonical exporter (velocity /
         // bend / swing / tempo map survive). A dead or failing engine
@@ -360,10 +364,20 @@ export class TauriExportPort implements ExportPort {
           // producer to begin with.
           if (canonical && this.midiExporter) degraded.push("playbackMidi");
         }
-      } else if (format === "concertPdf" || format === "hornPdf") {
+      } else if (
+        format === "concertPdf" ||
+        format === "hornPdf" ||
+        format === "bFlatPdf"
+      ) {
         pdfPayloads.push({
           name,
-          musicXml: source.doc.musicXml(format === "hornPdf" ? "hornF" : "concert"),
+          musicXml: source.doc.musicXml(
+            format === "hornPdf"
+              ? "hornF"
+              : format === "bFlatPdf"
+                ? "bFlat"
+                : "concert",
+          ),
         });
       }
     }
@@ -426,10 +440,10 @@ export class TauriExportPort implements ExportPort {
   }
 
   /** §13 高度編集: hand the live score to the MuseScore GUI. The view
-   *  argument picks concert vs F管 written pitch — the same document the
-   *  user is looking at, edits included. */
+   *  argument picks concert / F管 / B♭管 written pitch — the same
+   *  document the user is looking at, edits included. */
   async openInMuseScore(
-    view: "concert" | "hornF",
+    view: "concert" | "hornF" | "bFlat",
     overrides?: ToolPathOverrides,
   ): Promise<string> {
     const source = this.source();
