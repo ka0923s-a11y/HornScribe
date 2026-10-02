@@ -757,6 +757,190 @@ class TestClean:
         assert out.events[0].offset_sec == pytest.approx(2.2)
         assert out.ghost_dropped == 2
 
+    def test_edge_evidence_keeps_same_pitch_rearticulation(self) -> None:
+        # boundary-4-4: the seam gate vetoes a same-pitch merge when
+        # the audio carries a real attack on the seam — a tongued
+        # repeat must not collapse into one held note.
+        evs = (
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000001"),
+                transcription_revision=_REV,
+                pitch_midi=60,
+                onset_sec=3.5,
+                offset_sec=3.97,
+                confidence=0.8,
+            ),
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000002"),
+                transcription_revision=_REV,
+                pitch_midi=60,
+                onset_sec=4.0,
+                offset_sec=4.5,
+                confidence=0.8,
+            ),
+        )
+        out = clean_monophonic(evs, edge_evidence=lambda a, b: True)
+        assert len(out.events) == 2
+        assert out.merged == 0
+
+    def test_edge_evidence_absent_or_false_merges(self) -> None:
+        evs = (
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000001"),
+                transcription_revision=_REV,
+                pitch_midi=60,
+                onset_sec=0.0,
+                offset_sec=0.48,
+                confidence=0.8,
+            ),
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000002"),
+                transcription_revision=_REV,
+                pitch_midi=60,
+                onset_sec=0.48,
+                offset_sec=0.9,
+                confidence=0.8,
+            ),
+        )
+        assert len(clean_monophonic(evs).events) == 1
+        gated = clean_monophonic(evs, edge_evidence=lambda a, b: False)
+        assert len(gated.events) == 1
+        assert gated.merged == 1
+
+    def test_edge_evidence_only_consulted_under_onset(self) -> None:
+        # prefer="top" merges unconditionally — on a mix the flux at a
+        # same-pitch seam is usually an accompaniment transient, which
+        # is exactly what the bridge merge exists to heal.
+        evs = (
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000001"),
+                transcription_revision=_REV,
+                pitch_midi=76,
+                onset_sec=0.0,
+                offset_sec=0.48,
+                confidence=0.8,
+            ),
+            RawNoteEvent(
+                id=RawNoteEventId("rne-000002"),
+                transcription_revision=_REV,
+                pitch_midi=76,
+                onset_sec=0.48,
+                offset_sec=0.9,
+                confidence=0.8,
+            ),
+        )
+        out = clean_monophonic(
+            evs, prefer="top", edge_evidence=lambda a, b: True
+        )
+        assert len(out.events) == 1
+        assert out.merged == 1
+
+    def test_edge_evidence_abstains_when_seam_busy(self) -> None:
+        # reverb-4-4 shape: a third event attacks inside the seam's
+        # flux window — the onset peak is its energy, not evidence the
+        # same-pitch pair re-articulated. The gate abstains (merge).
+        a = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.0,
+            offset_sec=0.5,
+            confidence=0.8,
+        )
+        b = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.5,
+            offset_sec=1.0,
+            confidence=0.7,
+        )
+        intruder = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=64,
+            onset_sec=0.54,  # attacks inside b's seam window
+            offset_sec=1.4,
+            confidence=0.9,
+        )
+        gated = clean_monophonic(
+            (a, b, intruder), edge_evidence=lambda x, y: True
+        )
+        assert gated.merged == 1
+        # a+b merged, then clipped at the intruder's onset.
+        assert gated.events[0].offset_sec == pytest.approx(0.54)
+        # Without the intruder the same pair stays split.
+        free = clean_monophonic((a, b), edge_evidence=lambda x, y: True)
+        assert free.merged == 0
+        assert len(free.events) == 2
+
+    def test_tail_retrigger_contained_frag_suppressed(self) -> None:
+        # reverb-4-4: a short contained event at the predecessor's
+        # pitch is the just-ended note's ringing tail re-firing under
+        # the new attack — suppress it instead of clipping the real
+        # note down to a too-short stub.
+        before = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.0,
+            offset_sec=1.0,
+            confidence=0.8,
+        )
+        prev = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=67,
+            onset_sec=0.98,
+            offset_sec=2.0,
+            confidence=0.7,
+        )
+        frag = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=1.02,
+            offset_sec=1.15,
+            confidence=0.55,
+        )
+        out = clean_monophonic((before, prev, frag))
+        assert [e.pitch_midi for e in out.events] == [60.0, 67.0]
+        # The real note keeps its full span — no stub, no phantom 60.
+        assert out.events[1].offset_sec == pytest.approx(2.0)
+        assert out.ghost_dropped == 1
+
+    def test_tail_retrigger_requires_predecessor_pitch_match(self) -> None:
+        # Same contained shape at a DIFFERENT pitch is not a tail
+        # re-trigger — the ordinary confidence test still decides, and
+        # here the interleave is too strong to call a ghost (#129).
+        before = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.0,
+            offset_sec=1.0,
+            confidence=0.8,
+        )
+        prev = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=67,
+            onset_sec=0.98,
+            offset_sec=2.0,
+            confidence=0.7,
+        )
+        frag = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=62,  # not before's pitch
+            onset_sec=1.02,
+            offset_sec=1.15,
+            confidence=0.55,
+        )
+        out = clean_monophonic((before, prev, frag))
+        assert len(out.events) == 3
+        assert out.ghost_dropped == 0
+
 
 class TestSplitVoices:
     """#85: polyphonic input partitions into two monophonic streams."""

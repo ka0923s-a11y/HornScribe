@@ -65,6 +65,10 @@ class Note:
     timbre: str = "lead"
     # -1..1 stereo position. Only honoured by the stereo renderer.
     pan: float = 0.0
+    # Reverb tail seconds — the note keeps sounding (exponential decay)
+    # past its truth offset. Real room recordings smear offsets into the
+    # next onset; the truth stays at the written note end (#bench).
+    tail: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,9 @@ class Fixture:
     # Pass vocalIsolation to the job (pipeline.py: solo-melody
     # preprocess — skipped under voices/chords textures).
     vocal_isolation: bool = False
+    # Seconds of silence padded after the last note's end. 0 means the
+    # file ends mid-ring — the EOF-boundary case.
+    pad: float = 0.3
 
     def truth_meter(self) -> str:
         return self.expect_meter or self.meter
@@ -103,7 +110,7 @@ def _note_samples(n: Note, sr: int) -> list[float]:
     envelope edges (a pad fades in, a noise burst is attack-only).
     timbre="lead" reproduces the original sine+h2 fixture tone."""
     s0, s1 = int(n.onset * sr), int(n.offset * sr)
-    count = s1 - s0
+    count = int((n.offset + n.tail) * sr) - s0
     if count <= 0:
         return []
     if n.timbre == "noise":
@@ -113,6 +120,12 @@ def _note_samples(n: Note, sr: int) -> list[float]:
             env = min(1.0, i / sr / 0.004) * math.exp(-i / sr / 0.045)
             out.append(env * (rng.random() * 2.0 - 1.0))
         return out
+    if n.timbre == "hiss":
+        # Sustained broadband bed — mic hiss / crowd / room noise under
+        # real recordings. Deterministic seed per note keeps runs stable.
+        rng = random.Random(int(n.onset * 977) * 31 + n.midi)
+        # amp is applied by the mixer loop like every other timbre.
+        return [rng.random() * 2.0 - 1.0 for _ in range(count)]
     f = 440.0 * 2 ** ((n.midi - 69) / 12)
     attack = 0.03 if n.timbre == "pad" else 0.01
     decay = 0.05 if n.timbre == "pad" else 0.02
@@ -121,6 +134,10 @@ def _note_samples(n: Note, sr: int) -> list[float]:
     for i in range(count):
         t = i / sr
         env = min(1.0, t / attack) * min(1.0, (count - i) / sr / decay)
+        if n.tail and t > (n.offset - n.onset):
+            # Past the written end the note rings on as a reverb tail —
+            # ~95 ms RT60-ish decay, audible but sub-onset energy.
+            env *= math.exp(-(t - (n.offset - n.onset)) / 0.09)
         if n.timbre == "pad":
             sig = sum(math.sin(2 * math.pi * f * d * t) for d in detune) / 3.0
         elif n.timbre == "bass":
@@ -162,11 +179,12 @@ def _synth(
     notes: tuple[Note, ...],
     sr: int = 22050,
     stereo: bool = False,
+    pad: float = 0.3,
 ) -> None:
     """Render `notes` to wav. stereo=True writes a 2-channel file with
     equal-power panning; the mono path is byte-identical to the original
     renderer (timbre="lead", pan ignored)."""
-    total = int((max(n.offset for n in notes) + 0.3) * sr)
+    total = int((max(n.offset + n.tail for n in notes) + pad) * sr)
     chans = [[0.0] * total for _ in range(2 if stereo else 1)]
     for n in notes:
         sig = _note_samples(n, sr)
@@ -643,6 +661,152 @@ def _tempo_step() -> Fixture:
     )
 
 
+def _rubato() -> Fixture:
+    """Continuous ritardando 120 -> ~90 bpm — tempo-map tracking on a
+    drift, not a step (tempo-step covers the discrete case). Beat k's
+    duration uses the local bpm at its onset; truth onsets come from
+    the same integration the score's tempoMap must reproduce."""
+    bpm0, bpm1, nbeats = 120.0, 90.0, 32
+    pitches = [
+        60, 62, 64, 65, 67, 69, 71, 72,
+        72, 71, 69, 67, 65, 64, 62, 60,
+        60, 64, 67, 72, 71, 67, 64, 60,
+        62, 65, 69, 72, 69, 65, 62, 60,
+    ]
+    notes: list[Note] = []
+    t = 0.0
+    for k, p in enumerate(pitches):
+        bpm = bpm0 + (bpm1 - bpm0) * (k / (nbeats - 1))
+        beat = 60.0 / bpm
+        notes.append(Note(t, t + beat - 0.03, p, 0.7))
+        t += beat
+    return Fixture(
+        "rubato-4-4",
+        tuple(notes),
+        expect_meter="4/4",
+        note="continuous 120->90 ritardando — drift tracking (auto tempo)",
+    )
+
+
+def _reverb_tail() -> Fixture:
+    """Eighth-note melody where every note rings ~350 ms past its
+    written end — room reverb bleeding into the next onset. Real mic
+    recordings all do this; the onset that follows a ringing tail is
+    the hard part, not the sustained note."""
+    beat = 0.5
+    pitches = [60, 64, 67, 64, 65, 69, 72, 69,
+               67, 71, 74, 71, 72, 69, 67, 64]
+    notes = tuple(
+        Note(i * beat, (i + 1) * beat - 0.03, p, 0.7, tail=0.35)
+        for i, p in enumerate(pitches)
+    )
+    return Fixture(
+        "reverb-4-4",
+        notes,
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="350ms reverb tails — onset detection under ringing sustain",
+    )
+
+
+def _trill() -> Fixture:
+    """A measured trill embedded in a melody — sixteenth-note M2
+    alternation at 120 bpm for two beats. Ornament-rate pitch flips
+    test whether the tracker fragments, merges, or tracks the
+    alternation honestly."""
+    beat = 0.5
+    sixteenth = beat / 4.0
+    notes: list[Note] = []
+    seq = [60, 64, 67, 72]
+    for i, p in enumerate(seq):
+        notes.append(Note(i * beat, (i + 1) * beat - 0.03, p, 0.7))
+    # Trill: D5<->E5 sixteenths across beats 4..6 (8 alternations).
+    t = 4 * beat
+    for i in range(8):
+        p = 76 if i % 2 == 0 else 74
+        notes.append(Note(t, t + sixteenth - 0.02, p, 0.65))
+        t += sixteenth
+    notes.append(Note(6 * beat, 8 * beat - 0.05, 69, 0.75))
+    return Fixture(
+        "trill-4-4",
+        tuple(notes),
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="sixteenth-note M2 trill — ornament-rate pitch tracking",
+    )
+
+
+def _quiet_lead_mix() -> Fixture:
+    """jpop-mix-hard with the lead buried — lead at 0.32 under a 0.4
+    same-octave strum. The lowest-SNR mix row: does the vocal-isolated
+    lead survive when the backing is louder than the voice?"""
+    lead_raw, backing = _jpop_mix_hard_parts()
+    lead = tuple(
+        Note(n.onset, n.offset, n.midi, 0.32, "vox", n.pan)
+        for n in lead_raw
+    )
+    louder = tuple(
+        Note(n.onset, n.offset, n.midi, n.amp * 1.5, n.timbre, n.pan)
+        for n in backing
+    )
+    return Fixture(
+        "quiet-lead-mix",
+        lead,
+        backing=louder,
+        stereo=True,
+        vocal_isolation=True,
+        meter="4/4",
+        tempo_bpm=128.0,
+        texture="melody",
+        note="lead under backing level — low-SNR vocal isolation",
+    )
+
+
+def _boundary() -> Fixture:
+    """Piece starts ON a sustained note and the last note runs to the
+    file end — boundary handling: no silence lead-in for the first
+    onset, no decay for the last offset."""
+    beat = 0.5
+    pitches = [48, 50, 52, 53, 55, 57, 59, 60]
+    notes = [
+        Note(0.0, beat - 0.03, pitches[0], 0.8),
+    ]
+    for i, p in enumerate(pitches[1:], start=1):
+        notes.append(Note(i * beat, (i + 1) * beat - 0.03, p, 0.7))
+    # Last note: rings past the end of file — pad=0 truncates its tail
+    # at EOF, so the file ends while the note still sounds.
+    notes.append(Note(8 * beat, 9 * beat, 60, 0.8, tail=0.4))
+    return Fixture(
+        "boundary-4-4",
+        tuple(notes),
+        meter="4/4",
+        tempo_bpm=120.0,
+        pad=0.0,
+        note="first onset at t=0, last note clipped by EOF",
+    )
+
+
+def _noisy() -> Fixture:
+    """Melody over a broadband hiss bed — mic-noise SNR stress. The
+    noise spans the whole file at low level; pitch tracking must not
+    invent notes from the bed or drop the lead under it."""
+    beat = 0.5
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72] * 2
+    notes = tuple(
+        Note(i * beat, (i + 1) * beat - 0.03, p, 0.6)
+        for i, p in enumerate(pitches)
+    )
+    bed = (Note(0.0, len(pitches) * beat + 0.3, 60, 0.10, "hiss"),)
+    return Fixture(
+        "noisy-4-4",
+        notes,
+        backing=bed,
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="broadband hiss bed — SNR robustness",
+    )
+
+
 FIXTURES = (
     _waltz,
     _six_eight,
@@ -663,6 +827,12 @@ FIXTURES = (
     _auto_34,
     _auto_68,
     _tempo_step,
+    _rubato,
+    _reverb_tail,
+    _trill,
+    _quiet_lead_mix,
+    _boundary,
+    _noisy,
 )
 
 
@@ -958,7 +1128,7 @@ def main() -> int:
             if only and fx.name not in only:
                 continue
             wav = tdp / (fx.name + ".wav")
-            _synth(wav, fx.notes + fx.backing, stereo=fx.stereo)
+            _synth(wav, fx.notes + fx.backing, stereo=fx.stereo, pad=fx.pad)
             proc = _spawn(args)
             t0 = time.monotonic()
             result: dict | None = None

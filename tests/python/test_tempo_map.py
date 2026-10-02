@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+import pytest
+
 from hornscribe.rhythm.beatmap import BeatAnchor, BeatMap, BeatSource
 from hornscribe.rhythm.meter import MeterSegment
 from hornscribe.rhythm.timewarp import TimeWarp
@@ -186,3 +188,74 @@ def test_tempo_map_uses_warp_rate_at_measure_bounds() -> None:
     assert abs(segs[0].bpm - 100.0) < 2.0
     fast = [s for s in segs if s.start_beat >= 8]
     assert fast and all(abs(s.bpm - 140.0) < 8.0 for s in fast)
+
+
+def test_leading_beats_walk_back_on_local_interval() -> None:
+    """rubato-4-4: when the tracker drops several opening beats the
+    refill must space synthesized anchors on the LOCAL interval at the
+    track boundary — on a rit./accel. the early beats run faster than
+    the global median, so median-spaced fill lands every anchor off
+    the real pulse."""
+    from hornscribe.transcription.tempo import estimate_tempo
+
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    # Tracked beats start at 2.04 s with ~0.51 s local spacing that
+    # drifts up to 0.75 s later — global median (~0.565) differs from
+    # the boundary-local interval (~0.515) enough to discriminate.
+    times = [2.04]
+    for d in (0.50, 0.51, 0.52, 0.53, 0.60, 0.65, 0.70, 0.75):
+        times.append(times[-1] + d)
+    est = estimate_tempo(
+        None,
+        22050,
+        meter,
+        tempo_bpm=None,
+        first_onset_sec=0.0,
+        beat_times=tuple(times),
+    )
+    # Four missing beats refilled at the local ~0.515 s spacing:
+    # anchors at 0.0 / 0.515 / 1.03 / 1.545 s map to beats 0-3.
+    warp = est.warp
+    assert float(warp.seconds_to_ql(0.0)) == pytest.approx(0.0, abs=0.02)
+    assert float(warp.seconds_to_ql(0.515)) == pytest.approx(1.0, abs=0.02)
+    assert float(warp.seconds_to_ql(1.03)) == pytest.approx(2.0, abs=0.02)
+
+
+_DYN_FRAME_SEC = 512.0 / 22050.0
+
+
+def test_plateau_grouping_splits_drift_staircase() -> None:
+    """rubato-4-4: a continuous rit. quantizes the autocorr tempo
+    curve into a staircase — each plateau must become its own region
+    so the per-region re-track follows the drift instead of averaging
+    it into one tempo the DP cannot hold."""
+    from hornscribe.transcription.pipeline import _tempo_regions_from_dyn
+
+    levels = (117.5, 112.3, 107.7, 103.4, 99.4, 95.7, 92.3)
+    dyn = [v for level in levels for v in (level,) * 115]  # ~2.7 s each
+    regions = _tempo_regions_from_dyn(dyn, _DYN_FRAME_SEC)
+    assert len(regions) == len(levels)
+    assert regions[0][2] == pytest.approx(117.5, abs=0.5)
+    assert regions[-1][2] == pytest.approx(92.3, abs=0.5)
+
+
+def test_plateau_grouping_steady_tempo_stays_one_region() -> None:
+    """Sub-band quantisation jitter (~1 %) must not split a steady
+    tempo — fewer than two survivors means the caller keeps the
+    single global track."""
+    from hornscribe.transcription.pipeline import _tempo_regions_from_dyn
+
+    dyn = [121.4 if i % 2 else 120.0 for i in range(400)]
+    assert _tempo_regions_from_dyn(dyn, _DYN_FRAME_SEC) == []
+
+
+def test_plateau_grouping_folds_short_plateau() -> None:
+    """A sub-second tempo blip folds into its tempo-nearer neighbour;
+    the two real plateaus survive as regions."""
+    from hornscribe.transcription.pipeline import _tempo_regions_from_dyn
+
+    dyn = [120.0] * 200 + [131.0] * 22 + [140.0] * 200
+    regions = _tempo_regions_from_dyn(dyn, _DYN_FRAME_SEC)
+    assert len(regions) == 2
+    assert regions[0][2] < 125.0
+    assert regions[1][2] > 135.0
