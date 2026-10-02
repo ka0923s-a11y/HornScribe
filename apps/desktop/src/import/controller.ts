@@ -972,6 +972,7 @@ function scoreResultFromProject(
   return {
     musicXmlConcert: concert,
     musicXmlHornF: horn,
+    musicXmlBFlat: data.musicXmlBFlat,
     scoreRevision:
       score && typeof score.revision === "string"
         ? score.revision

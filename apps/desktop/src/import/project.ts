@@ -6,7 +6,8 @@
  * HornScribeProject.from_dict before writing, so every id here must
  * already satisfy the domain regexes (prj-/rev-/tr-/sn-). Fields the
  * schema does not know (scoreDocument, musicXmlConcert, musicXmlHornF,
- * reviewIssues) ride along as extra keys — preserved verbatim, ignored
+ * musicXmlBFlat, reviewIssues) ride along as extra keys — preserved
+ * verbatim, ignored
  * by the v1 validator, and the data a future project-open restore
  * needs to reconstruct the score without re-transcribing.
  */
@@ -242,6 +243,12 @@ export async function buildProjectDocument(
         : []),
     musicXmlConcert: doc.musicXml("concert"),
     musicXmlHornF: doc.musicXml("hornF"),
+    // #156: persist the B♭ presentation when the document carries one;
+    // legacy documents leave the key absent and project.open's
+    // engine-side backfill regenerates it on the next open.
+    ...(doc.supportsPitchView?.("bFlat") === true
+      ? { musicXmlBFlat: doc.musicXml("bFlat") }
+      : {}),
     meta,
     // #12: 区間ラベル — extras 領域に載せて開き直しで復元する。
     regionLabels: input.regionLabels ?? [],

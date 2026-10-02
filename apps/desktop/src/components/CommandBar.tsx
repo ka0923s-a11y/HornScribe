@@ -115,6 +115,7 @@ export function CommandBar({
   onToggleCaptureMonitor,
   onShortcutsHelp,
   queuePendingCount,
+  bFlatAvailable,
 }: {
   commands: CommandSurface;
   pitch: PitchView;
@@ -148,6 +149,9 @@ export function CommandBar({
   onToggleCaptureMonitor?(source: CaptureSource): void;
   /** #318: open the keyboard-shortcuts help overlay. */
   onShortcutsHelp?(): void;
+  /** #156: B♭ segment enablement — false on legacy documents without
+   *  a bFlat projection (undefined = available, keeps tests lean). */
+  bFlatAvailable?: boolean;
   /** #103: 採譜キューの pending+running 件数 — 専用メニューボタンの
    *  ラベルに出す(バックグラウンド進行の存在を常駐表示)。 */
   queuePendingCount?: number;
@@ -557,7 +561,13 @@ export function CommandBar({
       ) : null}
 
       {loaded ? <span className="hs-commandbar__spacer" /> : null}
-      {loaded ? <PitchSegmented value={pitch} onChange={onPitch} /> : null}
+      {loaded ? (
+        <PitchSegmented
+          value={pitch}
+          onChange={onPitch}
+          bFlatAvailable={bFlatAvailable}
+        />
+      ) : null}
       <span className="hs-commandbar__spacer" />
 
       {/* FEAT-001: 録音ソース — EMPTY/READY どちらでも新しい音源を取り込める。

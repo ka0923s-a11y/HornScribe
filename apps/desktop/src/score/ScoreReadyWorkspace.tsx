@@ -487,10 +487,13 @@ export function ScoreReadyWorkspace({
   const docsRef = useRef<{
     concert: ScoreDoc;
     horn: ScoreDoc;
+    bFlat: ScoreDoc | null;
     concertByCanonical: Map<string, ParsedNote[]>;
     hornByCanonical: Map<string, ParsedNote[]>;
+    bFlatByCanonical: Map<string, ParsedNote[]>;
     concertByExport: Map<string, ParsedNote>;
     hornByExport: Map<string, ParsedNote>;
+    bFlatByExport: Map<string, ParsedNote>;
   } | null>(null);
 
   // Refs mirrored so the rAF pump / layout effect always see fresh values.
@@ -890,17 +893,24 @@ export function ScoreReadyWorkspace({
       .then((r) => {
         if (cancelled) return;
         rendererRef.current = r;
-        // Parse both presentations once — inspector reads both regardless of
-        // the current view (written/concert rows, §22).
+        // Parse the presentations once - inspector reads written/concert
+        // rows regardless of the current view (§22). #156: the B-flat
+        // presentation is optional; an absent one parses as null maps.
         const concert = parseScoreDoc(scoreDoc.musicXml("concert"));
         const horn = parseScoreDoc(scoreDoc.musicXml("hornF"));
+        const bFlat = scoreDoc.supportsPitchView?.("bFlat")
+          ? parseScoreDoc(scoreDoc.musicXml("bFlat"))
+          : null;
         docsRef.current = {
           concert,
           horn,
+          bFlat,
           concertByCanonical: notesByCanonical(concert),
           hornByCanonical: notesByCanonical(horn),
+          bFlatByCanonical: bFlat ? notesByCanonical(bFlat) : new Map(),
           concertByExport: notesByExportId(concert),
           hornByExport: notesByExportId(horn),
+          bFlatByExport: bFlat ? notesByExportId(bFlat) : new Map(),
         };
         renderScore(pitchRef.current);
         // Canonical timing is identical across presentations (same
@@ -1075,10 +1085,16 @@ export function ScoreReadyWorkspace({
       ? (docs.concertByCanonical.get(canonical) ?? [])
       : [
           docs.concertByExport.get(sel.exportId) ??
-            docs.hornByExport.get(sel.exportId),
+            docs.hornByExport.get(sel.exportId) ??
+            docs.bFlatByExport.get(sel.exportId),
         ].filter((n): n is ParsedNote => n != null);
-    const hornFrags = canonical
-      ? (docs.hornByCanonical.get(canonical) ?? [])
+    // #156: the written column follows the CURRENT written view - the
+    // inspector's 記譜音 row always names what the user is looking at;
+    // concert view keeps the F-horn written pitch as the secondary.
+    const writtenByCanonical =
+      pitch === "bFlat" ? docs.bFlatByCanonical : docs.hornByCanonical;
+    const writtenFrags = canonical
+      ? (writtenByCanonical.get(canonical) ?? [])
       : concertFrags;
     const onsetMs = canonical
       ? (tableRef.current?.onsetMsByCanonical.get(canonical) ?? null)
@@ -1087,7 +1103,7 @@ export function ScoreReadyWorkspace({
       buildNoteInspector({
         canonicalId: canonical,
         concert: concertFrags,
-        written: hornFrags,
+        written: writtenFrags,
         onsetMs,
         // UI-050: all issues for the note (open AND decided) — the status
         // label column keeps resolved rows readable in the inspector.
@@ -1383,13 +1399,19 @@ export function ScoreReadyWorkspace({
   const reloadEditedScore = useCallback(() => {
     const concert = parseScoreDoc(scoreDoc.musicXml("concert"));
     const horn = parseScoreDoc(scoreDoc.musicXml("hornF"));
+    const bFlat = scoreDoc.supportsPitchView?.("bFlat")
+      ? parseScoreDoc(scoreDoc.musicXml("bFlat"))
+      : null;
     docsRef.current = {
       concert,
       horn,
+      bFlat,
       concertByCanonical: notesByCanonical(concert),
       hornByCanonical: notesByCanonical(horn),
+      bFlatByCanonical: bFlat ? notesByCanonical(bFlat) : new Map(),
       concertByExport: notesByExportId(concert),
       hornByExport: notesByExportId(horn),
+      bFlatByExport: bFlat ? notesByExportId(bFlat) : new Map(),
     };
     renderScore(pitchRef.current, { keepScroll: true });
     const r = rendererRef.current;
@@ -1696,6 +1718,7 @@ export function ScoreReadyWorkspace({
           const next = {
             concertXml: result.musicXmlConcert,
             hornXml: result.musicXmlHornF,
+            bFlatXml: result.musicXmlBFlat,
             revisionId: result.scoreRevision,
             canonicalDocument: result.scoreDocument,
             // #224: the canonical the engine just consumed already
@@ -2538,9 +2561,10 @@ const setKey = useCallback(
             </HsButton>
           </span>
         )}
-        {pitch === "hornF" && (
+        {pitch !== "concert" && (
           <span className="hs-score-toolbar__caption">
-            {ja.pitch.hornF}（{ja.pitch.writtenNote}）
+            {pitch === "hornF" ? ja.pitch.hornF : ja.pitch.bFlat}（
+            {ja.pitch.writtenNote}）
           </span>
         )}
         <span className="hs-score-toolbar__spacer" />

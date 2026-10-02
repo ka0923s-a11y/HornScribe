@@ -24,6 +24,10 @@ export interface XmlScoreDocumentSources {
   readonly concertXml: string;
   /** Written-pitch F管 presentation of the SAME canonical notes. */
   readonly hornXml: string;
+  /** #156: written-pitch B♭ presentation of the SAME canonical notes.
+   *  Optional - documents predating the B♭ view, fixtures and mock
+   *  results may not carry it; supportsPitchView reports the gap. */
+  readonly bFlatXml?: string;
   /** `sr-*`/`rev-*` revision id the decisions/edits bind to. */
   readonly revisionId: string;
   /** Engine review issues for this revision (`[]` = honestly clean). */
@@ -44,6 +48,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
   private _meta: ScoreDocumentMeta;
   private concertXml: string;
   private hornXml: string;
+  private bFlatXml: string | null;
   private canonicalDoc: unknown | null;
   private issues: readonly ScoreReviewIssue[];
   private _omittedIssueCount = 0;
@@ -84,6 +89,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     this.issues = src.issues;
     this.concertXml = src.concertXml;
     this.hornXml = src.hornXml;
+    this.bFlatXml = src.bFlatXml ?? null;
     this.canonicalDoc = src.canonicalDocument ?? null;
     this.canonicalDeletedIds = deletedIdsOf(this.canonicalDoc);
     this._meta = XmlScoreDocument.computeMeta(src.concertXml);
@@ -150,11 +156,28 @@ export class XmlScoreDocument implements ScoreDocumentPort {
   }
 
   musicXml(view: PitchViewSetting): string {
-    const base = view === "hornF" ? this.hornXml : this.concertXml;
+    let base: string;
+    if (view === "hornF") {
+      base = this.hornXml;
+    } else if (view === "bFlat") {
+      if (this.bFlatXml === null) {
+        // Callers gate on supportsPitchView; reaching this means a
+        // new call site skipped the check - fail loud, never render
+        // concert pitches dressed as a written B-flat view.
+        throw new Error("document has no B-flat presentation");
+      }
+      base = this.bFlatXml;
+    } else {
+      base = this.concertXml;
+    }
     // #224: the canonical note map lets the overlay also RESTORE —
     // a deleted:false edit on a canonical-deleted note re-pitches the
     // emitted rest from the canonical pitchMidi.
     return applyNoteEdits(base, this.edits, this.canonicalDoc);
+  }
+
+  supportsPitchView(view: PitchViewSetting): boolean {
+    return view !== "bFlat" || this.bFlatXml !== null;
   }
 
   reviewIssues(): readonly ScoreReviewIssue[] {
@@ -247,6 +270,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     return {
       concertXml: this.concertXml,
       hornXml: this.hornXml,
+      bFlatXml: this.bFlatXml ?? undefined,
       revisionId: this._revisionId,
       canonicalDocument: this.canonicalDoc,
       noteEdits: new Map(this.edits),
@@ -331,6 +355,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
   replaceContent(next: {
     concertXml: string;
     hornXml: string;
+    bFlatXml?: string;
     revisionId: string;
     canonicalDocument: unknown;
     noteEdits?: ReadonlyMap<string, ScoreNoteEdit>;
@@ -359,6 +384,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     }
     this.concertXml = next.concertXml;
     this.hornXml = next.hornXml;
+    if (next.bFlatXml !== undefined) this.bFlatXml = next.bFlatXml;
     this._revisionId = next.revisionId;
     this.canonicalDoc = next.canonicalDocument;
     this.canonicalDeletedIds = deletedIdsOf(this.canonicalDoc);
@@ -499,6 +525,7 @@ export function materializeCanonicalEdits(
 export interface EngineScoreDocumentInput {
   readonly concertXml: string;
   readonly hornXml: string;
+  readonly bFlatXml?: string;
   readonly revisionId: string;
   readonly issues: readonly ScoreReviewIssue[];
   /** #115: canonical scoreDocument dict from the job result. */
@@ -523,6 +550,7 @@ export function createEngineScoreDocument(
     return new XmlScoreDocument({
       concertXml: input.concertXml,
       hornXml: input.hornXml,
+      bFlatXml: input.bFlatXml,
       revisionId: input.revisionId,
       issues: input.issues,
       canonicalDocument: input.canonicalDocument,
@@ -553,6 +581,10 @@ export function engineDocumentFromResult(
   return {
     concertXml: concert,
     hornXml: horn,
+    // #156: optional - engines before #156 and legacy project files
+    // lack it; the B♭ view simply disables instead of guessing.
+    bFlatXml:
+      typeof r.musicXmlBFlat === "string" ? r.musicXmlBFlat : undefined,
     revisionId:
       typeof r.scoreRevision === "string" ? r.scoreRevision : "rev-engine",
     issues: [],

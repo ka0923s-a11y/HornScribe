@@ -10,6 +10,7 @@
  * Contract notes (FND-001 / ids.py):
  * - `musicXml("concert")` is the canonical sounding document;
  *   `musicXml("hornF")` is the written-pitch F管 presentation of the SAME
+ *   `musicXml("bFlat")` is the B♭ written presentation (#156) -
  *   canonical notes — identical `hs-sn-*` element ids in both.
  * - `reviewIssues()` mirrors `ReviewIssue.to_dict()` (domain/review.py).
  */
@@ -72,9 +73,17 @@ export interface ScoreDocumentPort {
   /** Bumped on every user edit/decision so views can invalidate. */
   readonly editVersion: number;
   readonly meta: ScoreDocumentMeta;
-  /** MusicXML 4.0 string for the given pitch presentation — includes any
-   *  user note edits (UI-050), so export sees the corrected document. */
-  musicXml(view: PitchViewSetting): string;
+ /** MusicXML 4.0 string for the given pitch presentation — includes any
+  *  user note edits (UI-050), so export sees the corrected document. */
+ musicXml(view: PitchViewSetting): string;
+  /** #156: whether the document carries the presentation at all -
+   *  B-flat written XML arrived mid-history, so older documents,
+   *  fixtures and mock results may lack it. The UI gates the B♭
+   *  segment/command on this instead of guessing. Optional so fixture
+   *  ports that predated the method keep compiling (treated as all-
+   *  available when absent is NOT honest - default implementation
+   *  must answer truthfully). */
+  supportsPitchView?(view: PitchViewSetting): boolean;
   /** Review issues for this score revision (any status), with user
    *  decisions recorded via `recordReviewDecision` already applied. */
   reviewIssues(): readonly ScoreReviewIssue[];
@@ -130,6 +139,7 @@ export interface ScoreDocumentPort {
   contentSnapshot?(): {
     concertXml: string;
     hornXml: string;
+    bFlatXml?: string;
     revisionId: string;
     canonicalDocument: unknown;
     /** #224: pending note edits are part of the snapshot — a rhythm
@@ -144,6 +154,7 @@ export interface ScoreDocumentPort {
   replaceContent?(next: {
     concertXml: string;
     hornXml: string;
+    bFlatXml?: string;
     revisionId: string;
     canonicalDocument: unknown;
     /** #224: overlay edits to restore after the swap — the caller

@@ -30,6 +30,7 @@ from hornscribe.domain.score import (  # noqa: E402
 )
 from hornscribe.export import export_filename  # noqa: E402
 from hornscribe.export.musicxml import (  # noqa: E402
+    export_b_flat_musicxml,
     export_concert_musicxml,
     export_horn_in_f_musicxml,
 )
@@ -177,9 +178,15 @@ def _write_musicxml_fixtures(basename: str, score: ScoreDocument) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     concert_path = out_dir / export_filename("concert", basename)
     horn_path = out_dir / export_filename("horn_in_f", basename)
+    b_flat_path = out_dir / export_filename("b_flat", basename)
     concert_path.write_text(export_concert_musicxml(score), encoding="utf-8", newline="\n")
     horn_path.write_text(export_horn_in_f_musicxml(score), encoding="utf-8", newline="\n")
-    print(f"wrote {concert_path.relative_to(OUT.parent)} and {horn_path.relative_to(OUT.parent)}")
+    b_flat_path.write_text(export_b_flat_musicxml(score), encoding="utf-8", newline="\n")
+    print(
+        f"wrote {concert_path.relative_to(OUT.parent)}, "
+        f"{horn_path.relative_to(OUT.parent)} and "
+        f"{b_flat_path.relative_to(OUT.parent)}"
+    )
 
 
 if __name__ == "__main__":

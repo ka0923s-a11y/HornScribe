@@ -214,7 +214,8 @@ class HornScribeProject:
     """Root persisted object for ``schemaVersion`` 1.
 
     ``extras`` carries keys the schema does not model (the desktop writes
-    scoreDocument / musicXmlConcert / musicXmlHornF / reviewIssues / meta
+    scoreDocument / musicXmlConcert / musicXmlHornF / musicXmlBFlat /
+    reviewIssues / meta
     so a saved project restores its score without re-transcribing —
     #106/#218).  They round-trip verbatim; schema keys always win on a
     name collision so a future field cannot be silently shadowed.

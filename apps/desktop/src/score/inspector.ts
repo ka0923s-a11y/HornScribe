@@ -216,6 +216,29 @@ export function hornConcertFifths(writtenFifths: number): number {
   return foldFifths(writtenFifths - 1);
 }
 
+/** #156: fifths shift per written view (+1 for F horn, +2 for B-flat;
+ *  0 for concert). Mirrors instruments/transposition.py. */
+function writtenShiftFor(view: PitchViewSetting): number {
+  return view === "hornF" ? 1 : view === "bFlat" ? 2 : 0;
+}
+
+/** Concert key fifths as they appear in the given view. */
+export function writtenFifthsForView(
+  view: PitchViewSetting,
+  concertFifths: number,
+): number {
+  return foldFifths(concertFifths + writtenShiftFor(view));
+}
+
+/** Inverse of writtenFifthsForView: a signature picked on the written
+ *  score maps back to the concert fifths the engine edit expects. */
+export function concertFifthsForView(
+  view: PitchViewSetting,
+  writtenFifths: number,
+): number {
+  return foldFifths(writtenFifths - writtenShiftFor(view));
+}
+
 /** Parse a "n/m" meter label into raw signature parts (#129). */
 export function parseMeterLabel(
   label: string | null,
@@ -241,7 +264,7 @@ export function buildScoreInspector(
   // in the written Horn in F view every signature is projected +1
   // fifth (folded), matching the score's own key display.
   const viewFifths = (f: number) =>
-    view === "hornF" ? hornWrittenFifths(f) : f;
+    writtenFifthsForView(view, f);
   return {
     kind: "score",
     title: meta.title,
@@ -363,7 +386,7 @@ export function headlinePitch(
   model: NoteInspectorModel,
   view: PitchViewSetting,
 ): { primary: string; secondary: string | null } {
-  if (view === "hornF" && model.writtenPitch) {
+  if (view !== "concert" && model.writtenPitch) {
     return { primary: model.writtenPitch, secondary: model.concertPitch };
   }
   return { primary: model.concertPitch, secondary: model.writtenPitch };

@@ -15,15 +15,16 @@ import type {
 } from "../diagnostics/types";
 
 /**
- * The five export choices of §17. ENG-001 semantics:
- * - `concertMusicxml` / `hornMusicxml` → `*_concert.musicxml` /
- *   `*_horn_in_f.musicxml`; the F管ホルン artifact carries written pitches
- *   plus the -P5 `<transpose>` element so readers recover sounding pitch;
+ * The export choices of §17. ENG-001 semantics:
+ * - `concertMusicxml` / `hornMusicxml` / `bFlatMusicxml` →
+ *   `*_concert.musicxml` / `*_horn_in_f.musicxml` / `*_b_flat.musicxml`;
+ *   the transposing artifacts carry written pitches plus the `<transpose>`
+ *   element (-P5 for F, +M2 for B♭) so readers recover sounding pitch;
  * - `playbackMidi` → `*_playback.mid`, always *sounding* (concert) pitch —
  *   SMF has no transposing-instrument semantics, so a written-pitch MIDI
  *   would be ambiguous about its own pitch space (再生用MIDIは実音);
- * - `concertPdf` / `hornPdf` → rendered through MuseScore, hence gated by
- *   the MuseScore tool capability.
+ * - `concertPdf` / `hornPdf` / `bFlatPdf` → rendered through MuseScore,
+ *   hence gated by the MuseScore tool capability.
  * - `sourceAudio` → the original audio file copied alongside the score
  *   artifacts (#87 成果物同梱): a recording→score bundle stays usable
  *   outside the app. Gated by `capabilities.audioAvailable` — only refs
@@ -32,8 +33,10 @@ import type {
 export type ExportFormatId =
   | "concertMusicxml"
   | "hornMusicxml"
+  | "bFlatMusicxml"
   | "concertPdf"
   | "hornPdf"
+  | "bFlatPdf"
   | "playbackMidi"
   | "sourceAudio";
 
@@ -43,8 +46,10 @@ export type ExportFormatGroup = "score" | "pdf" | "midi" | "audio";
 export const EXPORT_FORMAT_GROUPS: Record<ExportFormatId, ExportFormatGroup> = {
   concertMusicxml: "score",
   hornMusicxml: "score",
+  bFlatMusicxml: "score",
   concertPdf: "pdf",
   hornPdf: "pdf",
+  bFlatPdf: "pdf",
   playbackMidi: "midi",
   sourceAudio: "audio",
 };
@@ -52,8 +57,10 @@ export const EXPORT_FORMAT_GROUPS: Record<ExportFormatId, ExportFormatGroup> = {
 export const EXPORT_FORMAT_IDS: readonly ExportFormatId[] = [
   "concertMusicxml",
   "hornMusicxml",
+  "bFlatMusicxml",
   "concertPdf",
   "hornPdf",
+  "bFlatPdf",
   "playbackMidi",
   "sourceAudio",
 ];
@@ -226,7 +233,7 @@ export interface ExportPort {
    * test doubles keep compiling — an absent implementation is a no-op.
    */
   openInMuseScore?(
-    view: "concert" | "hornF",
+    view: "concert" | "hornF" | "bFlat",
     overrides?: ToolPathOverrides,
   ): Promise<string>;
 }

@@ -111,6 +111,9 @@ export interface ScoreEditResult {
   readonly scoreRevision: string;
   readonly musicXmlConcert: string;
   readonly musicXmlHornF: string;
+  /** #156: the B♭ written presentation - optional so older engines
+   *  (protocol stays v1) still satisfy the result shape. */
+  readonly musicXmlBFlat?: string;
   /** #226: which requantize path ran — rawEvidence replays the
    *  persisted performance under new settings; synthetic re-rounds
    *  the notation (documents without raw evidence). Absent for

@@ -311,6 +311,7 @@ export class TranscriptionSession {
     scoreRevision: string;
     musicXmlConcert: string;
     musicXmlHornF: string;
+    musicXmlBFlat?: string;
   }> {
     await this.ensureEngine();
     const client = this.client;
@@ -322,6 +323,7 @@ export class TranscriptionSession {
       scoreRevision: string;
       musicXmlConcert: string;
       musicXmlHornF: string;
+      musicXmlBFlat?: string;
     }>("score.edit", { scoreDocument, edit });
   }
 

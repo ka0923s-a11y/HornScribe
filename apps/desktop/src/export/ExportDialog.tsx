@@ -141,11 +141,13 @@ const ERROR_KEPT: Partial<Record<ErrorKind, string>> = {
  * 書き出し dialog (GUI_UX_SPEC §17, §20; issue UI-060).
  *
  * Formats (all checked by default):
- *   楽譜: コンサートピッチ / F管ホルン MusicXML
- *   PDF:  コンサートピッチ / F管ホルン PDF  — disabled when MuseScore is
- *         missing, with the spec'd note + 場所を指定 recovery; MusicXML and
- *         MIDI stay available (acceptance: "missing MuseScore does not
- *         block other formats").
+ *   楽譜: コンサートピッチ / F管ホルン / B♭管ホルン MusicXML
+ *   PDF:  コンサートピッチ / F管ホルン / B♭管ホルン PDF — disabled when
+ *         MuseScore is missing, with the spec'd note + 場所を指定 recovery;
+ *         MusicXML and MIDI stay available (acceptance: "missing MuseScore
+ *         does not block other formats"). B♭管 rows additionally gate on
+ *         bFlatAvailable — legacy projects without a B♭ projection disable
+ *         them instead of exporting nothing.
  *   MIDI: 再生用MIDI（実音） — sounding pitch only (ENG-001).
  *
  * Phases: loading → form → running → done | error. Errors keep the §20
@@ -164,6 +166,7 @@ export function ExportDialog({
   initialSelected,
   onSelectionChange,
   suggestedBasename,
+  bFlatAvailable = true,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -183,6 +186,9 @@ export function ExportDialog({
   /** #362: suggested file basename — score title when edited, else
    *  the source-audio stem. Editable in the dialog. */
   suggestedBasename: string;
+  /** #156: the loaded document has a B♭ projection (engine ≥0.2.4 /
+   *  backfilled on open). Absent/false disables the B♭ rows. */
+  bFlatAvailable?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [caps, setCaps] = useState<ExportCapabilities | null>(null);
@@ -411,7 +417,9 @@ export function ExportDialog({
   const formatRow = (id: ExportFormatId) => {
     const pdfOff = blocked && EXPORT_FORMAT_GROUPS[id] === "pdf";
     const audioOff = audioBlocked && id === "sourceAudio";
-    const disabled = running || pdfOff || audioOff;
+    const bFlatOff =
+      !bFlatAvailable && (id === "bFlatMusicxml" || id === "bFlatPdf");
+    const disabled = running || pdfOff || audioOff || bFlatOff;
     const checkbox = (
       <Checkbox
         checked={selected[id]}
@@ -426,6 +434,17 @@ export function ExportDialog({
         <Tooltip
           key={id}
           content={e.audioDisabledTooltip}
+          relationship="label"
+        >
+          <span className="hs-export__option">{checkbox}</span>
+        </Tooltip>
+      );
+    }
+    if (bFlatOff) {
+      return (
+        <Tooltip
+          key={id}
+          content={e.bFlatDisabledTooltip}
           relationship="label"
         >
           <span className="hs-export__option">{checkbox}</span>
@@ -559,12 +578,14 @@ export function ExportDialog({
           <div className="hs-export__group">
             {formatRow("concertMusicxml")}
             {formatRow("hornMusicxml")}
+            {formatRow("bFlatMusicxml")}
           </div>
 
           <h3 className="hs-export__section">{e.pdfSection}</h3>
           <div className="hs-export__group">
             {formatRow("concertPdf")}
             {formatRow("hornPdf")}
+            {formatRow("bFlatPdf")}
           </div>
           {blocked ? (
             <p className="hs-export__note" role="note">

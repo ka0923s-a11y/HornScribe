@@ -57,8 +57,10 @@ export function ExportPage({ initial, phase: phaseParam }: { initial?: string; p
   const [checks, setChecks] = useState({
     concertMusicxml: true,
     hornMusicxml: true,
+    bFlatMusicxml: true,
     concertPdf: true,
     hornPdf: true,
+    bFlatPdf: true,
     playbackMidi: true,
   });
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -201,6 +203,11 @@ export function ExportPage({ initial, phase: phaseParam }: { initial?: string; p
                       onChange={toggle("hornMusicxml")}
                       label={e.options.hornMusicxml}
                     />
+                    <Checkbox
+                      checked={checks.bFlatMusicxml}
+                      onChange={toggle("bFlatMusicxml")}
+                      label={e.options.bFlatMusicxml}
+                    />
                   </div>
 
                   <h3 className="hs-proto-dialog__section">{e.pdfSection}</h3>
@@ -224,6 +231,17 @@ export function ExportPage({ initial, phase: phaseParam }: { initial?: string; p
                         checked={checks.hornPdf}
                         onChange={toggle("hornPdf")}
                         label={e.options.hornPdf}
+                        disabled={musescoreMissing}
+                      />
+                    </Tooltip>
+                    <Tooltip
+                      content={musescoreMissing ? e.pdfDisabledTooltip : ""}
+                      relationship="label"
+                    >
+                      <Checkbox
+                        checked={checks.bFlatPdf}
+                        onChange={toggle("bFlatPdf")}
+                        label={e.options.bFlatPdf}
                         disabled={musescoreMissing}
                       />
                     </Tooltip>

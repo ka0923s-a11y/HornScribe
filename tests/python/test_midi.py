@@ -165,7 +165,12 @@ def test_no_horn_in_f_midi_in_filename_policy(tmp_path) -> None:
     """`horn_in_f.mid` is never a default export (master plan §4.3)."""
     paths = export_score_bundle(make_score(), tmp_path)
     names = {p.name for p in paths.values()}
-    assert names == {"concert.musicxml", "horn_in_f.musicxml", "playback.mid"}
+    assert names == {
+        "concert.musicxml",
+        "horn_in_f.musicxml",
+        "b_flat.musicxml",
+        "playback.mid",
+    }
     assert "horn_in_f.mid" not in names
     with pytest.raises(ValueError):
         export_filename("horn_in_f_mid")
@@ -174,6 +179,7 @@ def test_no_horn_in_f_midi_in_filename_policy(tmp_path) -> None:
 def test_export_filename_prefix() -> None:
     assert export_filename("concert", "MySong") == "MySong_concert.musicxml"
     assert export_filename("horn_in_f", "MySong") == "MySong_horn_in_f.musicxml"
+    assert export_filename("b_flat", "MySong") == "MySong_b_flat.musicxml"
     assert export_filename("playback", "MySong") == "MySong_playback.mid"
     assert export_filename("playback") == "playback.mid"
 

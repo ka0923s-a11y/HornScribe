@@ -504,7 +504,30 @@ class Worker:
                 protocol.ERR_INVALID_PARAMS, f"invalid project document: {exc}"
             ) from exc
 
-        return project.to_dict()
+        out = project.to_dict()
+        # #156: projects saved before the B-flat view existed carry no
+        # musicXmlBFlat; regenerate it from the canonical scoreDocument
+        # so the presentation stays engine-authoritative instead of
+        # disappearing for legacy files.
+        if isinstance(out.get("scoreDocument"), dict) and not isinstance(
+            out.get("musicXmlBFlat"), str
+        ):
+            try:
+                from hornscribe.domain.score import (  # noqa: PLC0415
+                    ScoreDocument,
+                )
+                from hornscribe.export.musicxml import (  # noqa: PLC0415
+                    export_b_flat_musicxml,
+                )
+
+                out["musicXmlBFlat"] = export_b_flat_musicxml(
+                    ScoreDocument.from_dict(out["scoreDocument"])
+                )
+            except Exception:  # noqa: BLE001
+                # A backfill failure must not block opening the file -
+                # the B-flat view simply stays unavailable.
+                log.warning("musicXmlBFlat backfill failed", exc_info=True)
+        return out
 
     def _handle_score_edit(self, payload: Any) -> dict[str, Any]:
         """`score.edit` — apply one §13 rhythm edit (#115).
@@ -536,6 +559,7 @@ class Worker:
             )
         from hornscribe.domain.score import ScoreDocument  # noqa: PLC0415
         from hornscribe.export.musicxml import (  # noqa: PLC0415
+            export_b_flat_musicxml,
             export_concert_musicxml,
             export_horn_in_f_musicxml,
         )
@@ -568,6 +592,7 @@ class Worker:
             "scoreRevision": str(new_document.revision),
             "musicXmlConcert": export_concert_musicxml(new_document),
             "musicXmlHornF": export_horn_in_f_musicxml(new_document),
+            "musicXmlBFlat": export_b_flat_musicxml(new_document),
         }
         # #226: which requantize path ran — rawEvidence replays the
         # persisted performance; synthetic re-rounds the notation.

@@ -7,7 +7,7 @@
  * the information hierarchy in GUI_UX_SPEC.
  */
 
-export type PitchView = "concert" | "hornF";
+export type PitchView = "concert" | "hornF" | "bFlat";
 
 export interface MockNote {
   /** Canonical note id — selection survives the concert/F管ホルン switch. */
@@ -103,9 +103,10 @@ export function spellingLabel(midi: number): string {
   return sharp === flat ? sharp : `${sharp}（${flat}）`;
 }
 
-/** Horn in F: written pitch sounds a perfect fifth below → add 7 semitones. */
+/** Written pitch = sounding + interval: F +P5 (+7), Bb +M2 (+2) —
+ *  mirrors python instruments/transposition.py (#156). */
 export function writtenMidi(midiConcert: number, view: PitchView): number {
-  return view === "hornF" ? midiConcert + 7 : midiConcert;
+  return view === "hornF" ? midiConcert + 7 : view === "bFlat" ? midiConcert + 2 : midiConcert;
 }
 
 /** Diatonic staff step (sharp spelling) for placing the notehead. */

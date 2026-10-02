@@ -70,7 +70,7 @@ Cache layout (rebuildable, gitignored):
 
 ```text
 cache/<audio-hash>/source.json, normalized.wav, transcription.json,
-score.json, concert.musicxml, horn_in_f.musicxml
+score.json, concert.musicxml, horn_in_f.musicxml, b_flat.musicxml
 ```
 
 ## 4. Persistence rules

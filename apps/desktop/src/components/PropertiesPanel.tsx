@@ -12,7 +12,7 @@ import { startPointerResize } from "../workspace/layout";
 import {
   headlinePitch,
   keyLabelJa,
-  hornConcertFifths,
+  concertFifthsForView,
   type InspectorModel,
   type NoteInspectorModel,
   type ScoreInspectorModel,
@@ -462,7 +462,7 @@ function ScoreBody({
               // a written-view pick maps back to the concert signature
               // the engine setKey edit expects.
               onKeyChange(
-                pitch === "hornF" ? hornConcertFifths(fifths) : fifths,
+                concertFifthsForView(pitch, fifths),
                 mode,
               )
             }
@@ -479,7 +479,7 @@ function ScoreBody({
             onHeadChange={(fifths, mode) =>
               onKeyChangeAt({
                 fifths:
-                  pitch === "hornF" ? hornConcertFifths(fifths) : fifths,
+                  concertFifthsForView(pitch, fifths),
                 mode,
                 startBeat: "0/1",
               })
@@ -487,7 +487,7 @@ function ScoreBody({
             onBoundaryChange={(measure, fifths, mode) =>
               onKeyChangeAt({
                 fifths:
-                  pitch === "hornF" ? hornConcertFifths(fifths) : fifths,
+                  concertFifthsForView(pitch, fifths),
                 mode,
                 startMeasure: measure,
               })
@@ -497,9 +497,7 @@ function ScoreBody({
               onKeyChange
                 ? (fifths, mode) =>
                     onKeyChange(
-                      pitch === "hornF"
-                        ? hornConcertFifths(fifths)
-                        : fifths,
+                      concertFifthsForView(pitch, fifths),
                       mode,
                     )
                 : undefined
@@ -1196,7 +1194,7 @@ function NoteBody({
         <Row label={f.pitch} value={primary} strong />
         {secondary && (
           <Row
-            label={pitch === "hornF" ? f.concertPitch : f.writtenPitch}
+            label={pitch !== "concert" ? f.concertPitch : f.writtenPitch}
             value={secondary}
           />
         )}

@@ -25,6 +25,7 @@ const EMPTY: CommandSnapshot = {
   isPlaying: false,
   loopEnabled: false,
   pitch: "concert",
+  bFlatAvailable: true,
   canUndo: false,
   canRedo: false,
   hasSelection: false,

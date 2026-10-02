@@ -130,8 +130,10 @@ Therefore MVP export semantics are:
 
 - `concert.musicxml`
 - `horn_in_f.musicxml`
+- `b_flat.musicxml` — B♭ written projection (+M2, `<transpose>` -1/-2) (#156)
 - `concert.pdf`
 - `horn_in_f.pdf`
+- `b_flat.pdf`
 - `playback.mid` — **sounding/concert pitch**, suitable for playback
 
 ### Optional / advanced
@@ -393,6 +395,16 @@ MusicXML `<transpose>` describes written → sounding, so F Horn uses:
 <transpose>
   <diatonic>-4</diatonic>
   <chromatic>-7</chromatic>
+</transpose>
+```
+
+B♭ Horn (the double horn's upper side, #156) projects concert +M2 and
+declares the inverse:
+
+```xml
+<transpose>
+  <diatonic>-1</diatonic>
+  <chromatic>-2</chromatic>
 </transpose>
 ```
 

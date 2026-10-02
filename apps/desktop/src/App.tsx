@@ -692,6 +692,21 @@ export default function App() {
       : null;
   }, [scoreDocument, importState.audio]);
 
+  // #156: a document swap while the B♭ view is active must not strand
+  // the renderer on a projection the document lacks (legacy projects
+  // before project.open backfills musicXmlBFlat). Fall back to the F
+  // view — every score document supports it — instead of throwing at
+  // musicXml("bFlat") inside the render path.
+  useEffect(() => {
+    if (
+      pitch === "bFlat" &&
+      scoreDocument &&
+      scoreDocument.supportsPitchView?.("bFlat") !== true
+    ) {
+      setPitch("hornF");
+    }
+  }, [scoreDocument, pitch]);
+
   // FEAT-001 (#60): capture session state (loopback / microphone).
   const [captureState, setCaptureState] = useState<CaptureState | null>(null);
   // #76: 録音開始前の「現在の音源を置き換える」確認ダイアログ。
@@ -1447,6 +1462,11 @@ export default function App() {
       loopEnabled:
         transportSnap?.loop != null || (scoreState?.loopEnabled ?? false),
       pitch,
+      // #156: the B♭ segment/command gates on the document actually
+      // carrying a bFlat projection — legacy projects lack it until
+      // re-open backfills it (worker project.open).
+      bFlatAvailable:
+        scoreDocument?.supportsPitchView?.("bFlat") === true,
       // UI-050: undo/redo reach the score workspace's review/edit history.
       canUndo: scoreState?.canUndo ?? false,
       canRedo: scoreState?.canRedo ?? false,
@@ -2289,7 +2309,9 @@ export default function App() {
         setStatusMessage(
           v === "concert"
             ? ja.commandFeedback.pitchConcert
-            : ja.commandFeedback.pitchHornF,
+            : v === "bFlat"
+              ? ja.commandFeedback.pitchBFlat
+              : ja.commandFeedback.pitchHornF,
         );
       },
       openReview: () => scoreCtlRef.current?.openReview(),
@@ -2776,6 +2798,7 @@ export default function App() {
               <CommandBar
                 commands={commands}
                 pitch={pitch}
+                bFlatAvailable={snapshot.bFlatAvailable}
                 screen={screen}
                 reviewCount={reviewCount}
                 reviewTotal={reviewTotal}
@@ -3588,6 +3611,7 @@ export default function App() {
               })()
             }
             toolOverrides={toolOverrides}
+            bFlatAvailable={snapshot.bFlatAvailable}
             onOpenSettings={(category) => {
               setSettingsFocus(category);
               setView("settings");

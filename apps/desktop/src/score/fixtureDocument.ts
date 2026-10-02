@@ -17,6 +17,7 @@
  */
 import concertXml from "./fixtures/score_concert.musicxml?raw";
 import hornXml from "./fixtures/score_horn_in_f.musicxml?raw";
+import bFlatXml from "./fixtures/score_b_flat.musicxml?raw";
 import canonicalScaleJson from "./fixtures/canonical_scale_doc.json?raw";
 import canonicalVoicesJson from "./fixtures/canonical_voices_doc.json?raw";
 import type { ScoreDocumentPort } from "./document";
@@ -116,6 +117,7 @@ export function createFixtureScoreDocument(
   return new XmlScoreDocument({
     concertXml,
     hornXml,
+    bFlatXml,
     revisionId: overrides?.revisionId ?? FIXTURE_REVISION,
     issues: overrides?.issues ?? FIXTURE_ISSUES,
     // Explicit overrides win — including an intentional null ("no

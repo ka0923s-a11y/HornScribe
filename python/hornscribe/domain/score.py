@@ -32,6 +32,7 @@ class PitchSpace(Enum):
 
     CONCERT = "concert"
     WRITTEN_HORN_F = "written_horn_f"  # presentation/export only, never canonical
+    WRITTEN_B_FLAT = "written_b_flat"  # presentation/export only, never canonical
 
 
 @dataclass(frozen=True)

@@ -362,7 +362,7 @@ export function ProtoProperties({
               <dt>{p.fields.pitch}</dt>
               <dd>
                 {noteName(displayMidi)}
-                {pitch === "hornF" && (
+                {pitch !== "concert" && (
                   <span className="hs-proto-props__dim">（{p.writtenNoteSuffix}）</span>
                 )}
               </dd>
@@ -502,5 +502,4 @@ export function ProtoShell({
     </div>
   );
 }
-
 

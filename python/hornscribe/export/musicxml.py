@@ -20,9 +20,9 @@ emitted tree so exported documents are deterministic and identity-bearing:
   ones);
 * volatile ``<encoding-date>`` is removed so identical input yields
   byte-identical output;
-* Horn in F parts carry written pitches *and*
-  ``<transpose><diatonic>-4</diatonic><chromatic>-7</chromatic></transpose>``
-  (MusicXML transpose is written -> sounding, i.e. -P5).
+* written-pitch parts carry transposed pitches *and* a ``<transpose>``
+  declaration per presentation: Horn in F ``-4/-7`` (written ->
+  sounding -P5), B-flat ``-1/-2`` (written -> sounding -M2) (#156).
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ from hornscribe.domain.score import (
     beat_ql_of,
     measure_spans,
 )
-from hornscribe.instruments import horn_f
+from hornscribe.instruments import transposition
 from hornscribe.notation.to_music21 import build_music21_score
 
 _XML_DECL = '<?xml version="1.0" encoding="utf-8"?>'
@@ -78,8 +78,9 @@ def export_musicxml(
     """Export *score* as a MusicXML 4.0 string.
 
     ``CONCERT`` emits sounding pitches with no transposition metadata;
-    ``WRITTEN_HORN_F`` emits written (+P5) pitches with the Horn in F
-    ``<transpose>`` element so a reader recovers sounding pitch.
+    ``WRITTEN_HORN_F`` / ``WRITTEN_B_FLAT`` emit written pitches with
+    the matching ``<transpose>`` element so a reader recovers sounding
+    pitch (-P5 for F horn, -M2 for B-flat).
     """
     m21_score = build_music21_score(score, presentation)
     raw = GeneralObjectExporter().parse(m21_score)
@@ -95,6 +96,11 @@ def export_concert_musicxml(score: ScoreDocument) -> str:
 def export_horn_in_f_musicxml(score: ScoreDocument) -> str:
     """``horn_in_f.musicxml``: written +P5 pitches plus -P5 transpose metadata."""
     return export_musicxml(score, PitchSpace.WRITTEN_HORN_F)
+
+
+def export_b_flat_musicxml(score: ScoreDocument) -> str:
+    """``b_flat.musicxml``: written +M2 pitches plus -M2 transpose metadata (#156)."""
+    return export_musicxml(score, PitchSpace.WRITTEN_B_FLAT)
 
 
 def write_musicxml(
@@ -133,9 +139,10 @@ def _normalize_musicxml(
         _insert_swing_direction(root, swing_feel)
     _insert_harmony_symbols(root, score, presentation)
 
-    if presentation is PitchSpace.WRITTEN_HORN_F:
+    spec = transposition.spec_for(presentation)
+    if spec is not None:
         for part_el in root.findall("part"):
-            _ensure_horn_transpose(part_el)
+            _ensure_transpose(part_el, spec)
     else:
         for part_el in root.findall("part"):
             _forbid_transpose(part_el)
@@ -247,11 +254,8 @@ def _insert_harmony_symbols(
     # Written-pitch parts carry transposed symbols, matching the notes
     # the player reads - a written G on the staff sits under the chord
     # it harmonizes in the part's own key.
-    shift = (
-        horn_f.HORN_F_CONCERT_TO_WRITTEN_SEMITONES
-        if presentation is PitchSpace.WRITTEN_HORN_F
-        else 0
-    )
+    spec = transposition.spec_for(presentation)
+    shift = spec.concert_to_written_semitones if spec is not None else 0
     # Same flat/sharp policy the pipeline used (head key signature).
     names = _PC_FLAT if payload.key_signature.fifths < 0 else _PC_SHARP
 
@@ -474,17 +478,19 @@ def _assign_note_ids(root: ET.Element) -> None:
             note_el.set("id", musicxml_note_id(canonical, counts[canonical]))
 
 
-def _ensure_horn_transpose(part_el: ET.Element) -> None:
-    """Horn in F MusicXML must declare written -> sounding = -P5."""
+def _ensure_transpose(
+    part_el: ET.Element, spec: transposition.TranspositionSpec
+) -> None:
+    """A written-pitch part must declare written -> sounding (#156)."""
     transpose = _first_transpose(part_el)
     expected = (
-        str(horn_f.HORN_F_WRITTEN_TO_SOUNDING_DIATONIC),
-        str(horn_f.HORN_F_WRITTEN_TO_SOUNDING_CHROMATIC),
+        str(spec.written_to_sounding_diatonic),
+        str(spec.written_to_sounding_chromatic),
     )
     if transpose is None:
         first_measure = part_el.find("measure")
         if first_measure is None:
-            raise ExportError("horn part has no measures")
+            raise ExportError("transposing part has no measures")
         attributes = first_measure.find("attributes")
         if attributes is None:
             attributes = ET.Element("attributes")
@@ -497,7 +503,7 @@ def _ensure_horn_transpose(part_el: ET.Element) -> None:
     chromatic = transpose.findtext("chromatic")
     if (diatonic, chromatic) != expected:
         raise ExportError(
-            f"horn part transpose is diatonic={diatonic} chromatic={chromatic}, "
+            f"transposing part transpose is diatonic={diatonic} chromatic={chromatic}, "
             f"expected {expected[0]}/{expected[1]}"
         )
 
@@ -965,22 +971,30 @@ def verify_rhythm_roundtrip(
     return problems
 
 
-def verify_horn_f_projection(
-    score: ScoreDocument, xml_text: str, part_index: int = 0
+def verify_written_projection(
+    score: ScoreDocument,
+    xml_text: str,
+    presentation: PitchSpace,
+    part_index: int = 0,
 ) -> list[str]:
-    """Verify the Horn in F presentation invariant (#370).
+    """Verify a written-pitch presentation invariant (#370, #156).
 
-    ``horn_in_f.musicxml`` is the product's main artifact, not a
-    decorative second output. For every pitched ``<note>`` carrying a
-    canonical id, ``written + <transpose> chromatic`` must project back
-    to the canonical sounding ``pitch_midi``; the part must declare the
-    Horn in F ``<transpose>`` (-P5); and every measure's effective key
-    signature must equal the canonical key through the same +1-fifth
-    projection (``horn_f.written_key_signature``, the #257 policy that
-    keeps signature and note spelling in agreement).
+    The written exports are the product's main artifacts, not decorative
+    second outputs. For every pitched ``<note>`` carrying a canonical id,
+    ``written + <transpose> chromatic`` must project back to the
+    canonical sounding ``pitch_midi``; the part must declare the
+    spec's ``<transpose>``; and every measure's effective key signature
+    must equal the canonical key through the same fifths projection
+    (the #257 policy that keeps signature and note spelling in
+    agreement).
 
     Returns human-readable mismatch strings (empty = clean).
     """
+    spec = transposition.spec_for(presentation)
+    if spec is None:
+        raise ExportError(
+            f"verify_written_projection requires a written space, got {presentation!r}"
+        )
     payload = score.payload
     if part_index >= len(payload.parts):
         raise ExportError(f"part_index {part_index} out of range")
@@ -997,12 +1011,12 @@ def verify_horn_f_projection(
     part_el = part_els[part_index]
     part_id = part_el.get("id") or f"part {part_index + 1}"
 
-    # 1. The written -> sounding declaration itself: without -P5 a
-    # reader plays written pitch as sounding (a fifth too high).
+    # 1. The written -> sounding declaration itself: without it a
+    # reader plays written pitch as sounding (a fifth/second too high).
     transpose = _first_transpose(part_el)
     expected_transpose = (
-        str(horn_f.HORN_F_WRITTEN_TO_SOUNDING_DIATONIC),
-        str(horn_f.HORN_F_WRITTEN_TO_SOUNDING_CHROMATIC),
+        str(spec.written_to_sounding_diatonic),
+        str(spec.written_to_sounding_chromatic),
     )
     actual_transpose = (
         (transpose.findtext("diatonic"), transpose.findtext("chromatic"))
@@ -1012,7 +1026,7 @@ def verify_horn_f_projection(
     if actual_transpose != expected_transpose:
         problems.append(
             f"{part_id}: transpose {actual_transpose} != expected "
-            f"{expected_transpose} (Horn in F written->sounding)"
+            f"{expected_transpose} ({presentation.value} written->sounding)"
         )
 
     # 2. Per-note sounding projection: written + chromatic must land on
@@ -1035,7 +1049,7 @@ def verify_horn_f_projection(
                 f"{note.sounding_midi} != canonical {expected_midi}"
             )
 
-    # 3. Key signatures: written key = canonical key +1 fifth (folded),
+    # 3. Key signatures: written key = canonical key + spec shift,
     # the same projection the note spelling used — a mismatch makes
     # printed accidentals contradict the signature.
     spans = measure_spans(payload)
@@ -1056,7 +1070,9 @@ def verify_horn_f_projection(
                 concert_key = change.key_signature
             else:
                 break
-        expected_key = horn_f.written_key_signature(concert_key)
+        expected_key = transposition.written_key_signature(
+            concert_key, presentation
+        )
         if inherited[0] != expected_key.fifths:
             problems.append(
                 f"{part_id} measure {m_el.get('number') or i}: key fifths "
@@ -1069,3 +1085,21 @@ def verify_horn_f_projection(
                 f"{inherited[1]!r} != expected {expected_key.mode!r}"
             )
     return problems
+
+
+def verify_horn_f_projection(
+    score: ScoreDocument, xml_text: str, part_index: int = 0
+) -> list[str]:
+    """Horn in F wrapper kept for existing callers/tests (#370)."""
+    return verify_written_projection(
+        score, xml_text, PitchSpace.WRITTEN_HORN_F, part_index
+    )
+
+
+def verify_b_flat_projection(
+    score: ScoreDocument, xml_text: str, part_index: int = 0
+) -> list[str]:
+    """B-flat written-pitch projection check (#156)."""
+    return verify_written_projection(
+        score, xml_text, PitchSpace.WRITTEN_B_FLAT, part_index
+    )

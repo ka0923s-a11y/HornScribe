@@ -90,6 +90,10 @@ export const ja = {
     regionLabel: "表示音高の切り替え",
     concert: "コンサートピッチ",
     hornF: "F管ホルン",
+    /* #156: B♭ written view - the B♭ side of the double horn and the
+     *  standard B♭ treble instruments share the same projection. */
+    bFlat: "B♭管ホルン",
+    bFlatUnavailable: "B♭管ホルン（この楽譜では利用できません）",
     writtenNote: "記譜音",
   },
 
@@ -511,6 +515,7 @@ export const ja = {
     toggleLoop: "ループを切り替える",
     concertPitch: "コンサートピッチ",
     hornF: "F管ホルン",
+    bFlat: "B♭管ホルン",
     openReview: "要確認箇所を見る",
     reviewNext: "次の要確認箇所へ",
     reviewPrevious: "前の要確認箇所へ",
@@ -601,6 +606,7 @@ export const ja = {
   commandFeedback: {
     pitchConcert: "コンサートピッチに切り替えました",
     pitchHornF: "F管ホルン表示に切り替えました",
+    pitchBFlat: "B♭管ホルン表示に切り替えました",
     mutedSource: "元音源をミュートしました",
     unmutedSource: "元音源のミュートを解除しました",
     // Product-safe copy — the spike-era string must never reach the
@@ -905,8 +911,10 @@ export const ja = {
       options: {
         concertMusicxml: "コンサートピッチ MusicXML",
         hornMusicxml: "F管ホルン MusicXML",
+        bFlatMusicxml: "B♭管ホルン MusicXML",
         concertPdf: "コンサートピッチ PDF",
         hornPdf: "F管ホルン PDF",
+        bFlatPdf: "B♭管ホルン PDF",
         playbackMidi: "再生用MIDI（実音）",
       },
       destination: "保存先",
@@ -1962,8 +1970,10 @@ export const ja = {
     options: {
       concertMusicxml: "コンサートピッチ MusicXML",
       hornMusicxml: "F管ホルン MusicXML",
+      bFlatMusicxml: "B♭管ホルン MusicXML",
       concertPdf: "コンサートピッチ PDF",
       hornPdf: "F管ホルン PDF",
+      bFlatPdf: "B♭管ホルン PDF",
       playbackMidi: "再生用MIDI（実音）",
       // #357: framed as an extra copy, not another score format —
       // the opt-in nature is part of the label.
@@ -1990,6 +2000,7 @@ export const ja = {
       "再生用MIDIは簡易版で書き出しました（ベロシティ・ピッチベンド・スイングは含まれません）。",
     pdfDisabledTooltip: "MuseScoreが見つからないためPDFを書き出せません",
     audioDisabledTooltip: "元の音声がディスク上にないため同梱できません",
+    bFlatDisabledTooltip: "この楽譜ではB♭管ホルンを書き出せません",
     specifyMuseScore: "MuseScoreの場所を指定",
     completeTitle: "書き出しが完了しました",
     completeCount: "{count}件のファイルを書き出しました",

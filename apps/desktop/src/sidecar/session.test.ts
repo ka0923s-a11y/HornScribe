@@ -398,7 +398,20 @@ describe("TranscriptionSession", () => {
   });
 
  it("a job.start that gets no response fails honestly (no stuck screen)", async () => {
-    const { session, port } = makeSession();
+    const port = new MockSidecarPort();
+    // job.start has its own long timeout (engine cold-start warmup,
+    // #155) — shrink it here so the hang scenario stays inside the
+    // test budget.
+    const session = new TranscriptionSession({
+      portFactory: () => port,
+      clientOptions: {
+        requestTimeoutMs: 250,
+        jobStartTimeoutMs: 400,
+        handshakeTimeoutMs: 500,
+        watchdogMs: 40,
+        pingTimeoutMs: 30,
+      },
+    });
     // Warm the engine to ready, then wedge it before the next start so
     // job.start itself times out — the screen must land on the failure
     // surface, not on a phantom running job.
