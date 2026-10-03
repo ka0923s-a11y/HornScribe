@@ -355,6 +355,10 @@ fn engine_spawn_impl(
 /// returns in microseconds even when the worker's stdin buffer is full,
 /// so a busy engine can never freeze the UI (previously a blocking
 /// `write_all` on the main thread). FIFO order is preserved.
+/// #192: stays a sync command ON PURPOSE — the frontend fires writes
+/// without awaiting them, so an async dispatch could reorder protocol
+/// lines. The only wait inside is the ENGINE mutex, bounded to
+/// microseconds since the reaps moved outside the lock.
 #[tauri::command]
 pub fn engine_write(line: String) -> Result<(), String> {
     let guard = ENGINE.lock().map_err(|_| "engine lock")?;
@@ -370,6 +374,8 @@ pub fn engine_write(line: String) -> Result<(), String> {
 /// `engine_close_stdin`: drop the sender so the writer thread exits and
 /// closes the pipe — the worker sees EOF and performs its graceful
 /// shutdown (worker.py contract).
+/// Sync like engine_write (#192): the close must stay ordered behind
+/// any queued write.
 #[tauri::command]
 pub fn engine_close_stdin() -> Result<(), String> {
     let mut guard = ENGINE.lock().map_err(|_| "engine lock")?;
@@ -420,8 +426,14 @@ fn kill_process_tree(child: &mut Child) {
 #[tauri::command]
 pub async fn engine_kill() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let mut guard = ENGINE.lock().map_err(|_| "engine lock")?;
-        if let Some(mut state) = guard.take() {
+        // #192: drop the ENGINE lock BEFORE the bounded reap — holding
+        // it across ~3 s of wait would stall engine_write's (sync, main
+        // thread) lock acquisition for the whole reap.
+        let state = {
+            let mut guard = ENGINE.lock().map_err(|_| "engine lock")?;
+            guard.take()
+        };
+        if let Some(mut state) = state {
             drop(state.stdin_tx.take());
             reap_child(&mut state.child);
         }
@@ -436,11 +448,12 @@ pub async fn engine_kill() -> Result<(), String> {
 /// process to die; a wedged child must not turn the shell into a
 /// zombie.
 pub fn kill_engine_on_exit() {
-    if let Ok(mut guard) = ENGINE.lock() {
-        if let Some(mut state) = guard.take() {
-            drop(state.stdin_tx.take());
-            reap_child(&mut state.child);
-        }
+    // #192: take the state out and release the lock before reaping —
+    // same bounded-wait rationale as engine_kill.
+    let state = ENGINE.lock().ok().and_then(|mut guard| guard.take());
+    if let Some(mut state) = state {
+        drop(state.stdin_tx.take());
+        reap_child(&mut state.child);
     }
 }
 

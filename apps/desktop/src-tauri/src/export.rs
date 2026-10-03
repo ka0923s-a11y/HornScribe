@@ -55,7 +55,7 @@ fn export_cancelled(handle: Option<&ExportHandle>) -> bool {
 /// `export_cancel` — flip the flag and kill the MuseScore child if one
 /// is in flight. The run itself notices at its next checkpoint and
 /// tears the staging dir down without committing anything (#383).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_cancel(export_id: String) -> Result<(), String> {
     let handle = {
         let guard = export_runs();
@@ -87,7 +87,7 @@ pub struct ExportFile {
 /// `export_pick_dir`: native folder picker (Rust-side dialog plugin — no
 /// JS plugin permission needed). A picked directory is granted write
 /// access for the rest of the session; returns null on cancel.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_pick_dir(
     app: tauri::AppHandle,
     current: Option<String>,
@@ -112,7 +112,7 @@ pub fn export_pick_dir(
 
 /// `export_default_dir`: `<Documents>/HornScribe` (reported without
 /// creating — the dialog shows the path before anything is written).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_default_dir(app: tauri::AppHandle) -> Result<String, String> {
     let docs = app
         .path()
@@ -187,7 +187,7 @@ fn valid_artifact_name(name: &str) -> bool {
 
 /// `detect_tools`: probe MuseScore/ffmpeg for the export + diagnostics
 /// surfaces. PATH first, then the standard MuseScore install dirs.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn detect_tools(app: tauri::AppHandle) -> DetectedTools {
     DetectedTools {
         muse_score: probe_tool(
@@ -256,7 +256,7 @@ fn probe_tool(path_names: &[&str], absolute_candidates: &[&str]) -> ToolProbe {
 /// actually points at a file. The settings/diagnostics surfaces used to
 /// mark any non-empty override "found" until the export subprocess
 /// failed — this lets them probe the real path up front (#363).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn probe_tool_path(path: String) -> ToolProbe {
     let trimmed = path.trim();
     if !trimmed.is_empty() && Path::new(trimmed).is_file() {
@@ -273,7 +273,7 @@ pub fn probe_tool_path(path: String) -> ToolProbe {
 }
 
 /// `reveal_in_explorer`: open a directory in the OS file manager.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if !p.is_dir() {
@@ -289,7 +289,7 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
 /// `project_save_path`: native save-file picker for `.hornscribe.json`
 /// (#100). The picked file's parent directory is granted write access
 /// (same model as `export_pick_dir`); returns null on cancel.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn project_save_path(
     app: tauri::AppHandle,
     suggested_name: Option<String>,
@@ -395,7 +395,7 @@ fn autosave_project_path(data: &str, meta: Option<&str>) -> Option<String> {
 /// project_autosave_write: persist the recovery snapshot. The content
 /// is the same schema-v1 JSON the normal save path produces — written
 /// via tmp+rename so a crash mid-write never leaves a torn file.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn project_autosave_write(
     app: tauri::AppHandle,
     contents: String,
@@ -423,7 +423,7 @@ pub fn project_autosave_write(
 
 /// project_autosave_status: recovery-file metadata for the launch
 /// check — null when no autosave exists.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn project_autosave_status(
     app: tauri::AppHandle,
 ) -> Result<Option<AutosaveInfo>, String> {
@@ -469,7 +469,7 @@ pub struct AutosaveInfo {
 
 /// project_autosave_clear: drop the recovery file — called after a
 /// successful explicit save or when the user declines the restore.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn project_autosave_clear(app: tauri::AppHandle) -> Result<(), String> {
     let path = autosave_path(&app)?;
     for p in [path.clone(), autosave_meta_path(&path)] {
@@ -507,7 +507,7 @@ pub struct ProjectWriteResult {
 
 /// `project_write`: persist a `.hornscribe.json` document without the
 /// Python worker (#389) so Ctrl+S still lands when the engine is down.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn project_write(
     app: tauri::AppHandle,
     path: String,
@@ -590,7 +590,7 @@ fn write_project_file(target: &Path, contents: &str) -> Result<(), String> {
 /// the collision check the dialog runs before writing so an export
 /// never silently destroys a previous result (#231). Returns the
 /// clashing *names* (not paths); an empty list means the set is clear.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_check_existing(
     app: tauri::AppHandle,
     dir: String,
@@ -663,7 +663,7 @@ fn io_export_error(
 /// Collision policy (#231) is decided by the frontend before this call
 /// (export_check_existing + the dialog's overwrite/rename/cancel), so a
 /// commit here overwrites intentionally.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_run(
     app: tauri::AppHandle,
     dir: String,
@@ -938,7 +938,7 @@ fn wait_render(
 /// for the OS temp cleaner.
 /// A millisecond suffix keeps successive opens (edited score re-opens)
 /// from overwriting a file the GUI may still hold.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_in_musescore(
     musescore_path: String,
     music_xml: String,

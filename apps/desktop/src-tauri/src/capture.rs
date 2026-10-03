@@ -222,7 +222,7 @@ pub struct CaptureStatus {
     pub waveform_peaks: Vec<f32>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn capture_status() -> CaptureStatus {
     let guard = SESSION.lock().unwrap_or_else(|e| e.into_inner());
     match guard.as_ref() {
@@ -269,7 +269,7 @@ pub fn capture_status() -> CaptureStatus {
 }
 
 /// 録音の一時停止(#80)。録音中でなければ `CAPTURE_NOT_ACTIVE`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn capture_pause() -> Result<(), String> {
     let guard = SESSION.lock().map_err(|_| "capture session lock")?;
     let session = guard.as_ref().ok_or("CAPTURE_NOT_ACTIVE")?;
@@ -279,7 +279,7 @@ pub fn capture_pause() -> Result<(), String> {
 }
 
 /// 一時停止した録音の再開(#80)。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn capture_resume() -> Result<(), String> {
     let guard = SESSION.lock().map_err(|_| "capture session lock")?;
     let session = guard.as_ref().ok_or("CAPTURE_NOT_ACTIVE")?;
@@ -292,7 +292,7 @@ pub fn capture_resume() -> Result<(), String> {
 /// `device_id` は `capture_devices` が返すエンドポイント ID(省略時は
 /// 既定デバイス)。`suggested_name` は stop 時の保存ファイル名。
 /// すでに録音中なら `Err("CAPTURE_BUSY")`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn capture_start(
     app: tauri::AppHandle,
     source: String,
@@ -393,7 +393,7 @@ pub struct CaptureDeviceList {
     pub microphone: Vec<CaptureDevice>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn capture_devices() -> Result<CaptureDeviceList, String> {
     unsafe {
         let _com = ComInit::new()?;
@@ -447,7 +447,7 @@ fn enum_devices(
 }
 
 /// 録音を止めて WAV を appDataDir/recordings/ に保存し、パスとメタ情報を返す。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn capture_stop(app: tauri::AppHandle) -> Result<CaptureResult, String> {
     let session = {
         let mut guard = SESSION.lock().map_err(|_| "capture session lock")?;
@@ -505,7 +505,7 @@ pub fn capture_stop(app: tauri::AppHandle) -> Result<CaptureResult, String> {
 }
 
 /// 録音を中止してデータを捨てる。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn capture_cancel() -> Result<(), String> {
     let session = {
         let mut guard = SESSION.lock().map_err(|_| "capture session lock")?;
@@ -547,7 +547,7 @@ fn recordings_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> 
 }
 
 /// 録音フォルダの場所・件数・使用量(#78)。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn recordings_info(app: tauri::AppHandle) -> Result<RecordingsInfo, String> {
     let dir = recordings_dir(&app)?;
     let mut file_count = 0u32;
@@ -574,7 +574,7 @@ pub fn recordings_info(app: tauri::AppHandle) -> Result<RecordingsInfo, String> 
 
 /// 録音フォルダをエクスプローラーで開く(#78)。フォルダが無ければ作成
 /// してから開く(空で開けない方が不親切)。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_recordings_dir(app: tauri::AppHandle) -> Result<(), String> {
     let dir = recordings_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("recordings dir: {e}"))?;
@@ -588,7 +588,7 @@ pub fn open_recordings_dir(app: tauri::AppHandle) -> Result<(), String> {
 /// 録音フォルダの WAV を全削除し、解放したバイト数を返す(#78)。
 /// 録音中は拒否する — 進行中セッションの保存先を消すと stop 時に
 /// 失敗するため。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_recordings(app: tauri::AppHandle) -> Result<u64, String> {
     {
         let guard = SESSION.lock().map_err(|_| "capture session lock")?;
@@ -628,7 +628,7 @@ pub struct RecordingFile {
 }
 
 /// 録音 WAV の一覧(#78)。ファイル名の昇順で返す。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn recordings_list(app: tauri::AppHandle) -> Result<Vec<RecordingFile>, String> {
     let dir = recordings_dir(&app)?;
     let mut files = Vec::new();
@@ -663,7 +663,7 @@ pub fn recordings_list(app: tauri::AppHandle) -> Result<Vec<RecordingFile>, Stri
 /// 録音 WAV を1件削除する(#78)。`name` はファイル名のみ許可 —
 /// パス区切りを含む入力は recordings/ 外を指せるので拒否する。
 /// 録音中は CAPTURE_BUSY で拒否(全削除と同じガード)。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_recording(app: tauri::AppHandle, name: String) -> Result<(), String> {
     if name.is_empty()
         || name.contains('\\')
@@ -692,7 +692,7 @@ pub fn delete_recording(app: tauri::AppHandle, name: String) -> Result<(), Strin
 /// 付けて衝突を避ける(同一録音の再保存で複製が増えない)。
 /// 録音中も許可する: コピーは完成済み WAV の読み取りだけで録音
 /// セッションを妨げない。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn copy_recording_to_managed(app: tauri::AppHandle, name: String) -> Result<String, String> {
     if name.is_empty()
         || name.contains('\\')
@@ -749,7 +749,7 @@ fn sources_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
 }
 
 /// sources/ の場所・件数・使用量(#147)。recordings_info の sources 版。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sources_info(app: tauri::AppHandle) -> Result<RecordingsInfo, String> {
     let dir = sources_dir(&app)?;
     let mut file_count = 0u32;
@@ -775,7 +775,7 @@ pub fn sources_info(app: tauri::AppHandle) -> Result<RecordingsInfo, String> {
 }
 
 /// sources/ の WAV 一覧(#147)。recordings_list と同じ形・同じ順序。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sources_list(app: tauri::AppHandle) -> Result<Vec<RecordingFile>, String> {
     let dir = sources_dir(&app)?;
     let mut files = Vec::new();
@@ -808,7 +808,7 @@ pub fn sources_list(app: tauri::AppHandle) -> Result<Vec<RecordingFile>, String>
 }
 
 /// sources/ をエクスプローラーで開く(#147)。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_sources_dir(app: tauri::AppHandle) -> Result<(), String> {
     let dir = sources_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("sources dir: {e}"))?;
@@ -824,7 +824,7 @@ pub fn open_sources_dir(app: tauri::AppHandle) -> Result<(), String> {
 /// WAV のコピー置き場で、録画セッションの保存先ではない。
 /// プロジェクトが参照するファイルの削除は UI 側が警告する — ここでは
 /// 拒否しない(参照は別プロジェクトの所有物であり、削除権限はユーザー)。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_source(app: tauri::AppHandle, name: String) -> Result<(), String> {
     if name.is_empty()
         || name.contains('\\')
@@ -878,7 +878,7 @@ fn read_source_refs(
 /// sourcePath が null/空ならそのプロジェクトのエントリを消す
 /// (音源なしで保存された = 参照をやめた)。projectPath が空の
 /// (ブラウザ dev 等の一時オープン) は何もしない。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn source_refs_update(
     app: tauri::AppHandle,
     project_path: String,
@@ -915,7 +915,7 @@ pub fn source_refs_update(
 /// 参照 index 全体を返す(#147)。キー=正規化済みプロジェクトパス、
 /// 値=sourceAudio.originalPath。stale エントリも含む — 呼び出し側は
 /// 「参照中」として扱う(fail-close)。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn source_refs_index(
     app: tauri::AppHandle,
 ) -> Result<std::collections::BTreeMap<String, String>, String> {
@@ -1058,7 +1058,7 @@ pub struct AudioSessionApp {
 /// プロセス一覧。ブラウザのようなマルチプロセスアプリでも、
 /// セッションを持つ実プロセスがそのまま選ばれる。システム音
 /// セッションは対象外(通知音だけを録っても意味がない)。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn capture_audio_sessions(
     device_id: Option<String>,
 ) -> Result<Vec<AudioSessionApp>, String> {

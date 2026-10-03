@@ -98,7 +98,7 @@ pub struct AudioProbeResult {
 /// ffmpeg is present instead of depending on WebView2 codec luck.
 /// FLAC playback gets a normalized WAV cache (WebView2 codec support
 /// is not guaranteed); MP3/M4A/OGG stream the original file.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_probe(
     app: tauri::AppHandle,
     path: String,

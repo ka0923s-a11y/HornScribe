@@ -34,7 +34,7 @@ fn cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 /// diagnostics_paths: the §19 cache/log locations. Both directories are
 /// created so the sheet never reports a path that does not exist yet.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn diagnostics_paths(app: tauri::AppHandle) -> Result<DiagnosticsPaths, String> {
     Ok(DiagnosticsPaths {
         cache: cache_dir(&app)?.to_string_lossy().into_owned(),
@@ -45,7 +45,7 @@ pub fn diagnostics_paths(app: tauri::AppHandle) -> Result<DiagnosticsPaths, Stri
 /// reveal_log_folder: ログフォルダを開く — reuses the export module's
 /// explorer reveal, which requires an existing directory (log_dir just
 /// created it).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_log_folder(app: tauri::AppHandle) -> Result<(), String> {
     let dir = log_dir(&app)?;
     crate::export::reveal_in_explorer(dir.to_string_lossy().into_owned())
