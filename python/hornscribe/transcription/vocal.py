@@ -369,6 +369,95 @@ def isolate_demucs_vocals(
                 os.unlink(input_path)
 
 
+# #169: a demucs "vocals" stem on input whose lead is not a voice
+# (horn solo, synth lead) is the model's separation residue, not a
+# quiet line — measured ~-50 dB under the source's own RMS.  A
+# genuinely buried vocal still holds roughly -20 dB of the mix, so a
+# stem is rejected only when it is BOTH near digital silence and far
+# under the source; anything ambiguous keeps the neural estimate.
+_STEM_REJECT_ABS_RMS = 0.004
+_STEM_REJECT_REL = 0.05
+
+
+def _rms(samples: Any) -> float:
+    """RMS of a mono float buffer — numpy is guaranteed by callers."""
+    import numpy as np  # noqa: PLC0415
+
+    arr = np.asarray(samples, dtype=np.float64)
+    if arr.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(arr * arr)))
+
+
+def _wav_rms(path: str) -> float | None:
+    """RMS of a cached PCM16 WAV — None when unreadable."""
+    try:
+        import numpy as np  # noqa: PLC0415
+
+        with wave.open(path, "rb") as wav:
+            raw = wav.readframes(wav.getnframes())
+        pcm: Any = np.frombuffer(raw, dtype=np.int16).astype(np.float64)
+        if pcm.size == 0:
+            return 0.0
+        return float(np.sqrt(np.mean(pcm * pcm))) / 32768.0
+    except Exception:
+        return None
+
+
+def _demucs_stem_silent(
+    stem_rms: float,
+    audio_path: str,
+    start_sec: float,
+    end_sec: float | None,
+) -> bool:
+    """True when a demucs stem is near-silent against an audible
+    source (#169).
+
+    demucs answers "no voice here" — instrumental leads, synth
+    melodies — by emitting a stem of separation residue orders of
+    magnitude under the source.  Feeding that to the tracker
+    transcribes noise, so the caller falls back to center
+    extraction.  Only a stem that is BOTH near digital silence and
+    far under the source's own RMS is rejected: a genuinely buried
+    vocal (~-20 dB under the mix) still clears the bar.  Anything
+    unverifiable — an unreadable stem, an undecodable source — keeps
+    the neural estimate, since the fallback is no better informed.
+    """
+    if stem_rms >= _STEM_REJECT_ABS_RMS:
+        return False  # clearly audible — never pays the source decode
+    try:
+        require_module("librosa")
+        import librosa  # noqa: PLC0415
+    except Exception:
+        return False
+    try:
+        source, _sr = librosa.load(
+            audio_path,
+            sr=22050,
+            mono=True,
+            offset=max(0.0, start_sec),
+            duration=(
+                None
+                if end_sec is None
+                else max(0.0, end_sec - start_sec)
+            ),
+        )
+    except Exception:
+        return False
+    if getattr(source, "size", 0) == 0:
+        return False
+    return stem_rms < _rms(source) * _STEM_REJECT_REL
+
+
+def _mark_rejected(marker: str) -> None:
+    """Best-effort durable verdict — a missing marker only costs a
+    re-check next call, so a write failure is never fatal."""
+    with contextlib.suppress(OSError), open(
+        marker, "w", encoding="utf-8"
+    ) as fh:
+        fh.write("silent-stem\n")
+
+
 def _sweep_cache(now: float) -> None:
     """#299: drop expired cache files — best-effort, never fatal."""
     try:
@@ -487,16 +576,79 @@ def vocal_wav(
     preferred = _method()
     key = _cache_key(audio_path, content_hash, start_sec, end_sec, preferred)
     cached = os.path.join(_cache_dir(), f"{_CACHE_PREFIX}{key}.wav")
-    if os.path.isfile(cached):
-        return cached, "applied", True, preferred, method_version(preferred)
+    # #169: "<cache>.<version>.rejected" marks a demucs estimate
+    # already judged near-silent for this (source, span, model).  The
+    # verdict is durable for the cache TTL, so later jobs skip both
+    # the stem re-verify and the demucs run itself; a demucs version
+    # change mints a new marker name and re-judges honestly.
+    rejected_marker = ""
+    if preferred == "demucs":
+        rejected_marker = (
+            f"{cached}.{method_version('demucs') or 'unknown'}.rejected"
+        )
+    demucs_silent = bool(rejected_marker) and os.path.isfile(
+        rejected_marker
+    )
+    if os.path.isfile(cached) and not demucs_silent:
+        serve = True
+        if preferred == "demucs":
+            # #169: a cached near-silent stem must not keep serving
+            # the bad result for the TTL — re-verify it against the
+            # source and fall through to center extraction instead
+            # (no second demucs run is paid).
+            cached_rms = _wav_rms(cached)
+            if cached_rms is not None and _demucs_stem_silent(
+                cached_rms, audio_path, start_sec, end_sec
+            ):
+                demucs_silent = True
+                serve = False
+                _mark_rejected(rejected_marker)
+        if serve:
+            return (
+                cached,
+                "applied",
+                True,
+                preferred,
+                method_version(preferred),
+            )
 
     samples: Any | None = None
     method: str | None = None
-    if preferred == "demucs":
+    if preferred == "demucs" and not demucs_silent:
         samples = isolate_demucs_vocals(audio_path, start_sec, end_sec)
+        if samples is not None and _demucs_stem_silent(
+            _rms(samples), audio_path, start_sec, end_sec
+        ):
+            # #169: demucs answered "no voice here" — the residue
+            # stem would transcribe noise, so center extraction gets
+            # the job instead.
+            samples = None
+            _mark_rejected(rejected_marker)
         if samples is not None:
             method = "demucs"
     if samples is None:
+        if preferred == "demucs":
+            # A center estimate may already be cached — from an
+            # earlier demucs failure or silent-stem rejection — so a
+            # hit here beats re-paying the STFT.
+            center_key = _cache_key(
+                audio_path,
+                content_hash,
+                start_sec,
+                end_sec,
+                "center_extraction",
+            )
+            center_cached = os.path.join(
+                _cache_dir(), f"{_CACHE_PREFIX}{center_key}.wav"
+            )
+            if os.path.isfile(center_cached):
+                return (
+                    center_cached,
+                    "applied",
+                    True,
+                    "center_extraction",
+                    method_version("center_extraction"),
+                )
         # demucs absent or failed — the free center mask still beats
         # the raw mix for a monophonic tracker.
         samples = isolate_center_vocals(audio_path, start_sec, end_sec)
