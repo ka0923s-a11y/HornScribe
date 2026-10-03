@@ -175,6 +175,163 @@ def test_vocal_wav_falls_back_to_center_on_demucs_failure(
     )
 
 
+def test_vocal_wav_rejects_silent_demucs_stem(tmp_path, monkeypatch):
+    """#169: a near-silent demucs stem (model found no voice) falls
+    back to center extraction — and the verdict is memoized so a
+    repeat job skips demucs entirely."""
+    pytest.importorskip("librosa")
+    import hornscribe.transcription.vocal as vocal_mod
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
+    monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+
+    lead = _tone(440.0, 1.5)
+    accomp = _tone(220.0, 1.5)
+    src = _write_stereo_wav(tmp_path / "mix.wav", lead + accomp, lead - accomp)
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        vocal_mod,
+        "isolate_demucs_vocals",
+        lambda *a: calls.append("demucs")
+        or np.zeros(22050, dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        vocal_mod,
+        "isolate_center_vocals",
+        lambda *a: calls.append("center") or _tone(440.0, 1.0),
+    )
+
+    _p, reason, _m, method, _v = vocal_wav(src, "h", 0.0, None, 22050)
+    assert calls == ["demucs", "center"]
+    assert method == "center_extraction"
+    assert reason == "applied"
+
+    # The rejection marker + center cache make a repeat call free —
+    # no demucs re-run, no STFT.
+    calls.clear()
+    _p2, _r2, _m2, method2, _v2 = vocal_wav(src, "h", 0.0, None, 22050)
+    assert calls == []
+    assert method2 == "center_extraction"
+
+
+def test_vocal_wav_rejects_cached_silent_demucs_stem(
+    tmp_path, monkeypatch
+):
+    """#169: a silent stem already in the cache is re-verified
+    against the source instead of being served for the TTL."""
+    pytest.importorskip("librosa")
+    import hornscribe.transcription.vocal as vocal_mod
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
+    monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+
+    src = _write_stereo_wav(
+        tmp_path / "mix.wav", _tone(440.0, 1.5), _tone(330.0, 1.5)
+    )
+    # Pre-seed the demucs cache slot with a silent stem — the shape a
+    # pre-fix run would have left behind.
+    key = vocal_mod._cache_key(src, "h", 0.0, None, "demucs")
+    silent = cache_dir / f"{vocal_mod._CACHE_PREFIX}{key}.wav"
+    assert vocal_mod._write_mono_wav(
+        str(silent), np.zeros(22050, dtype=np.float32), 22050
+    )
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        vocal_mod,
+        "isolate_demucs_vocals",
+        lambda *a: calls.append("demucs") or _tone(440.0, 1.0),
+    )
+    monkeypatch.setattr(
+        vocal_mod,
+        "isolate_center_vocals",
+        lambda *a: calls.append("center") or _tone(440.0, 1.0),
+    )
+
+    _p, reason, _m, method, _v = vocal_wav(src, "h", 0.0, None, 22050)
+    # The cached stem was judged silent — demucs never re-ran, and
+    # center extraction took over.
+    assert calls == ["center"]
+    assert method == "center_extraction"
+    assert reason == "applied"
+
+    calls.clear()
+    _p2, _r2, _m2, method2, _v2 = vocal_wav(src, "h", 0.0, None, 22050)
+    assert calls == []
+    assert method2 == "center_extraction"
+
+
+def test_vocal_wav_keeps_audible_demucs_stem(tmp_path, monkeypatch):
+    """#169: an audible demucs stem is kept — the gate rejects only
+    near-silence, never a real (if odd) separation."""
+    import hornscribe.transcription.vocal as vocal_mod
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
+    monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        vocal_mod,
+        "isolate_demucs_vocals",
+        lambda *a: calls.append("demucs") or _tone(440.0, 1.0),
+    )
+    monkeypatch.setattr(
+        vocal_mod,
+        "isolate_center_vocals",
+        lambda *a: calls.append("center") or _tone(220.0, 1.0),
+    )
+
+    _p, reason, _m, method, _v = vocal_wav("a.wav", "h", 0.0, None, 22050)
+    assert calls == ["demucs"]  # center never ran
+    assert method == "demucs"
+    assert reason == "applied"
+
+
+class TestSilentStemGate:
+    """#169: _demucs_stem_silent boundary behaviour."""
+
+    def test_silent_stem_under_audible_source_rejected(self, tmp_path):
+        pytest.importorskip("librosa")
+        from hornscribe.transcription.vocal import _demucs_stem_silent
+
+        src = _write_stereo_wav(
+            tmp_path / "s.wav", _tone(440.0, 1.0), _tone(330.0, 1.0)
+        )
+        assert _demucs_stem_silent(0.0005, src, 0.0, None) is True
+
+    def test_audible_stem_never_decodes_source(self):
+        from hornscribe.transcription.vocal import _demucs_stem_silent
+
+        # Above the absolute floor — returns before touching the
+        # (nonexistent) source.
+        assert _demucs_stem_silent(0.05, "missing.wav", 0.0, None) is False
+
+    def test_undecodable_source_keeps_stem(self):
+        pytest.importorskip("librosa")
+        from hornscribe.transcription.vocal import _demucs_stem_silent
+
+        # Cannot judge without the source — conservative keep.
+        assert (
+            _demucs_stem_silent(0.0001, "missing.wav", 0.0, None) is False
+        )
+
+    def test_quiet_source_keeps_comparable_stem(self, tmp_path):
+        pytest.importorskip("librosa")
+        from hornscribe.transcription.vocal import _demucs_stem_silent
+
+        quiet = _tone(440.0, 1.0, amp=0.01)
+        src = _write_stereo_wav(tmp_path / "q.wav", quiet, quiet * 0.5)
+        # Stem ~35% of a quiet source's RMS — residue it is not.
+        assert _demucs_stem_silent(0.0025, src, 0.0, None) is False
+
+
 def test_vocal_isolation_option_parses_and_echoes():
     params = TranscriptionParams.from_payload(
         {"audioPath": "a.wav", "vocalIsolation": True},
