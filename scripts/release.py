@@ -70,6 +70,14 @@ NSIS_DIR = SRC_TAURI / "target" / "release" / "bundle" / "nsis"
 RELEASE_NOTES = REPO / ".github" / "RELEASE_NOTES.md"
 MIN_ASSET_BYTES = 50 * 1024 * 1024  # engine-bundled artifacts are >50 MB
 
+# #193: the NSIS must carry the onedir engine — 7-Zip lists installer
+# contents so the check is structural, not just "the exe is big".
+_7Z_CANDIDATES = (
+    "7z",
+    r"C:\Program Files\7-Zip\7z.exe",
+    r"C:\Program Files (x86)\7-Zip\7z.exe",
+)
+
 GNU_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
 GNU_RUSTFLAGS = "-C linker=rust-lld -C link-self-contained=yes"
 
@@ -168,6 +176,60 @@ def _find_portable(version: str) -> Path:
     if not cands:
         raise _die(f"no portable zip under {dist}")
     return cands[-1]
+
+
+def _seven_zip() -> str | None:
+    for cand in _7Z_CANDIDATES:
+        found = shutil.which(cand)
+        if found:
+            return found
+    return None
+
+
+def _verify_nsis_engine(setup: Path, need_loader: bool) -> None:
+    """#193: "a setup.exe exists" is not "the engine shipped" — v0.2.8
+    published a 63 MB installer because the `resources/engine/*` glob
+    silently skipped the onedir directory while tools/ffmpeg alone
+    already exceeded the 50 MB floor. Two checks: a floor derived from
+    the staged resources size, and — when 7-Zip is available — a
+    structural listing for the engine exe itself."""
+    resources_bytes = sum(
+        f.stat().st_size
+        for f in (SRC_TAURI / "resources").rglob("*")
+        if f.is_file()
+    )
+    floor = max(MIN_ASSET_BYTES, int(resources_bytes * 0.20))
+    size = setup.stat().st_size
+    if size < floor:
+        raise _die(
+            f"{setup.name} is only {size / 1e6:.1f} MB (< {floor / 1e6:.0f} MB"
+            f" expected from {resources_bytes / 1e6:.0f} MB of resources)"
+            " - engine bundle likely missing"
+        )
+    seven = _seven_zip()
+    if seven is None:
+        print(
+            "note: 7-Zip not found - NSIS contents verified by size floor only"
+        )
+        return
+    r = subprocess.run(
+        [seven, "l", str(setup)],
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    listing = r.stdout or ""
+    if "hornscribe-engine.exe" not in listing:
+        raise _die(
+            f"{setup.name} does not contain"
+            " engine/hornscribe-engine/hornscribe-engine.exe - the"
+            " tauri.bundled.json resources mapping regressed (#193)"
+        )
+    if need_loader and "WebView2Loader.dll" not in listing:
+        raise _die(
+            f"{setup.name} does not contain WebView2Loader.dll -"
+            " gnu-built shells crash without it next to the exe (#141)"
+        )
 
 
 def _rustc_host(env: dict[str, str]) -> str:
@@ -331,6 +393,7 @@ def main() -> int:
             raise _die(
                 f"{asset.name} is only {size / 1e6:.1f} MB - engine bundle likely missing"
             )
+    _verify_nsis_engine(setup_exe, need_loader)
     with zipfile.ZipFile(portable_zip) as zf:
         names = zf.namelist()
         if not any(
