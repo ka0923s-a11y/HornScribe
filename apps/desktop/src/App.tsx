@@ -70,6 +70,7 @@ import { KeyboardDispatcher } from "./keyboard/dispatcher";
 import { useCommandKeyboard } from "./keyboard/useCommandKeyboard";
 import { cycleFocusZone, focusZone } from "./focus/zones";
 import { getShellInfo, isTauriRuntime } from "./tauri/bridge";
+import { requestAppExit } from "./tauri/exit";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ImportController,
@@ -1238,15 +1239,18 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     void getCurrentWindow()
       .onCloseRequested((event) => {
+        /* #407: always preventDefault — the API's implicit destroy()
+         * for non-prevented closes is ACL-gated (allow-destroy), so
+         * every exit routes through requestAppExit() whose app-owned
+         * exit_app fallback keeps X working even if a grant regresses. */
+        event.preventDefault();
         const kind = closeGuardKind({
           dirty: dirtyRef.current,
           recording: recordingActiveRef.current,
           transcribing: transcribingActiveRef.current,
         });
-        if (kind) {
-          event.preventDefault();
-          setPendingClose(kind);
-        }
+        if (kind) setPendingClose(kind);
+        else requestAppExit();
       })
       .then((u) => {
         if (alive) unlisten = u;
@@ -1723,12 +1727,12 @@ export default function App() {
    * guard. 保存して閉じる exits only on a real write. */
   const confirmCloseDiscard = useCallback(() => {
     setPendingClose(null);
-    void getCurrentWindow().destroy().catch(() => undefined);
+    requestAppExit();
   }, []);
   const confirmCloseSave = useCallback(() => {
     setPendingClose(null);
     void saveProjectFlow().then((saved) => {
-      if (saved) void getCurrentWindow().destroy().catch(() => undefined);
+      if (saved) requestAppExit();
     });
   }, [saveProjectFlow]);
   /* #400: 採譲を中止して終了 — cooperative cancel first (the worker
@@ -1738,7 +1742,7 @@ export default function App() {
   const confirmCloseAbortJob = useCallback(() => {
     setPendingClose(null);
     void session.cancelTranscription().catch(() => undefined);
-    void getCurrentWindow().destroy().catch(() => undefined);
+    requestAppExit();
   }, [session]);
   /* #301: dirty+recording combined resolution — the score save runs
    * BEFORE capture.stop() because stopping finalizes the take and
@@ -1753,7 +1757,7 @@ export default function App() {
       const saved = await saveProjectFlow();
       if (!saved) return;
       await capture.stop().catch(() => undefined);
-      void getCurrentWindow().destroy().catch(() => undefined);
+      requestAppExit();
     })();
   }, [capture, saveProjectFlow]);
   /* #301: keep the score, drop the take — cancel() runs only after
@@ -1765,7 +1769,7 @@ export default function App() {
       const saved = await saveProjectFlow();
       if (!saved) return;
       await capture.cancel().catch(() => undefined);
-      void getCurrentWindow().destroy().catch(() => undefined);
+      requestAppExit();
     })();
   }, [capture, saveProjectFlow]);
   /* #301: discard-everything exit — cancel releases the take
@@ -1774,7 +1778,7 @@ export default function App() {
   const confirmCloseDiscardAll = useCallback(() => {
     setPendingClose(null);
     void capture.cancel().catch(() => undefined);
-    void getCurrentWindow().destroy().catch(() => undefined);
+    requestAppExit();
   }, [capture]);
 
   /* #221: autosave recovery — open the snapshot through the normal
