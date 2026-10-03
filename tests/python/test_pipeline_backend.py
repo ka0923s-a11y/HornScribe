@@ -154,8 +154,9 @@ def test_auto_mono_resolves_pyin_identity(tmp_path, monkeypatch) -> None:
 
 
 def test_vocal_isolation_resolves_pyin(tmp_path, monkeypatch) -> None:
-    """#316: a successfully isolated vocal is monophonic — the auto
-    backend resolves to pYIN (the singing tracker), not Basic Pitch."""
+    """#316/#165: on an isolated vocal BOTH engines run — pYIN wins
+    the gate when its track agrees with the Basic Pitch melody line
+    (here the fake engines return the same line -> agreement 1.0)."""
     monkeypatch.setattr(
         pipeline,
         "vocal_wav",
@@ -163,8 +164,11 @@ def test_vocal_isolation_resolves_pyin(tmp_path, monkeypatch) -> None:
     )
     called: list[str] = []
 
+    captured: dict = {}
+
     def fake_pyin(path, revision, **kw):
         called.append("pyin")
+        captured["revision"] = str(revision)
         return _events()
 
     def fake_bp(path, revision, **kw):
@@ -172,16 +176,75 @@ def test_vocal_isolation_resolves_pyin(tmp_path, monkeypatch) -> None:
         return _events()
 
     monkeypatch.setattr(pipeline, "predict_note_events_pyin", fake_pyin)
-    monkeypatch.setattr(pipeline, "predict_note_events", fake_bp)
+    monkeypatch.setattr(pipeline, "predict_note_events_rescued", fake_bp)
     result = _run(
         tmp_path, {"backend": "auto", "vocalIsolation": True}
     )
-    assert called == ["pyin"]
+    # The gate consults both engines — Basic Pitch arbitrates the
+    # melody line first, then pYIN's track is measured against it.
+    assert called == ["bp", "pyin"]
     assert result["meta"]["backend"] == PYIN_BACKEND_ID
+    # The adopted track's own revision becomes THE tr-* id (#237).
+    assert result["meta"]["transcriptionRevision"] == captured["revision"]
+    gate = result["meta"]["preprocess"]["leadTrackGate"]
+    assert gate["adopted"] == "pyin"
+    assert gate["pyinAgreement"] == 1.0
     # pYIN on an isolated vocal is the right engine — the
     # monophonic-backend warning stays off.
     reasons = {i["reason"] for i in result["reviewIssues"]}
     assert "monophonic_backend" not in reasons
+
+
+def test_vocal_isolation_gate_rejects_disagreeing_pyin(
+    tmp_path, monkeypatch
+) -> None:
+    """#165: a bleed-heavy estimate leaves the bass louder than the
+    lead — pYIN locks that line end-to-end while Basic Pitch finds
+    the melody.  Agreement ~0 means the polyphonic model's line wins
+    and the tracker is thrown away."""
+    monkeypatch.setattr(
+        pipeline,
+        "vocal_wav",
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "center_extraction", "1"),
+    )
+    rev = TranscriptionRevisionId("tr-000001")
+
+    def ev(i: int, pitch: int, onset: float, offset: float) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-{i:06d}"),
+            transcription_revision=rev,
+            pitch_midi=float(pitch),
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.9,
+            velocity=80,
+            source="test",
+        )
+
+    # BP (rescued pass): the melody line at lead register.
+    monkeypatch.setattr(
+        pipeline,
+        "predict_note_events_rescued",
+        lambda path, revision, **kw: _events(),
+    )
+    # pYIN: tracked a bass line two+ octaves below — disagreement.
+    monkeypatch.setattr(
+        pipeline,
+        "predict_note_events_pyin",
+        lambda path, revision, **kw: (
+            ev(11, 36, 0.0, 1.0),
+            ev(12, 41, 1.0, 2.0),
+        ),
+    )
+    result = _run(
+        tmp_path, {"backend": "auto", "vocalIsolation": True}
+    )
+    meta = result["meta"]
+    assert meta["backend"] == "basic_pitch"
+    assert meta["backendVersion"].endswith("+rescue")
+    gate = meta["preprocess"]["leadTrackGate"]
+    assert gate["adopted"] == "basicPitch"
+    assert gate["pyinAgreement"] < pipeline.LEAD_GATE_MIN_AGREEMENT
 
 
 def test_vocal_isolation_failure_keeps_basic_pitch(

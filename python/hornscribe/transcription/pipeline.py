@@ -45,7 +45,12 @@ from pathlib import Path
 from typing import Any
 
 from hornscribe.domain.events import RawNoteEvent
-from hornscribe.domain.ids import RawNoteEventId, ScoreNoteId, ScoreRevisionId
+from hornscribe.domain.ids import (
+    RawNoteEventId,
+    ScoreNoteId,
+    ScoreRevisionId,
+    TranscriptionRevisionId,
+)
 from hornscribe.domain.review import (
     IssueIdAllocator,
     ReviewIssue,
@@ -91,6 +96,7 @@ from .backend import (
     new_transcription_revision,
     predict_note_events,
     predict_note_events_pyin,
+    predict_note_events_rescued,
     require_module,
 )
 from .boundary import (
@@ -118,6 +124,7 @@ from .clean import (
     split_voices,
 )
 from .key import analyze_key, key_uncertainty
+from .leadvoice import lead_track_agreement
 from .meter import estimate_meter
 from .options import TranscriptionParams
 from .scorebuild import build_score
@@ -909,6 +916,58 @@ def _merged_chord_dicts(
     return out
 
 
+# pYIN is adopted on an isolated-vocal estimate only when its track
+# agrees with the Basic Pitch melody line on most of its note-time —
+# 60% sits far above the ~0 a tracker earns while following a
+# bleed-dominated bass/pad line, and below the ~90% a genuinely
+# shared vocal line scores.
+LEAD_GATE_MIN_AGREEMENT = 0.6
+
+
+def _lead_track_gate(
+    backend_path: str,
+    *,
+    bp_revision: TranscriptionRevisionId,
+    pyin_revision: TranscriptionRevisionId,
+    hz_kwargs: dict[str, Any],
+    prefer: str,
+) -> tuple[bool, float, tuple[RawNoteEvent, ...]]:
+    """Run pYIN and rescued Basic Pitch on the isolated estimate and
+    return ``(adopt_pyin, agreement, events)`` (#165).
+
+    #316 resolved pYIN unconditionally for an isolated vocal — the
+    estimate was assumed monophonic.  In practice the centre
+    extractor can leave a bass/pad line louder than the buried lead,
+    and the tracker then follows that line end-to-end while the lead
+    goes unheard (very-quiet-lead: pYIN scored 0/38 where Basic
+    Pitch's melody arbitration found 35 of 38).  The gate adopts
+    pYIN only when its track substantially agrees with the line
+    Basic Pitch calls the melody — on a clean estimate both engines
+    hear the vocal and pYIN's superior frame tracking wins
+    legitimately; on a bleed-heavy one the polyphonic model's
+    arbitration survives instead.
+    """
+    bp_events = predict_note_events_rescued(
+        backend_path, revision=bp_revision, **hz_kwargs
+    )
+    pyin_events = predict_note_events_pyin(
+        backend_path, revision=pyin_revision, **hz_kwargs
+    )
+    # The arbitration line mirrors the downstream clean — the gate
+    # asks "did the tracker follow THE LINE", so the comparison
+    # line is built with the texture's own overlap rule.
+    bp_line = clean_monophonic(
+        bp_events, merge_gap_sec=MERGE_GAP_SEC, prefer=prefer
+    ).events
+    agreement = lead_track_agreement(bp_line, pyin_events)
+    adopt_pyin = agreement >= LEAD_GATE_MIN_AGREEMENT or (
+        not bp_line and bool(pyin_events)
+    )
+    return adopt_pyin, agreement, (
+        pyin_events if adopt_pyin else bp_events
+    )
+
+
 def run_transcription_job(
     *,
     job_id: str,
@@ -1107,11 +1166,24 @@ def run_transcription_job(
         # #189: "auto" picks the engine that fits the declared
         # texture — a declared-mono source gets the monophonic
         # tracker; mixes keep the polyphonic model.
-        # #316: a successfully isolated vocal is itself monophonic —
-        # the singing-voice tracker is the right engine for it, not
-        # the polyphonic model. voices/chords keep the polyphonic
-        # model (the user asked for every line); an explicit backend
-        # pin still wins over everything.
+        # #316/#165: an isolated vocal is USUALLY monophonic — but a
+        # bleed-heavy estimate still carries the accompaniment, and
+        # the monophonic tracker then locks the loudest surviving
+        # line (very-quiet-lead: pYIN followed the bass end-to-end and
+        # never heard the lead).  Under "auto" the isolated input
+        # therefore goes through the lead-track gate: BOTH engines
+        # run, and pYIN's track is adopted only when it agrees with
+        # the melody line Basic Pitch arbitrates out of the
+        # polyphony.  voices/chords keep the polyphonic model (the
+        # user asked for every line); an explicit backend pin still
+        # wins over everything; a declared-mono source without
+        # isolation keeps the direct pYIN resolution.
+        dual_track = (
+            backend is None
+            and params.backend == "auto"
+            and vocal_path is not None
+            and params.texture not in ("voices", "chords")
+        )
         resolved_pyin = params.backend == "pyin" or (
             params.backend == "auto"
             and (
@@ -1119,6 +1191,10 @@ def run_transcription_job(
                 or (
                     vocal_path is not None
                     and params.texture not in ("voices", "chords")
+                    # An injected backend keeps the legacy
+                    # resolution — tests drive one deterministic
+                    # engine and the gate must not see it.
+                    and backend is not None
                 )
             )
         )
@@ -1138,6 +1214,11 @@ def run_transcription_job(
                 backend_version = librosa.__version__ + "+lead"
             except Exception:
                 backend_version = "unknown"
+        elif vocal_path is not None and backend is None:
+            # #165: the isolated estimate also gets the two-pass
+            # sensitive recall below — name the detection chain in
+            # the identity like any other engine version (#319).
+            backend_version = BACKEND_VERSION + "+rescue"
         # #319: the revision must name the preprocess that actually
         # ran — the same settings on two installs can feed different
         # audio to the backend (demucs vs center vs raw fallback),
@@ -1164,35 +1245,88 @@ def run_transcription_job(
             backend_version=backend_version,
             preprocess=preprocess,
         )
-        if backend is not None:
-            run_backend = backend
-        else:
-            # Melody/auto/polyphonic textures widen the detection band:
-            # JPOP vocals and mix melodies sit above the 880 Hz horn cap
-            # (#236: auto must detect before it can judge — an 880 Hz
-            # ceiling would drop the melody before the auto classifier
-            # ever sees it).  Only the explicitly-monophonic texture
-            # keeps the narrow horn band.
-            max_hz = (
-                MELODY_MAX_FREQUENCY_HZ
-                if params.texture != "mono"
-                else None
-            )
-            if resolved_pyin:
-                # #175: monophonic tracker — better for a single sung line.
-                run_backend = lambda path: predict_note_events_pyin(  # noqa: E731
-                    path,
+        # Melody/auto/polyphonic textures widen the detection band:
+        # JPOP vocals and mix melodies sit above the 880 Hz horn cap
+        # (#236: auto must detect before it can judge — an 880 Hz
+        # ceiling would drop the melody before the auto classifier
+        # ever sees it).  Only the explicitly-monophonic texture
+        # keeps the narrow horn band.
+        max_hz = (
+            MELODY_MAX_FREQUENCY_HZ
+            if params.texture != "mono"
+            else None
+        )
+        hz_kwargs: dict[str, Any] = (
+            {"max_frequency_hz": max_hz} if max_hz else {}
+        )
+        try:
+            if backend is not None:
+                raw_events = backend(backend_path)
+            elif dual_track:
+                # The gate runs both engines under their own
+                # provenance — the discarded track's revision is
+                # thrown away with it, the winner's becomes THE
+                # transcription revision (#237).
+                pyin_version = "unknown"
+                try:
+                    import librosa  # noqa: PLC0415
+
+                    pyin_version = librosa.__version__ + "+lead"
+                except Exception:
+                    pass
+                pyin_revision = new_transcription_revision(
+                    audio_hash or params.audio_path,
+                    params.settings_dict(),
+                    backend_id=PYIN_BACKEND_ID,
+                    backend_version=pyin_version,
+                    preprocess=preprocess,
+                )
+                adopt_pyin, agreement, gate_events = _lead_track_gate(
+                    backend_path,
+                    bp_revision=revision,
+                    pyin_revision=pyin_revision,
+                    hz_kwargs=hz_kwargs,
+                    prefer="top"
+                    if params.texture == "melody"
+                    else "onset",
+                )
+                raw_events = gate_events
+                if adopt_pyin:
+                    resolved_pyin = True
+                    revision = pyin_revision
+                    backend_id = PYIN_BACKEND_ID
+                    backend_version = pyin_version
+                if preprocess is not None:
+                    # Gate bookkeeping rides the meta's preprocess
+                    # echo — the identity itself already names the
+                    # adopted chain, so it stays out of the hash.
+                    preprocess["leadTrackGate"] = {
+                        "pyinAgreement": round(agreement, 4),
+                        "adopted": "pyin" if adopt_pyin else "basicPitch",
+                    }
+            elif resolved_pyin:
+                # #175: monophonic tracker — better for a single
+                # sung line.
+                raw_events = predict_note_events_pyin(
+                    backend_path,
                     revision=revision,
-                    **({"max_frequency_hz": max_hz} if max_hz else {}),
+                    **hz_kwargs,
+                )
+            elif vocal_path is not None:
+                # #165: two-pass sensitive recall on the isolated
+                # estimate — a buried lead can sit under production
+                # thresholds where the model still tracks it faintly.
+                raw_events = predict_note_events_rescued(
+                    backend_path,
+                    revision=revision,
+                    **hz_kwargs,
                 )
             else:
-                run_backend = lambda path: predict_note_events(  # noqa: E731
-                    path,
+                raw_events = predict_note_events(
+                    backend_path,
                     revision=revision,
-                    **({"max_frequency_hz": max_hz} if max_hz else {}),
+                    **hz_kwargs,
                 )
-        try:
-            raw_events = run_backend(backend_path)
         finally:
             if staged_path is not None:
                 with contextlib.suppress(OSError):

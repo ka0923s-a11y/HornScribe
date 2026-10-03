@@ -417,6 +417,73 @@ def load_mono_audio(audio_path: str) -> tuple[Any, int]:
     return samples, int(sr)
 
 
+# Rescue-pass tuning (#165, very-quiet-lead): on a centre-extracted
+RESCUE_ONSET_THRESHOLD = 0.25
+RESCUE_FRAME_THRESHOLD = 0.18
+RESCUE_BLOCK_OVERLAP_SEC = 0.03
+
+
+def _predict_basic_pitch(
+    audio_path: str,
+    *,
+    onset_threshold: float,
+    frame_threshold: float,
+    max_frequency_hz: float,
+) -> Any:
+    """One ``basic_pitch.inference.predict`` call -> raw note tuples.
+
+    Shared by the single-pass and the rescue variants so the model
+    invocation (thresholds aside) is identical in both.
+    """
+    require_module("basic_pitch")
+    from basic_pitch.inference import predict  # noqa: PLC0415
+
+    # basic_pitch prints "Predicting MIDI for ..." to stdout — that would
+    # corrupt the worker's NDJSON channel, so capture it to the log.
+    chatter = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(chatter):
+            _output, _midi, note_events = predict(
+                audio_path,
+                onset_threshold=onset_threshold,
+                frame_threshold=frame_threshold,
+                minimum_note_length=MINIMUM_NOTE_LENGTH_MS,
+                minimum_frequency=MIN_FREQUENCY_HZ,
+                maximum_frequency=max_frequency_hz,
+                melodia_trick=True,
+            )
+    except EngineDependencyError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"basic_pitch inference failed: {exc}") from exc
+    for line in chatter.getvalue().splitlines():
+        if line.strip():
+            log.info("basic_pitch: %s", line.strip())
+    return note_events
+
+
+def _events_from_bp(
+    note_events: Any,
+    revision: TranscriptionRevisionId,
+    *,
+    allocator: IdAllocator | None = None,
+) -> tuple[RawNoteEvent, ...]:
+    """basic_pitch note tuples -> RawNoteEvent list (shared converter)."""
+    alloc = allocator or IdAllocator("rne")
+    events: list[RawNoteEvent] = []
+    for note_event in note_events:
+        events.append(
+            _to_raw_event(
+                note_event,
+                alloc.allocate_raw_event_id(),
+                revision,
+                # basic_pitch returns contour-bin offsets, not MIDI ticks
+                bend_units=BEND_UNITS_BP_BINS,
+            )
+        )
+    return tuple(events)
+
+
 def predict_note_events(
     audio_path: str,
     *,
@@ -432,45 +499,76 @@ def predict_note_events(
     ``max_frequency_hz`` widens the detection band for melody-texture
     jobs whose line lives above the horn range.
     """
-    require_module("basic_pitch")
-    from basic_pitch.inference import predict  # noqa: PLC0415
+    note_events = _predict_basic_pitch(
+        audio_path,
+        onset_threshold=ONSET_THRESHOLD,
+        frame_threshold=FRAME_THRESHOLD,
+        max_frequency_hz=max_frequency_hz,
+    )
+    return _events_from_bp(note_events, revision)
 
-    # basic_pitch prints "Predicting MIDI for ..." to stdout — that would
-    # corrupt the worker's NDJSON channel, so capture it to the log.
-    chatter = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(chatter):
-            _output, _midi, note_events = predict(
-                audio_path,
-                onset_threshold=ONSET_THRESHOLD,
-                frame_threshold=FRAME_THRESHOLD,
-                minimum_note_length=MINIMUM_NOTE_LENGTH_MS,
-                minimum_frequency=MIN_FREQUENCY_HZ,
-                maximum_frequency=max_frequency_hz,
-                melodia_trick=True,
-            )
-    except EngineDependencyError:
-        raise
-    except Exception as exc:
-        raise ValueError(f"basic_pitch inference failed: {exc}") from exc
-    for line in chatter.getvalue().splitlines():
-        if line.strip():
-            log.info("basic_pitch: %s", line.strip())
 
-    allocator = IdAllocator("rne")
-    events: list[RawNoteEvent] = []
-    for note_event in note_events:
-        events.append(
-            _to_raw_event(
-                note_event,
-                allocator.allocate_raw_event_id(),
-                revision,
-                # basic_pitch returns contour-bin offsets, not MIDI ticks
-                bend_units=BEND_UNITS_BP_BINS,
-            )
+def admit_rescue_events(
+    base: tuple[RawNoteEvent, ...],
+    extra: tuple[RawNoteEvent, ...],
+    *,
+    block_overlap_sec: float = RESCUE_BLOCK_OVERLAP_SEC,
+) -> tuple[RawNoteEvent, ...]:
+    """Sensitive-pass events covering spans the base pass left empty.
+
+    A candidate is admitted only when NO base event overlaps it in
+    time by more than ``block_overlap_sec`` — at any pitch.  The rule
+    makes the union strictly additive: where the production pass
+    already heard *something* (even a wrong-pitch hypothesis), the
+    louder evidence won the arbitration honestly, and the sensitive
+    stream never gets to second-guess it.  Empty spans — true
+    detection holes in a buried lead — are the only openings.
+    """
+    out: list[RawNoteEvent] = []
+    for cand in extra:
+        blocked = any(
+            min(cand.offset_sec, b.offset_sec)
+            - max(cand.onset_sec, b.onset_sec)
+            > block_overlap_sec
+            for b in base
         )
-    return tuple(events)
+        if not blocked:
+            out.append(cand)
+    return tuple(out)
 
+
+def predict_note_events_rescued(
+    audio_path: str,
+    *,
+    revision: TranscriptionRevisionId,
+    max_frequency_hz: float = MAX_FREQUENCY_HZ,
+) -> tuple[RawNoteEvent, ...]:
+    """Production Basic Pitch + a sensitive second pass on the same file.
+
+    Scoped to isolated-vocal estimates: the separation has already
+    removed most accompaniment, so the sensitive stream's admitted
+    candidates are far more likely a buried lead than a raw mix's
+    accompaniment noise.  Costs one extra inference — opted into with
+    the isolation request itself.
+    """
+    base_raw = _predict_basic_pitch(
+        audio_path,
+        onset_threshold=ONSET_THRESHOLD,
+        frame_threshold=FRAME_THRESHOLD,
+        max_frequency_hz=max_frequency_hz,
+    )
+    extra_raw = _predict_basic_pitch(
+        audio_path,
+        onset_threshold=RESCUE_ONSET_THRESHOLD,
+        frame_threshold=RESCUE_FRAME_THRESHOLD,
+        max_frequency_hz=max_frequency_hz,
+    )
+    # One allocator over both passes so rne-* ids stay unique.
+    allocator = IdAllocator("rne")
+    base_events = _events_from_bp(base_raw, revision, allocator=allocator)
+    extra_events = _events_from_bp(extra_raw, revision, allocator=allocator)
+    admitted = admit_rescue_events(base_events, extra_events)
+    return tuple(base_events) + admitted
 
 def predict_note_events_pyin(
     audio_path: str,

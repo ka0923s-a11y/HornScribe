@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import pytest
 
+from hornscribe.domain.events import RawNoteEvent
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
 from hornscribe.transcription.backend import (
     _bend_points,
     _rms_velocity,
     _to_raw_event,
+    admit_rescue_events,
     frames_to_note_events,
 )
+from hornscribe.transcription.leadvoice import lead_track_agreement
 
 
 def _rev() -> TranscriptionRevisionId:
@@ -380,3 +383,82 @@ class TestLeadVoiceDecoder:
         f0, t, v, p = self._frames([60] * 10)
         with pytest.raises(ValueError):
             frames_to_note_events(f0, t, v, p, decoder="bogus")
+
+
+def _ev(i: int, pitch: float, onset: float, offset: float) -> RawNoteEvent:
+    return RawNoteEvent(
+        id=RawNoteEventId(f"rne-{i:06d}"),
+        transcription_revision=TranscriptionRevisionId("tr-000001"),
+        pitch_midi=float(pitch),
+        onset_sec=onset,
+        offset_sec=offset,
+        confidence=0.5,
+        velocity=64,
+        source="test",
+    )
+
+
+class TestAdmitRescueEvents:
+    """#165: the sensitive second pass may only fill spans the
+    production pass left empty — at any pitch."""
+
+    def test_empty_span_candidate_admitted(self):
+        base = (_ev(1, 72.0, 0.0, 0.5), _ev(2, 74.0, 1.5, 2.0))
+        extra = (_ev(3, 79.0, 0.7, 1.2),)
+        assert admit_rescue_events(base, extra) == extra
+
+    def test_overlapping_candidate_rejected(self):
+        base = (_ev(1, 72.0, 0.0, 0.5),)
+        # Same span, different pitch — the louder evidence already
+        # arbitrated this span; the ghost must not re-open it.
+        extra = (_ev(2, 79.0, 0.1, 0.45),)
+        assert admit_rescue_events(base, extra) == ()
+
+    def test_edge_touch_within_tolerance_admitted(self):
+        base = (_ev(1, 72.0, 0.0, 0.5),)
+        # <=30 ms overlap is a boundary kiss, not coverage — a
+        # candidate starting at the base event's release survives.
+        extra = (_ev(2, 79.0, 0.48, 1.0),)
+        assert admit_rescue_events(base, extra) == extra
+
+    def test_no_base_means_everything_admitted(self):
+        extra = (_ev(1, 79.0, 0.0, 0.4), _ev(2, 76.0, 0.6, 1.0))
+        assert admit_rescue_events((), extra) == extra
+
+
+class TestLeadTrackAgreement:
+    """#165: time-weighted same-line agreement for the backend gate."""
+
+    def test_identical_tracks_agree_fully(self):
+        line = (_ev(1, 72.0, 0.0, 1.0), _ev(2, 74.0, 1.0, 2.0))
+        tracker = (_ev(3, 72.0, 0.0, 1.0), _ev(4, 74.0, 1.0, 2.0))
+        assert lead_track_agreement(line, tracker) == 1.0
+
+    def test_different_line_scores_zero(self):
+        # Tracker followed the bass — no same-pitch overlap at all.
+        line = (_ev(1, 76.0, 0.0, 1.0), _ev(2, 79.0, 1.0, 2.0))
+        tracker = (_ev(3, 40.0, 0.0, 1.0), _ev(4, 43.0, 1.0, 2.0))
+        assert lead_track_agreement(line, tracker) == 0.0
+
+    def test_octave_off_does_not_count(self):
+        # A tracker an octave low followed a DIFFERENT line (the bass
+        # shares pitch classes with the lead it accompanies) — octave
+        # agreement must not pass the gate.
+        line = (_ev(1, 76.0, 0.0, 1.0), _ev(2, 79.0, 1.0, 2.0))
+        tracker = (_ev(3, 64.0, 0.0, 1.0), _ev(4, 79.0, 1.0, 2.0))
+        assert lead_track_agreement(line, tracker) == 0.5
+
+    def test_partial_overlap_weights_time(self):
+        line = (_ev(1, 76.0, 0.0, 1.0),)
+        # Tracker agrees on 0.5s of its 2s span -> 0.25.
+        tracker = (_ev(2, 76.0, 0.5, 1.0), _ev(3, 40.0, 1.0, 2.5))
+        assert lead_track_agreement(line, tracker) == pytest.approx(0.25)
+
+    def test_empty_tracker_scores_zero(self):
+        line = (_ev(1, 76.0, 0.0, 1.0),)
+        assert lead_track_agreement(line, ()) == 0.0
+
+    def test_vibrato_semitone_drift_still_agrees(self):
+        line = (_ev(1, 76.0, 0.0, 1.0),)
+        tracker = (_ev(2, 77.0, 0.0, 1.0),)
+        assert lead_track_agreement(line, tracker) == 1.0
