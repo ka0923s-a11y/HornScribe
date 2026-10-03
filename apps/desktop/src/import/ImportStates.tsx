@@ -67,6 +67,9 @@ export interface ImportView {
   onPickRelink(): void;
   onDismissError(): void;
   onOptionsChange(next: TranscriptionOptions): void;
+  /** #189: engine handshake capability — false disables the vocal-
+   *  isolation quality select (tiers only exist under demucs). */
+  demucsAvailable?: boolean;
   /** #18: 現在の音源+オプション(選択範囲を含む)を採譜キューに積む。
    *  範囲を変えて連打すれば複数区間の逐次採譜になる。 */
   onEnqueueQueue?(): void;
@@ -321,6 +324,7 @@ function AudioReadyBody({
             durationSec={audio?.durationSeconds ?? 0}
             onChange={view.onOptionsChange}
             title={ja.import.audioOptions.label}
+            demucsAvailable={view.demucsAvailable}
           />
         </HsPopover>
       </div>

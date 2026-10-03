@@ -2767,6 +2767,9 @@ export default function App() {
       onPickRelink: () => void importer.pickRelinkSource(),
       onDismissError: () => importer.dismiss(),
       onOptionsChange: setTranscriptionOptions,
+      // #189: engine capability gates the isolation-quality select —
+      // false disables it since only demucs honors the tiers.
+      demucsAvailable: sessionSnap.capabilities?.demucsAvailable,
       // #18: 現在の音源+オプションをキューに積む。
       onEnqueueQueue: enqueueCurrentAudio,
       // FEAT-001: EMPTY state capture entry points.
@@ -2785,6 +2788,7 @@ export default function App() {
       guardDiscard,
       enqueueCurrentAudio,
       screen,
+      sessionSnap.capabilities?.demucsAvailable,
     ],
   );
 
@@ -3732,6 +3736,7 @@ export default function App() {
             onOpenChange={setTranscribeOptionsOpen}
             options={transcriptionOptions}
             durationSec={importState.audio?.durationSeconds ?? 0}
+            demucsAvailable={sessionSnap.capabilities?.demucsAvailable}
             onApply={(next) =>
               retranscribeWithOptions(next, () =>
                 setTranscriptionOptions(next),

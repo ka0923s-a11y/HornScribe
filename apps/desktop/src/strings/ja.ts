@@ -1090,6 +1090,10 @@ export const ja = {
       vocalIsolationQualityPrecision: "高精度（低速・ボーカル向け）",
       vocalIsolationQualityHint:
         "demucs による分離時に有効です。高精度は上質な分離モデルと複数回推定の平均化を使うため、分離は上質になりますが数倍遅くなります。",
+      /* #189: replaces the quality hint when the engine reports no
+       * demucs — the select disables at the same time. */
+      vocalIsolationQualityNoDemucs:
+        "このエンジンには分離モデル(demucs)が導入されていないため、標準のみ有効です。",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {

@@ -89,6 +89,7 @@ export function TranscriptionOptionsFields({
   durationSec,
   onChange,
   title,
+  demucsAvailable,
 }: {
   options: TranscriptionOptions;
   /** 読み込み済み音源の長さ(秒) — 範囲入力の上限と検証に使う。 */
@@ -97,6 +98,11 @@ export function TranscriptionOptionsFields({
   /** Optional heading rendered above the fields (popover only — the
    *  dialog carries its title in the HsDialog chrome). */
   title?: string;
+  /** #189: engine's demucsAvailable capability — false pins the
+   *  quality select to standard since only demucs honors tiers;
+   *  undefined means not-yet-known (engine still starting) and keeps
+   *  the control enabled. */
+  demucsAvailable?: boolean;
 }) {
   const set = (patch: Partial<TranscriptionOptions>) =>
     onChange({ ...options, ...patch });
@@ -168,13 +174,20 @@ export function TranscriptionOptionsFields({
           : ja.import.audioOptions.vocalIsolationHint}
       </p>
       {/* #181: separation quality — only meaningful while the
-          isolation checkbox is on, so the select disables with it. */}
+          isolation checkbox is on, so the select disables with it.
+          #189: without demucs every tier lands on the same center
+          extraction — an enabled select would lie, so it disables too
+          and the hint explains why. */}
       <HsSelect
         label={ja.import.audioOptions.vocalIsolationQuality}
         options={VOCAL_QUALITY_OPTIONS}
         value={options.vocalIsolationQuality}
-        disabled={!options.vocalIsolation}
-        hint={ja.import.audioOptions.vocalIsolationQualityHint}
+        disabled={!options.vocalIsolation || demucsAvailable === false}
+        hint={
+          demucsAvailable === false
+            ? ja.import.audioOptions.vocalIsolationQualityNoDemucs
+            : ja.import.audioOptions.vocalIsolationQualityHint
+        }
         onChange={(v) =>
           set({
             vocalIsolationQuality:
