@@ -58,10 +58,19 @@ no telemetry. `pip install hornscribe[engine]` carries the model deps.
   clipping to the next onset. Isolated notes exactly an octave off
   BOTH neighbours' shared pitch class snap to the neighbour octave
   (Basic Pitch octave flicker; real leaps are untouched — the count
-  is reported via `meta.cleaning.octaveCorrected`).
+  is reported via `meta.cleaning.octaveCorrected`). The snap is
+  gated by `octave_prefers`: an rFFT verdict over the note's middle
+  60% that compares the +-3% band around each candidate fundamental
+  and confirms only when the target band dominates the detected one
+  by >=2.5x — a played octave figure carries its real fundamental
+  (octave-leaps-4-4), and a true low note's 2nd harmonic keeps the
+  verdict one-way. Spans under ~120 ms abstain (the FFT cannot
+  resolve a horn-range fundamental that fast).
 - Melody-texture (prefer="top") arbitration hardening — every rule is
   evidence-bearing and measured on the e2e bench (all 25 fixtures at
-  pitch accuracy 1.0 / onset F1 1.0 as of v0.2.5):
+  pitch accuracy 1.0 / onset F1 1.0; the 29-fixture suite also covers
+  real octave leaps, +-20c tuning drift, ~70 ms grace notes, and a
+  -9.5 dB lead SNR-floor probe):
   - a lower hypothesis that attacked WITH the top may claim the slot
     only when it outlives it by >50 ms (frame-edge overhang is noise)
     or re-attacks inside/just past the overlay's claimed end —
@@ -146,6 +155,10 @@ shutdown; `engine_kill` + exit hook prevent sidecar leaks.
 - Polyphonic input is best-effort: voices keeps up to three lines,
   melody/mono collapse to one — the overlap issue reports what
   was merged or dropped.
+- The free stack's SNR floor sits near -9.5 dB (very-quiet-lead):
+  a lead buried that deep under the backing loses the notes the
+  accompaniment fully masks (~89% of the line still lands). Louder
+  than that, vocal isolation + the melody texture hold at 1.0.
 - Browser-dev `kind:"file"` sources have no `audioPath` — the mock
   port covers dev; staging bytes to a temp file is a follow-up.
 - basic_pitch `predict` cannot be cancelled mid-call (documented).
