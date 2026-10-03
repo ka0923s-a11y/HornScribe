@@ -188,4 +188,44 @@ describe("buildTranscriptionParams staged path", () => {
       ).vocalIsolation,
     ).toBe(true);
   });
+
+  it("#181: vocalIsolationQuality reaches the job only for precision under isolation", () => {
+    const a = audio({
+      ref: { kind: "path", path: "C:/orig.wav", name: "orig.wav" },
+    });
+    expect(
+      buildTranscriptionParams(
+        a,
+        {
+          ...DEFAULT_TRANSCRIPTION_OPTIONS,
+          vocalIsolation: true,
+          vocalIsolationQuality: "precision",
+        },
+        null,
+      ).vocalIsolationQuality,
+    ).toBe("precision");
+    // Standard under isolation stays implicit; precision without
+    // isolation is dropped.
+    expect(
+      buildTranscriptionParams(
+        a,
+        {
+          ...DEFAULT_TRANSCRIPTION_OPTIONS,
+          vocalIsolation: true,
+          vocalIsolationQuality: "standard",
+        },
+        null,
+      ).vocalIsolationQuality,
+    ).toBeUndefined();
+    expect(
+      buildTranscriptionParams(
+        a,
+        {
+          ...DEFAULT_TRANSCRIPTION_OPTIONS,
+          vocalIsolationQuality: "precision",
+        },
+        null,
+      ).vocalIsolationQuality,
+    ).toBeUndefined();
+  });
 });

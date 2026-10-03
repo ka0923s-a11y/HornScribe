@@ -134,6 +134,7 @@ describe("transcriptionOptionsFromSettings", () => {
       backend: "basicPitch",
       texture: "melody",
       vocalIsolation: true,
+      vocalIsolationQuality: "precision",
       keyHint: "Ebm",
     });
     expect(o).toEqual({
@@ -149,10 +150,52 @@ describe("transcriptionOptionsFromSettings", () => {
       maxVoices: 3,
       backend: "basicPitch",
       vocalIsolation: true,
+      vocalIsolationQuality: "precision",
       keyHint: "Ebm",
       selectionStartSec: 12.5,
       selectionEndSec: 40,
     });
+  });
+
+  it("#181: vocalIsolationQuality reaches the job only under isolation", () => {
+    const a = audioOf("take.wav");
+    // Isolation off — the tier is meaningless and stays off the wire.
+    const off = buildTranscriptionParams(a, {
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      vocalIsolation: false,
+      vocalIsolationQuality: "precision",
+    });
+    expect(off.vocalIsolationQuality).toBeUndefined();
+    // Isolation on + standard — the engine default stays implicit.
+    const std = buildTranscriptionParams(a, {
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      vocalIsolation: true,
+      vocalIsolationQuality: "standard",
+    });
+    expect(std.vocalIsolationQuality).toBeUndefined();
+    // Isolation on + precision — the only emitting combination.
+    const pre = buildTranscriptionParams(a, {
+      ...DEFAULT_TRANSCRIPTION_OPTIONS,
+      vocalIsolation: true,
+      vocalIsolationQuality: "precision",
+    });
+    expect(pre.vocalIsolationQuality).toBe("precision");
+  });
+
+  it("#181: vocalIsolationQuality restores a whitelisted tier", () => {
+    expect(
+      transcriptionOptionsFromSettings({
+        vocalIsolationQuality: "precision",
+      }).vocalIsolationQuality,
+    ).toBe("precision");
+    // Unknown tiers degrade to standard; absent stays default.
+    expect(
+      transcriptionOptionsFromSettings({ vocalIsolationQuality: "ultra" })
+        .vocalIsolationQuality,
+    ).toBe("standard");
+    expect(
+      transcriptionOptionsFromSettings(null).vocalIsolationQuality,
+    ).toBe("standard");
   });
 
   it("#53: keyHint passes through to the job params", () => {

@@ -162,6 +162,10 @@ export interface TranscriptionOptions {
   /** #187: opt-in vocal isolation — the backend runs on a
    *  center-extracted vocal estimate instead of the raw mix. */
   vocalIsolation: boolean;
+  /** #181: demucs tier for vocal isolation — "precision" runs
+   *  htdemucs_ft + shift-averaging (much slower, best free vocals
+   *  separation). Only reaches the job when vocalIsolation is on. */
+  vocalIsolationQuality: "standard" | "precision";
   /** #53: user-attested key ("auto" or a tonic name like "Ebm") —
    *  pinning it fixes enharmonic spelling, the signature and the
    *  chord prior; analysis and the key_uncertain review are skipped. */
@@ -193,6 +197,7 @@ export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   maxVoices: 3,
   backend: "auto",
   vocalIsolation: false,
+  vocalIsolationQuality: "standard",
   keyHint: "auto",
   selectionStartSec: null,
   selectionEndSec: null,

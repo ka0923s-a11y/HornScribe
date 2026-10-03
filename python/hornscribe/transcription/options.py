@@ -142,6 +142,11 @@ class TranscriptionParams:
     # #187: opt-in vocal isolation — the backend runs on a
     # center-extracted vocal estimate instead of the raw mix.
     vocal_isolation: bool = False
+    # #181: demucs tier for vocal isolation — "precision" runs
+    # htdemucs_ft with shift-averaging (~4x separation time for the
+    # strongest free two-stem vocals estimate). Only meaningful when
+    # vocal_isolation is on and a demucs binary resolves.
+    vocal_isolation_quality: str = "standard"
     # #305: the user's file name for the score title. ``audio_path``
     # may point at a staged temp file (browser-dev kind:"file" drops),
     # so the display name travels separately and the title never
@@ -185,6 +190,12 @@ class TranscriptionParams:
         texture = cls._opt_choice(raw, "texture", "auto", _TEXTURES)
         max_voices = cls._opt_int(raw, "maxVoices", 3, lo=2, hi=8)
         vocal_isolation = raw.get("vocalIsolation", False) is True
+        vocal_isolation_quality = cls._opt_choice(
+            raw,
+            "vocalIsolationQuality",
+            "standard",
+            {"standard", "precision"},
+        )
         display_name = cls._opt_str(raw, "displayName")
         key_hint = cls._opt_choice(
             raw, "keyHint", "auto", set(_KEY_HINTS) | {"auto"}
@@ -204,6 +215,7 @@ class TranscriptionParams:
             texture=texture,
             max_voices=max_voices,
             vocal_isolation=vocal_isolation,
+            vocal_isolation_quality=vocal_isolation_quality,
             display_name=display_name,
             key_hint=key_hint,
         )
@@ -261,6 +273,7 @@ class TranscriptionParams:
             "texture": self.texture,
             "maxVoices": self.max_voices,
             "vocalIsolation": self.vocal_isolation,
+            "vocalIsolationQuality": self.vocal_isolation_quality,
             "keyHint": self.key_hint,
         }
 

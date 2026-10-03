@@ -98,6 +98,8 @@ export interface CommandContext {
     texture?: "auto" | "mono" | "melody" | "voices" | "chords";
     /** #314: the lead-vocal-mix remedy pins isolation + melody. */
     vocalIsolation?: boolean;
+    /** #181: the demucs tier — only meaningful under vocalIsolation. */
+    vocalIsolationQuality?: "standard" | "precision";
   }): void;
   /**
    * Cooperative `job.cancel` (UI-040): requests cancellation of the

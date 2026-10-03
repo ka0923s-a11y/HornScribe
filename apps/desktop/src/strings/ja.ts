@@ -1083,6 +1083,13 @@ export const ja = {
        * why the two options cannot combine. */
       vocalIsolationPolyphonicHint:
         "複数声部・和音として採譜する場合、ボーカル分離は使えません（伴奏を取り除くと重なった声部も失われるため）。",
+      /* #181: demucs tier for vocal isolation — precision trades a
+       * much slower separation for the better htdemucs_ft model. */
+      vocalIsolationQuality: "分離品質",
+      vocalIsolationQualityStandard: "標準（速い）",
+      vocalIsolationQualityPrecision: "高精度（低速・ボーカル向け）",
+      vocalIsolationQualityHint:
+        "demucs による分離時に有効です。高精度は上質な分離モデルと複数回推定の平均化を使うため、分離は上質になりますが数倍遅くなります。",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {
@@ -2257,6 +2264,8 @@ export const ja = {
     } as Record<string, string>,
     paramsMaxVoices: (n: number) => `最大${n}声部`,
     paramsVocalIsolation: "ボーカル分離",
+    /* #181: non-default demucs tier echo on queue rows. */
+    paramsVocalIsolationPrecision: "分離高精度",
     paramsTempo: (bpm: number) => `${bpm} BPM`,
     paramsKey: (key: string) => `調 ${key}`,
     paramsTriplets: {
