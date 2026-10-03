@@ -66,12 +66,26 @@ pub(crate) fn bundled_roots(app: &tauri::AppHandle) -> Vec<PathBuf> {
 /// Existing `<root>/tools/` directories — where a package ships ffmpeg
 /// (and future helpers). engine.rs also prepends these to the engine
 /// child's PATH so Python-side audioread resolves the same binary.
+/// #190: `data_dir()/tools` leads the list — a WRITABLE drop-in root
+/// for optional addons (the demucs separation bundle). Installed
+/// builds put tools/ under Program Files where the user cannot write,
+/// so addons live in appData (or data/ next to a portable exe); it is
+/// only listed when the directory already exists.
 pub(crate) fn bundled_tools_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
-    bundled_roots(app)
+    let mut dirs = Vec::new();
+    if let Ok(data) = data_dir(app) {
+        let addon = data.join("tools");
+        if addon.is_dir() {
+            dirs.push(addon);
+        }
+    }
+    dirs.extend(
+        bundled_roots(app)
         .into_iter()
         .map(|r| r.join("tools"))
         .filter(|d| d.is_dir())
-        .collect()
+    );
+    dirs
 }
 
 /// Resolve the ffmpeg executable per the module-doc order. Returns a
@@ -127,4 +141,28 @@ pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map_err(|e| format!("app_data_dir: {e}"))
+}
+
+/// `addons_dir`: the writable drop-in root for optional addons
+/// (#190) — `data_dir()/tools`. The settings page reports this path
+/// so the user knows where to extract the demucs addon zip.
+#[tauri::command(async)]
+pub fn addons_dir(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(data_dir(&app)?
+        .join("tools")
+        .to_string_lossy()
+        .into_owned())
+}
+
+/// `open_addons_dir`: create if missing, open in Explorer — the same
+/// UX as open_recordings_dir, pointed at the addon drop-in root.
+#[tauri::command(async)]
+pub fn open_addons_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = data_dir(&app)?.join("tools");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("tools dir: {e}"))?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("explorer {}: {e}", dir.display()))?;
+    Ok(())
 }

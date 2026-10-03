@@ -473,8 +473,10 @@
       "label": "ツール",
       "ffmpeg": "FFmpeg",
       "musescore": "MuseScore",
+      "demucs": "demucs（ボーカル分離）",
       "modelInfo": "モデル情報",
       "ffmpegPath": "FFmpegの場所",
+      "addonsFolder": "アドオンの場所",
       "pathPlaceholder": "自動検出"
     },
     "advanced": {
@@ -794,6 +796,11 @@
       "name": "MuseScore",
       "purpose": "PDFの書き出しに必要です。",
       "missing": "MuseScoreが見つかりません。MusicXMLとMIDIの書き出しはそのまま使えます。"
+    },
+    "demucs": {
+      "name": "demucs（ボーカル分離）",
+      "purpose": "ボーカル分離による採譜精度の向上に使います。任意アドオンとして後から追加できます。",
+      "missing": "分離アドオン(demucs)が見つかりません。標準の分離方式はそのまま使えます。"
     },
     "engine": {
       "name": "採譜エンジン",
