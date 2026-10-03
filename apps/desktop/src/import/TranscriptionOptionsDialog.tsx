@@ -23,6 +23,7 @@ export function TranscriptionOptionsDialog({
   options,
   durationSec,
   onApply,
+  demucsAvailable,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -33,6 +34,9 @@ export function TranscriptionOptionsDialog({
   /** Apply the draft — the caller pairs it with retranscribeWithOptions
    *  so the dirty-score guard still wraps the commit + job start. */
   onApply(next: TranscriptionOptions): void;
+  /** #189: engine capability — false disables the isolation-quality
+   *  select (tiers only exist under demucs). */
+  demucsAvailable?: boolean;
 }) {
   const [draft, setDraft] = useState<TranscriptionOptions>(options);
   const [seeded, setSeeded] = useState(open);
@@ -76,6 +80,7 @@ export function TranscriptionOptionsDialog({
         options={draft}
         durationSec={durationSec}
         onChange={setDraft}
+        demucsAvailable={demucsAvailable}
       />
     </HsDialog>
   );
