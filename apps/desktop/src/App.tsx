@@ -1244,6 +1244,11 @@ export default function App() {
          * every exit routes through requestAppExit() whose app-owned
          * exit_app fallback keeps X working even if a grant regresses. */
         event.preventDefault();
+        /* #192: acknowledge immediately — the Rust-side close watchdog
+         * treats a missing ack (hung/dead renderer) as "force-destroy
+         * the window after 10 s". A live handler acks before any guard
+         * dialog logic, so a user thinking in the dialog is safe. */
+        void invoke("close_request_ack").catch(() => undefined);
         const kind = closeGuardKind({
           dirty: dirtyRef.current,
           recording: recordingActiveRef.current,
