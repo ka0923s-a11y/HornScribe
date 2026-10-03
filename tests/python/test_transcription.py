@@ -941,6 +941,237 @@ class TestClean:
         assert len(out.events) == 3
         assert out.ghost_dropped == 0
 
+    def test_preattack_octave_stub_folds_into_successor(self) -> None:
+        # quiet-lead-mix: on a masked attack the backend opens on the
+        # sub-octave for ~46 ms before settling — the stub scored as an
+        # extra note and pushed the real onset late.  It folds into the
+        # successor, keeping the stub's earlier onset as the attack.
+        stub = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.952,
+            offset_sec=0.998,
+            confidence=0.55,
+        )
+        real = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=81,
+            onset_sec=0.998,
+            offset_sec=1.161,
+            confidence=0.58,
+        )
+        out = clean_monophonic((stub, real), prefer="top")
+        assert len(out.events) == 1
+        assert out.events[0].pitch_midi == 81
+        assert out.events[0].onset_sec == pytest.approx(0.952)
+        assert out.events[0].offset_sec == pytest.approx(1.161)
+        assert out.preattack_folded == 1
+
+    def test_preattack_stub_fold_needs_octave_and_stub_length(
+        self,
+    ) -> None:
+        # Longer than the sub-32nd cap is a played figure, and a
+        # non-octave step is melodic motion — neither folds.
+        low = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.0,
+            offset_sec=0.15,
+            confidence=0.55,
+        )
+        high = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=81,
+            onset_sec=0.15,
+            offset_sec=0.6,
+            confidence=0.58,
+        )
+        out = clean_monophonic((low, high), prefer="top")
+        assert len(out.events) == 2
+        assert out.preattack_folded == 0
+
+        step = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=67,
+            onset_sec=0.0,
+            offset_sec=0.05,
+            confidence=0.55,
+        )
+        near = RawNoteEvent(
+            id=RawNoteEventId("rne-000004"),
+            transcription_revision=_REV,
+            pitch_midi=72,
+            onset_sec=0.05,
+            offset_sec=0.6,
+            confidence=0.58,
+        )
+        out = clean_monophonic((step, near), prefer="top")
+        assert len(out.events) == 2
+        assert out.preattack_folded == 0
+
+    def test_preattack_stub_fold_is_melody_only(self) -> None:
+        # prefer="onset" keeps the honest event stream — the fold is a
+        # melody-extraction policy, not a mono contract rule.
+        stub = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.0,
+            offset_sec=0.046,
+            confidence=0.55,
+        )
+        real = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=81,
+            onset_sec=0.046,
+            offset_sec=0.3,
+            confidence=0.58,
+        )
+        out = clean_monophonic((stub, real))
+        assert len(out.events) == 2
+        assert out.preattack_folded == 0
+
+    def test_lower_line_needs_real_overhang(self) -> None:
+        # quiet-lead-mix shape: a bleed attacked WITH the top and
+        # "outlived" it by 12 ms — the bare > test read frame jitter as
+        # a line running on underneath and stole the slot.
+        top = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=2.114,
+            offset_sec=2.300,
+            confidence=0.32,
+        )
+        bleed = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=2.114,
+            offset_sec=2.312,
+            confidence=0.42,
+        )
+        out = clean_monophonic((top, bleed), prefer="top")
+        assert len(out.events) == 1
+        assert out.events[0].pitch_midi == 76
+
+    def test_lower_line_resume_at_overlay_boundary(self) -> None:
+        # jpop-mix-hard: a merged overlay's tail overshoots the true
+        # release — a same-pitch re-attack landing just past the
+        # nominal end is the buried line continuing, not ordinary
+        # succession, so the real attack displaces the overlay.
+        blob = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=12.198,
+            offset_sec=12.872,
+            confidence=0.79,
+        )
+        attack = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=72,
+            onset_sec=12.663,
+            offset_sec=12.895,
+            confidence=0.83,
+        )
+        resume = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=72,
+            onset_sec=12.895,
+            offset_sec=13.057,
+            confidence=0.85,
+        )
+        out = clean_monophonic((blob, attack, resume), prefer="top")
+        assert [e.pitch_midi for e in out.events] == [76.0, 72.0]
+        assert out.events[0].offset_sec == pytest.approx(12.663)
+        assert out.events[1].onset_sec == pytest.approx(12.663)
+
+    def test_vibrato_veto_protects_singing_incumbent(self) -> None:
+        # The incumbent modulates inside the contested window while the
+        # challenger is a steady tone — the lower cannot displace a
+        # singing line on confidence alone.
+        bend = PitchBendPoint
+        top = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.0,
+            offset_sec=1.0,
+            confidence=0.32,
+            pitch_bends=tuple(
+                bend(0.05 + k * 0.08, 0.7 if k % 2 else 0.0)
+                for k in range(10)
+            ),
+        )
+        bleed = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.0,
+            offset_sec=1.3,
+            confidence=0.6,
+            pitch_bends=tuple(
+                bend(0.05 + k * 0.08, 0.33) for k in range(10)
+            ),
+        )
+        out = clean_monophonic((top, bleed), prefer="top")
+        assert len(out.events) == 1
+        assert out.events[0].pitch_midi == 76
+
+    def test_vibrato_veto_ignores_span_outside_the_overlap(
+        self,
+    ) -> None:
+        # jpop-mix-hard: a merged incumbent's union bend series pools
+        # fragments whose pitch-centre offsets disagree — a fake 0.67
+        # span.  The veto measures only the contested window, so the
+        # stronger real attack still displaces the overlay.
+        bend = PitchBendPoint
+        top = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=76,
+            onset_sec=0.0,
+            offset_sec=1.0,
+            confidence=0.79,
+            pitch_bends=(
+                tuple(
+                    bend(0.02 + k * 0.04, 0.7 if k % 2 else 0.0)
+                    for k in range(5)
+                )
+                + tuple(
+                    bend(0.4 + k * 0.08, 0.33) for k in range(7)
+                )
+            ),
+        )
+        attack = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=0.3,
+            offset_sec=1.0,
+            confidence=0.85,
+        )
+        resume = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=69,
+            onset_sec=1.0,
+            offset_sec=1.15,
+            confidence=0.85,
+        )
+        out = clean_monophonic((top, attack, resume), prefer="top")
+        assert [e.pitch_midi for e in out.events] == [76.0, 69.0]
+        assert out.events[0].offset_sec == pytest.approx(0.3)
+
 
 class TestSplitVoices:
     """#85: polyphonic input partitions into two monophonic streams."""
