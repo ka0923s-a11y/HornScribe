@@ -174,4 +174,38 @@ describe("ReviewBar capability gating", () => {
       ).toBe(false);
     }
   });
+
+  it("#167: batch-accept shows with the count when 2+ share the reason", async () => {
+    const onAcceptSameReason = vi.fn();
+    await mount(props({ sameReasonPending: 3, onAcceptSameReason }));
+    const b = button(ja.review.acceptSameReason(3));
+    expect(b.getAttribute("aria-label")).toBe(
+      ja.review.acceptSameReasonTip(3) + "（A）",
+    );
+    await act(async () => {
+      b.click();
+    });
+    expect(onAcceptSameReason).toHaveBeenCalledOnce();
+  });
+
+  it("#167: batch-accept hides for a lone member or a decided issue", async () => {
+    await mount(props({ sameReasonPending: 1, onAcceptSameReason: vi.fn() }));
+    expect(
+      [...document.querySelectorAll("button")].some((b) =>
+        b.textContent?.includes("まとめて問題なし"),
+      ),
+    ).toBe(false);
+    await mount(
+      props({
+        issue: { ...NOTE_ISSUE, status: "accepted" },
+        sameReasonPending: 2,
+        onAcceptSameReason: vi.fn(),
+      }),
+    );
+    expect(
+      [...document.querySelectorAll("button")].some((b) =>
+        b.textContent?.includes("まとめて問題なし"),
+      ),
+    ).toBe(false);
+  });
 });

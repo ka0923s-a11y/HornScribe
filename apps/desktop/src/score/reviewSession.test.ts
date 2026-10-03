@@ -63,6 +63,71 @@ describe("ReviewSession decisions", () => {
     expect(session.canUndo).toBe(false);
     expect(session.canRedo).toBe(false);
   });
+
+  it("#167: decideMany applies each id once and batches the undo", () => {
+    const doc = createFixtureScoreDocument();
+    const session = new ReviewSession(doc);
+    const applied = session.decideMany(
+      ["ri-000001", "ri-000002", "ri-000003"],
+      "accepted",
+    );
+    expect(applied).toHaveLength(3);
+    expect(applied.every((e) => e.groupId != null)).toBe(true);
+    expect(
+      new Set(applied.map((e) => e.groupId)).size,
+    ).toBe(1); // one shared group id
+    expect(session.pendingCount()).toBe(0);
+
+    // ONE undo reverts the whole batch; one redo replays it.
+    const undone = session.undo();
+    expect(undone).not.toBeNull();
+    expect(session.pendingCount()).toBe(3);
+    expect(
+      openIssues(doc.reviewIssues()).map((i) => i.id),
+    ).toEqual(["ri-000001", "ri-000002", "ri-000003"]);
+    expect(session.canUndo).toBe(false); // nothing left — all reverted
+
+    session.redo();
+    expect(session.pendingCount()).toBe(0);
+    expect(session.canUndo).toBe(true);
+  });
+
+  it("#167: decideMany skips no-ops but keeps the batch contiguous", () => {
+    const doc = createFixtureScoreDocument();
+    const session = new ReviewSession(doc);
+    session.decide("ri-000001", "accepted"); // a lone decision first
+    const applied = session.decideMany(
+      ["ri-000001", "ri-000002", "ri-000003", "ri-999999"],
+      "accepted",
+    );
+    // ri-000001 already accepted, ri-999999 unknown — only 2 applied.
+    expect(applied.map((e) => e.issueId)).toEqual([
+      "ri-000002",
+      "ri-000003",
+    ]);
+
+    // Undo pops only the batch — the earlier lone decision stays.
+    session.undo();
+    expect(session.statusOf("ri-000001")).toBe("accepted");
+    expect(session.statusOf("ri-000002")).toBe("open");
+    expect(session.statusOf("ri-000003")).toBe("open");
+    // Next undo reaches the lone decision.
+    session.undo();
+    expect(session.statusOf("ri-000001")).toBe("open");
+    expect(session.canUndo).toBe(false);
+  });
+
+  it("#167: decideMany returns empty when every id is a no-op", () => {
+    const doc = createFixtureScoreDocument();
+    const session = new ReviewSession(doc);
+    session.decide("ri-000001", "accepted");
+    expect(
+      session.decideMany(["ri-000001", "ri-999999"], "accepted"),
+    ).toEqual([]);
+    expect(session.canUndo).toBe(true); // the lone first decide remains
+    session.undo();
+    expect(session.canUndo).toBe(false);
+  });
 });
 
 describe("ReviewSession corrections", () => {

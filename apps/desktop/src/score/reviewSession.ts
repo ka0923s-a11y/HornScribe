@@ -60,6 +60,9 @@ export interface ReviewEdit {
   /** #115: engine rhythm edits swap the document's whole content;
    *  undo/redo restore the snapshot pair instead of note-level edits. */
   readonly docSwap?: DocSwap;
+  /** #167: members of one batch decision (decideMany) share a group id —
+   *  undo/redo treat the contiguous run as a single user action. */
+  readonly groupId?: number;
 }
 
 function editOf(doc: ScoreDocumentPort, canonicalId: string): ScoreNoteEdit {
@@ -76,6 +79,9 @@ function editOf(doc: ScoreDocumentPort, canonicalId: string): ScoreNoteEdit {
 export class ReviewSession {
   private readonly undoStack: ReviewEdit[] = [];
   private readonly redoStack: ReviewEdit[] = [];
+  /** #167: monotonically increasing batch id — session-local, so a plain
+   *  counter beats a uuid for test determinism. */
+  private groupCounter = 0;
 
   constructor(private readonly doc: ScoreDocumentPort) {}
 
@@ -132,7 +138,11 @@ export class ReviewSession {
    * Returns null when the issue is unknown or already in that status —
    * callers treat that as a no-op, not an error.
    */
-  decide(issueId: string, status: ReviewIssueStatus): ReviewEdit | null {
+  decide(
+    issueId: string,
+    status: ReviewIssueStatus,
+    groupId?: number,
+  ): ReviewEdit | null {
     const issue = this.doc.reviewIssues().find((i) => i.id === issueId);
     if (!issue || issue.status === status) return null;
     const edit: ReviewEdit = {
@@ -140,10 +150,31 @@ export class ReviewSession {
       prevStatus: issue.status,
       nextStatus: status,
       noteChanges: [],
+      ...(groupId != null ? { groupId } : {}),
     };
     this.doc.recordReviewDecision(issueId, status);
     this.push(edit);
     return edit;
+  }
+
+  /**
+   * #167: decide several issues as ONE undoable action — the review
+   *  workspace's "同じ理由をまとめて問題なし" path. Each member goes
+   *  through the same per-issue no-op rule as decide(); the applied
+   *  subset shares one groupId so a single undo reverts the batch.
+   *  Returns the applied edits (empty when every id was a no-op).
+   */
+  decideMany(
+    issueIds: readonly string[],
+    status: ReviewIssueStatus,
+  ): readonly ReviewEdit[] {
+    const groupId = ++this.groupCounter;
+    const applied: ReviewEdit[] = [];
+    for (const issueId of issueIds) {
+      const edit = this.decide(issueId, status, groupId);
+      if (edit) applied.push(edit);
+    }
+    return applied;
   }
 
   /**
@@ -266,20 +297,49 @@ export class ReviewSession {
   /** Undo the most recent review action. Returns it, or null when the
    *  stack is empty. */
   undo(): ReviewEdit | null {
-    const edit = this.undoStack.pop();
-    if (!edit) return null;
-    this.applyInverse(edit);
-    this.redoStack.push(edit);
-    return edit;
+    const first = this.undoStack.pop();
+    if (!first) return null;
+    // #167: a batched decision undoes as one — keep popping while the
+    //  run shares the group id, invert in pop (reverse-apply) order,
+    //  and move the whole run to the redo stack.
+    const batch = [first];
+    if (first.groupId != null) {
+      while (
+        this.undoStack.length > 0 &&
+        this.undoStack[this.undoStack.length - 1].groupId === first.groupId
+      ) {
+        batch.push(this.undoStack.pop()!);
+      }
+    }
+    for (const edit of batch) {
+      this.applyInverse(edit);
+      this.redoStack.push(edit);
+    }
+    // The last-popped edit is the batch's earliest member — its issueId
+    //  is the friendliest cursor target for "where did that undo land".
+    return batch[batch.length - 1];
   }
 
   /** Redo the most recently undone action. */
   redo(): ReviewEdit | null {
-    const edit = this.redoStack.pop();
-    if (!edit) return null;
-    this.applyForward(edit);
-    this.undoStack.push(edit);
-    return edit;
+    const first = this.redoStack.pop();
+    if (!first) return null;
+    // Mirror of undo()'s grouping — the run comes back in original
+    //  apply order, landing on the undo stack exactly as before.
+    const batch = [first];
+    if (first.groupId != null) {
+      while (
+        this.redoStack.length > 0 &&
+        this.redoStack[this.redoStack.length - 1].groupId === first.groupId
+      ) {
+        batch.push(this.redoStack.pop()!);
+      }
+    }
+    for (const edit of batch) {
+      this.applyForward(edit);
+      this.undoStack.push(edit);
+    }
+    return batch[batch.length - 1];
   }
 
   /* ------------------------- internals ------------------------- */

@@ -20,6 +20,7 @@
  *   ← / →           previous/next issue Alt+↑ / Alt+↓  pitch ±1 semitone
  *   R               replay source       Delete          delete/restore note
  *   O / Shift+O     accept / dismiss    Esc             exit review
+ *   A               accept all open issues sharing the focused reason (#167)
  */
 
 import { ja } from "../strings/ja";
@@ -408,6 +409,19 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: (s) => s.reviewOpen,
       isVisible: (s) => s.reviewOpen,
       run: (ctx) => ctx.reviewDismiss?.(),
+    },
+    {
+      id: "review.acceptSameReason",
+      title: ja.commands.reviewAcceptSameReason,
+      section: "review",
+      // #167: A = "accept All of this reason". Single-letter like the
+      //  rest of the review row (O/R/I) so the batch is menu-free too;
+      //  the handler degrades to a plain accept when only one open
+      //  issue carries the focused reason.
+      shortcuts: ["A"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewAcceptSameReason?.(),
     },
     {
       id: "review.navigator",

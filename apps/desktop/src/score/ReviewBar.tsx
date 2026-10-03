@@ -59,6 +59,11 @@ export interface ReviewBarProps {
     readonly tooltip: string;
     run(): void;
   } | null;
+  /** #167: open issues sharing the focused issue's reason (itself
+   *  included). >= 2 shows the batch-accept button — with only one
+   *  member the plain 問題なし button already does the job. */
+  readonly sameReasonPending?: number;
+  onAcceptSameReason?(): void;
 onPrev(): void;
 onNext(): void;
   /** #361: the ReviewNavigator popover — 一覧 opens/closes it; the
@@ -95,6 +100,8 @@ export function ReviewBar({
   canEditNotes,
   canPlaySource,
   action = null,
+  sameReasonPending = 0,
+  onAcceptSameReason,
   onPrev,
   onNext,
   navigatorOpen,
@@ -211,6 +218,21 @@ export function ReviewBar({
             {r.dismiss}
           </HsButton>
         </HsTooltip>
+        {issue != null &&
+          issue.status === "open" &&
+          sameReasonPending >= 2 &&
+          onAcceptSameReason != null && (
+            <HsTooltip
+              content={withKey(
+                r.acceptSameReasonTip(sameReasonPending),
+                "A",
+              )}
+            >
+              <HsButton size="small" onClick={onAcceptSameReason}>
+                {r.acceptSameReason(sameReasonPending)}
+              </HsButton>
+            </HsTooltip>
+          )}
         <HsTooltip content={noteEditTip(r.pitchUp, "Alt+↑")}>
           <HsButton
             size="small"
