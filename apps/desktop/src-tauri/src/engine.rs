@@ -27,7 +27,8 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 
 use serde_json::json;
@@ -39,9 +40,13 @@ use crate::tools::which_exists;
 /// itself enforces one job at a time (PROTOCOL.md).
 struct EngineState {
     child: Child,
-    /// `Option` so `engine_close_stdin` can take()+drop it — dropping the
-    /// pipe is the EOF the worker treats as a graceful shutdown.
-    stdin: Option<ChildStdin>,
+    /// #179: request lines go through an mpsc channel drained by a
+    /// dedicated stdin writer thread — `engine_write` never blocks the
+    /// UI on a full pipe (sync commands run on the main thread).
+    /// `Option` lets `engine_close_stdin` take()+drop the sender: the
+    /// writer exits, `ChildStdin` drops, and the worker sees the EOF it
+    /// treats as a graceful shutdown.
+    stdin_tx: Option<Sender<String>>,
 }
 
 static ENGINE: Mutex<Option<EngineState>> = Mutex::new(None);
@@ -56,8 +61,20 @@ enum SpawnTarget {
 
 /// `engine_spawn`: start the sidecar; stream frames over `channel`.
 /// Fails with a human-readable string when no usable Python is found.
+/// #179: async — resolve+spawn probe the filesystem and launch a
+/// process, which must not stall the UI thread (sync commands run
+/// there).
 #[tauri::command]
-pub fn engine_spawn(
+pub async fn engine_spawn(
+    channel: Channel<serde_json::Value>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || engine_spawn_impl(channel, app))
+        .await
+        .map_err(|e| format!("engine spawn task: {e}"))?
+}
+
+fn engine_spawn_impl(
     channel: Channel<serde_json::Value>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -170,9 +187,36 @@ pub fn engine_spawn(
         })
         .map_err(|e| format!("spawn stderr reader: {e}"))?;
 
+    // #179: the stdin writer thread owns the pipe — a worker that stops
+    // reading stdin parks this thread, never the UI. The channel ending
+    // (close_stdin / kill / exit) exits the loop and drops the pipe,
+    // which is the EOF the worker treats as a graceful shutdown.
+    let (stdin_tx, stdin_rx) = std::sync::mpsc::channel::<String>();
+    let writer = std::thread::Builder::new()
+        .name("hornscribe-engine-stdin".into())
+        .spawn(move || {
+            let mut stdin = stdin;
+            for line in stdin_rx.iter() {
+                let written = stdin
+                    .write_all(line.as_bytes())
+                    .and_then(|()| stdin.write_all(b"\n"))
+                    .and_then(|()| stdin.flush());
+                if written.is_err() {
+                    // Dead pipe — the exit monitor reports the process end.
+                    break;
+                }
+            }
+        });
+    if let Err(e) = writer {
+        // A running child with no writer would leak — kill it now.
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("spawn stdin writer: {e}"));
+    }
+
     *guard = Some(EngineState {
         child,
-        stdin: Some(stdin),
+        stdin_tx: Some(stdin_tx),
     });
     drop(guard);
 
@@ -212,48 +256,74 @@ pub fn engine_spawn(
     Ok(())
 }
 
-/// `engine_write`: one NDJSON request line to the worker's stdin.
+/// `engine_write`: queue one NDJSON request line for the worker's stdin.
+/// #179: the actual pipe write happens on the writer thread — this
+/// returns in microseconds even when the worker's stdin buffer is full,
+/// so a busy engine can never freeze the UI (previously a blocking
+/// `write_all` on the main thread). FIFO order is preserved.
 #[tauri::command]
 pub fn engine_write(line: String) -> Result<(), String> {
-    let mut guard = ENGINE.lock().map_err(|_| "engine lock")?;
-    let state = guard.as_mut().ok_or("ENGINE_NOT_RUNNING")?;
-    let stdin = state.stdin.as_mut().ok_or("engine stdin is closed")?;
-    stdin
-        .write_all(line.as_bytes())
-        .and_then(|()| stdin.write_all(b"\n"))
-        .and_then(|()| stdin.flush())
-        .map_err(|e| format!("engine stdin: {e}"))
+    let guard = ENGINE.lock().map_err(|_| "engine lock")?;
+    let state = guard.as_ref().ok_or("ENGINE_NOT_RUNNING")?;
+    match &state.stdin_tx {
+        Some(tx) => tx
+            .send(line)
+            .map_err(|_| "engine stdin is closed".to_string()),
+        None => Err("engine stdin is closed".to_string()),
+    }
 }
 
-/// `engine_close_stdin`: drop stdin so the worker sees EOF and performs
-/// its graceful shutdown (worker.py contract).
+/// `engine_close_stdin`: drop the sender so the writer thread exits and
+/// closes the pipe — the worker sees EOF and performs its graceful
+/// shutdown (worker.py contract).
 #[tauri::command]
 pub fn engine_close_stdin() -> Result<(), String> {
     let mut guard = ENGINE.lock().map_err(|_| "engine lock")?;
     if let Some(state) = guard.as_mut() {
-        drop(state.stdin.take());
+        drop(state.stdin_tx.take());
     }
     Ok(())
+}
+
+/// #179: bounded reap — `wait()` can park forever if the OS wedges the
+/// child; try_wait with a ~3 s cap keeps engine_kill and the Exit
+/// handler from ever hanging the shell process.
+fn reap_child(child: &mut Child) {
+    let _ = child.kill();
+    for _ in 0..60 {
+        match child.try_wait() {
+            Ok(Some(_)) | Err(_) => return,
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
 }
 
 /// `engine_kill`: terminate the sidecar immediately (the documented
-/// terminate/restart fallback for non-interruptible jobs).
+/// terminate/restart fallback for non-interruptible jobs). #179: runs
+/// on spawn_blocking so the reap never parks the UI thread.
 #[tauri::command]
-pub fn engine_kill() -> Result<(), String> {
-    let mut guard = ENGINE.lock().map_err(|_| "engine lock")?;
-    if let Some(mut state) = guard.take() {
-        let _ = state.child.kill();
-        let _ = state.child.wait();
-    }
-    Ok(())
+pub async fn engine_kill() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut guard = ENGINE.lock().map_err(|_| "engine lock")?;
+        if let Some(mut state) = guard.take() {
+            drop(state.stdin_tx.take());
+            reap_child(&mut state.child);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("engine kill task: {e}"))?
 }
 
 /// App-exit cleanup: never leak the sidecar past the shell process.
+/// #179: bounded reap — the RunEvent::Exit handler must return for the
+/// process to die; a wedged child must not turn the shell into a
+/// zombie.
 pub fn kill_engine_on_exit() {
     if let Ok(mut guard) = ENGINE.lock() {
         if let Some(mut state) = guard.take() {
-            let _ = state.child.kill();
-            let _ = state.child.wait();
+            drop(state.stdin_tx.take());
+            reap_child(&mut state.child);
         }
     }
 }
@@ -399,4 +469,67 @@ fn local_venv_pythons() -> Vec<PathBuf> {
         .into_iter()
         .map(|v| v.join("Scripts").join("python.exe"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #179: with no engine the write path must fail fast — the guard
+    /// state drives the error, nothing ever blocks.
+    #[test]
+    fn engine_write_without_engine_is_an_error() {
+        let prev = ENGINE.lock().unwrap().take();
+        let r = engine_write("{\"id\":\"x\"}".into());
+        *ENGINE.lock().unwrap() = prev;
+        assert_eq!(r.unwrap_err(), "ENGINE_NOT_RUNNING");
+    }
+
+    /// #179 regression: a worker that never drains stdin must not make
+    /// the send path park the caller. Drives the real writer-thread +
+    /// channel pair against a child whose pipe buffer fills up.
+    #[test]
+    #[cfg(windows)]
+    fn stdin_writer_never_blocks_sender() {
+        let mut child = Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Start-Sleep", "-Seconds", "20"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleeper");
+        let stdin = child.stdin.take().expect("piped stdin");
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let writer = std::thread::spawn(move || {
+            let mut stdin = stdin;
+            for line in rx.iter() {
+                if stdin
+                    .write_all(line.as_bytes())
+                    .and_then(|()| stdin.write_all(b"\n"))
+                    .and_then(|()| stdin.flush())
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        // 32 MiB of request lines — far beyond any pipe buffer; if the
+        // send path ever touched the pipe this would take far longer.
+        let big = "x".repeat(8 * 1024 * 1024);
+        let t0 = std::time::Instant::now();
+        for _ in 0..4 {
+            tx.send(big.clone()).unwrap();
+        }
+        assert!(
+            t0.elapsed() < std::time::Duration::from_secs(2),
+            "channel send blocked on a full pipe: {:?}",
+            t0.elapsed()
+        );
+        // Kill first so the writer's pending write fails and exits,
+        // then close the channel and join.
+        let _ = child.kill();
+        let _ = child.wait();
+        drop(tx);
+        let _ = writer.join();
+    }
 }
