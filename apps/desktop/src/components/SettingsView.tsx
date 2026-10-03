@@ -244,7 +244,6 @@ export function SettingsView({
    * collect() sees the addon's demucsAvailable flag immediately —
    * that is what flips the badge to 検出済み. */
   const restartEngine = useCallback(async () => {
-    if (!diagnosticsPort.restartEngine) return;
     setEngineRestarting(true);
     try {
       const ok = await diagnosticsPort.restartEngine();
@@ -739,17 +738,18 @@ export function SettingsView({
                 </div>
               </div>
               <p className="hs-settings__note">{s.demucsAddonHint}</p>
-              {diagnosticsPort.restartEngine ? (
-                <div>
-                  <HsButton
-                    size="small"
-                    loading={engineRestarting}
-                    onClick={() => void restartEngine()}
-                  >
-                    {ja.diagnostics.restartEngine}
-                  </HsButton>
-                </div>
-              ) : null}
+              <div>
+                {/* restartEngine is a required port method; a missing
+                    session dep makes it return false, announced via
+                    onAnnounce -- no conditional render needed. */}
+                <HsButton
+                  size="small"
+                  loading={engineRestarting}
+                  onClick={() => void restartEngine()}
+                >
+                  {ja.diagnostics.restartEngine}
+                </HsButton>
+              </div>
             </div>
             <div className="hs-settings__field">
               <Label>{s.modelInfo}</Label>
