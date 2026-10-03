@@ -24,9 +24,15 @@ def _load_module():
 def stage_inputs(tmp_path: Path):
     shell = tmp_path / "hornscribe-desktop.exe"
     shell.write_bytes(b"MZ-fake-shell")
-    engine = tmp_path / "engine" / "hornscribe-engine.exe"
+    # #186: the staged engine is a PyInstaller ONEDIR bundle — the exe
+    # lives inside a dir named after it next to _internal/, and the
+    # packager copies that whole tree under engine/<dirname>/.
+    engine = tmp_path / "hornscribe-engine" / "hornscribe-engine.exe"
     engine.parent.mkdir()
     engine.write_bytes(b"MZ-fake-engine")
+    internal = engine.parent / "_internal" / "base_library.zip"
+    internal.parent.mkdir()
+    internal.write_bytes(b"PK-fake-internal")
     tools = tmp_path / "tools"
     tools.mkdir()
     (tools / "ffmpeg.exe").write_bytes(b"MZ-fake-ffmpeg")
@@ -68,7 +74,10 @@ def test_zip_layout_and_report(tmp_path: Path, stage_inputs):
     # Zip must be importable-clean: single HornScribe/ root with the
     # exe-dir layout tools::data_dir / resolve_ffmpeg understand.
     assert "HornScribe/HornScribe.exe" in names
-    assert "HornScribe/engine/hornscribe-engine.exe" in names
+    assert "HornScribe/engine/hornscribe-engine/hornscribe-engine.exe" in names
+    assert (
+        "HornScribe/engine/hornscribe-engine/_internal/base_library.zip" in names
+    )
     assert "HornScribe/tools/ffmpeg.exe" in names
     assert "HornScribe/tools/ffprobe.exe" in names
     assert "HornScribe/tools/LICENSE-ffmpeg.txt" in names
