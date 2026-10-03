@@ -300,6 +300,11 @@ export const ja = {
     captureCountIn: "録音開始までのカウント",
     captureCountInOff: "なし(すぐ開始)",
     captureCountInSeconds: (n: number) => n + " 秒",
+    /* #166: 録音 → 採譜のワンクリック化 — OFF 既定(録って聴く用途を
+     *  潰さない)。ON なら停止・取り込み完了と同時に採譜が走る。 */
+    transcribeAfterRecording: "録音が終わったら採譜を開始",
+    transcribeAfterRecordingHint:
+      "録音したテイクを取り込んだ直後、そのまま採譜ジョブを開始します。録ったものをまず再生で確認したい場合はオフのままにしてください。",
     recordingsPruned: (n: number) => `古い録音を ${n} 件削除しました`,
     recordingsUnavailable: "録音の管理はデスクトップアプリで利用できます。",
     /* #147: managed 音源 appDataDir/sources/ — プロジェクト保存時に

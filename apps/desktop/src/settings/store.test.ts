@@ -86,6 +86,16 @@ describe("parseSettings", () => {
       parseSettings(JSON.stringify({ captureCountInSeconds: 5 }))
         .captureCountInSeconds,
     ).toBe(5);
+    // #166: record → transcribe auto-start — boolean field, non-boolean
+    // values fold to the default like every other toggle.
+    expect(
+      parseSettings(JSON.stringify({ transcribeAfterRecording: "yes" }))
+        .transcribeAfterRecording,
+    ).toBe(false);
+    expect(
+      parseSettings(JSON.stringify({ transcribeAfterRecording: true }))
+        .transcribeAfterRecording,
+    ).toBe(true);
   });
 });
 

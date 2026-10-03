@@ -75,6 +75,9 @@ export interface AppSettings {
   readonly recordingsRetentionDays: number;
   /** 録音 → 開始までのカウント秒数 #99 (0 = すぐ開始). */
   readonly captureCountInSeconds: number;
+  /** 録音 → 停止したらそのまま採譜を開始 (#166 — record → transcribe
+   *  をワンクリック化。既定 OFF: 録ってまず聴きたい用途を潰さない). */
+  readonly transcribeAfterRecording: boolean;
   /** 書き出し → 前回選んだ形式 (#377 — re-export keeps the last set). */
   readonly exportFormats: Record<ExportFormatId, boolean>;
 }
@@ -95,6 +98,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   backend: "auto",
   recordingsRetentionDays: 0,
   captureCountInSeconds: 0,
+  transcribeAfterRecording: false,
   // #377: the first-run default is every format on; the dialog then
   // persists whatever the user last picked.
   // #357: source audio stays opt-in — a normal score export must
@@ -187,6 +191,8 @@ export function parseSettings(raw: string | null): AppSettings {
     captureCountInSeconds:
       oneOfNum(o.captureCountInSeconds, CAPTURE_COUNT_IN_SECONDS) ??
       d.captureCountInSeconds,
+    transcribeAfterRecording:
+      bool(o.transcribeAfterRecording) ?? d.transcribeAfterRecording,
     // #377: per-format booleans — unknown ids are dropped, missing
     // ones fall back to the default so a stale blob never unchecks
     // a format the user never saw.

@@ -1040,6 +1040,10 @@ export default function App() {
       source: CaptureSource;
       mimeType?: string;
     }) => {
+      // #166: 録音 → 採譜ワンクリック化 — the pending flag is consumed
+      // by the effect below once the take lands on audioReady (or
+      // cleared if the import fails/terminates elsewhere first).
+      autoTranscribePending.current = true;
       // Tauri: 録音は appDataDir/recordings/ に保存済み(#70)なので
       // path を渡し、import 側で読み直す。ブラウザ dev 等で path が
       // 無い場合は bytes → Blob を渡す。
@@ -1077,6 +1081,10 @@ export default function App() {
     fileName: string;
     source: CaptureSource;
   } | null>(null);
+  // #166: recording-imported takes carry a one-shot auto-transcribe
+  // request; armed in importCaptureResult, consumed by the effect
+  // after transcribeClicked is defined.
+  const autoTranscribePending = useRef(false);
   const resolveSilentTake = useCallback((proceed: boolean) => {
     setPendingSilentTake(null);
     silentTakeResolver.current?.(proceed);
@@ -2512,6 +2520,35 @@ export default function App() {
       setStatusMessage(ja.commandFeedback.disabled);
     }
   }, [commands]);
+
+  // #166: 録音停止 → 取り込み完了で採譜を自動開始(設定→録音が ON の時
+  // だけ)。pending はテイク由来の取り込み1回限り — audioReady への到達
+  // で消費し、失敗/別画面への遷移でも破棄して次の audioReady に誤爆
+  // しない。録音ソースかどうかは ref.kind で確認する。
+  useEffect(() => {
+    if (!autoTranscribePending.current) return;
+    if (screen === "audioReady") {
+      autoTranscribePending.current = false;
+      const ref = importState.audio?.ref;
+      if (
+        settings.transcribeAfterRecording &&
+        ref?.kind === "recording"
+      ) {
+        transcribeClicked();
+      }
+      return;
+    }
+    // 取り込み失敗・キャンセル・別画面への離脱 — pending を捨てる
+    // (transcribing 自体は採譜開始の結果なので待機を続ける)。
+    if (screen !== "openingAudio" && screen !== "transcribing") {
+      autoTranscribePending.current = false;
+    }
+  }, [
+    screen,
+    importState.audio,
+    settings.transcribeAfterRecording,
+    transcribeClicked,
+  ]);
 
   // Hash routing: internal dev gallery + dev screen-state override. The
   // product shell is a single workspace (§2), not a page router.
