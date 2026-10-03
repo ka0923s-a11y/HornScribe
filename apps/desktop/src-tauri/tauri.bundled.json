@@ -1,8 +1,8 @@
 {
   "bundle": {
     "resources": {
-      "resources/engine/*": "engine/",
-      "resources/tools/*": "tools/"
+      "resources/engine": "engine/",
+      "resources/tools": "tools/"
     }
   }
 }
