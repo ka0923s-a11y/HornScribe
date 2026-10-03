@@ -93,7 +93,12 @@ from .backend import (
     predict_note_events_pyin,
     require_module,
 )
-from .boundary import boundary_flags, compute_envelopes, seam_evidence
+from .boundary import (
+    boundary_flags,
+    compute_envelopes,
+    octave_prefers,
+    seam_evidence,
+)
 from .chord import (
     LOW_CONFIDENCE as CHORD_LOW_CONFIDENCE,
 )
@@ -1213,6 +1218,24 @@ def run_transcription_job(
         clean_merge_gap = (
             0.0 if resolved_pyin else MERGE_GAP_SEC
         )
+        # Octave-flicker repair evidence: when the neighbour pitch-class
+        # rule proposes snapping a note across an octave, the note's own
+        # spectrum arbitrates — a played octave figure carries its real
+        # fundamental, a tracker flicker does not (octave-leaps-4-4:
+        # honest C4->C5->C4 figures were being flattened).  The verdict
+        # reads the analysis buffer, so event times map back through
+        # selection_offset_sec exactly like the seam envelopes do.
+        def _octave_ev(ev: RawNoteEvent, target: float) -> bool:
+            return octave_prefers(
+                samples,
+                sample_rate,
+                ev.onset_sec,
+                ev.offset_sec,
+                ev.pitch_midi,
+                target,
+                time_offset_sec=selection_offset_sec,
+            )
+
         voice_split = None
         if params.texture in ("voices", "chords"):
             # #85: keep detected lines as separate parts — a chord
@@ -1224,13 +1247,19 @@ def run_transcription_job(
             voice_split = split_voices(ranged, max_voices=params.max_voices)
             clean_total = len(voice_split.voices)
             cleaned = clean_monophonic(
-                voice_split.voices[0], merge_gap_sec=clean_merge_gap
+                voice_split.voices[0],
+                merge_gap_sec=clean_merge_gap,
+                octave_verdict=_octave_ev,
             )
             step(2, 1, clean_total)
             cleaned_lowers = []
             for i, v in enumerate(voice_split.voices[1:]):
                 cleaned_lowers.append(
-                    clean_monophonic(v, merge_gap_sec=clean_merge_gap)
+                    clean_monophonic(
+                        v,
+                        merge_gap_sec=clean_merge_gap,
+                        octave_verdict=_octave_ev,
+                    )
                 )
                 step(2, 2 + i, clean_total)
         else:
@@ -1260,6 +1289,7 @@ def run_transcription_job(
                 merge_gap_sec=clean_merge_gap,
                 prefer=prefer,
                 edge_evidence=edge_ev,
+                octave_verdict=_octave_ev,
             )
             cleaned_lowers = []
             step(2, 1, 1)
@@ -1278,6 +1308,7 @@ def run_transcription_job(
                     ranged,
                     merge_gap_sec=clean_merge_gap,
                     prefer="top",
+                    octave_verdict=_octave_ev,
                 )
                 auto_mix_detected = True
                 # The re-clean is a second real unit — the total grows

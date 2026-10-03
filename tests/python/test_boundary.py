@@ -28,6 +28,7 @@ from hornscribe.rhythm.timewarp import TimeWarp
 from hornscribe.transcription.boundary import (
     boundary_flags,
     compute_envelopes,
+    octave_prefers,
     seam_evidence,
 )
 from hornscribe.transcription.clean import CleanedEvents
@@ -415,3 +416,45 @@ class TestBoundaryIssues:
         ]
         assert len(unc) == 1
         assert unc[0].severity is Severity.INFO
+
+
+class TestOctavePrefers:
+    """The octave-flicker verdict reads the note's own spectrum.
+
+    A real low note puts its fundamental in the target band; a real
+    high note leaves the low band empty — the snap fires only when
+    the target clearly dominates (x2.5), so ambiguous evidence keeps
+    the detected pitch.
+    """
+
+    def test_flicker_snaps_when_target_dominates(self) -> None:
+        # Truth is C4 (261.63 Hz) but the tracker reported C5 — the
+        # low band dominates, so the snap to 60 is confirmed.
+        sig = _tone(0.5, 261.63)
+        assert octave_prefers(
+            sig, _SR, 0.0, 0.5, detected_midi=72.0, target_midi=60.0
+        )
+
+    def test_real_high_note_vetoes_snap(self) -> None:
+        # Truth really is C5: the C4 band carries nothing, so the
+        # proposed snap is rejected and the leap survives.
+        sig = _tone(0.5, 523.25)
+        assert not octave_prefers(
+            sig, _SR, 0.0, 0.5, detected_midi=72.0, target_midi=60.0
+        )
+
+    def test_low_note_second_harmonic_does_not_self_snap(self) -> None:
+        # A true C4's 2nd harmonic lands ON the C5 band — but the
+        # detected-band dominance still wins, so no upward snap.
+        sig = _tone(0.5, 261.63) + 0.3 * _tone(0.5, 523.25)
+        assert not octave_prefers(
+            sig, _SR, 0.0, 0.5, detected_midi=60.0, target_midi=72.0
+        )
+
+    def test_short_span_abstains(self) -> None:
+        # Under ~120 ms the FFT cannot resolve the fundamental —
+        # abstain rather than guess from a wide smear.
+        sig = _tone(0.08, 261.63)
+        assert not octave_prefers(
+            sig, _SR, 0.0, 0.08, detected_midi=72.0, target_midi=60.0
+        )

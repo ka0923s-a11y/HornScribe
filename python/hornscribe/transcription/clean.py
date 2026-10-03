@@ -233,6 +233,7 @@ def clean_monophonic(
     merge_gap_sec: float = MERGE_GAP_SEC,
     prefer: str = "onset",
     edge_evidence: Callable[[RawNoteEvent, RawNoteEvent], bool] | None = None,
+    octave_verdict: Callable[[RawNoteEvent, float], bool] | None = None,
 ) -> CleanedEvents:
     """Enforce the monophonic contract on raw backend output.
 
@@ -256,6 +257,15 @@ def clean_monophonic(
     Polyphonic textures must not supply it — accompaniment and other
     -voice onsets pollute the seam envelope, and under "top" a mix
     transient is precisely the false attack a merge exists to heal.
+
+    ``octave_verdict`` arbitrates the octave-flicker repair: when the
+    neighbour pitch-class rule proposes a snap, it is consulted as
+    ``(event, target_midi) -> bool`` — True means the audio spectrum
+    confirms the target octave's fundamental dominates the note's own
+    span.  Without it the class rule alone cannot tell a flicker from
+    a played octave figure (octave-leaps-4-4: real C4->C5->C4 leaps
+    were being snapped flat).  None keeps the legacy unconditional
+    snap for callers without audio access.
     """
     if prefer not in ("onset", "top"):
         raise ValueError(f"prefer must be 'onset' or 'top', got {prefer!r}")
@@ -498,8 +508,11 @@ def clean_monophonic(
         next_pitch = int(round(final[i + 1].pitch_midi))
         if abs(pitch - prev_pitch) == 12 or abs(pitch - next_pitch) == 12:
             target = prev_pitch if abs(pitch - prev_pitch) == 12 else next_pitch
-            final[i] = _replace_pitch(final[i], float(target))
-            octave_fixed += 1
+            if octave_verdict is None or octave_verdict(
+                final[i], float(target)
+            ):
+                final[i] = _replace_pitch(final[i], float(target))
+                octave_fixed += 1
 
     return CleanedEvents(
         events=tuple(final),

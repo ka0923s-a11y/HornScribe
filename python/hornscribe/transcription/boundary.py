@@ -81,6 +81,24 @@ _ATTACK_HALF_WINDOW_SEC = 0.060
 _EDGE_INSET_HEAD = 0.25
 _EDGE_INSET_TAIL = 0.20
 
+# Octave arbitration for the cleaner's flicker repair: when the
+# class-based trigger proposes snapping a note to a neighbour's
+# octave, the note's own spectrum is the evidence — a real octave
+# figure carries its own fundamental, a flicker artifact does not
+# (octave-leaps-4-4: honest C4->C5->C4 figures were being destroyed
+# by the pitch-class rule alone).
+# OCTAVE_MIN_SPAN_SEC: below ~120 ms the FFT cannot separate a
+# horn-range fundamental from its neighbours — abstain (no snap).
+# OCTAVE_BAND_RATIO: +-3% covers a +-50c performance drift around the
+# semitone centre while staying clear of the adjacent semitone (+-6%).
+# OCTAVE_SNAP_ENERGY_RATIO: a true lower note's 2nd harmonic lands ON
+# the higher octave's band, so the higher band is never silent on a
+# real low note — demanding target > detected * 2.5 keeps the verdict
+# one-way (evidence must clearly favour the snap).
+OCTAVE_MIN_SPAN_SEC = 0.12
+OCTAVE_BAND_RATIO = 0.03
+OCTAVE_SNAP_ENERGY_RATIO = 2.5
+
 
 @dataclass(frozen=True)
 class BoundaryFlag:
@@ -396,3 +414,51 @@ def boundary_flags(
             flags.append(flag)
     flags.sort(key=lambda f: f.boundary_sec)
     return tuple(flags)
+
+
+def octave_prefers(
+    samples: Any,
+    sample_rate: int,
+    onset_sec: float,
+    offset_sec: float,
+    detected_midi: float,
+    target_midi: float,
+    *,
+    time_offset_sec: float = 0.0,
+) -> bool:
+    """True when the note's own spectrum favours *target_midi* over
+    *detected_midi* at the fundamental level.
+
+    Evidence basis: a true lower note's 2nd harmonic lands on the
+    higher octave's band, so E(hi) is never zero on a real low note —
+    but on a real HIGH note the low band carries only noise.  The
+    snap therefore fires only when the target band clearly dominates
+    (x2.5); ambiguous evidence keeps the detected pitch, which makes
+    the verdict safe under bleed where the backing may add energy to
+    the low band.
+
+    The middle 60% of the span is measured so attack and release
+    edges do not leak the neighbours' spectra into the comparison.
+    """
+    i0 = int((onset_sec - time_offset_sec) * sample_rate)
+    i1 = int((offset_sec - time_offset_sec) * sample_rate)
+    seg = np.asarray(samples[max(0, i0) : max(0, i1)], dtype=np.float64)
+    n = int(seg.shape[0])
+    if n < int(OCTAVE_MIN_SPAN_SEC * sample_rate):
+        return False
+    inset = int(n * 0.2)
+    seg = seg[inset : n - inset]
+    win = seg * np.hanning(seg.shape[0])
+    mag = np.abs(np.fft.rfft(win))
+    freqs = np.fft.rfftfreq(seg.shape[0], 1.0 / sample_rate)
+
+    def _band_peak(midi: float) -> float:
+        f = 440.0 * 2.0 ** ((int(round(midi)) - 69) / 12.0)
+        mask = (freqs >= f * (1.0 - OCTAVE_BAND_RATIO)) & (
+            freqs <= f * (1.0 + OCTAVE_BAND_RATIO)
+        )
+        return float(mag[mask].max()) if mask.any() else 0.0
+
+    e_det = _band_peak(detected_midi)
+    e_tgt = _band_peak(target_midi)
+    return e_tgt > e_det * OCTAVE_SNAP_ENERGY_RATIO

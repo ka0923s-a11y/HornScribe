@@ -69,6 +69,9 @@ class Note:
     # past its truth offset. Real room recordings smear offsets into the
     # next onset; the truth stays at the written note end (#bench).
     tail: float = 0.0
+    # Tuning offset in cents — a real horn line drifts around A=440;
+    # the tracker must still land on the right semitone.
+    detune_cents: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -109,7 +112,7 @@ def _note_samples(n: Note, sr: int) -> list[float]:
     """Per-note mono signal — the timbre shapes the waveform and the
     envelope edges (a pad fades in, a noise burst is attack-only).
     timbre="lead" reproduces the original sine+h2 fixture tone."""
-    s0, s1 = int(n.onset * sr), int(n.offset * sr)
+    s0 = int(n.onset * sr)
     count = int((n.offset + n.tail) * sr) - s0
     if count <= 0:
         return []
@@ -126,7 +129,7 @@ def _note_samples(n: Note, sr: int) -> list[float]:
         rng = random.Random(int(n.onset * 977) * 31 + n.midi)
         # amp is applied by the mixer loop like every other timbre.
         return [rng.random() * 2.0 - 1.0 for _ in range(count)]
-    f = 440.0 * 2 ** ((n.midi - 69) / 12)
+    f = 440.0 * 2 ** ((n.midi - 69) / 12) * 2 ** (n.detune_cents / 1200)
     attack = 0.03 if n.timbre == "pad" else 0.01
     decay = 0.05 if n.timbre == "pad" else 0.02
     detune = (2 ** (3 / 1200), 1.0, 2 ** (-3 / 1200))
@@ -807,6 +810,112 @@ def _noisy() -> Fixture:
     )
 
 
+def _octave_leaps() -> Fixture:
+    """Genuine octave leaps in the melody — the regression guard for
+    every octave-aware repair (flicker snap, concurrent ghosts,
+    pre-attack stub fold): real C4->C5->C4 figures must survive
+    untouched, and the octave jump itself must be detected honestly.
+    Includes an octave-down-and-back ornament (the shape a too-eager
+    'smoothness' repair would destroy) plus wide leaps to octave.
+    """
+    beat = 0.5
+    seq = [
+        (0, 1, 60), (1, 2, 72), (2, 3, 60),   # octave up-down figure
+        (3, 4, 62), (4, 5, 74),               # up an octave, stay
+        (5, 6, 69), (6, 7, 57),               # down an octave, stay
+        (7, 8, 60), (8, 9, 48),               # down an octave, deep
+        (9, 10, 60),                          # return up
+        (10, 11, 72), (11, 12, 60),           # second up-down
+        (12, 14, 64),                         # close on a held note
+    ]
+    notes = tuple(
+        Note(b0 * beat, b1 * beat - 0.03, p, 0.7) for b0, b1, p in seq
+    )
+    return Fixture(
+        "octave-leaps-4-4",
+        notes,
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="real octave jumps — octave-repair regression guard",
+    )
+
+
+def _very_quiet_lead() -> Fixture:
+    """quiet-lead-mix pushed deeper: the lead at 0.2 under a 1.5x
+    backing (~-9.5 dB).  Finds the floor where the free stack stops
+    hearing the voice at all — any hit here is a real capability
+    boundary, not a tuning miss."""
+    lead_raw, backing = _jpop_mix_hard_parts()
+    lead = tuple(
+        Note(n.onset, n.offset, n.midi, 0.2, "vox", n.pan)
+        for n in lead_raw
+    )
+    louder = tuple(
+        Note(n.onset, n.offset, n.midi, n.amp * 1.5, n.timbre, n.pan)
+        for n in backing
+    )
+    return Fixture(
+        "very-quiet-lead",
+        lead,
+        backing=louder,
+        stereo=True,
+        vocal_isolation=True,
+        meter="4/4",
+        tempo_bpm=128.0,
+        texture="melody",
+        note="~-9.5 dB lead — free-stack SNR floor probe",
+    )
+
+
+def _detuned_horn() -> Fixture:
+    """A melody played 20 cents sharp end-to-end — the drift a real
+    horn section carries when the room is warm.  Pitch must still land
+    on the written semitone; bends carry the deviation as expression,
+    not as wrong notes."""
+    beat = 0.5
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72, 71, 69, 67, 65, 64, 62, 60, 60]
+    notes = tuple(
+        Note(i * beat, (i + 1) * beat - 0.03, p, 0.7, detune_cents=20.0)
+        for i, p in enumerate(pitches)
+    )
+    return Fixture(
+        "detuned-horn-4-4",
+        notes,
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="+20c tuning drift — semitone assignment under detune",
+    )
+
+
+def _ornaments() -> Fixture:
+    """Grace-note figures (~70 ms) squeezed against the main note —
+    above the 40 ms event floor but inside the interruption-blip span.
+    The ornament must survive as its own note, not get eaten by the
+    long neighbour or dropped as a blip.  Grace intervals cover a
+    step, a skip, and a -10 semitone plunge so ornament-adjacent
+    repairs have something real to chew on."""
+    seq = [
+        (0.00, 0.40, 60),
+        (0.42, 0.49, 64),   # grace E -> F
+        (0.50, 0.98, 65),
+        (1.00, 1.48, 67),
+        (1.50, 1.90, 72),
+        (1.92, 1.99, 69),   # grace A -> G
+        (2.00, 2.48, 67),
+        (2.50, 2.90, 76),
+        (2.92, 2.99, 62),   # grace D -> C, the -10 plunge
+        (3.00, 3.48, 60),
+        (3.50, 4.00, 64),
+    ]
+    notes = tuple(Note(b0, b1, p, 0.7) for b0, b1, p in seq)
+    return Fixture(
+        "ornaments-4-4",
+        notes,
+        meter="4/4",
+        tempo_bpm=120.0,
+        note="~70 ms grace notes at the min-duration boundary",
+    )
+
 FIXTURES = (
     _waltz,
     _six_eight,
@@ -833,6 +942,10 @@ FIXTURES = (
     _quiet_lead_mix,
     _boundary,
     _noisy,
+    _octave_leaps,
+    _very_quiet_lead,
+    _detuned_horn,
+    _ornaments,
 )
 
 

@@ -338,6 +338,30 @@ class TestClean:
         assert out.octave_corrected == 0
         assert [int(e.pitch_midi) for e in out.events] == [60, 72, 67]
 
+    def test_octave_verdict_blocks_snap(self) -> None:
+        # octave-leaps-4-4: a played C4->C5->C4 figure trips the
+        # neighbour pitch-class rule, but the note's own spectrum
+        # says the high octave is real — the verdict vetoes the snap.
+        evs = make_events([60, 72, 60], beat_sec=0.5)
+        out = clean_monophonic(evs, octave_verdict=lambda ev, tgt: False)
+        assert out.octave_corrected == 0
+        assert [int(e.pitch_midi) for e in out.events] == [60, 72, 60]
+
+    def test_octave_verdict_confirms_snap(self) -> None:
+        # Same figure, spectrum favours the target octave — the snap
+        # still fires, and the verdict sees the proposed target.
+        evs = make_events([60, 72, 60], beat_sec=0.5)
+        seen: list[tuple[float, float]] = []
+
+        def _verdict(ev: RawNoteEvent, target: float) -> bool:
+            seen.append((ev.pitch_midi, target))
+            return True
+
+        out = clean_monophonic(evs, octave_verdict=_verdict)
+        assert out.octave_corrected == 1
+        assert [int(e.pitch_midi) for e in out.events] == [60, 60, 60]
+        assert seen == [(72.0, 60.0)]
+
     def test_harmonic_ghost_dropped_not_clipped(self) -> None:
         # A short, weaker octave-up note starting under a sustained
         # note is an overtone artifact: drop the ghost and keep the
