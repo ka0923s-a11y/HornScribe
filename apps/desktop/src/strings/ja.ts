@@ -528,6 +528,8 @@ export const ja = {
     reviewPlaySource: "元音源を再生",
     reviewAccept: "問題なし",
     reviewDismiss: "対応不要にする",
+    // #167: batch-accept every open issue of the focused reason (A キー).
+    reviewAcceptSameReason: "同じ理由をまとめて問題なし",
     reviewPitchUp: "半音上げる",
     reviewPitchDown: "半音下げる",
    reviewDeleteOrRestore: "削除 / 復元",
@@ -1843,6 +1845,12 @@ export const ja = {
     playSource: "元音源を再生",
     markOk: "問題なし",
     dismiss: "対応不要にする",
+    /** #167: batch-accept every open issue sharing the focused one's
+     *  reason — the count in the label makes the blast radius honest. */
+    acceptSameReason: (count: number) =>
+      `同じ理由をまとめて問題なし（${count}件）`,
+    acceptSameReasonTip: (count: number) =>
+      `同じ理由の未解決 ${count} 件をすべて「問題なし」にします（Ctrl+Z で一括で元に戻せます）`,
     /** #148: one-click remedy on the merged-overlap issue when auto
      *  texture detected a mix — re-runs the job with 複数声部. */
     retranscribeVoices: "複数声部として採譜",
@@ -1923,7 +1931,7 @@ export const ja = {
     /** モデル確信度は根拠（evidence）としてのみ表示 — 正しい確率とは
      *  書かない (JAPANESE_UI_COPY §6, acceptance criterion). */
     confidence: (percent: number) => `モデル確信度: ${percent}%`,
-    hint: "← → で移動、R で元音源を再生、O で問題なし、Alt+↑↓ で音高修正、Delete で削除、I で一覧、Ctrl+Z で元に戻す、Esc で終了",
+    hint: "← → で移動、R で元音源を再生、O で問題なし、A で同理由まとめて、Alt+↑↓ で音高修正、Delete で削除、I で一覧、Ctrl+Z で元に戻す、Esc で終了",
     /* #361: ReviewNavigator popover — the filterable issue list the
      *  linear cursor opens with 一覧 / I. */
     nav: {
@@ -1942,6 +1950,9 @@ export const ja = {
     feedback: {
       accepted: "確認済みにしました",
       dismissed: "対応不要にしました",
+      /** #167: batch-accept by reason — the announce reports how many
+       *  issues the single action resolved. */
+      acceptedMany: (count: number) => `${count} 件を確認済みにしました`,
       reopened: "未確認に戻しました",
       pitchFixed: "音高を修正しました",
       noteDeleted: "音符を削除しました",

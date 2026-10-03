@@ -1523,6 +1523,38 @@ export function ScoreReadyWorkspace({
     }
   }, [issueAtCursor, session, runReviewEdit, advanceAfterResolve, announce]);
 
+  /** #167: batch-accept every open issue sharing the cursor issue's
+   *  reason — the repetitive "問題なし x N" flow collapses into one
+   *  click, and one undo (the decideMany group) restores them all. */
+  const reviewAcceptSameReason = useCallback(() => {
+    const issue = issueAtCursor();
+    if (!issue || issue.status !== "open") return;
+    const ids = session
+      .openIssues()
+      .filter((i) => i.reason === issue.reason)
+      .map((i) => i.id);
+    if (ids.length < 2) {
+      // The button only shows for 2+, but stay honest if reached
+      //  programmatically — a lone member is the ordinary accept.
+      reviewAccept();
+      return;
+    }
+    const applied = session.decideMany(ids, "accepted");
+    if (applied.length === 0) return;
+    bumpDoc();
+    reportInspector();
+    announce(ja.review.feedback.acceptedMany(applied.length));
+    advanceAfterResolve();
+  }, [
+    issueAtCursor,
+    session,
+    bumpDoc,
+    reportInspector,
+    announce,
+    reviewAccept,
+    advanceAfterResolve,
+  ]);
+
   const reviewPitch = useCallback(
     (delta: number) => {
       const issue = issueAtCursor();
@@ -2295,6 +2327,7 @@ const setKey = useCallback(
       reviewToggleNavigator: () => toggleNavigator(),
       reviewAccept: () => reviewAccept(),
       reviewDismiss: () => reviewDismiss(),
+      reviewAcceptSameReason: () => reviewAcceptSameReason(),
       reviewPlaySource: () => playSource(),
       reviewPitch: (delta) => reviewPitch(delta),
       reviewDeleteOrRestore: () => reviewDeleteOrRestore(),
@@ -2348,6 +2381,7 @@ const setKey = useCallback(
     toggleNavigator,
     reviewAccept,
     reviewDismiss,
+    reviewAcceptSameReason,
     playSource,
     reviewPitch,
     reviewDeleteOrRestore,
@@ -2660,6 +2694,14 @@ const setKey = useCallback(
           onPlaySource={playSource}
           onAccept={reviewAccept}
           onDismiss={reviewDismiss}
+          sameReasonPending={
+            allIssues.filter(
+              (i) =>
+                i.status === "open" &&
+                i.reason === allIssues[reviewIndex]?.reason,
+            ).length
+          }
+          onAcceptSameReason={reviewAcceptSameReason}
           onPitch={reviewPitch}
           onDeleteOrRestore={reviewDeleteOrRestore}
           onUndo={reviewUndo}

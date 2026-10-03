@@ -2328,6 +2328,8 @@ export default function App() {
       // UI-050 review actions — all live in the score workspace session.
       reviewAccept: () => scoreCtlRef.current?.reviewAccept(),
       reviewDismiss: () => scoreCtlRef.current?.reviewDismiss(),
+      reviewAcceptSameReason: () =>
+        scoreCtlRef.current?.reviewAcceptSameReason?.(),
       reviewPlaySource: () => scoreCtlRef.current?.reviewPlaySource(),
       reviewPitchUp: () => scoreCtlRef.current?.reviewPitch(1),
       reviewPitchDown: () => scoreCtlRef.current?.reviewPitch(-1),

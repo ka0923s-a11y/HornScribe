@@ -155,6 +155,9 @@ export interface ScoreWorkspaceController {
   reviewAccept(): void;
   /** 対応不要にする — dismiss the focused issue. */
   reviewDismiss(): void;
+  /** #167: accept every open issue sharing the focused reason —
+   *  one click, one undo group. Optional so test controllers stay lean. */
+  reviewAcceptSameReason?(): void;
   /** 元音源を再生 — loop-play the issue's source range. */
   reviewPlaySource(): void;
   /** 音高修正: shift the issue's note(s) by ±1 semitone. */
