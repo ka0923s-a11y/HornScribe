@@ -7,7 +7,9 @@ Everything the app needs sits in one folder next to the shell exe:
     WebView2Loader.dll              - copied when the shell build emits
                                       it (gnu toolchain needs it next to
                                       the exe, #141; MSVC links it in)
-    engine/hornscribe-engine.exe    - frozen Python worker (#83)
+    engine/hornscribe-engine/       - frozen Python worker, onedir
+                                      bundle: hornscribe-engine.exe
+                                      + _internal/ (#83, #186)
     tools/ffmpeg.exe, ffprobe.exe   - bundled media tools (#10)
     data/                           - portable-mode marker: its mere
                                       existence keeps recordings,
@@ -40,7 +42,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SRC_TAURI = REPO / "apps" / "desktop" / "src-tauri"
 DEFAULT_SHELL = SRC_TAURI / "target" / "release" / "hornscribe-desktop.exe"
-DEFAULT_ENGINE = SRC_TAURI / "resources" / "engine" / "hornscribe-engine.exe"
+DEFAULT_ENGINE = (
+    SRC_TAURI
+    / "resources"
+    / "engine"
+    / "hornscribe-engine"
+    / "hornscribe-engine.exe"
+)
 DEFAULT_TOOLS = SRC_TAURI / "resources" / "tools"
 
 DATA_MARKER_README = """HornScribe portable-mode marker
@@ -140,8 +148,13 @@ def main() -> int:
     loader_copied = loader.is_file()
     if loader_copied:
         shutil.copy2(loader, stage / loader.name)
+    # #186: the engine is a PyInstaller onedir tree — copy the whole
+    # bundle dir (exe + _internal/) under engine/<name>/.
     engine_name = args.engine_exe.name
-    shutil.copy2(args.engine_exe, stage / "engine" / engine_name)
+    engine_dirname = args.engine_exe.parent.name
+    shutil.copytree(
+        args.engine_exe.parent, stage / "engine" / engine_dirname
+    )
     for item in sorted(args.tools_dir.iterdir()):
         if item.is_file() and item.name != "README.txt":
             shutil.copy2(item, stage / "tools" / item.name)
@@ -153,7 +166,9 @@ def main() -> int:
 
     # -- verify ------------------------------------------------------------
     if not args.skip_smoke:
-        staged_engine = stage / "engine" / engine_name
+        staged_engine = (
+            stage / "engine" / engine_dirname / engine_name
+        )
         print("smoke-testing staged engine...")
         r = subprocess.run(
             [sys.executable, str(REPO / "scripts" / "smoke_engine.py"), str(staged_engine)],
@@ -175,7 +190,14 @@ def main() -> int:
     # -- size report --------------------------------------------------------
     rows = [
         (shell_name, (stage / shell_name).stat().st_size),
-        ("engine/" + engine_name, (stage / "engine" / engine_name).stat().st_size),
+        (
+            "engine/" + engine_dirname + "/",
+            sum(
+                p.stat().st_size
+                for p in (stage / "engine" / engine_dirname).rglob("*")
+                if p.is_file()
+            ),
+        ),
     ]
     if loader_copied:
         rows.insert(1, (loader.name, (stage / loader.name).stat().st_size))

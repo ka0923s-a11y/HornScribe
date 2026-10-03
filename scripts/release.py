@@ -54,7 +54,15 @@ DESKTOP = REPO / "apps" / "desktop"
 SRC_TAURI = DESKTOP / "src-tauri"
 PKG_JSON = DESKTOP / "package.json"
 TAURI_CONF = SRC_TAURI / "tauri.conf.json"
-ENGINE_EXE = SRC_TAURI / "resources" / "engine" / "hornscribe-engine.exe"
+# #186: the staged engine is a PyInstaller ONEDIR bundle — the exe nests
+# under resources/engine/hornscribe-engine/ with its _internal/ dir.
+ENGINE_EXE = (
+    SRC_TAURI
+    / "resources"
+    / "engine"
+    / "hornscribe-engine"
+    / "hornscribe-engine.exe"
+)
 BUNDLED_CONF = SRC_TAURI / "tauri.bundled.json"
 MERGED_CONF = SRC_TAURI / "target" / "tauri.release.merged.json"
 WEBVIEW2_LOADER = SRC_TAURI / "target" / "release" / "WebView2Loader.dll"
@@ -325,8 +333,12 @@ def main() -> int:
             )
     with zipfile.ZipFile(portable_zip) as zf:
         names = zf.namelist()
-        if not any("engine/hornscribe-engine.exe" in n for n in names):
-            raise _die(f"{portable_zip.name} does not contain engine/hornscribe-engine.exe")
+        if not any(
+            "engine/hornscribe-engine/hornscribe-engine.exe" in n for n in names
+        ):
+            raise _die(
+                f"{portable_zip.name} does not contain engine/hornscribe-engine/"
+            )
         if need_loader and not any(n.endswith("/WebView2Loader.dll") for n in names):
             raise _die(
                 f"{portable_zip.name} does not contain WebView2Loader.dll - "

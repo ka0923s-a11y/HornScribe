@@ -47,9 +47,98 @@ struct EngineState {
     /// writer exits, `ChildStdin` drops, and the worker sees the EOF it
     /// treats as a graceful shutdown.
     stdin_tx: Option<Sender<String>>,
+    /// #185: Job Object with KILL_ON_JOB_CLOSE — the PyInstaller
+    /// onefile bootloader re-execs the real worker as a grandchild,
+    /// and Windows auto-enrolls descendants of a job member, so this
+    /// handle's close ends the WHOLE tree on every path: engine_kill,
+    /// exit cleanup, even a shell crash. `None` degrades to the
+    /// taskkill fallback inside reap_child.
+    _job: ProcessGuard,
 }
 
 static ENGINE: Mutex<Option<EngineState>> = Mutex::new(None);
+
+/// #185: a Job Object held for the engine's whole lifetime. Windows
+/// auto-enrolls a job member's descendants, so PyInstaller's re-exec'd
+/// worker lands inside the same job; KILL_ON_JOB_CLOSE ends the whole
+/// tree the moment our handle closes — engine_kill, exit cleanup, or
+/// a shell crash. `None` degrades to the taskkill fallback in
+/// reap_child when job setup fails.
+#[cfg(windows)]
+struct ProcessGuard(
+    #[allow(dead_code)]
+    Option<windows_core::Owned<windows::Win32::Foundation::HANDLE>>,
+);
+
+// #185: HANDLE is a raw pointer so ProcessGuard is not auto-Send —
+// but the handle is only ever closed on Drop, never dereferenced or
+// shared, so moving it across threads is sound.
+#[cfg(windows)]
+unsafe impl Send for ProcessGuard {}
+
+#[cfg(windows)]
+impl ProcessGuard {
+    fn for_child(child: &Child) -> Self {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JobObjectExtendedLimitInformation, SetInformationJobObject,
+        };
+        use windows::Win32::System::Threading::{
+            OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        };
+        unsafe {
+            let job = match CreateJobObjectW(None, windows::core::PCWSTR::null()) {
+                Ok(h) if !h.is_invalid() => h,
+                _ => return Self(None),
+            };
+            let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            info.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let armed = SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+            .is_ok();
+            if !armed {
+                let _ = CloseHandle(job);
+                return Self(None);
+            }
+            let proc = match OpenProcess(
+                PROCESS_SET_QUOTA | PROCESS_TERMINATE,
+                false,
+                child.id(),
+            ) {
+                Ok(p) => p,
+                Err(_) => {
+                    let _ = CloseHandle(job);
+                    return Self(None);
+                }
+            };
+            let assigned = AssignProcessToJobObject(job, proc).is_ok();
+            let _ = CloseHandle(proc);
+            if !assigned {
+                let _ = CloseHandle(job);
+                return Self(None);
+            }
+            Self(Some(windows_core::Owned::new(job)))
+        }
+    }
+}
+
+#[cfg(not(windows))]
+struct ProcessGuard;
+
+#[cfg(not(windows))]
+impl ProcessGuard {
+    fn for_child(_child: &Child) -> Self {
+        Self
+    }
+}
 
 /// How the engine process is launched (#83). A frozen binary speaks the
 /// worker NDJSON protocol directly; a Python interpreter is invoked as
@@ -214,8 +303,13 @@ fn engine_spawn_impl(
         return Err(format!("spawn stdin writer: {e}"));
     }
 
+    // #185: assign the job BEFORE moving `child` into the state — the
+    // guard borrows the handle. Jobs auto-enroll the child's future
+    // descendants (PyInstaller's re-exec'd worker lands inside).
+    let _job = ProcessGuard::for_child(&child);
     *guard = Some(EngineState {
         child,
+        _job,
         stdin_tx: Some(stdin_tx),
     });
     drop(guard);
@@ -289,13 +383,35 @@ pub fn engine_close_stdin() -> Result<(), String> {
 /// child; try_wait with a ~3 s cap keeps engine_kill and the Exit
 /// handler from ever hanging the shell process.
 fn reap_child(child: &mut Child) {
-    let _ = child.kill();
+    kill_process_tree(child);
     for _ in 0..60 {
         match child.try_wait() {
             Ok(Some(_)) | Err(_) => return,
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
         }
     }
+}
+
+/// #185: end the whole engine process tree, not just the direct child.
+/// The frozen engine is a PyInstaller onefile bundle whose bootloader
+/// re-execs the real Python worker as a grandchild — `child.kill()`
+/// ends only the bootloader and orphans the worker (~300 MB plus its
+/// cache handles, still running any job). `taskkill /T /F` walks the
+/// tree; the extra `child.kill()` is a harmless belt on top.
+#[cfg(windows)]
+fn kill_process_tree(child: &mut Child) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = Command::new("taskkill")
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    let _ = child.kill();
+}
+
+#[cfg(not(windows))]
+fn kill_process_tree(child: &mut Child) {
+    let _ = child.kill();
 }
 
 /// `engine_kill`: terminate the sidecar immediately (the documented
@@ -393,10 +509,12 @@ fn resolve_engine(app: &tauri::AppHandle) -> Result<SpawnTarget, String> {
 /// Candidate locations for the frozen engine binary (#83).
 ///
 /// Packaged builds ship `engine/hornscribe-engine[.exe]` as a Tauri
-/// resource (see scripts/build_engine.py + tauri.conf.json). The exact
-/// resource_dir layout varies by installer, so we probe the resource
-/// dir, its `resources/` child, and the executable's own directory —
-/// the last also covers portable-zip layouts without an installer.
+/// resource — #186 moved to a PyInstaller ONEDIR bundle, so the exe
+/// now nests under `engine/hornscribe-engine/`; the exact resource_dir
+/// layout varies by installer, so we probe the resource dir, its
+/// `resources/` child, and the executable's own directory — the last
+/// also covers portable-zip layouts without an installer. The flat
+/// onefile path stays last for older layouts and dev trees.
 fn bundled_engine_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
     const EXE: &str = if cfg!(windows) {
         "hornscribe-engine.exe"
@@ -407,7 +525,10 @@ fn bundled_engine_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
     // for every bundled resource.
     crate::tools::bundled_roots(app)
         .into_iter()
-        .map(|root| root.join("engine").join(EXE))
+        .flat_map(|root| [
+            root.join("engine").join("hornscribe-engine").join(EXE),
+            root.join("engine").join(EXE),
+        ])
         .collect()
 }
 

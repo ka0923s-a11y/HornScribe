@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Build the frozen engine sidecar for packaged apps (#83).
 
-Produces ``apps/desktop/src-tauri/resources/engine/hornscribe-engine``
-(``.exe`` on Windows) — a PyInstaller onefile binary that speaks the
-worker NDJSON protocol on stdin/stdout, so ``engine_spawn`` can launch
-it directly without a Python install.
+Produces ``apps/desktop/src-tauri/resources/engine/hornscribe-engine/``
+— a PyInstaller ONEDIR bundle (``hornscribe-engine.exe`` + ``_internal/``)
+that speaks the worker NDJSON protocol on stdin/stdout, so
+``engine_spawn`` can launch it directly without a Python install.
+
+#186: onedir, not onefile — a onefile build re-extracts ~290 MB into
+%TEMP% on EVERY launch (cold start ~40-60s on a loaded machine, every
+extract re-scanned by AV), and its bootloader re-execs the worker as a
+grandchild that plain kill() cannot reach. The onedir bootloader loads
+Python in-process: instant start, single process, clean kill.
 
 Run inside the engine venv (the one with ``hornscribe[engine]``
 installed — basic_pitch/onnxruntime/librosa/music21):
@@ -16,8 +22,10 @@ Then package with the engine bundled:
 
     cd apps/desktop && npx tauri build --config src-tauri/tauri.bundled.json
 
-Size note: the binary embeds the ONNX model + onnxruntime + numpy, so
-expect ~150-250 MB. That is the cost of fully-offline, free-tier
+Size note: the bundle embeds the ONNX model + onnxruntime + numpy, so
+expect ~450-700 MB unpacked (it compresses back to ~300 MB inside the
+installer/zip — the onefile payload decompressed to the same size at
+runtime anyway). That is the cost of fully-offline, free-tier
 transcription — recorded on issue #83.
 """
 
@@ -48,7 +56,7 @@ def main() -> int:
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--onefile",
+        "--onedir",
         "--console",
         "--name",
         "hornscribe-engine",
@@ -85,11 +93,18 @@ def main() -> int:
     if result.returncode != 0:
         return result.returncode
 
-    exe = OUT_DIR / ("hornscribe-engine.exe" if sys.platform == "win32" else "hornscribe-engine")
+    # #186: onedir lands at <OUT_DIR>/hornscribe-engine/<name>[.exe]
+    # next to its _internal/ payload.
+    exe = (
+        OUT_DIR
+        / "hornscribe-engine"
+        / ("hornscribe-engine.exe" if sys.platform == "win32" else "hornscribe-engine")
+    )
     if not exe.is_file():
         print(f"expected output missing: {exe}", file=sys.stderr)
         return 1
-    print(f"bundled engine: {exe} ({exe.stat().st_size / 1e6:.0f} MB)")
+    total = sum(p.stat().st_size for p in exe.parent.rglob("*") if p.is_file())
+    print(f"bundled engine: {exe} ({total / 1e6:.0f} MB unpacked)")
     return 0
 
 
