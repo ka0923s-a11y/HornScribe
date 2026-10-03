@@ -1,4 +1,6 @@
-"""Lead-voice (monophonic) f0 -> note segmentation (#421).
+"""Lead-voice (monophonic) f0 -> note segmentation (#421) plus the
+    lead-track agreement metric used to arbitrate tracking engines
+    on an isolated-vocal estimate (#165).
 
 The frames_to_note_events run-grouping heuristic decodes continuous
 f0 by rounding each frame to a semitone and grouping equal pitches. That
@@ -175,3 +177,50 @@ def decode_lead_voice(
                 prev_state = path[k]
         runs.append((seg, prev_state))
     return runs
+
+
+def lead_track_agreement(
+    line_events: Any,
+    tracker_events: Any,
+    *,
+    semitone_tol: float = 1.0,
+) -> float:
+    """Time-weighted agreement between a preferred line and a tracker
+    track, in [0, 1] (isolated-vocal backend gate, #165).
+
+    Fraction of tracker note-time overlapping a line event at the same
+    semitone (within ``semitone_tol``).  Octaves do NOT count — a
+    bass line shares pitch classes with the lead it accompanies
+    (very-quiet-lead: every bass root sat on a chord tone the melody
+    also visited), so pitch-class agreement would hand the gate to a
+    tracker that followed a different line in a different register.
+    A tracker that heard the real lead lands inside a semitone even
+    with vibrato; one an octave off simply did not.  The caller
+    cleans the comparison line itself, so this stays a pure measure
+    of "did the tracker follow the line the polyphonic model calls
+    the lead" — a tracker that locked a bleed-dominated bass or pad
+    scores ~0 and loses the gate honestly.  0.0 when the tracker
+    produced no time.
+    """
+    line = sorted(line_events, key=lambda e: e.onset_sec)
+    total = 0.0
+    agreed = 0.0
+    for te in tracker_events:
+        span = float(te.offset_sec) - float(te.onset_sec)
+        if span <= 0.0:
+            continue
+        total += span
+        for le in line:
+            if le.offset_sec <= te.onset_sec:
+                continue
+            if le.onset_sec >= te.offset_sec:
+                break
+            ov = min(te.offset_sec, le.offset_sec) - max(
+                te.onset_sec, le.onset_sec
+            )
+            if ov <= 0.0:
+                continue
+            d = abs(float(te.pitch_midi) - float(le.pitch_midi))
+            if d <= semitone_tol:
+                agreed += ov
+    return agreed / total if total > 0.0 else 0.0
