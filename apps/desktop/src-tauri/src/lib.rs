@@ -244,6 +244,8 @@ pub fn run() {
             engine::engine_kill,
             diagnostics::diagnostics_paths,
             diagnostics::reveal_log_folder,
+            tools::addons_dir,
+            tools::open_addons_dir,
             export::export_pick_dir,
             export::export_default_dir,
             export::export_check_existing,

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import glob
 import hashlib
 import os
 import shutil
@@ -190,6 +191,24 @@ def _demucs_cmd() -> tuple[str, ...] | None:
     cli = shutil.which("demucs")
     if cli:
         return (cli,)
+    # #190: folder-form addon — a PyInstaller onedir bundle drops as
+    # ``<tools>/demucs/demucs.exe`` next to its ``_internal/`` tree and
+    # never shows up in a ``which`` scan (only the parent tools dir is
+    # on PATH). Probe each PATH dir for the nested layout.
+    for path_dir in os.environ.get("PATH", "").split(os.pathsep):
+        if not path_dir:
+            continue
+        # Exact drop first, then one level deeper -- Windows "Extract
+        # All" lands the zip under ``<tools>/<zip name>/`` by default,
+        # which is a very common install shape for this addon.
+        for cand in (
+            os.path.join(path_dir, "demucs", "demucs.exe"),
+            *glob.glob(
+                os.path.join(path_dir, "*", "demucs", "demucs.exe")
+            ),
+        ):
+            if os.path.isfile(cand):
+                return (cand,)
     candidates: list[str] = []
     env_py = os.environ.get("HORNSCRIBE_PYTHON", "").strip()
     if env_py:

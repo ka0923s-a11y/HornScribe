@@ -689,6 +689,10 @@ class TestDemucsResolution:
             vocal_mod, "_demucs_module_importable", lambda: False
         )
         monkeypatch.setattr(vocal_mod.shutil, "which", lambda _n: None)
+        # #190: hermetic PATH — the folder-form addon probe scans real
+        # PATH dirs otherwise, so a stray <dir>/demucs/demucs.exe on a
+        # dev box could flip resolution order under the tests.
+        monkeypatch.setenv("PATH", "")
         vocal_mod._demucs_cmd.cache_clear()
         yield vocal_mod
         vocal_mod._demucs_cmd.cache_clear()
@@ -738,6 +742,45 @@ class TestDemucsResolution:
             lambda n: "C:\\tools\\demucs.exe" if n == "demucs" else None,
         )
         assert _resolver._demucs_cmd() == ("C:\\tools\\demucs.exe",)
+
+    def test_path_folder_addon(self, _resolver, tmp_path, monkeypatch):
+        """#190: the PyInstaller onedir addon drops as
+        ``<tools>/demucs/demucs.exe`` — ``which`` only sees ``<tools>``,
+        so the nested layout needs its own PATH-dir probe."""
+        tool_root = tmp_path / "tools"
+        exe = tool_root / "demucs" / "demucs.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"x")
+        monkeypatch.setenv("PATH", str(tool_root))
+        assert _resolver._demucs_cmd() == (str(exe),)
+
+    def test_path_folder_addon_in_named_zip_subfolder(
+        self, _resolver, tmp_path, monkeypatch
+    ):
+        """Windows "Extract All" defaults to ``<tools>/<zip name>/``
+        -- the bundle then sits one level deeper and must still
+        resolve (the common mistaken-but-supported shape)."""
+        tool_root = tmp_path / "tools"
+        exe = (
+            tool_root
+            / "HornScribe-demucs-addon-4.1.0-win64"
+            / "demucs"
+            / "demucs.exe"
+        )
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"x")
+        monkeypatch.setenv("PATH", str(tool_root))
+        assert _resolver._demucs_cmd() == (str(exe),)
+
+    def test_path_folder_addon_skips_dirs_without_bundle(
+        self, _resolver, tmp_path, monkeypatch
+    ):
+        """A PATH dir that has no demucs/ subfolder is skipped — the
+        search falls through to the python probes, not to None."""
+        tool_root = tmp_path / "tools"
+        tool_root.mkdir()
+        monkeypatch.setenv("PATH", str(tool_root))
+        assert _resolver._demucs_cmd() is None
 
     def test_frozen_never_uses_sys_executable(
         self, _resolver, monkeypatch

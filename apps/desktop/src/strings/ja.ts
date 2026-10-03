@@ -265,6 +265,12 @@ export const ja = {
     ffmpegPath: "FFmpegの場所",
     pathPlaceholder: "自動検出",
     modelInfo: "モデル情報",
+    /* #190: 任意アドオン(demucs分離バンドル)の導入先フォルダ。 */
+    addonsFolder: "アドオンの場所",
+    addonsOpen: "フォルダを開く",
+    addonsOpenFailed: "フォルダを開けませんでした",
+    demucsAddonHint:
+      "配布ページから分離アドオン(demucs)をダウンロードし、このフォルダに展開すると高精度なボーカル分離が使えます。エンジンの再起動後に有効になります。",
     backendLabel: "採譜エンジン",
     /* #71: エンジン選択肢 — テンポの tempoAuto と文脈が違うので
      *  専用キーを持つ(値は同じ「自動」)。 */
@@ -2065,6 +2071,13 @@ export const ja = {
     musescore: {
       name: "MuseScore",
       purpose: "PDFの書き出しに必要です。",
+    },
+    /* #190: optional addon — the engine reports its presence via the
+     * handshake capability, so there is no path field here. */
+    demucs: {
+      name: "demucs（ボーカル分離）",
+      purpose:
+        "ボーカル分離による採譜精度の向上に使います。任意アドオンとして後から追加できます。",
     },
   },
 

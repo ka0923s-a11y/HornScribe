@@ -46,6 +46,7 @@ import {
   type RecordingFile,
   type RecordingsInfo,
 } from "../capture/recordings";
+import { getAddonsDir, openAddonsDir } from "../tools/addons";
 import { HsDialog } from "./primitives/Dialog";
 import { createImportPorts } from "../import/runtimePorts";
 import { parseProjectFile } from "../import/controller";
@@ -202,14 +203,70 @@ export function SettingsView({
 
   const museBadge = toolBadge(diag?.tools.museScore);
   const ffmpegBadge = toolBadge(diag?.tools.ffmpeg);
+  const demucsBadge = toolBadge(diag?.tools.demucs);
 
   const openLogs = useCallback(async () => {
     const ok = await diagnosticsPort.openLogFolder();
     if (!ok) {
-      // Honest feedback — the shell has no folder bridge yet.
+    // Honest feedback — the shell has no folder bridge yet.
       onAnnounce(ja.diagnostics.openLogsFailed);
     }
   }, [diagnosticsPort, onAnnounce]);
+
+  /* #190: addon drop-in folder (demucs separation bundle) — the path
+   * is fetched once; the folder may not exist until the user opens
+   * it, and a fresh install only registers after an engine restart.
+   */
+  const [addonsDir, setAddonsDir] = useState<string | null>(null);
+  const [engineRestarting, setEngineRestarting] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void getAddonsDir().then((dir) => {
+      if (!cancelled) setAddonsDir(dir);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openAddons = useCallback(async () => {
+    const ok = await openAddonsDir();
+    if (!ok) {
+      onAnnounce(ja.settings.addonsOpenFailed);
+      return;
+    }
+    // The button creates the folder — re-resolve so a stale null
+    // path does not linger until the view remounts.
+    void getAddonsDir().then(setAddonsDir);
+  }, [onAnnounce]);
+
+  /* #190: restartEngine resolves after the handshake, so a fresh
+   * collect() sees the addon's demucsAvailable flag immediately —
+   * that is what flips the badge to 検出済み. */
+  const restartEngine = useCallback(async () => {
+    if (!diagnosticsPort.restartEngine) return;
+    setEngineRestarting(true);
+    try {
+      const ok = await diagnosticsPort.restartEngine();
+      onAnnounce(
+        ok ? ja.diagnostics.restarted : ja.diagnostics.restartFailed,
+      );
+      if (ok) {
+        const info = await diagnosticsPort.collect({
+          museScorePath: settings.museScorePath,
+          ffmpegPath: settings.ffmpegPath,
+        });
+        setDiag(info);
+      }
+    } finally {
+      setEngineRestarting(false);
+    }
+  }, [
+    diagnosticsPort,
+    onAnnounce,
+    settings.museScorePath,
+    settings.ffmpegPath,
+  ]);
 
   // #78: 録音ファイル管理 — カテゴリを開いた時に情報を取り直す。
   const [recInfo, setRecInfo] = useState<RecordingsInfo | null>(null);
@@ -648,6 +705,51 @@ export function SettingsView({
                 placeholder={s.pathPlaceholder}
                 onCommit={(v) => onSettingsChange({ museScorePath: v })}
               />
+            </div>
+            {/* #190: demucs is an OPTIONAL addon — the status comes
+                from the engine handshake (not a path probe), and the
+                drop-in folder is where the user extracts the bundle.
+                A restart button sits here because _demucs_cmd is
+                resolved once per engine process. */}
+            <div className="hs-settings__tool">
+              <div className="hs-settings__tool-head">
+                <span className="hs-settings__tool-name">
+                  {ja.dependencies.demucs.name}
+                </span>
+                <StatusBadge
+                  tone={demucsBadge.tone}
+                  label={demucsBadge.label}
+                />
+              </div>
+              <p className="hs-settings__note">
+                {ja.dependencies.demucs.purpose}
+              </p>
+              <div className="hs-settings__field">
+                <Label>{s.addonsFolder}</Label>
+                <div className="hs-settings__path-row">
+                  <p className="hs-settings__value">
+                    {addonsDir ?? ja.diagnostics.notConnected}
+                  </p>
+                  <HsButton
+                    size="small"
+                    onClick={() => void openAddons()}
+                  >
+                    {s.addonsOpen}
+                  </HsButton>
+                </div>
+              </div>
+              <p className="hs-settings__note">{s.demucsAddonHint}</p>
+              {diagnosticsPort.restartEngine ? (
+                <div>
+                  <HsButton
+                    size="small"
+                    loading={engineRestarting}
+                    onClick={() => void restartEngine()}
+                  >
+                    {ja.diagnostics.restartEngine}
+                  </HsButton>
+                </div>
+              ) : null}
             </div>
             <div className="hs-settings__field">
               <Label>{s.modelInfo}</Label>
