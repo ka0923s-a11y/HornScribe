@@ -109,6 +109,17 @@ fn read_project_file(path: String) -> Result<tauri::ipc::Response, String> {
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Confirmed-exit fallback (#407): the close guards resolve to
+/// `window.destroy()`, which is ACL-gated (`core:window:allow-destroy`).
+/// If that grant ever regresses the frontend falls back to this app-owned
+/// command — the ACL only gates plugin commands, so an app can always
+/// exit itself. `app.exit` still runs the RunEvent::Exit cleanup that
+/// kills the engine sidecar.
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -124,6 +135,7 @@ pub fn run() {
             shell_info,
             read_audio_bytes,
             read_project_file,
+            exit_app,
             audio::audio_probe,
             capture::capture_start,
             capture::capture_stop,

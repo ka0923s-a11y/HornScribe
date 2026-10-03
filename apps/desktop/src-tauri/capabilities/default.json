@@ -12,6 +12,7 @@
     "core:window:default",
     "core:window:allow-set-size",
     "core:window:allow-set-position",
+    "core:window:allow-destroy",
     "dialog:allow-open"
   ]
 }
