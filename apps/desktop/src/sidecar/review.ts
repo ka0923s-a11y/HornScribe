@@ -30,6 +30,9 @@ export const REVIEW_REASONS = [
   "boundary_uncertain",
   // #419: chord-segment confidence from the local chord map.
   "chord_uncertain",
+  // #191: isolated estimate is only a fraction of the source's
+  // energy — the melody was buried and notes may be missing.
+  "low_lead_level",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
@@ -64,6 +67,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "onset_uncertain",
   "pitch_uncertain",
   "multiple_candidates",
+  "low_lead_level",
   "other",
 ] as const;
 

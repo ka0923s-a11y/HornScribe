@@ -350,3 +350,121 @@ def test_vocal_isolation_unavailable_reports_reason(
     assert captured["path"].endswith("take.wav")
     reasons = {i["reason"] for i in result["reviewIssues"]}
     assert "vocal_isolation_unavailable" in reasons
+
+
+def _run_with_source_level(
+    tmp_path,
+    payload_extra,
+    *,
+    source_level: float,
+    estimate_rms: float | None,
+    method: str,
+):
+    """Run the job with a non-silent source and a stubbed isolation
+    estimate whose RMS is controllable — the #191 low-lead issue keys
+    off estimate/source RMS."""
+    audio = tmp_path / "take.wav"
+    audio.write_bytes(b"x" * 64)
+    collected: list[dict] = []
+
+    def emit(phase: str, **kw) -> None:
+        collected.append({"phase": phase, **kw})
+
+    params = TranscriptionParams.from_payload(
+        {
+            "audioPath": str(audio),
+            "tempoBpm": 120.0,
+            "meter": "4/4",
+            **payload_extra,
+        }
+    )
+    run_transcription_job(
+        job_id="j",
+        params=params,
+        emit=emit,
+        cancel=threading.Event(),
+        backend=lambda _p: _events(),
+        loader=lambda _p: (
+            array("f", [source_level] * (22050 * 5)),
+            22050,
+        ),
+    )
+    assert collected[-1]["phase"] == "completed", collected
+    return collected[-1]["result"]
+
+
+def _stub_isolation(monkeypatch, estimate_rms, method):
+    monkeypatch.setattr(
+        pipeline,
+        "vocal_wav",
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, method, "1.0"),
+    )
+    monkeypatch.setattr(pipeline, "wav_rms", lambda _p: estimate_rms)
+
+
+def test_low_lead_level_fires_on_buried_vocal(tmp_path, monkeypatch) -> None:
+    """#191: estimate RMS far under the source's => the review issue
+    tells the user notes may be missing."""
+    _stub_isolation(monkeypatch, estimate_rms=0.04, method="demucs")
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True},
+        source_level=0.5,
+        estimate_rms=0.04,
+        method="demucs",
+    )
+    issues = {i["reason"]: i for i in result["reviewIssues"]}
+    assert "low_lead_level" in issues
+    assert issues["low_lead_level"]["severity"] == "caution"
+    # ratio 0.04/0.5 = 0.08 -> about -21.9 dB.
+    assert issues["low_lead_level"]["evidence"]["ratioDb"] == pytest.approx(
+        -21.9, abs=0.2
+    )
+
+
+def test_low_lead_level_silent_on_healthy_estimate(
+    tmp_path, monkeypatch
+) -> None:
+    """#191: a normal-strength estimate produces no false alarm."""
+    _stub_isolation(monkeypatch, estimate_rms=0.30, method="demucs")
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True},
+        source_level=0.5,
+        estimate_rms=0.30,
+        method="demucs",
+    )
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "low_lead_level" not in reasons
+
+
+def test_low_lead_level_method_aware_threshold(
+    tmp_path, monkeypatch
+) -> None:
+    """#191: center extraction attenuates by construction, so the same
+    ratio that alarms a demucs estimate stays quiet here."""
+    _stub_isolation(monkeypatch, estimate_rms=0.125, method="center_extraction")
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True},
+        source_level=0.5,
+        estimate_rms=0.125,
+        method="center_extraction",
+    )
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "low_lead_level" not in reasons
+
+
+def test_low_lead_level_needs_estimate_rms(tmp_path, monkeypatch) -> None:
+    """#191: an unreadable estimate file must not produce a fake alarm —
+    the check is skipped when wav_rms cannot read the path."""
+    _stub_isolation(monkeypatch, estimate_rms=None, method="demucs")
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True},
+        source_level=0.5,
+        estimate_rms=None,
+        method="demucs",
+    )
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "low_lead_level" not in reasons

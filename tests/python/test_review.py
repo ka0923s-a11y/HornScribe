@@ -57,6 +57,8 @@ def test_all_master_plan_reasons_exist() -> None:
             "boundary_uncertain",
             # #419: chord-map segment uncertainty contract.
             "chord_uncertain",
+            # #191: buried-lead / possible missed-notes honesty signal.
+            "low_lead_level",
         }
     assert {r.value for r in ReviewReason} == expected
 
