@@ -135,7 +135,7 @@ from .tempo import (
     tempo_map_from_estimate,
 )
 from .tempo_octave import detect_tempo_octave
-from .vocal import vocal_wav
+from .vocal import vocal_wav, wav_rms
 
 JOB_KIND_TRANSCRIPTION = "transcription"
 
@@ -170,6 +170,15 @@ piece flags its worst spans, not every bar."""
 # voice so the melody survives instead of being clipped by accompaniment.
 AUTO_TEXTURE_MIN_OVERLAPS = 4
 AUTO_TEXTURE_OVERLAP_RATIO = 0.05
+
+# #191: isolated-estimate RMS / source-slice RMS below which the lead
+# counts as "buried" — the point where missed notes become plausible
+# enough to tell the user about. A demucs stem carries near-true vocal
+# energy, so a -9.5 dB lead (the #165 failure case) reads ~0.33 and
+# the bar sits just under it; a center extraction attenuates even a
+# healthy lead (side-channel loss + soft mask), so its bar is lower.
+_LOW_LEAD_RMS_RATIO = {"demucs": 0.30}
+_LOW_LEAD_RMS_RATIO_DEFAULT = 0.20
 
 EventEmitter = Callable[..., None]
 NoteBackend = Callable[[str], tuple[RawNoteEvent, ...]]
@@ -524,6 +533,17 @@ def _shift_event_times(
         )
         for ev in events
     )
+
+
+def _samples_rms(samples: Any) -> float:
+    """RMS of a decoded mono buffer (#191) — numpy lazily, matching the
+    module's optional-dependency convention."""
+    import numpy as np  # noqa: PLC0415
+
+    arr = np.asarray(samples, dtype=np.float64)
+    if arr.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(arr * arr)))
 
 
 def _stage_selection_wav(
@@ -2095,6 +2115,41 @@ def run_transcription_job(
                     evidence={"stage": vocal_method or "center_extraction"},
                 )
             )
+            # #191: buried-lead honesty — a missed note can never be its
+            # own review item, so when the isolated estimate carries
+            # only a small share of the source's energy we surface the
+            # possibility itself. demucs stems carry near-true vocal
+            # energy (the -9.5 dB lead of #165 reads ~0.33), while a
+            # center extraction attenuates even healthy leads
+            # (side-channel loss + soft mask) — separate bars.
+            if vocal_path is not None and len(samples):
+                estimate_rms = wav_rms(vocal_path)
+                source_rms = _samples_rms(samples)
+                if estimate_rms is not None and source_rms > 0:
+                    ratio = estimate_rms / source_rms
+                    threshold = _LOW_LEAD_RMS_RATIO.get(
+                        vocal_method, _LOW_LEAD_RMS_RATIO_DEFAULT
+                    )
+                    if ratio < threshold:
+                        issues.append(
+                            ReviewIssue(
+                                id="",
+                                score_revision=score_revision,
+                                canonical_note_ids=(),
+                                time_range=analysis_range,
+                                reason=ReviewReason.LOW_LEAD_LEVEL,
+                                severity=Severity.CAUTION,
+                                evidence={
+                                    "sourceRms": round(source_rms, 5),
+                                    "vocalRms": round(estimate_rms, 5),
+                                    "ratioDb": round(
+                                        20.0 * math.log10(ratio), 1
+                                    ),
+                                    "method": vocal_method
+                                    or "center_extraction",
+                                },
+                            )
+                        )
         elif vocal_reason in (
             "mono_source",
             "unavailable",

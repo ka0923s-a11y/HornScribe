@@ -438,6 +438,13 @@ def _wav_rms(path: str) -> float | None:
         return None
 
 
+def wav_rms(path: str) -> float | None:
+    """Public RMS probe for the isolated-vocal estimate (#191) —
+    the pipeline compares it against the source slice's RMS to tell
+    whether the melody was buried under the mix."""
+    return _wav_rms(path)
+
+
 def _demucs_stem_silent(
     stem_rms: float,
     audio_path: str,

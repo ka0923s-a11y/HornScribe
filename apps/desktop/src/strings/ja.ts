@@ -1627,6 +1627,15 @@ export const ja = {
       detail:
         "この区間の和音推定が曖昧です（確信度が低い、または候補が拮抗）。推定コードを証拠として表示しています。",
     },
+    // #191: the isolated vocal estimate carried only a fraction of
+    // the source's energy — the melody is buried and notes may be
+    // missing. Undetected notes can never be their own review item,
+    // so the possibility itself is surfaced.
+    low_lead_level: {
+      title: "主旋律が埋もれている可能性があります",
+      detail:
+        "元の音源に対して主旋律の音量がかなり小さいため、検出されなかった音符が残っている可能性があります。「分離品質：高精度」での再採譜や、要確認リストの確認をおすすめします。",
+    },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
       detail: "音の開始位置が曖昧です。",

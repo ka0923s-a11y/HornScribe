@@ -83,6 +83,13 @@ class ReviewReason(Enum):
     # there is no auto-fix — the chord context informs how the user
     # reads spelling/rhythm choices in that span.
     CHORD_UNCERTAIN = "chord_uncertain"
+    # #191: the isolated-vocal estimate carries only a small share of
+    # the source's energy — the melody is buried and undetected notes
+    # may remain even after isolation. Honest uncertainty at the
+    # product boundary: a missed note cannot appear as its own review
+    # item, so the possibility itself is surfaced. Evidence carries
+    # source/estimate RMS + the ratio in dB.
+    LOW_LEAD_LEVEL = "low_lead_level"
 
 
 class Severity(Enum):
