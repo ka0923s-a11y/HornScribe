@@ -87,7 +87,13 @@ interface PendingRequest {
 const DEFAULTS: Required<SidecarClientOptions> = {
   requestTimeoutMs: 10_000,
   jobStartTimeoutMs: 120_000,
-  handshakeTimeoutMs: 30_000,
+  /* #184: the frozen engine's onefile self-extract can take 40-60s on a
+   * loaded/AV-scanning machine — a 30s cap declared it dead while it
+   * was still booting, orphaned a healthy worker, and put the user in a
+   * restart loop that repays the same unpack. 120s still fails fast on
+   * a real death (the port exit event rejects immediately); the extra
+   * wait only binds an alive-but-silent boot, where waiting is right. */
+  handshakeTimeoutMs: 120_000,
   watchdogMs: 15_000,
   pingTimeoutMs: 5_000,
 };
@@ -191,6 +197,16 @@ export class SidecarClient {
         : new SidecarError(ERR.ENGINE_UNAVAILABLE, String(e));
     }
     let result: HandshakeResult;
+    /* #184: slow cold starts are silent — heartbeat into diagnostics so
+     * the drawer can tell "still booting" from "dead". */
+    const startedAt = Date.now();
+    const heartbeat = setInterval(() => {
+      this.diagnose(
+        `engine.handshake pending ${Math.round(
+          (Date.now() - startedAt) / 1000,
+        )}s — cold start in progress`,
+      );
+    }, 15_000);
     try {
       result = (await this.requestRaw(
         "engine.handshake",
@@ -202,11 +218,13 @@ export class SidecarClient {
         /* allowBeforeReady */ true,
       )) as HandshakeResult;
     } catch (e) {
+      clearInterval(heartbeat);
       // Timeout / refusal / dead port — never leave the client wedged in
       // "starting"; the exit event may also mark it crashed, both are dead.
       if (this.getState() === "starting") this.setState("crashed");
       throw e;
     }
+    clearInterval(heartbeat);
     if (result.protocolVersion !== PROTOCOL_VERSION) {
       this.setState("crashed");
       throw new SidecarError(

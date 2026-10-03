@@ -46,6 +46,10 @@ windows = { version = "0.61", features = [
   # #230 memory gate test: PeakWorkingSetSize via GetProcessMemoryInfo.
   "Win32_System_ProcessStatus",
   "Win32_System_Threading",
+  # #185: engine process-tree teardown — Job Object + KILL_ON_JOB_CLOSE
+  # so the PyInstaller grandchild can never outlive the shell.
+  "Win32_System_JobObjects",
+  "Win32_Security",
 ] }
 # #100: #[implement] の展開が ::windows_core を参照するため直接依存にする
 # (windows からの再エクスポートでは extern 名が解決できない)。
