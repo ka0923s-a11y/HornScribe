@@ -1008,9 +1008,20 @@ body {
    review tint / elevated cards inside .hs-score must keep chrome text. */
 .hs-score .hs-empty,
 .hs-score .hs-transcribing {
+  /* audio-ready filename / opening title use --hs-text-primary — white
+     in dark mode — so without this rebind they paint white-on-paper
+     (the #120 fix covered secondary/muted/error but missed primary). */
+  --hs-text-primary: var(--hs-score-ink);
   --hs-text-secondary: var(--hs-score-ink-secondary);
   --hs-text-muted: var(--hs-score-ink-muted);
   --hs-status-error: var(--hs-score-ink-error);
+}
+
+/* PaperTheme (ScoreWorkspace): nested light FluentProvider for the
+   empty/transcribing/error bodies that paint on the paper — the
+   provider box itself must not break .hs-score's flex centering. */
+.hs-paper-theme {
+  display: contents;
 }
 
 /* 最近使ったプロジェクト (§3: rendered only when history exists) — a quiet
@@ -2319,7 +2330,10 @@ body {
   max-height: 40vh;
   overflow: auto;
   white-space: pre-wrap;
-  word-break: break-all;
+  /* overflow-wrap only splits tokens that cannot fit — word-break:
+     break-all was shredding every line mid-word ("pla tform"),
+     making engineInfo JSON and stderr paths hard to read/copy. */
+  overflow-wrap: anywhere;
   font-family: ui-monospace, Consolas, monospace;
   font-size: var(--hs-font-size-caption);
   color: var(--hs-text-secondary);

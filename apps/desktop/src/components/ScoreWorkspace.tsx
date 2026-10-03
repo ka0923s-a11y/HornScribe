@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
-import { mergeClasses } from "@fluentui/react-components";
+import { FluentProvider, mergeClasses } from "@fluentui/react-components";
 import { ja } from "../strings/ja";
+import { hsLightTheme } from "../theme/fluentTheme";
 import {
   ImportScreenBody,
   type ImportView,
@@ -33,6 +34,21 @@ function keyForDocument(doc: ScoreDocumentPort): string {
     documentKeys.set(doc, id);
   }
   return `doc-${id}`;
+}
+
+/** Fluent components in the empty/transcribing/error bodies paint on
+ *  the (always light) score paper — under the dark app theme their
+ *  neutral foreground vars resolve near-white (採譜オプション subtle
+ *  button, 採譜の進捗 field label were invisible). A nested light
+ *  provider rebinds the whole Fluent ramp for just these bodies;
+ *  display:contents keeps them direct flex children of .hs-score, and
+ *  portaled layers (popovers, dialogs) keep the app theme. */
+function PaperTheme({ children }: { children: ReactNode }) {
+  return (
+    <FluentProvider theme={hsLightTheme} className="hs-paper-theme">
+      {children}
+    </FluentProvider>
+  );
 }
 
 /**
@@ -179,12 +195,18 @@ export function ScoreWorkspace({
       {screen === "transcribing" ? (
         // UI-040 owns this body (real job-driven stage/progress/cancel).
         // The fallback is honest too: no stages claimed, indeterminate bar.
-        (transcribingBody ?? (
-          <div className="hs-transcribing" role="status">
-            <p className="hs-transcribing__title">{ja.transcription.running}</p>
-          </div>
-        ))
+        <PaperTheme>
+          {transcribingBody ?? (
+            <div className="hs-transcribing" role="status">
+              <p className="hs-transcribing__title">
+                {ja.transcription.running}
+              </p>
+            </div>
+          )}
+        </PaperTheme>
       ) : screen === "transcriptionError" ? (
+        // .hs-error-surface is an ELEVATED card (dark in dark mode),
+        // not paper — it keeps the app theme, no PaperTheme.
         transcriptionErrorBody ?? (
           <div className="hs-error-surface" role="alert">
             <h2 className="hs-error-surface__title">
@@ -223,11 +245,13 @@ export function ScoreWorkspace({
           </div>
         )
       ) : (
-        <ImportScreenBody
-          screen={screen}
-          view={importView}
-          onTranscribe={onTranscribe}
-        />
+        <PaperTheme>
+          <ImportScreenBody
+            screen={screen}
+            view={importView}
+            onTranscribe={onTranscribe}
+          />
+        </PaperTheme>
       )}
     </main>
   );
