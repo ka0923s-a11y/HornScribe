@@ -59,6 +59,21 @@ no telemetry. `pip install hornscribe[engine]` carries the model deps.
   BOTH neighbours' shared pitch class snap to the neighbour octave
   (Basic Pitch octave flicker; real leaps are untouched — the count
   is reported via `meta.cleaning.octaveCorrected`).
+- Melody-texture (prefer="top") arbitration hardening — every rule is
+  evidence-bearing and measured on the e2e bench (all 25 fixtures at
+  pitch accuracy 1.0 / onset F1 1.0 as of v0.2.5):
+  - a lower hypothesis that attacked WITH the top may claim the slot
+    only when it outlives it by >50 ms (frame-edge overhang is noise)
+    or re-attacks inside/just past the overlay's claimed end —
+    accompaniment that merely rings louder does not displace the line;
+  - an incumbent that modulates like a sung line INSIDE the contested
+    window is veto-protected against steady-tone challengers (the span
+    is windowed because a merged overlay's union bend series fakes
+    vibrato by pooling fragment offsets);
+  - a sub-32nd event ending flush at a successor exactly one octave
+    away is Basic Pitch's attack-transient octave flicker — it folds
+    into the successor (keeping the stub's earlier onset as the true
+    attack) instead of scoring a phantom 32nd.
 - Beat tracking gives a piecewise-linear TimeWarp (follows rit./accel.);
   a pinned manual tempo uses a fixed grid anchored on the first onset.
 - Auto meter (`meter:"auto"` + auto tempo): onset strength sampled at

@@ -114,6 +114,13 @@ OVERLAY_RESUME_GAP_SEC = 0.08
 LOWER_LINE_CONF_RATIO = 1.3
 VIBRATO_MIN_BENDS = 5
 VIBRATO_MIN_SPAN_SEMITONES = 0.5
+# Same-onset leg of the overlay rescue: "the lower outlives the top"
+# must be a real overhang — two events that released within ~50 ms of
+# each other ended together, and frame-edge jitter must not read as a
+# line running on underneath (quiet-lead-mix: a strum bleed outlasted
+# the true melody fragment by 12 ms and claimed the rescue).  Still
+# under a 16th at 180 bpm, so a genuine continuation keeps its span.
+LOWER_LINE_OVERHANG_SEC = 0.05
 
 # prefer="top" adds a span-coverage requirement: a true concurrent
 # ghost rides its fundamental -- attacks with it AND rings most of its
@@ -134,6 +141,16 @@ CONCURRENT_GHOST_SPAN_RATIO = 0.5
 CONTAINED_GHOST_CONF_RATIO = 0.7
 CONTAINED_GHOST_CONF_GAP = 0.15
 
+# Pre-attack octave stubs (prefer="top", quiet-lead-mix): on a masked
+# attack the backend opens on the sub/super-octave for a frame or two
+# before settling on the true pitch — the real note then clips the
+# flicker at its own onset, leaving a sub-32nd +/-12 prefix that scores
+# as an extra note.  The cap stays under a 32nd at allegro tempos; the
+# surviving successor inherits the stub's onset so the true attack
+# time is kept rather than the backend's delayed lock-on.
+PREATEACK_STUB_MAX_SEC = 0.08
+PREATEACK_STUB_SEAM_SEC = 0.03
+
 
 @dataclass(frozen=True)
 class CleanedEvents:
@@ -151,6 +168,9 @@ class CleanedEvents:
     contained-lower rumble hypotheses."""
     interruption_dropped: int = 0
     """Short off-line blips suppressed under prefer="top" (#130)"""
+    preattack_folded: int = 0
+    """Sub-32nd octave stubs folded into their successor's onset —
+    attack-transient octave flicker under prefer="top"."""
 
     def stats(self) -> dict[str, Any]:
         return {
@@ -161,6 +181,7 @@ class CleanedEvents:
             "polyphonicOverlaps": self.polyphonic_overlaps,
             "ghostDropped": self.ghost_dropped,
             "interruptionDropped": self.interruption_dropped,
+            "preattackFolded": self.preattack_folded,
             "eventCount": len(self.events),
         }
 
@@ -443,6 +464,22 @@ def clean_monophonic(
     if prefer == "top":
         final, interruptions = _drop_interruption_blips(final)
 
+    # Pre-attack octave stubs: a sub-32nd event ending flush at a
+    # successor exactly one octave away is the backend's attack-
+    # transient flicker, not a played note — fold its span into the
+    # successor so the true attack time survives (quiet-lead-mix).
+    preattack = 0
+    if prefer == "top":
+        folded: list[RawNoteEvent] = []
+        for ev in final:
+            if folded and _is_preattack_octave_stub(folded[-1], ev):
+                stub = folded[-1]
+                folded[-1] = _replace_onset(ev, stub.onset_sec)
+                preattack += 1
+                continue
+            folded.append(ev)
+        final = folded
+
     # Octave-flicker repair: a note exactly +/-12 semitones off a pitch
     # class shared by BOTH neighbours is almost always the model
     # flickering octaves mid-line, not a real leap. Snap it to the
@@ -473,6 +510,7 @@ def clean_monophonic(
         polyphonic_overlaps=polyphonic,
         ghost_dropped=ghosts,
         interruption_dropped=interruptions,
+        preattack_folded=preattack,
     )
 
 
@@ -659,23 +697,38 @@ def _bend_span(ev: RawNoteEvent) -> float:
     return max(vals) - min(vals)
 
 
+def _bend_span_within(
+    ev: RawNoteEvent, start_sec: float, end_sec: float
+) -> float:
+    """_bend_span restricted to a time window — the overlap slice where
+    a challenger contests the incumbent.  A merged incumbent's whole-
+    event union is unreliable here: it pools fragments whose pitch-
+    centre offsets disagree, producing a fake modulation span
+    (jpop-mix-hard)."""
+    vals = [
+        b.bend_semitones
+        for b in (ev.pitch_bends or ())
+        if start_sec <= b.time_sec <= end_sec
+    ]
+    if len(vals) < VIBRATO_MIN_BENDS:
+        return 0.0
+    return max(vals) - min(vals)
+
+
 def _pitch_resumes(
     kept: list[RawNoteEvent],
     i: int,
     pitch_midi: float,
     span_end: float,
-    *,
-    inside_only: bool = False,
 ) -> bool:
     """A later kept event at ~pitch_midi starts inside span_end or just
     after it — the line at that pitch continues under the top note's
-    span instead of ending where it does (#143). inside_only requires
-    the resume to land strictly inside the span — a note that returns
-    only after the top ended is ordinary succession, not a buried
-    line."""
-    resume_until = (
-        span_end if inside_only else span_end + OVERLAY_RESUME_GAP_SEC
-    )
+    span instead of ending where it does (#143).  The gap window past
+    span_end exists because a merged overlay's tail regularly
+    overshoots the true release by a frame or two (quiet-lead-mix), so
+    a resume landing just after the nominal end still reads as a
+    buried line rather than ordinary succession."""
+    resume_until = span_end + OVERLAY_RESUME_GAP_SEC
     target = int(round(pitch_midi))
     for cand in kept[i + 1 :]:
         if cand.onset_sec > resume_until:
@@ -706,20 +759,41 @@ def _lower_line_survives(
         int(round(prev.pitch_midi)) - int(round(ev.pitch_midi))
     ) > OVERLAY_MAX_INTERVAL:
         return False
+    # Vibrato veto: the incumbent modulates like a sung line DURING
+    # THE CONTESTED OVERLAP while the challenger is a steady tone —
+    # accompaniment cannot displace the melody just by ringing longer
+    # or louder (quiet-lead-mix: a strum bleed beat a vibrating lead
+    # fragment 0.42 vs 0.32 and stole the slot).  The span is measured
+    # inside the overlap window only: a merged incumbent's bend UNION
+    # spans several fragments' differing pitch-centre offsets, which
+    # reads as fake vibrato (jpop-mix-hard) and would veto every real
+    # attack that lands under it.
+    if (
+        _bend_span_within(
+            prev, ev.onset_sec, min(prev.offset_sec, ev.offset_sec)
+        )
+        >= VIBRATO_MIN_SPAN_SEMITONES
+        and _bend_span(ev) < VIBRATO_MIN_SPAN_SEMITONES
+    ):
+        return False
     same_onset = (
         abs(ev.onset_sec - prev.onset_sec) <= CONCURRENT_GHOST_ONSET_SEC
     )
     if same_onset:
-        continues = ev.offset_sec > prev.offset_sec or _pitch_resumes(
-            kept, i, ev.pitch_midi, prev.offset_sec
+        continues = (
+            ev.offset_sec > prev.offset_sec + LOWER_LINE_OVERHANG_SEC
+            or _pitch_resumes(kept, i, ev.pitch_midi, prev.offset_sec)
         )
     else:
         # A late attack inside a held note: the lower line must still
-        # be running underneath — resuming strictly inside the top's
-        # span (after its honest end is ordinary succession) or
+        # be running underneath — resuming inside the top's span or
+        # re-attacking within a beat-grid window after its claimed end
+        # (a merged overlay's tail regularly overshoots the true
+        # release by a frame or two — quiet-lead-mix — so strictly
+        # inside misses the line continuing at the boundary), or
         # continuing well past it.
         continues = _pitch_resumes(
-            kept, i, ev.pitch_midi, prev.offset_sec, inside_only=True
+            kept, i, ev.pitch_midi, prev.offset_sec
         ) or ev.offset_sec > prev.offset_sec + 0.15
     if not continues:
         return False
@@ -831,6 +905,31 @@ def _drop_interruption_blips(
         k += 1
     out.append(events[-1])
     return out, dropped
+
+
+def _is_preattack_octave_stub(
+    stub: RawNoteEvent, succ: RawNoteEvent
+) -> bool:
+    """True when *stub* is the attack-transient octave flicker of *succ*.
+
+    Signature (quiet-lead-mix): a sub-32nd event that ends flush at a
+    successor exactly one octave away.  Note values that short are
+    vanishingly rare in real material, while octave flicker at masked
+    or buried attacks is not — folding costs a possible 64th-note but
+    recovers the true attack time and kills the extra note.
+    """
+    if stub.offset_sec - stub.onset_sec > PREATEACK_STUB_MAX_SEC:
+        return False
+    if (
+        not 0
+        <= succ.onset_sec - stub.offset_sec
+        <= PREATEACK_STUB_SEAM_SEC
+    ):
+        return False
+    return (
+        abs(int(round(succ.pitch_midi)) - int(round(stub.pitch_midi)))
+        == 12
+    )
 
 
 @dataclass(frozen=True)
@@ -1009,6 +1108,24 @@ def _replace_pitch(ev: RawNoteEvent, pitch_midi: float) -> RawNoteEvent:
         transcription_revision=ev.transcription_revision,
         pitch_midi=pitch_midi,
         onset_sec=ev.onset_sec,
+        offset_sec=ev.offset_sec,
+        confidence=ev.confidence,
+        velocity=ev.velocity,
+        source=ev.source,
+        pitch_bends=ev.pitch_bends,
+    )
+
+
+def _replace_onset(ev: RawNoteEvent, onset_sec: float) -> RawNoteEvent:
+    """Move the attack earlier — a folded pre-attack stub belongs to
+    this note, so its onset is the true attack time.  The stub's own
+    bend series measured against the wrong pitch, so only *ev*'s bends
+    are kept."""
+    return RawNoteEvent(
+        id=ev.id,
+        transcription_revision=ev.transcription_revision,
+        pitch_midi=ev.pitch_midi,
+        onset_sec=onset_sec,
         offset_sec=ev.offset_sec,
         confidence=ev.confidence,
         velocity=ev.velocity,
