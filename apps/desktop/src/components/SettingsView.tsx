@@ -341,6 +341,24 @@ export function SettingsView({
                 onSettingsChange({ captureCountInSeconds: Number(v) })
               }
             />
+            {/* #166: 録音 → 採譜のワンクリック化 — 停止・取り込み完了
+               と同時に採譜ジョブが走る(既定 OFF)。 */}
+            <div>
+              <Checkbox
+                checked={settings.transcribeAfterRecording}
+                onChange={(_, d) =>
+                  onSettingsChange({
+                    transcribeAfterRecording: d.checked === true,
+                  })
+                }
+                label={s.transcribeAfterRecording}
+              />
+              {/* checkbox hint — reuse the audio-options hint style
+                  (same muted caption under a checkbox, #187). */}
+              <p className="hs-audio-options__hint">
+                {s.transcribeAfterRecordingHint}
+              </p>
+            </div>
             <div className="hs-settings__field">
               <Label>{s.recordingsFolder}</Label>
               <div className="hs-settings__path-row">
