@@ -617,6 +617,15 @@
         "diagnostics": "診断情報"
       }
     },
+    "noPitchedContent": {
+      "title": "音程のある音が見つかりませんでした",
+      "body": "無音、または音程のない音が録音・取り込みされた可能性があります。元音源とプロジェクトは保持されています。",
+      "actions": {
+        "chooseAnother": "音源を選び直す",
+        "retry": "同じ音源でもう一度試す",
+        "diagnostics": "診断情報"
+      }
+    },
     "dependencyMissing": {
       "title": "採譜エンジンの部品が見つかりません",
       "body": "必要な部品がエンジン環境にありません。アプリを再インストールするか、開発環境では pip install hornscribe[engine] を実行してからもう一度お試しください。",
