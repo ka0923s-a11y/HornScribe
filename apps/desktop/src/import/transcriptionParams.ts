@@ -54,6 +54,9 @@ export interface TranscriptionJobParams {
   maxVoices?: number;
   /** #187: opt-in vocal isolation (center extraction) for the job. */
   vocalIsolation?: boolean;
+  /** #181: demucs tier — only emitted for an explicit "precision"
+   *  under vocalIsolation ("standard" is the engine default). */
+  vocalIsolationQuality?: string;
   /** #53: user-pinned key signature ("auto" omitted). */
   keyHint?: string;
 }
@@ -108,6 +111,11 @@ export function buildTranscriptionParams(
   // #187: opt-in vocal isolation — false is the engine default; only
   // an explicit on reaches the job so provenance stays honest.
   if (options.vocalIsolation) params.vocalIsolation = true;
+  // #181: the demucs tier only means something under vocalIsolation —
+  // emit it there and only for the non-default tier.
+  if (options.vocalIsolation && options.vocalIsolationQuality === "precision") {
+    params.vocalIsolationQuality = "precision";
+  }
   // #53: "auto" is the engine default — pin only an explicit key.
   if (options.keyHint && options.keyHint !== "auto") {
     params.keyHint = options.keyHint;
@@ -245,6 +253,11 @@ export function transcriptionOptionsFromSettings(
     })(),
     backend: pick("backend", ["auto", "basicPitch", "pyin"] as const, "auto"),
     vocalIsolation: s.vocalIsolation === true,
+    vocalIsolationQuality: pick(
+      "vocalIsolationQuality",
+      ["standard", "precision"] as const,
+      "standard",
+    ),
     // #53: restore a pinned key verbatim — an unknown name falls back
     // to auto rather than pinning a key the engine would reject.
     keyHint: pick("keyHint", KEY_HINT_VALUES, "auto"),

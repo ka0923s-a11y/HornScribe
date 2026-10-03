@@ -65,6 +65,18 @@ const BACKEND_OPTIONS: readonly HsSelectOption[] = [
   { value: "basicPitch", label: "Basic Pitch" },
   { value: "pyin", label: ja.import.audioOptions.backendPyin },
 ];
+/* #181: demucs tier for vocal isolation — only meaningful while the
+ * isolation checkbox is on, so the select disables with it. */
+const VOCAL_QUALITY_OPTIONS: readonly HsSelectOption[] = [
+  {
+    value: "standard",
+    label: ja.import.audioOptions.vocalIsolationQualityStandard,
+  },
+  {
+    value: "precision",
+    label: ja.import.audioOptions.vocalIsolationQualityPrecision,
+  },
+];
 const RANGE_OPTIONS: readonly HsSelectOption[] = [
   { value: "all", label: ja.import.audioOptions.rangeAll },
   // #88: 範囲採譜 — 時刻入力のほか、波形ドラッグでも選べる
@@ -155,6 +167,21 @@ export function TranscriptionOptionsFields({
           ? ja.import.audioOptions.vocalIsolationPolyphonicHint
           : ja.import.audioOptions.vocalIsolationHint}
       </p>
+      {/* #181: separation quality — only meaningful while the
+          isolation checkbox is on, so the select disables with it. */}
+      <HsSelect
+        label={ja.import.audioOptions.vocalIsolationQuality}
+        options={VOCAL_QUALITY_OPTIONS}
+        value={options.vocalIsolationQuality}
+        disabled={!options.vocalIsolation}
+        hint={ja.import.audioOptions.vocalIsolationQualityHint}
+        onChange={(v) =>
+          set({
+            vocalIsolationQuality:
+              v as TranscriptionOptions["vocalIsolationQuality"],
+          })
+        }
+      />
       <HsSelect
         label={ja.import.audioOptions.tempo}
         options={TEMPO_OPTIONS}

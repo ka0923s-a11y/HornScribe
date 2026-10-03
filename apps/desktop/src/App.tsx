@@ -3132,12 +3132,17 @@ export default function App() {
                     // #314: lead-vocal mix — isolate the vocal and keep
                     // the melody line. Mirrors voices' prop contract:
                     // absent without a source so the action hides.
+                    /* #181: the job alone pins the precision demucs
+                     * tier — a buried-vocal retry wants the strongest
+                     * free separation, but the stored default stays
+                     * the user's own tier (precision is ~4x slower). */
                     importState.audio
                       ? () => {
                           retranscribeWithOptions(
                             {
                               texture: "melody",
                               vocalIsolation: true,
+                              vocalIsolationQuality: "precision",
                             },
                             () =>
                               setTranscriptionOptions((o) => ({

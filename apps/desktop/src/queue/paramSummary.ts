@@ -34,6 +34,11 @@ export function queueParamSummary(params: TranscriptionJobParams): string {
     f.push(params.backend === "pyin" ? "pYIN" : "Basic Pitch");
   }
   if (params.vocalIsolation) f.push(ja.queue.paramsVocalIsolation);
+  /* #181: the tier tag only means something under isolation — a bare
+   * vocalIsolationQuality param is ignored by the engine, so the
+   * summary must not claim it either. */
+  if (params.vocalIsolation && params.vocalIsolationQuality === "precision")
+    f.push(ja.queue.paramsVocalIsolationPrecision);
   if (params.tempoBpm != null) f.push(ja.queue.paramsTempo(params.tempoBpm));
   if (params.meter) f.push(params.meter);
   if (params.keyHint) f.push(ja.queue.paramsKey(params.keyHint));
@@ -48,4 +53,3 @@ export function queueParamSummary(params: TranscriptionJobParams): string {
   }
   return f.join(ja.queue.paramSep);
 }
-

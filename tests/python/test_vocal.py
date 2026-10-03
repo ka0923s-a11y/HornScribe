@@ -128,11 +128,11 @@ def test_vocal_wav_prefers_demucs_when_available(tmp_path, monkeypatch):
     monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
     calls: list[str] = []
 
-    def fake_demucs(path, start, end):
+    def fake_demucs(path, start, end, **_kw):
         calls.append("demucs")
         return np.zeros(22050, dtype=np.float32)
 
-    def fake_center(path, start, end):
+    def fake_center(path, start, end, **_kw):
         calls.append("center")
         return np.zeros(22050, dtype=np.float32)
 
@@ -157,12 +157,12 @@ def test_vocal_wav_falls_back_to_center_on_demucs_failure(
     monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
     monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
     monkeypatch.setattr(
-        vocal_mod, "isolate_demucs_vocals", lambda *a: None
+        vocal_mod, "isolate_demucs_vocals", lambda *a, **k: None
     )
     monkeypatch.setattr(
         vocal_mod,
         "isolate_center_vocals",
-        lambda *a: np.zeros(22050, dtype=np.float32),
+        lambda *a, **k: np.zeros(22050, dtype=np.float32),
     )
 
     path, reason, managed, method, _ver = vocal_wav("a.wav", "h", 0.0, None, 22050)
@@ -195,13 +195,13 @@ def test_vocal_wav_rejects_silent_demucs_stem(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vocal_mod,
         "isolate_demucs_vocals",
-        lambda *a: calls.append("demucs")
+        lambda *a, **k: calls.append("demucs")
         or np.zeros(22050, dtype=np.float32),
     )
     monkeypatch.setattr(
         vocal_mod,
         "isolate_center_vocals",
-        lambda *a: calls.append("center") or _tone(440.0, 1.0),
+        lambda *a, **k: calls.append("center") or _tone(440.0, 1.0),
     )
 
     _p, reason, _m, method, _v = vocal_wav(src, "h", 0.0, None, 22050)
@@ -245,12 +245,12 @@ def test_vocal_wav_rejects_cached_silent_demucs_stem(
     monkeypatch.setattr(
         vocal_mod,
         "isolate_demucs_vocals",
-        lambda *a: calls.append("demucs") or _tone(440.0, 1.0),
+        lambda *a, **k: calls.append("demucs") or _tone(440.0, 1.0),
     )
     monkeypatch.setattr(
         vocal_mod,
         "isolate_center_vocals",
-        lambda *a: calls.append("center") or _tone(440.0, 1.0),
+        lambda *a, **k: calls.append("center") or _tone(440.0, 1.0),
     )
 
     _p, reason, _m, method, _v = vocal_wav(src, "h", 0.0, None, 22050)
@@ -280,12 +280,12 @@ def test_vocal_wav_keeps_audible_demucs_stem(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vocal_mod,
         "isolate_demucs_vocals",
-        lambda *a: calls.append("demucs") or _tone(440.0, 1.0),
+        lambda *a, **k: calls.append("demucs") or _tone(440.0, 1.0),
     )
     monkeypatch.setattr(
         vocal_mod,
         "isolate_center_vocals",
-        lambda *a: calls.append("center") or _tone(220.0, 1.0),
+        lambda *a, **k: calls.append("center") or _tone(220.0, 1.0),
     )
 
     _p, reason, _m, method, _v = vocal_wav("a.wav", "h", 0.0, None, 22050)
@@ -342,6 +342,204 @@ def test_vocal_isolation_option_parses_and_echoes():
     default = TranscriptionParams.from_payload({"audioPath": "a.wav"})
     assert default.vocal_isolation is False
     assert default.settings_dict()["vocalIsolation"] is False
+
+
+def test_vocal_isolation_quality_parses_and_echoes():
+    """#181: the demucs tier is a whitelisted option — "standard" is
+    the engine default and an unknown value is rejected like every
+    other whitelisted param."""
+    params = TranscriptionParams.from_payload(
+        {
+            "audioPath": "a.wav",
+            "vocalIsolation": True,
+            "vocalIsolationQuality": "precision",
+        },
+    )
+    assert params.vocal_isolation_quality == "precision"
+    assert params.settings_dict()["vocalIsolationQuality"] == "precision"
+
+    # Absent -> standard; an unrecognized tier degrades to standard.
+    default = TranscriptionParams.from_payload({"audioPath": "a.wav"})
+    assert default.vocal_isolation_quality == "standard"
+    assert default.settings_dict()["vocalIsolationQuality"] == "standard"
+    with pytest.raises(ValueError, match="vocalIsolationQuality"):
+        TranscriptionParams.from_payload(
+            {"audioPath": "a.wav", "vocalIsolationQuality": "ultra"}
+        )
+
+
+class TestSeparationQuality:
+    """#181: the demucs tier pins model+shifts per call, keys its own
+    cache slot, and tags the provenance — a quality change never
+    reuses another model's stem or identity."""
+
+    def _stub_isolation(self, monkeypatch, tmp_path):
+        import hornscribe.transcription.vocal as vocal_mod
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
+        monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+        return vocal_mod
+
+    def test_tier_pins_model_and_shifts(self, tmp_path, monkeypatch):
+        vocal_mod = self._stub_isolation(monkeypatch, tmp_path)
+        calls: list[dict] = []
+
+        def fake_demucs(path, start, end, model, shifts):
+            calls.append({"model": model, "shifts": shifts})
+            return _tone(440.0, 1.0)
+
+        monkeypatch.setattr(
+            vocal_mod, "isolate_demucs_vocals", fake_demucs
+        )
+
+        vocal_wav("a.wav", "h-std", 0.0, None, 22050)
+        vocal_wav("b.wav", "h-std2", 0.0, None, 22050)  # distinct hash
+        vocal_wav(
+            "a.wav", "h-pre", 0.0, None, 22050, quality="precision"
+        )
+
+        assert calls == [
+            {"model": "htdemucs", "shifts": 1},
+            {"model": "htdemucs", "shifts": 1},
+            {"model": "htdemucs_ft", "shifts": 2},
+        ]
+
+    def test_unknown_tier_degrades_to_standard_pins(
+        self, tmp_path, monkeypatch
+    ):
+        """A caller-side quality the table doesn't know still runs —
+        the engine's strict whitelist lives in options.py; vocal_wav
+        degrades gracefully on direct calls."""
+        vocal_mod = self._stub_isolation(monkeypatch, tmp_path)
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            vocal_mod,
+            "isolate_demucs_vocals",
+            lambda path, start, end, model, shifts: (
+                calls.append({"model": model, "shifts": shifts})
+                or _tone(440.0, 1.0)
+            ),
+        )
+
+        vocal_wav("a.wav", "h-unk", 0.0, None, 22050, quality="ultra")
+        assert calls == [{"model": "htdemucs", "shifts": 1}]
+
+    def test_tiers_never_share_a_cache_slot(self, tmp_path, monkeypatch):
+        """A cached standard stem must not satisfy a precision request
+        — the variant is part of the key."""
+        vocal_mod = self._stub_isolation(monkeypatch, tmp_path)
+        calls: list[str] = []
+        monkeypatch.setattr(
+            vocal_mod,
+            "isolate_demucs_vocals",
+            lambda *a, **k: calls.append("demucs") or _tone(440.0, 1.0),
+        )
+
+        vocal_wav("a.wav", "h", 0.0, None, 22050)
+        vocal_wav("a.wav", "h", 0.0, None, 22050)  # cache hit
+        vocal_wav("a.wav", "h", 0.0, None, 22050, quality="precision")
+        assert calls == ["demucs", "demucs"]  # precision re-ran
+
+        # The key contract: same source/span, different tier -> a
+        # different slot; center extraction has no tier identity.
+        std = vocal_mod._cache_key("a.wav", "h", 0.0, None, "demucs", "")
+        pre = vocal_mod._cache_key(
+            "a.wav", "h", 0.0, None, "demucs", "htdemucs_ft-s2"
+        )
+        center = vocal_mod._cache_key(
+            "a.wav", "h", 0.0, None, "center_extraction", ""
+        )
+        assert std != pre != center
+
+    def test_variant_tags_the_provenance(self, monkeypatch):
+        import hornscribe.transcription.vocal as vocal_mod
+
+        monkeypatch.setattr(
+            vocal_mod, "_demucs_version", lambda: "4.0.1"
+        )
+        # Standard keeps the bare version — existing provenance is
+        # unchanged for the unchanged tier.
+        assert vocal_mod.method_version("demucs") == "4.0.1"
+        assert vocal_mod.method_version("demucs", "") == "4.0.1"
+        assert (
+            vocal_mod.method_version("demucs", "htdemucs_ft-s2")
+            == "4.0.1:htdemucs_ft-s2"
+        )
+        # Center extraction never wears a demucs variant.
+        assert (
+            vocal_mod.method_version("center_extraction", "htdemucs_ft-s2")
+            == "1"
+        )
+
+    def test_center_tier_is_quality_independent(
+        self, tmp_path, monkeypatch
+    ):
+        """Without demucs the tier must not split the cache — a
+        center stem is identical audio under any quality value."""
+        vocal_mod = self._stub_isolation(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            vocal_mod, "_demucs_available", lambda: False
+        )
+        monkeypatch.setattr(
+            vocal_mod,
+            "isolate_center_vocals",
+            lambda *a, **k: np.zeros(22050, dtype=np.float32),
+        )
+
+        _p, _r, _m, method, ver = vocal_wav("a.wav", "h", 0.0, None, 22050)
+        assert method == "center_extraction"
+        assert ver == "1"  # untagged — no demucs ran
+        p2, _r2, _m2, _mth2, _v2 = vocal_wav(
+            "a.wav", "h", 0.0, None, 22050, quality="precision"
+        )
+        assert p2 == _p  # precision hits the standard center slot
+
+
+class TestDemucsQualityCli:
+    """#181: the tier reaches the demucs CLI as explicit -n/--shifts —
+    the model is pinned on every invocation so a demucs default change
+    never shifts output under an unchanged tier."""
+
+    def _run(self, monkeypatch, quality):
+        import importlib.machinery
+        import sys
+        import types
+
+        import hornscribe.transcription.vocal as vocal_mod
+
+        monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
+        monkeypatch.setattr(vocal_mod, "_demucs_cmd", lambda: ("demucs",))
+        stub = types.ModuleType("librosa")
+        stub.__spec__ = importlib.machinery.ModuleSpec("librosa", None)
+        monkeypatch.setitem(sys.modules, "librosa", stub)
+        monkeypatch.setattr(vocal_mod, "require_module", lambda _n: None)
+        seen_cmd: list[list[str]] = []
+
+        class _Proc:
+            returncode = 1  # fail fast — the dispatch is under test
+
+        def fake_run(cmd, **kw):
+            seen_cmd.append(cmd)
+            return _Proc()
+
+        monkeypatch.setattr(vocal_mod.subprocess, "run", fake_run)
+        model, shifts = vocal_mod._SEPARATION_QUALITIES[quality]
+        vocal_mod.isolate_demucs_vocals(
+            "src.wav", 0.0, None, model=model, shifts=shifts
+        )
+        return seen_cmd
+
+    def test_standard_pins_htdemucs_without_shifts(self, monkeypatch):
+        (cmd,) = self._run(monkeypatch, "standard")
+        assert cmd[:3] == ["demucs", "-n", "htdemucs"]
+        assert "--shifts" not in cmd  # default invocation unchanged
+
+    def test_precision_pins_ft_and_shift_averaging(self, monkeypatch):
+        (cmd,) = self._run(monkeypatch, "precision")
+        assert cmd[:3] == ["demucs", "-n", "htdemucs_ft"]
+        assert cmd[cmd.index("--shifts") + 1] == "2"
 
 
 class TestDemucsSpanStaging:

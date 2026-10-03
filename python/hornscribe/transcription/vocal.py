@@ -278,17 +278,49 @@ def _stage_span_wav(
         return None
 
 
+# #181: demucs model tiers — "precision" trades ~4x separation time
+# for the fine-tuned htdemucs_ft model plus shift-averaging, the
+# strongest free two-stem vocals estimate (real-vocal SDR is the
+# dominant accuracy factor per #165).  The model is pinned explicitly
+# on every call so a demucs default change never shifts output under
+# an unchanged tier.
+_SEPARATION_QUALITIES: dict[str, tuple[str, int]] = {
+    "standard": ("htdemucs", 1),
+    "precision": ("htdemucs_ft", 2),
+}
+_SEPARATION_DEFAULT: tuple[str, int] = _SEPARATION_QUALITIES["standard"]
+
+
+def _separation_variant(quality: str) -> str:
+    """#181: cache/provenance tag for the requested demucs tier.
+
+    "" for the standard tier keeps existing standard-tier cache entries
+    on their legacy keys; every other RESOLVED tier names model+shifts
+    so two models never share a stem slot.  An unknown quality resolves
+    to the standard pins, so it tags "" too — the tag describes the
+    separation that actually ran, not the requested name.
+    """
+    model, shifts = _SEPARATION_QUALITIES.get(quality, _SEPARATION_DEFAULT)
+    if (model, shifts) == _SEPARATION_DEFAULT:
+        return ""
+    return f"{model}-s{shifts}"
+
+
 def isolate_demucs_vocals(
     audio_path: str,
     start_sec: float = 0.0,
     end_sec: float | None = None,
+    model: str = "htdemucs",
+    shifts: int = 1,
 ) -> Any | None:
     """#302: neural two-stem separation via the demucs CLI -> mono float32 | None.
 
-    Runs ``<demucs prefix> --two-stems=vocals`` in a subprocess so a
-    torch crash can never take the engine down with it. The prefix
-    comes from ``_demucs_cmd`` — module, console script, bundled
-    binary, or another interpreter (#10).
+    Runs ``<demucs prefix> -n <model> --two-stems=vocals`` in a
+    subprocess so a torch crash can never take the engine down with
+    it. The prefix comes from ``_demucs_cmd`` — module, console
+    script, bundled binary, or another interpreter (#10).  #181:
+    ``model``/``shifts`` pin the demucs tier — ``--shifts`` is
+    only passed above 1 so the default invocation stays byte-identical.
     #320: a selection job must not pay the whole-file separation — the
     requested span is staged as a temp stereo WAV and demucs only ever
     sees that slice (the #229 partial-transcription contract). A
@@ -322,11 +354,13 @@ def isolate_demucs_vocals(
     try:
         cmd = [
             *cmd_prefix,
+            "-n",
+            model,
             "--two-stems=vocals",
-            "-o",
-            out_dir,
-            input_path,
         ]
+        if shifts != 1:
+            cmd += ["--shifts", str(shifts)]
+        cmd += ["-o", out_dir, input_path]
         kwargs: dict[str, Any] = {
             "capture_output": True,
             # DEVNULL keeps the child off this worker's stdin — that
@@ -479,13 +513,16 @@ def _cache_key(
     start_sec: float,
     end_sec: float | None,
     method: str,
+    variant: str = "",
 ) -> str:
     basis = content_hash or f"path:{os.path.abspath(audio_path)}"
     span = f"{start_sec:.3f}-{end_sec if end_sec is not None else 'end'}"
     # #302: the method tags the key — a demucs stem and a center
     # extraction of the same span are different audio and must never
-    # share a cache slot.
-    digest = hashlib.sha256(f"{basis}|{span}|{method}".encode()).hexdigest()
+    # share a cache slot.  #181: the demucs model tier is part of the
+    # identity too — an htdemucs_ft stem is not an htdemucs stem.
+    tag = f"{method}|{variant}" if variant else method
+    digest = hashlib.sha256(f"{basis}|{span}|{tag}".encode()).hexdigest()
     return digest[:32]
 
 
@@ -511,15 +548,17 @@ def _demucs_version() -> str | None:
 _CENTER_EXTRACTION_VERSION = "1"
 
 
-def method_version(method: str | None) -> str | None:
+def method_version(method: str | None, variant: str = "") -> str | None:
     """Version string for the isolation method that produced the audio.
 
     #319: the transcription revision must name what actually ran —
     a demucs upgrade or a center-mask change is a different preprocess
-    and has to mint a new tr-* identity.
+    and has to mint a new tr-* identity.  ``variant`` (#181) tags the
+    demucs model tier so a quality change mints a new identity too.
     """
     if method == "demucs":
-        return _demucs_version() or "unknown"
+        ver = _demucs_version() or "unknown"
+        return f"{ver}:{variant}" if variant else ver
     if method == "center_extraction":
         return _CENTER_EXTRACTION_VERSION
     return None
@@ -556,6 +595,7 @@ def vocal_wav(
     start_sec: float,
     end_sec: float | None,
     sample_rate: int,
+    quality: str = "standard",
 ) -> tuple[str | None, str, bool, str | None, str | None]:
     """Isolated-vocal WAV -> (path, reason, managed, method, method_version).
 
@@ -571,10 +611,24 @@ def vocal_wav(
     provenance version of that method (#319) — folded into the
     transcription revision so an engine/model upgrade mints a new
     tr-* identity.
+    ``quality`` (#181) selects the demucs tier — ``"precision"`` runs
+    htdemucs_ft with shift-averaging; an unknown value falls back to
+    the standard tier.
     """
     _sweep_cache(time.time())
     preferred = _method()
-    key = _cache_key(audio_path, content_hash, start_sec, end_sec, preferred)
+    # #181: the demucs tier pins model+shifts and tags the cache key /
+    # provenance — a quality change never reuses another model's stem.
+    # The variant only exists while demucs is the method: a center
+    # extraction does not depend on the demucs tier, so tagging it
+    # would split identical audio across quality values for nothing.
+    model, shifts = _SEPARATION_QUALITIES.get(quality, _SEPARATION_DEFAULT)
+    variant = (
+        _separation_variant(quality) if preferred == "demucs" else ""
+    )
+    key = _cache_key(
+        audio_path, content_hash, start_sec, end_sec, preferred, variant
+    )
     cached = os.path.join(_cache_dir(), f"{_CACHE_PREFIX}{key}.wav")
     # #169: "<cache>.<version>.rejected" marks a demucs estimate
     # already judged near-silent for this (source, span, model).  The
@@ -584,7 +638,7 @@ def vocal_wav(
     rejected_marker = ""
     if preferred == "demucs":
         rejected_marker = (
-            f"{cached}.{method_version('demucs') or 'unknown'}.rejected"
+            f"{cached}.{method_version('demucs', variant) or 'unknown'}.rejected"
         )
     demucs_silent = bool(rejected_marker) and os.path.isfile(
         rejected_marker
@@ -609,13 +663,15 @@ def vocal_wav(
                 "applied",
                 True,
                 preferred,
-                method_version(preferred),
+                method_version(preferred, variant),
             )
 
     samples: Any | None = None
     method: str | None = None
     if preferred == "demucs" and not demucs_silent:
-        samples = isolate_demucs_vocals(audio_path, start_sec, end_sec)
+        samples = isolate_demucs_vocals(
+            audio_path, start_sec, end_sec, model=model, shifts=shifts
+        )
         if samples is not None and _demucs_stem_silent(
             _rms(samples), audio_path, start_sec, end_sec
         ):
@@ -675,7 +731,7 @@ def vocal_wav(
     # demucs failure cached as center must not pin future runs to the
     # weaker estimate once demucs works again.
     assert method is not None  # samples is not None implies a method
-    version = method_version(method)
+    version = method_version(method, variant)
     if preferred != method:
         key = _cache_key(audio_path, content_hash, start_sec, end_sec, method)
         cached = os.path.join(_cache_dir(), f"{_CACHE_PREFIX}{key}.wav")

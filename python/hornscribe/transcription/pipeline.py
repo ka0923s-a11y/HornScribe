@@ -1149,6 +1149,7 @@ def run_transcription_job(
                 vis_lo,
                 vis_hi,
                 sample_rate,
+                quality=params.vocal_isolation_quality,
             )
             if vocal_path is not None:
                 # Isolation produced the backend input — the staging

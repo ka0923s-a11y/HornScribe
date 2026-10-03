@@ -66,5 +66,26 @@ describe("queueParamSummary (#59)", () => {
     );
     expect(queueParamSummary({ minDuration: "64" })).toBe("64");
   });
-});
 
+  it("#181: precision tier echoes only under vocal isolation", () => {
+    const s = queueParamSummary({
+      vocalIsolation: true,
+      vocalIsolationQuality: "precision",
+    });
+    expect(s).toBe(
+      ja.queue.paramsVocalIsolation +
+        ja.queue.paramSep +
+        ja.queue.paramsVocalIsolationPrecision,
+    );
+    // Standard tier and a bare quality param echo nothing.
+    expect(
+      queueParamSummary({
+        vocalIsolation: true,
+        vocalIsolationQuality: "standard",
+      }),
+    ).toBe(ja.queue.paramsVocalIsolation);
+    expect(
+      queueParamSummary({ vocalIsolationQuality: "precision" }),
+    ).toBe("");
+  });
+});
