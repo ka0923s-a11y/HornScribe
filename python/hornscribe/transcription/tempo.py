@@ -48,6 +48,18 @@ _TEMPO_MERGE_RATIO = 0.025
 # jitter stays well under 10 % and never trips the guard.
 _LSQ_OFF_SLOPE_RATIO = 0.10
 _LSQ_MAX_OUTLIER_SHARE = 1.0 / 3.0
+# #202 steady-track collapse: an anchor-level jitter floor. Per-
+# measure tempo on a quantised beat track swings +-10-15 % even on a
+# metronomic song (one-frame anchor noise amplified over a 2-4 beat
+# span), so measure-BPM thresholds alone cannot tell "steady" from
+# "moving". Anchor residuals against the global LSQ line can: tracked
+# beats on a steady pulse sit within ~1-2 hops of the line, while a
+# real rit./step accumulates drift far past the floor. Mean < 8 % of
+# the median interval AND max < 40 % (a dropped/doubled anchor is a
+# genuine track defect, not "steady") collapses the map to one mark.
+_STEADY_MIN_ANCHORS = 8
+_STEADY_MEAN_RESID_FRAC = 0.08
+_STEADY_MAX_RESID_FRAC = 0.40
 
 
 def _anchor_slope_sec(times: tuple[float, ...]) -> float | None:
@@ -511,7 +523,10 @@ def tempo_map_from_estimate(
     Fixed/manual runs get a single segment at beat 0. Tracked runs emit
     one segment per measure boundary whose instantaneous tempo differs
     from the running value by more than ~2 %, so rit./accel. survive
-    without one tempo mark per beat.
+    without one tempo mark per beat. #202: a track whose anchors hug
+    one straight line (real-world jitter on a metronomic song) prints
+    ONE mark — per-measure tempo on such a track swings +-15 % from
+    frame quantisation alone and used to spam a mark per bar.
     """
     if not estimate.auto or len(estimate.beat_times_sec) < 2:
         return (TempoSegment(start_beat=Fraction(0), bpm=round(estimate.median_bpm, 2)),)
@@ -523,6 +538,36 @@ def tempo_map_from_estimate(
     beat_unit = meter.beat_unit_ql
     times = estimate.beat_times_sec
     beat_ql = Fraction(4, meter.denominator)
+    # #202: steady-track collapse — judge the anchors, not the derived
+    # measure rates. LSQ residuals at the beat level stay inside the
+    # tracker's own noise floor on a metronomic song; anything that
+    # drifts or steps leaves far bigger residuals.
+    slope = _anchor_slope_sec(times)
+    if slope is not None and len(times) >= _STEADY_MIN_ANCHORS:
+        xbar = (len(times) - 1) / 2.0
+        ybar = sum(times) / len(times)
+        intercept = ybar - slope * xbar
+        residuals = [
+            abs(t - (intercept + slope * i)) for i, t in enumerate(times)
+        ]
+        intervals_sec = [
+            b - a for a, b in zip(times, times[1:], strict=False) if b > a
+        ]
+        if intervals_sec:
+            med = sorted(intervals_sec)[len(intervals_sec) // 2]
+            mean_resid = sum(residuals) / len(residuals)
+            if (
+                med > 0
+                and mean_resid <= _STEADY_MEAN_RESID_FRAC * med
+                and max(residuals) <= _STEADY_MAX_RESID_FRAC * med
+            ):
+                # Marks read like a conductor's metronome — integer BPM.
+                return (
+                    TempoSegment(
+                        start_beat=Fraction(0),
+                        bpm=float(round(estimate.median_bpm)),
+                    ),
+                )
     # #248: aggregate instantaneous tempo per MEASURE before emitting —
     # beat-tracker jitter inside a measure is not a tempo change. The
     # pickup measure is index 0 (span [0, pickup)); full measures tile
@@ -581,19 +626,42 @@ def tempo_map_from_estimate(
                 start_beat=Fraction(0), bpm=round(estimate.median_bpm, 2)
             ),
         )
+    # #202: median-3 smooth the per-measure series before emitting —
+    # a one-measure blip (tracker wobble, drummer fill) is not a tempo
+    # change, but a sustained rit./step survives the window and still
+    # lands on its measure boundary. Endpoints borrow the neighbour.
+    smoothed: dict[int, float] = {}
+    for pos, index in enumerate(indices):
+        lo = (
+            measure_bpm[indices[pos - 1]]
+            if pos > 0
+            else measure_bpm[index]
+        )
+        hi = (
+            measure_bpm[indices[pos + 1]]
+            if pos < len(indices) - 1
+            else measure_bpm[index]
+        )
+        smoothed[index] = sorted((lo, measure_bpm[index], hi))[1]
     # The beat-0 segment inherits the FIRST measurable measure's tempo:
     # a pickup-only measure 0 (one anchor, no slope) must not split a
-    # redundant mark off at the first downbeat.
+    # redundant mark off at the first downbeat. Printed BPM is an
+    # integer — sub-unit precision on a tracked tempo is false
+    # precision anyway (the warp keeps the real timing).
     segments: list[TempoSegment] = [
-        TempoSegment(start_beat=Fraction(0), bpm=round(measure_bpm[indices[0]], 2))
+        TempoSegment(
+            start_beat=Fraction(0),
+            bpm=float(round(smoothed[indices[0]])),
+        )
     ]
-    last_bpm = measure_bpm[indices[0]]
+    last_bpm = smoothed[indices[0]]
     for index in indices[1:]:
-        bpm = measure_bpm[index]
+        bpm = smoothed[index]
         if abs(bpm - last_bpm) / last_bpm > _TEMPO_MERGE_RATIO:
             segments.append(
                 TempoSegment(
-                    start_beat=measure_start_beats(index), bpm=round(bpm, 2)
+                    start_beat=measure_start_beats(index),
+                    bpm=float(round(bpm)),
                 )
             )
             last_bpm = bpm

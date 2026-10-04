@@ -71,6 +71,70 @@ def test_steady_tempo_jitter_does_not_emit_marks() -> None:
     assert 118.0 < segs[0].bpm < 122.0
 
 
+def test_frame_level_jitter_collapses_to_single_mark() -> None:
+    """#202: real tracker noise is +-1-2 hops per ANCHOR — on a steady
+    pulse that amplifies to +-15 % per-measure tempo swings, which used
+    to print a fresh mark every bar (JPOP loopback: 151->122->168->...).
+    Anchor residuals hug the LSQ line, so the map collapses to one mark.
+    """
+    import random
+
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    rng = random.Random(202)
+    hop = 512.0 / 22050.0  # librosa default hop at sr=22050
+    grid = [i * 0.455 for i in range(48)]  # ~132 BPM quarter beats
+    times = [grid[0]]
+    for t in grid[1:]:
+        jitter = rng.uniform(-1.5, 1.5) * hop
+        times.append(max(t + jitter, times[-1] + 0.05))
+    # Sanity: the per-measure instantaneous rate really does swing
+    # beyond +-8 % — the collapse must come from the anchor test,
+    # not from the jitter being small.
+    intervals = [b - a for a, b in zip(times, times[1:])]
+    lo, hi = min(intervals), max(intervals)
+    assert (hi - lo) / lo > 0.10
+    anchors = tuple(
+        BeatAnchor(
+            time_sec=t,
+            score_pos_ql=Fraction(i),
+            source=BeatSource.BEAT_TRACKER,
+        )
+        for i, t in enumerate(times)
+    )
+    est = TempoEstimate(
+        warp=TimeWarp.from_beat_map(BeatMap(anchors)),
+        beat_times_sec=tuple(times),
+        median_bpm=60.0 / 0.455,
+        auto=True,
+    )
+    segs = tempo_map_from_estimate(est, meter)
+    assert len(segs) == 1
+    assert segs[0].start_beat == 0
+    assert abs(segs[0].bpm - 132.0) < 3.0
+
+
+def test_dropped_anchor_defeats_steady_collapse() -> None:
+    """#202: a missed beat (one ~2x interval) must not print phantom
+    tempo marks — the warp absorbs the gap, the printed tempo stays."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    intervals = [0.5] * 10 + [1.0] + [0.5] * 10
+    segs = tempo_map_from_estimate(_estimate(intervals), meter)
+    # The double-interval beats land inside one measure whose warp rate
+    # still averages ~120 — no spurious slow/fast mark may appear.
+    assert len(segs) <= 2
+    assert all(abs(s.bpm - 120.0) < 8.0 for s in segs)
+
+
+def test_emitted_marks_are_integer_bpm() -> None:
+    """#202: marks print as integers — 151.39-style decimals are false
+    precision on a tracked tempo."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    intervals = [0.5] * 4 + [60.0 / 88.6] * 4
+    segs = tempo_map_from_estimate(_estimate(intervals), meter)
+    assert len(segs) == 2
+    assert all(s.bpm == float(int(s.bpm)) for s in segs)
+
+
 def test_genuine_tempo_change_lands_on_measure_boundary() -> None:
     """A real change emits one segment at the measure start, not mid-bar."""
     meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
