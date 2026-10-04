@@ -101,6 +101,7 @@ def build_score(
     extra_voices: tuple[QuantizationAlternative, ...] = (),
     voice_names: tuple[str, ...] = (),
     merge_voices: bool = False,
+    extra_parts: tuple[tuple[str, QuantizationAlternative], ...] = (),
     key_changes: tuple[KeyChange, ...] = (),
     swing_feel: Fraction | None = None,
     transcription_backend: str | None = None,
@@ -123,13 +124,18 @@ def build_score(
     become in-part chords, other overlaps become notation layers. Only
     voice 1's rests are kept (canonical rests tile the primary layer;
     secondary layers gap-fill at render time).
+
+    extra_parts (#203): (name, alternative) pairs appended as their
+    own parts — the accompaniment staff/staves. Each alternative is a
+    self-tiling monophonic stream, so every part keeps the canonical
+    rest contract a merged multi-voice part could not satisfy (layer 0
+    must tile every occupied measure; voices with independent gaps
+    leave untiled holes a first-voice rest set cannot cover).
     """
     ts = meter.time_signature
     beat_ql = _beat_ql(ts)
 
-    notes, rests, confidence, onsets = _part_content(
-        alternative, beat_ql, event_by_id
-    )
+    notes, rests, confidence, onsets = _part_content(alternative, beat_ql, event_by_id)
 
     parts: list[Part] = [
         Part(
@@ -141,9 +147,7 @@ def build_score(
     ]
     next_ordinal = len(notes) + 1
     for vi, voice_alt in enumerate(extra_voices):
-        v_notes, v_rests, v_conf, v_onsets = _part_content(
-            voice_alt, beat_ql, event_by_id
-        )
+        v_notes, v_rests, v_conf, v_onsets = _part_content(voice_alt, beat_ql, event_by_id)
         # The quantizer's sn-* allocator restarts per stream — renumber
         # so canonical ids stay unique across parts (review issues and
         # client edits key on them).
@@ -168,11 +172,7 @@ def build_score(
                 ),
             )
             continue
-        default_name = (
-            "Horn in F (2nd voice)"
-            if vi == 0
-            else f"Horn in F (voice {vi + 2})"
-        )
+        default_name = "Horn in F (2nd voice)" if vi == 0 else f"Horn in F (voice {vi + 2})"
         parts.append(
             Part(
                 id=f"part-{vi + 2}",
@@ -181,6 +181,31 @@ def build_score(
                 rests=tuple(v_rests),
             )
         )
+
+    for p_name, p_alt in extra_parts:
+        p_notes, p_rests, p_conf, p_onsets = _part_content(p_alt, beat_ql, event_by_id)
+        renumbered_p: list[QuantizedNote] = []
+        for n in p_notes:
+            new_id = ScoreNoteId(f"sn-{next_ordinal:06d}")
+            next_ordinal += 1
+            renumbered_p.append(replace(n, id=new_id))
+            if n.id in p_conf:
+                confidence[new_id] = p_conf[n.id]
+            if n.id in p_onsets:
+                onsets[new_id] = p_onsets[n.id]
+        if renumbered_p or p_rests:
+            parts.append(
+                Part(
+                    id=f"part-{len(parts) + 1}",
+                    name=p_name,
+                    notes=tuple(renumbered_p),
+                    rests=tuple(p_rests),
+                    # Accompaniment staves are not transposing
+                    # instruments — a written view must keep them in
+                    # the sounding projection.
+                    transposing=False,
+                )
+            )
 
     # Pickup: the beat-map lift (tempo.py) says how long the anacrusis
     # measure is; the meter segment's phase is its complement inside the
@@ -303,14 +328,10 @@ def _part_content(
     for i, qn in enumerate(alternative.notes):
         lo, hi = note_atom_ranges[i]
         score_atoms = tuple(
-            _atom_to_score(a, beat_ql, group_flags[lo + j])
-            for j, a in enumerate(stream[lo:hi])
+            _atom_to_score(a, beat_ql, group_flags[lo + j]) for j, a in enumerate(stream[lo:hi])
         )
         src_events = [event_by_id[e] for e in qn.source_event_ids if e in event_by_id]
-        conf = (
-            max((e.confidence for e in src_events if e.confidence is not None),
-                default=None)
-        )
+        conf = max((e.confidence for e in src_events if e.confidence is not None), default=None)
         # Merged notes keep the strongest source velocity (mirrors the
         # confidence max above): the first segment is not always the
         # performed attack.
@@ -327,9 +348,7 @@ def _part_content(
             QuantizedNote(
                 id=qn.canonical_note_id,
                 source_event_ids=qn.source_event_ids,
-                pitch_midi=int(round(src_events[0].pitch_midi))
-                if src_events
-                else 60,
+                pitch_midi=int(round(src_events[0].pitch_midi)) if src_events else 60,
                 start_beat=qn.onset_ql / beat_ql,
                 duration_beats=qn.duration_ql / beat_ql,
                 velocity=velocity,
@@ -346,8 +365,7 @@ def _part_content(
         ScoreRest(
             start_beat=r.onset_ql / beat_ql,
             atoms=tuple(
-                _atom_to_score(a, beat_ql, group_flags[lo + j])
-                for j, a in enumerate(stream[lo:hi])
+                _atom_to_score(a, beat_ql, group_flags[lo + j]) for j, a in enumerate(stream[lo:hi])
             ),
         )
         for r, (lo, hi) in zip(alternative.rests, rest_atom_ranges, strict=True)

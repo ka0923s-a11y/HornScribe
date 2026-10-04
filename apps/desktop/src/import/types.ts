@@ -163,12 +163,17 @@ export interface TranscriptionOptions {
    *  center-extracted vocal estimate instead of the raw mix. */
   vocalIsolation: boolean;
   /** #181: demucs tier for vocal isolation — "precision" runs
-   *  htdemucs_ft + shift-averaging (much slower, best free vocals
-   *  separation). Only reaches the job when vocalIsolation is on. */
+  *  htdemucs_ft + shift-averaging (much slower, best free vocals
+  *  separation). Only reaches the job when vocalIsolation is on. */
   vocalIsolationQuality: "standard" | "precision";
+  /** #203: when separation produced an accompaniment stem (demucs
+   *  no_vocals / center complement), transcribe it as a second 伴奏
+   *  part on the shared grid. Default on — the JPOP lead-sheet case;
+   *  solo sources drop the stem so no empty staff can appear. */
+  accompanimentPart: boolean;
   /** #53: user-attested key ("auto" or a tonic name like "Ebm") —
-   *  pinning it fixes enharmonic spelling, the signature and the
-   *  chord prior; analysis and the key_uncertain review are skipped. */
+  *  pinning it fixes enharmonic spelling, the signature and the
+  *  chord prior; analysis and the key_uncertain review are skipped. */
   keyHint: string;
   /** 範囲指定時の開始/終了（秒）。null = 音声の端まで。 */
   selectionStartSec: number | null;
@@ -198,6 +203,7 @@ export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   backend: "auto",
   vocalIsolation: false,
   vocalIsolationQuality: "standard",
+  accompanimentPart: true,
   keyHint: "auto",
   selectionStartSec: null,
   selectionEndSec: null,

@@ -152,6 +152,8 @@ describe("transcriptionOptionsFromSettings", () => {
       vocalIsolation: true,
       vocalIsolationQuality: "precision",
       keyHint: "Ebm",
+      // #203: absent in the echo -> the staff default stays on.
+      accompanimentPart: true,
       selectionStartSec: 12.5,
       selectionEndSec: 40,
     });

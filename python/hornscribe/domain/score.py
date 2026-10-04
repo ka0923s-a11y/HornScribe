@@ -459,6 +459,10 @@ class Part:
     name: str
     notes: tuple[QuantizedNote, ...] = field(default_factory=tuple)
     rests: tuple[ScoreRest, ...] = field(default_factory=tuple)
+    # #203: False marks a non-transposing staff (the accompaniment
+    # parts) — written presentations keep it in the sounding
+    # projection so the whole printed score shares one pitch frame.
+    transposing: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "notes", tuple(self.notes))
@@ -483,6 +487,8 @@ class Part:
         # revision IDs.
         if self.rests:
             data["rests"] = [r.to_dict() for r in self.rests]
+        if not self.transposing:
+            data["transposing"] = False
         return data
 
     @classmethod
@@ -492,6 +498,7 @@ class Part:
             name=str(data["name"]),
             notes=tuple(QuantizedNote.from_dict(n) for n in data.get("notes", ())),
             rests=tuple(ScoreRest.from_dict(r) for r in data.get("rests", ())),
+            transposing=bool(data.get("transposing", True)),
         )
 
 

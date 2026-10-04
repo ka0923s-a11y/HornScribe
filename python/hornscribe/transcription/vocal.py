@@ -65,12 +65,15 @@ def isolate_center_vocals(
     audio_path: str,
     start_sec: float = 0.0,
     end_sec: float | None = None,
-) -> Any | None:
-    """Center-extract the [start, end) span -> mono float32 | None.
+) -> tuple[Any, Any] | None:
+    """Center-extract the [start, end) span -> (vocal, accompaniment).
 
-    None means isolation did not apply (mono source, decode failure,
-    empty span) — never an exception, so the pipeline can degrade to
-    the un-isolated path honestly.
+    Returns one mono float32 pair or None.  None means isolation did
+    not apply (mono source, decode failure, empty span) — never an
+    exception, so the pipeline can degrade to the un-isolated path
+    honestly.  #203: the same mask that lifts the centre content also
+    defines its complement — ``mid*(1-mask) + side`` — the free
+    accompaniment estimate the second staff transcribes from.
     """
     try:
         require_module("librosa")
@@ -87,9 +90,7 @@ def isolate_center_vocals(
             sr=22050,
             mono=False,
             offset=max(0.0, start_sec),
-            duration=(
-                None if end_sec is None else max(0.0, end_sec - start_sec)
-            ),
+            duration=(None if end_sec is None else max(0.0, end_sec - start_sec)),
         )
     except Exception:
         return None
@@ -115,7 +116,16 @@ def isolate_center_vocals(
     mask = np.clip((mid_mag - side_mag) / denom, 0.0, 1.0) ** _MASK_POWER
     vocal_stft = mid_stft * mask
     vocal = librosa.istft(vocal_stft, hop_length=_HOP, length=len(mid))
-    return np.asarray(vocal, dtype=np.float32)
+    # #203: accompaniment = what the vocal mask rejected plus the
+    # whole side channel — center-panned backing (bass, kick-adjacent
+    # keys) survives in the mid complement, panned instruments in the
+    # sides.
+    accomp_stft = mid_stft * (1.0 - mask) + side_stft
+    accomp = librosa.istft(accomp_stft, hop_length=_HOP, length=len(mid))
+    return (
+        np.asarray(vocal, dtype=np.float32),
+        np.asarray(accomp, dtype=np.float32),
+    )
 
 
 def _cache_dir() -> str:
@@ -182,11 +192,7 @@ def _demucs_cmd() -> tuple[str, ...] | None:
     env_exe = os.environ.get("HORNSCRIBE_DEMUCS", "").strip()
     if env_exe:
         return (env_exe,) if os.path.isfile(env_exe) else None
-    if (
-        not getattr(sys, "frozen", False)
-        and sys.executable
-        and _demucs_module_importable()
-    ):
+    if not getattr(sys, "frozen", False) and sys.executable and _demucs_module_importable():
         return (sys.executable, "-m", "demucs")
     cli = shutil.which("demucs")
     if cli:
@@ -203,9 +209,7 @@ def _demucs_cmd() -> tuple[str, ...] | None:
         # which is a very common install shape for this addon.
         for cand in (
             os.path.join(path_dir, "demucs", "demucs.exe"),
-            *glob.glob(
-                os.path.join(path_dir, "*", "demucs", "demucs.exe")
-            ),
+            *glob.glob(os.path.join(path_dir, "*", "demucs", "demucs.exe")),
         ):
             if os.path.isfile(cand):
                 return (cand,)
@@ -213,16 +217,10 @@ def _demucs_cmd() -> tuple[str, ...] | None:
     env_py = os.environ.get("HORNSCRIBE_PYTHON", "").strip()
     if env_py:
         candidates.append(env_py)
-    exe_real = (
-        os.path.realpath(sys.executable) if sys.executable else ""
-    )
+    exe_real = os.path.realpath(sys.executable) if sys.executable else ""
     for name in ("python", "python3"):
         found = shutil.which(name)
-        if (
-            found
-            and found not in candidates
-            and os.path.realpath(found) != exe_real
-        ):
+        if found and found not in candidates and os.path.realpath(found) != exe_real:
             candidates.append(found)
     for python_exe in candidates:
         if _python_has_demucs(python_exe):
@@ -244,9 +242,7 @@ def demucs_available() -> bool:
     return _demucs_cmd() is not None
 
 
-def _stage_span_wav(
-    audio_path: str, start_sec: float, end_sec: float | None
-) -> str | None:
+def _stage_span_wav(audio_path: str, start_sec: float, end_sec: float | None) -> str | None:
     """#320: decode [start, end) in stereo and stage it as a temp WAV
     for demucs — None when the span cannot be decoded (the caller then
     falls back to center extraction, which decodes spans itself)."""
@@ -262,9 +258,7 @@ def _stage_span_wav(
             sr=44100,
             mono=False,
             offset=max(0.0, start_sec),
-            duration=(
-                None if end_sec is None else max(0.0, end_sec - start_sec)
-            ),
+            duration=(None if end_sec is None else max(0.0, end_sec - start_sec)),
         )
     except Exception:
         return None
@@ -274,17 +268,12 @@ def _stage_span_wav(
     interleaved = np.asarray(channels, dtype=np.float32).T.reshape(-1)
     pcm = array(
         "h",
-        (
-            max(-32768, min(32767, int(round(float(v) * 32768.0))))
-            for v in interleaved
-        ),
+        (max(-32768, min(32767, int(round(float(v) * 32768.0)))) for v in interleaved),
     )
     if pcm.itemsize != 2:
         return None
     try:
-        fd, tmp = tempfile.mkstemp(
-            prefix="hornscribe-span-", suffix=".wav"
-        )
+        fd, tmp = tempfile.mkstemp(prefix="hornscribe-span-", suffix=".wav")
         with contextlib.suppress(OSError):
             os.close(fd)
         with wave.open(tmp, "wb") as wav:
@@ -331,8 +320,12 @@ def isolate_demucs_vocals(
     end_sec: float | None = None,
     model: str = "htdemucs",
     shifts: int = 1,
-) -> Any | None:
-    """#302: neural two-stem separation via the demucs CLI -> mono float32 | None.
+) -> tuple[Any, Any] | None:
+    """#302: neural two-stem separation via the demucs CLI -> stem pair.
+
+    Returns ``(vocals, accompaniment)`` mono float32 buffers — the
+    ``--two-stems=vocals`` run writes ``vocals.wav`` AND ``no_vocals.wav``
+    in one pass, so the accompaniment estimate is free (#203).
 
     Runs ``<demucs prefix> -n <model> --two-stems=vocals`` in a
     subprocess so a torch crash can never take the engine down with
@@ -401,18 +394,28 @@ def isolate_demucs_vocals(
         if vocals_path is None:
             return None
         samples, _sr = librosa.load(vocals_path, sr=22050, mono=True)
+        # #203: no_vocals.wav sits next to vocals.wav in the same run's
+        # output dir — read it too so the accompaniment staff can be
+        # transcribed without paying a second separation.
+        accomp_path: str | None = None
+        acc_root = os.path.dirname(vocals_path)
+        cand = os.path.join(acc_root, "no_vocals.wav")
+        if os.path.isfile(cand):
+            accomp_path = cand
         # A staged span is already selection-relative — only a direct
         # full-file run needs the requested span sliced out.
         lo = 0 if span_staged else int(max(0.0, start_sec) * 22050)
-        hi = (
-            len(samples)
-            if span_staged or end_sec is None
-            else int(end_sec * 22050)
-        )
+        hi = len(samples) if span_staged or end_sec is None else int(end_sec * 22050)
         sliced = np.asarray(samples[lo:hi], dtype=np.float32)
         if sliced.size == 0:
             return None
-        return sliced
+        accomp_sliced: Any | None = None
+        if accomp_path is not None:
+            acc_samples, _asr = librosa.load(accomp_path, sr=22050, mono=True)
+            acc_sliced = np.asarray(acc_samples[lo:hi], dtype=np.float32)
+            if acc_sliced.size:
+                accomp_sliced = acc_sliced
+        return (sliced, accomp_sliced)
     except Exception:
         return None
     finally:
@@ -496,11 +499,7 @@ def _demucs_stem_silent(
             sr=22050,
             mono=True,
             offset=max(0.0, start_sec),
-            duration=(
-                None
-                if end_sec is None
-                else max(0.0, end_sec - start_sec)
-            ),
+            duration=(None if end_sec is None else max(0.0, end_sec - start_sec)),
         )
     except Exception:
         return False
@@ -512,9 +511,7 @@ def _demucs_stem_silent(
 def _mark_rejected(marker: str) -> None:
     """Best-effort durable verdict — a missing marker only costs a
     re-check next call, so a write failure is never fatal."""
-    with contextlib.suppress(OSError), open(
-        marker, "w", encoding="utf-8"
-    ) as fh:
+    with contextlib.suppress(OSError), open(marker, "w", encoding="utf-8") as fh:
         fh.write("silent-stem\n")
 
 
@@ -533,6 +530,14 @@ def _sweep_cache(now: float) -> None:
         return
 
 
+# #203: a cache slot now stores a stem PAIR — the vocal WAV plus its
+# optional ``.accomp.wav`` companion. Entries written before the
+# byproduct existed hold only the vocal, so a hit on one would starve
+# the accompaniment staff until TTL expiry; the generation tag makes
+# them miss once, and the fresh separation writes both.
+_STEM_SET_VERSION = "s2"
+
+
 def _cache_key(
     audio_path: str,
     content_hash: str | None,
@@ -548,7 +553,9 @@ def _cache_key(
     # share a cache slot.  #181: the demucs model tier is part of the
     # identity too — an htdemucs_ft stem is not an htdemucs stem.
     tag = f"{method}|{variant}" if variant else method
-    digest = hashlib.sha256(f"{basis}|{span}|{tag}".encode()).hexdigest()
+    digest = hashlib.sha256(
+        f"{basis}|{span}|{tag}|{_STEM_SET_VERSION}".encode()
+    ).hexdigest()
     return digest[:32]
 
 
@@ -595,10 +602,7 @@ def _write_mono_wav(path: str, samples: Any, sample_rate: int) -> bool:
     try:
         pcm = array(
             "h",
-            (
-                max(-32768, min(32767, int(round(float(v) * 32768.0))))
-                for v in samples
-            ),
+            (max(-32768, min(32767, int(round(float(v) * 32768.0)))) for v in samples),
         )
         if pcm.itemsize != 2:
             return False
@@ -613,6 +617,28 @@ def _write_mono_wav(path: str, samples: Any, sample_rate: int) -> bool:
         return True
     except (OSError, ValueError, TypeError):
         return False
+
+
+def _accomp_name(vocal_wav_path: str) -> str:
+    """#203: the accompaniment stem always sits beside the vocal WAV
+    as ``<name>.accomp.wav`` — shared cache slot or per-job temp, the
+    derivation is identical."""
+    return vocal_wav_path[: -len(".wav")] + ".accomp.wav"
+
+
+def accompaniment_wav_for(vocal_wav_path: str | None) -> str | None:
+    """The accompaniment stem written beside ``vocal_wav_path``, or
+    None when no separation produced one (#203).
+
+    ``vocal_wav`` keeps its 5-tuple contract: the companion file is
+    discovered by name instead of widening the signature.  The file
+    shares the vocal's lifecycle — a managed cache stem yields a
+    managed accompaniment stem, an unmanaged temp likewise (its
+    caller deletes both)."""
+    if vocal_wav_path is None:
+        return None
+    cand = _accomp_name(vocal_wav_path)
+    return cand if os.path.isfile(cand) else None
 
 
 def vocal_wav(
@@ -640,6 +666,14 @@ def vocal_wav(
     ``quality`` (#181) selects the demucs tier — ``"precision"`` runs
     htdemucs_ft with shift-averaging; an unknown value falls back to
     the standard tier.
+    #203: the accompaniment stem is a byproduct of the same
+    separation pass (demucs writes no_vocals.wav; the center mask
+    defines its own complement), so the second staff costs one extra
+    WAV write and no extra separation time.  It is written beside the
+    vocal WAV as ``<name>.accomp.wav`` and discovered via
+    :func:`accompaniment_wav_for`.  A near-silent accompaniment stem
+    (solo source, or separation residue only) is never written — no
+    empty staff can be generated from it.
     """
     _sweep_cache(time.time())
     preferred = _method()
@@ -649,12 +683,8 @@ def vocal_wav(
     # extraction does not depend on the demucs tier, so tagging it
     # would split identical audio across quality values for nothing.
     model, shifts = _SEPARATION_QUALITIES.get(quality, _SEPARATION_DEFAULT)
-    variant = (
-        _separation_variant(quality) if preferred == "demucs" else ""
-    )
-    key = _cache_key(
-        audio_path, content_hash, start_sec, end_sec, preferred, variant
-    )
+    variant = _separation_variant(quality) if preferred == "demucs" else ""
+    key = _cache_key(audio_path, content_hash, start_sec, end_sec, preferred, variant)
     cached = os.path.join(_cache_dir(), f"{_CACHE_PREFIX}{key}.wav")
     # #169: "<cache>.<version>.rejected" marks a demucs estimate
     # already judged near-silent for this (source, span, model).  The
@@ -663,12 +693,8 @@ def vocal_wav(
     # change mints a new marker name and re-judges honestly.
     rejected_marker = ""
     if preferred == "demucs":
-        rejected_marker = (
-            f"{cached}.{method_version('demucs', variant) or 'unknown'}.rejected"
-        )
-    demucs_silent = bool(rejected_marker) and os.path.isfile(
-        rejected_marker
-    )
+        rejected_marker = f"{cached}.{method_version('demucs', variant) or 'unknown'}.rejected"
+    demucs_silent = bool(rejected_marker) and os.path.isfile(rejected_marker)
     if os.path.isfile(cached) and not demucs_silent:
         serve = True
         if preferred == "demucs":
@@ -692,23 +718,19 @@ def vocal_wav(
                 method_version(preferred, variant),
             )
 
-    samples: Any | None = None
+    pair: tuple[Any, Any] | None = None
     method: str | None = None
     if preferred == "demucs" and not demucs_silent:
-        samples = isolate_demucs_vocals(
-            audio_path, start_sec, end_sec, model=model, shifts=shifts
-        )
-        if samples is not None and _demucs_stem_silent(
-            _rms(samples), audio_path, start_sec, end_sec
-        ):
+        pair = isolate_demucs_vocals(audio_path, start_sec, end_sec, model=model, shifts=shifts)
+        if pair is not None and _demucs_stem_silent(_rms(pair[0]), audio_path, start_sec, end_sec):
             # #169: demucs answered "no voice here" — the residue
             # stem would transcribe noise, so center extraction gets
             # the job instead.
-            samples = None
+            pair = None
             _mark_rejected(rejected_marker)
-        if samples is not None:
+        if pair is not None:
             method = "demucs"
-    if samples is None:
+    if pair is None:
         if preferred == "demucs":
             # A center estimate may already be cached — from an
             # earlier demucs failure or silent-stem rejection — so a
@@ -720,9 +742,7 @@ def vocal_wav(
                 end_sec,
                 "center_extraction",
             )
-            center_cached = os.path.join(
-                _cache_dir(), f"{_CACHE_PREFIX}{center_key}.wav"
-            )
+            center_cached = os.path.join(_cache_dir(), f"{_CACHE_PREFIX}{center_key}.wav")
             if os.path.isfile(center_cached):
                 return (
                     center_cached,
@@ -733,19 +753,17 @@ def vocal_wav(
                 )
         # demucs absent or failed — the free center mask still beats
         # the raw mix for a monophonic tracker.
-        samples = isolate_center_vocals(audio_path, start_sec, end_sec)
-        if samples is not None:
+        pair = isolate_center_vocals(audio_path, start_sec, end_sec)
+        if pair is not None:
             method = "center_extraction"
-    if samples is None:
+    if pair is None:
         # Distinguish nothing-to-isolate from isolation-failed — the
         # review copy reads differently for each.
         try:
             require_module("librosa")
-            import librosa  # noqa: PLC0415
+            import librosa
 
-            probe, _ = librosa.load(
-                audio_path, sr=22050, mono=False, duration=0.1
-            )
+            probe, _ = librosa.load(audio_path, sr=22050, mono=False, duration=0.1)
             mono = probe.ndim != 2 or probe.shape[0] < 2
             reason = "mono_source" if mono else "unavailable"
         except Exception:
@@ -753,24 +771,39 @@ def vocal_wav(
 
         return None, reason, False, None, None
 
+    vocal_samples, accomp_samples = pair
+    # #203: a near-silent accompaniment stem means the source had no
+    # backing to speak of (solo recording, or the separator left only
+    # residue) — drop it so no empty/garbage staff can be generated.
+    if accomp_samples is not None and _demucs_stem_silent(
+        _rms(accomp_samples), audio_path, start_sec, end_sec
+    ):
+        accomp_samples = None
+
     # Cache under the method that actually produced the audio — a
     # demucs failure cached as center must not pin future runs to the
     # weaker estimate once demucs works again.
-    assert method is not None  # samples is not None implies a method
+    assert method is not None  # pair is not None implies a method
     version = method_version(method, variant)
     if preferred != method:
         key = _cache_key(audio_path, content_hash, start_sec, end_sec, method)
         cached = os.path.join(_cache_dir(), f"{_CACHE_PREFIX}{key}.wav")
         if os.path.isfile(cached):
             return cached, "applied", True, method, version
-    if _write_mono_wav(cached, samples, sample_rate):
+    if _write_mono_wav(cached, vocal_samples, sample_rate):
+        if accomp_samples is not None:
+            # Companion write is best-effort — a failure loses the
+            # second staff, never the job.
+            _write_mono_wav(_accomp_name(cached), accomp_samples, sample_rate)
         return cached, "applied", True, method, version
     # Cache write failed (read-only temp) — stage a plain temp file so
     # this job still gets the isolated input.
     fd, tmp = tempfile.mkstemp(prefix="hornscribe-vocal-", suffix=".wav")
     with contextlib.suppress(OSError):
         os.close(fd)
-    if _write_mono_wav(tmp, samples, sample_rate):
+    if _write_mono_wav(tmp, vocal_samples, sample_rate):
+        if accomp_samples is not None:
+            _write_mono_wav(_accomp_name(tmp), accomp_samples, sample_rate)
         return tmp, "applied", False, method, version
     with contextlib.suppress(OSError):
         os.unlink(tmp)

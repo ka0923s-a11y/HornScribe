@@ -135,7 +135,7 @@ from .tempo import (
     tempo_map_from_estimate,
 )
 from .tempo_octave import detect_tempo_octave
-from .vocal import vocal_wav, wav_rms
+from .vocal import accompaniment_wav_for, vocal_wav, wav_rms
 
 JOB_KIND_TRANSCRIPTION = "transcription"
 
@@ -243,9 +243,7 @@ def _refine_beat_frame(onset_env: Any, frame: int) -> float:
     return float(frame) + max(-1.0, min(1.0, refined - float(frame)))
 
 
-def _track_beats(
-    samples: Any, sample_rate: int
-) -> tuple[tuple[float, ...], tuple[float, ...]]:
+def _track_beats(samples: Any, sample_rate: int) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Beat times + onset strength sampled at each beat (librosa).
 
     Shared by the meter estimator (needs strengths at beats) and the
@@ -272,11 +270,7 @@ def _track_beats(
             if times and ft <= times[-1]:
                 continue
             s_idx = int(round(refined))
-            strength = (
-                float(onset_env[s_idx])
-                if 0 <= s_idx < len(onset_env)
-                else 0.0
-            )
+            strength = float(onset_env[s_idx]) if 0 <= s_idx < len(onset_env) else 0.0
             times.append(ft)
             strengths.append(strength)
         return times, strengths
@@ -343,9 +337,7 @@ def _track_beats(
                 if float(onset_env[peak]) <= 0:
                     break
                 prev_t = float(
-                    librosa.frames_to_time(
-                        _refine_beat_frame(onset_env, peak), sr=sample_rate
-                    )
+                    librosa.frames_to_time(_refine_beat_frame(onset_env, peak), sr=sample_rate)
                 )
                 filled.append((prev_t, r_i))
         filled.append((t, r_i))
@@ -364,9 +356,7 @@ def _track_beats(
     return tuple(out_times), tuple(out_strengths)
 
 
-def _tempo_regions(
-    onset_env: Any, sample_rate: int
-) -> list[tuple[float, float, float]]:
+def _tempo_regions(onset_env: Any, sample_rate: int) -> list[tuple[float, float, float]]:
     """Stable-tempo regions from the frame-level tempo curve.
 
     Returns (start_sec, end_sec, mean_bpm) per region in order. The
@@ -381,18 +371,14 @@ def _tempo_regions(
     import numpy as np  # noqa: PLC0415 - lazy optional dependency
 
     dyn = np.asarray(
-        librosa.feature.tempo(
-            onset_envelope=onset_env, sr=sample_rate, aggregate=None
-        ),
+        librosa.feature.tempo(onset_envelope=onset_env, sr=sample_rate, aggregate=None),
         dtype=float,
     )
     dyn = dyn[np.isfinite(dyn) & (dyn > 0)]
     return _tempo_regions_from_dyn(dyn, 512.0 / float(sample_rate))
 
 
-def _tempo_regions_from_dyn(
-    dyn: Any, frame_sec: float
-) -> list[tuple[float, float, float]]:
+def _tempo_regions_from_dyn(dyn: Any, frame_sec: float) -> list[tuple[float, float, float]]:
     """Plateau-group a frame-level tempo curve into stable regions.
 
     The autocorr tempo curve is piecewise-constant (one lag bin per
@@ -420,9 +406,7 @@ def _tempo_regions_from_dyn(
             start = i
         else:
             run.append(v)
-    regions.append(
-        [start * frame_sec, len(dyn) * frame_sec, float(np.mean(run))]
-    )
+    regions.append([start * frame_sec, len(dyn) * frame_sec, float(np.mean(run))])
 
     # Fold too-short regions into the tempo-nearer neighbour.
     changed = True
@@ -436,8 +420,7 @@ def _tempo_regions_from_dyn(
             if left is None and right is None:
                 break
             merge_left = left is not None and (
-                right is None
-                or abs(left[2] - r[2]) <= abs(right[2] - r[2])
+                right is None or abs(left[2] - r[2]) <= abs(right[2] - r[2])
             )
             if merge_left and left is not None:
                 left[1] = r[1]
@@ -526,10 +509,7 @@ def _shift_event_times(
             ev,
             onset_sec=ev.onset_sec + offset_sec,
             offset_sec=ev.offset_sec + offset_sec,
-            pitch_bends=tuple(
-                replace(b, time_sec=b.time_sec + offset_sec)
-                for b in ev.pitch_bends
-            ),
+            pitch_bends=tuple(replace(b, time_sec=b.time_sec + offset_sec) for b in ev.pitch_bends),
         )
         for ev in events
     )
@@ -546,9 +526,7 @@ def _samples_rms(samples: Any) -> float:
     return float(np.sqrt(np.mean(arr * arr)))
 
 
-def _stage_selection_wav(
-    samples: Any, sample_rate: int
-) -> str | None:
+def _stage_selection_wav(samples: Any, sample_rate: int) -> str | None:
     """Write *samples* to a temp PCM16 WAV; return its path or None.
 
     #229: both backends take a file path, so a sliced selection is
@@ -557,10 +535,7 @@ def _stage_selection_wav(
     try:
         pcm = array(
             "h",
-            (
-                max(-32768, min(32767, int(round(float(v) * 32768.0))))
-                for v in samples
-            ),
+            (max(-32768, min(32767, int(round(float(v) * 32768.0)))) for v in samples),
         )
         if pcm.itemsize != 2:  # platform 'h' must be 16-bit for WAV
             return None
@@ -623,9 +598,7 @@ def _extra_issues(
                     canonical_note_ids=(note.id,),
                     time_range=rng,
                     reason=ReviewReason.LOW_MODEL_CONFIDENCE,
-                    severity=(
-                        Severity.WARNING if conf < 0.3 else Severity.CAUTION
-                    ),
+                    severity=(Severity.WARNING if conf < 0.3 else Severity.CAUTION),
                     evidence={"modelConfidence": round(conf, 3)},
                 )
             )
@@ -639,9 +612,7 @@ def _extra_issues(
                     time_range=rng,
                     reason=ReviewReason.OUTSIDE_PREFERRED_HORN_RANGE,
                     severity=(
-                        Severity.WARNING
-                        if status is HornRangeStatus.EXTREME
-                        else Severity.CAUTION
+                        Severity.WARNING if status is HornRangeStatus.EXTREME else Severity.CAUTION
                     ),
                     evidence={"pitchMidi": note.pitch_midi},
                 )
@@ -709,20 +680,14 @@ def _spelling_issues(
         # the reviewer needs - is the chromatic tone a chord tone
         # (secondary dominant, blues) or a passing artifact?
         est = next(
-            (
-                c
-                for c in chord_map
-                if c.start_sec <= onset < c.end_sec
-            ),
+            (c for c in chord_map if c.start_sec <= onset < c.end_sec),
             None,
         )
         issues.append(
             ReviewIssue(
                 id="",
                 score_revision=score_revision,
-                canonical_note_ids=tuple(
-                    n.id for n in notes[:_MAX_SPELLING_NOTE_IDS]
-                ),
+                canonical_note_ids=tuple(n.id for n in notes[:_MAX_SPELLING_NOTE_IDS]),
                 time_range=TimeRange(start_sec=onset, end_sec=onset + 0.05),
                 reason=ReviewReason.PITCH_SPELLING_AMBIGUOUS,
                 severity=Severity.INFO,
@@ -783,9 +748,7 @@ def _boundary_issues(
                 canon_by_event.setdefault(e, n)
     issues: list[ReviewIssue] = []
     for c in cleaneds:
-        for flag in boundary_flags(
-            samples, sample_rate, c.events, time_offset_sec=time_offset_sec
-        ):
+        for flag in boundary_flags(samples, sample_rate, c.events, time_offset_sec=time_offset_sec):
             note_ids: list[ScoreNoteId] = []
             evidence: dict[str, Any] = {
                 "suggestedKind": flag.kind,
@@ -816,16 +779,10 @@ def _boundary_issues(
                     or a.end_beat != b.start_beat
                 ):
                     continue
-                severity = (
-                    Severity.CAUTION if flag.kind == "merge" else Severity.INFO
-                )
+                severity = Severity.CAUTION if flag.kind == "merge" else Severity.INFO
                 note_ids.extend((a.id, b.id))
             ev_a = event_by_id.get(flag.event_ids[0])
-            ev_b = (
-                event_by_id.get(flag.event_ids[1])
-                if len(flag.event_ids) > 1
-                else None
-            )
+            ev_b = event_by_id.get(flag.event_ids[1]) if len(flag.event_ids) > 1 else None
             if ev_a is not None and ev_b is not None:
                 lo, hi = ev_a.offset_sec, ev_b.onset_sec
             else:
@@ -839,18 +796,14 @@ def _boundary_issues(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=tuple(note_ids),
-                    time_range=TimeRange(
-                        start_sec=max(0.0, lo), end_sec=hi
-                    ),
+                    time_range=TimeRange(start_sec=max(0.0, lo), end_sec=hi),
                     reason=ReviewReason.BOUNDARY_UNCERTAIN,
                     severity=severity,
                     evidence=evidence,
                 )
             )
     _rank = {Severity.CAUTION: 0, Severity.INFO: 1}
-    issues.sort(
-       key=lambda i: (_rank.get(i.severity, 2), i.time_range.start_sec)
-    )
+    issues.sort(key=lambda i: (_rank.get(i.severity, 2), i.time_range.start_sec))
     return issues[:MAX_BOUNDARY_ISSUES]
 
 
@@ -880,15 +833,9 @@ def _chord_issues(
         if not n.deleted
     )
     for est in chord_map:
-        if est.confidence >= CHORD_LOW_CONFIDENCE and (
-            est.margin >= CHORD_LOW_MARGIN
-        ):
+        if est.confidence >= CHORD_LOW_CONFIDENCE and (est.margin >= CHORD_LOW_MARGIN):
             continue
-        ids = tuple(
-            nid
-            for sec, nid in note_secs
-            if est.start_sec <= sec < est.end_sec
-        )[:6]
+        ids = tuple(nid for sec, nid in note_secs if est.start_sec <= sec < est.end_sec)[:6]
         if not ids:
             continue
         issues.append(
@@ -922,15 +869,9 @@ def _merged_chord_dicts(
     the meta progression reads "C | G | C", not sixteen half-bars."""
     out: list[dict[str, Any]] = []
     for est in chord_map:
-        if (
-            out
-            and out[-1]["rootPc"] == est.root_pc
-            and out[-1]["quality"] == est.quality
-        ):
+        if out and out[-1]["rootPc"] == est.root_pc and out[-1]["quality"] == est.quality:
             out[-1]["endSec"] = round(est.end_sec, 3)
-            out[-1]["confidence"] = round(
-                min(out[-1]["confidence"], est.confidence), 3
-            )
+            out[-1]["confidence"] = round(min(out[-1]["confidence"], est.confidence), 3)
             continue
         out.append(est.to_dict(prefer_flats))
     return out
@@ -967,25 +908,15 @@ def _lead_track_gate(
     legitimately; on a bleed-heavy one the polyphonic model's
     arbitration survives instead.
     """
-    bp_events = predict_note_events_rescued(
-        backend_path, revision=bp_revision, **hz_kwargs
-    )
-    pyin_events = predict_note_events_pyin(
-        backend_path, revision=pyin_revision, **hz_kwargs
-    )
+    bp_events = predict_note_events_rescued(backend_path, revision=bp_revision, **hz_kwargs)
+    pyin_events = predict_note_events_pyin(backend_path, revision=pyin_revision, **hz_kwargs)
     # The arbitration line mirrors the downstream clean — the gate
     # asks "did the tracker follow THE LINE", so the comparison
     # line is built with the texture's own overlap rule.
-    bp_line = clean_monophonic(
-        bp_events, merge_gap_sec=MERGE_GAP_SEC, prefer=prefer
-    ).events
+    bp_line = clean_monophonic(bp_events, merge_gap_sec=MERGE_GAP_SEC, prefer=prefer).events
     agreement = lead_track_agreement(bp_line, pyin_events)
-    adopt_pyin = agreement >= LEAD_GATE_MIN_AGREEMENT or (
-        not bp_line and bool(pyin_events)
-    )
-    return adopt_pyin, agreement, (
-        pyin_events if adopt_pyin else bp_events
-    )
+    adopt_pyin = agreement >= LEAD_GATE_MIN_AGREEMENT or (not bp_line and bool(pyin_events))
+    return adopt_pyin, agreement, (pyin_events if adopt_pyin else bp_events)
 
 
 def run_transcription_job(
@@ -1080,9 +1011,7 @@ def run_transcription_job(
         if params.range_kind == "selection":
             sel_lo = params.selection_start_sec or 0.0
             sel_hi = (
-                params.selection_end_sec
-                if params.selection_end_sec is not None
-                else duration_sec
+                params.selection_end_sec if params.selection_end_sec is not None else duration_sec
             )
             sel_lo = max(0.0, min(sel_lo, duration_sec))
             sel_hi = max(sel_lo, min(sel_hi, duration_sec))
@@ -1127,6 +1056,17 @@ def run_transcription_job(
         vocal_reason: str | None = None
         vocal_method: str | None = None
         vocal_method_version: str | None = None
+        # #203: the accompaniment stem travels with the vocal stem —
+        # produced by the same separation pass, so it exists whenever
+        # vocal_path does (and survives being ignored when the option
+        # or texture says no).
+        accomp_path: str | None = None
+        accomp_managed = False
+        # #203/#204: the isolation span is needed by BOTH the opt-in
+        # call below and the auto-rescue in the cleaning stage —
+        # hoisted out of the elif so the rescue sees the same bounds.
+        vis_lo = params.selection_start_sec or 0.0 if params.range_kind == "selection" else 0.0
+        vis_hi = params.selection_end_sec if params.range_kind == "selection" else None
         # #322: vocal isolation is a solo-melody preprocess — under
         # voices/chords the user asked to KEEP the overlapping lines,
         # so stripping the accompaniment first would silently defeat
@@ -1147,16 +1087,6 @@ def run_transcription_job(
             # Isolation covers exactly the backend's span: the
             # selection when one is set, else the whole file. A stray
             # selection_start_sec under range=all must not leak in.
-            vis_lo = (
-                params.selection_start_sec or 0.0
-                if params.range_kind == "selection"
-                else 0.0
-            )
-            vis_hi = (
-                params.selection_end_sec
-                if params.range_kind == "selection"
-                else None
-            )
             (
                 vocal_path,
                 vocal_reason,
@@ -1171,12 +1101,14 @@ def run_transcription_job(
                 sample_rate,
                 quality=params.vocal_isolation_quality,
             )
+            # #203: the companion stem shares the vocal file's
+            # lifecycle — managed flag included.
+            accomp_path = accompaniment_wav_for(vocal_path)
+            accomp_managed = vocal_managed
             if vocal_path is not None:
                 # Isolation produced the backend input — the staging
                 # unit below is no longer part of the plan.
-                transcribe_total -= int(
-                    params.range_kind == "selection"
-                )
+                transcribe_total -= int(params.range_kind == "selection")
             transcribe_done += 1
             step(1, transcribe_done, transcribe_total)
         if vocal_path is None and params.range_kind == "selection":
@@ -1253,11 +1185,7 @@ def run_transcription_job(
                 "methodVersion": vocal_method_version,
                 # Why isolation did not apply (mono_source /
                 # unavailable) — absent on a successful run.
-                **(
-                    {"fallbackReason": vocal_reason}
-                    if vocal_path is None and vocal_reason
-                    else {}
-                ),
+                **({"fallbackReason": vocal_reason} if vocal_path is None and vocal_reason else {}),
             }
         revision = new_transcription_revision(
             audio_hash or params.audio_path,
@@ -1272,14 +1200,8 @@ def run_transcription_job(
         # ceiling would drop the melody before the auto classifier
         # ever sees it).  Only the explicitly-monophonic texture
         # keeps the narrow horn band.
-        max_hz = (
-            MELODY_MAX_FREQUENCY_HZ
-            if params.texture != "mono"
-            else None
-        )
-        hz_kwargs: dict[str, Any] = (
-            {"max_frequency_hz": max_hz} if max_hz else {}
-        )
+        max_hz = MELODY_MAX_FREQUENCY_HZ if params.texture != "mono" else None
+        hz_kwargs: dict[str, Any] = {"max_frequency_hz": max_hz} if max_hz else {}
         try:
             if backend is not None:
                 raw_events = backend(backend_path)
@@ -1307,9 +1229,7 @@ def run_transcription_job(
                     bp_revision=revision,
                     pyin_revision=pyin_revision,
                     hz_kwargs=hz_kwargs,
-                    prefer="top"
-                    if params.texture == "melody"
-                    else "onset",
+                    prefer="top" if params.texture == "melody" else "onset",
                 )
                 raw_events = gate_events
                 if adopt_pyin:
@@ -1363,16 +1283,13 @@ def run_transcription_job(
 
         # ---- cleaning --------------------------------------------------
         stage(2)
-        ranged = clip_to_range(
-            raw_events, params.selection_start_sec, params.selection_end_sec
-        )
+        ranged = clip_to_range(raw_events, params.selection_start_sec, params.selection_end_sec)
         prefer = "top" if params.texture == "melody" else "onset"
         # #180: pyin already bridges tracker dropouts and splits real
         # re-articulations at onset times — re-merging same-pitch
         # neighbours inside clean_monophonic would undo that split.
-        clean_merge_gap = (
-            0.0 if resolved_pyin else MERGE_GAP_SEC
-        )
+        clean_merge_gap = 0.0 if resolved_pyin else MERGE_GAP_SEC
+
         # Octave-flicker repair evidence: when the neighbour pitch-class
         # rule proposes snapping a note across an octave, the note's own
         # spectrum arbitrates — a played octave figure carries its real
@@ -1451,25 +1368,139 @@ def run_transcription_job(
         # #148: remember when auto detected a mix — the overlap warning
         # then suggests re-transcribing with the voices texture so the
         # accompaniment is not silently merged into the melody.
-        auto_mix_detected = False
-        if params.texture == "auto" and cleaned.events:
-            overlap_ratio = cleaned.polyphonic_overlaps / len(cleaned.events)
-            if (
-                cleaned.polyphonic_overlaps >= AUTO_TEXTURE_MIN_OVERLAPS
-                and overlap_ratio >= AUTO_TEXTURE_OVERLAP_RATIO
-            ):
-                # Mix detected — keep the melody line instead of clipping it.
-                cleaned = clean_monophonic(
-                    ranged,
-                    merge_gap_sec=clean_merge_gap,
+        # #204: the mix signature is BOTH the auto re-clean trigger and
+        # the rescue gate — read it once off the first clean, before a
+        # prefer="top" pass could fold the overlaps it counts.
+        mix_signature = (
+            bool(cleaned.events)
+            and cleaned.polyphonic_overlaps >= AUTO_TEXTURE_MIN_OVERLAPS
+            and cleaned.polyphonic_overlaps / len(cleaned.events) >= AUTO_TEXTURE_OVERLAP_RATIO
+        )
+        auto_mix_detected = params.texture == "auto" and mix_signature
+        # #204: under auto/melody a detected mix now tries vocal
+        # isolation BEFORE settling for the top-voice clip — the user
+        # asked for the melody of a mix, and the isolated stem keeps
+        # far more of it than clip-the-overlaps ever could. Explicit
+        # contracts are honoured: an injected test backend, a pinned
+        # pyin engine, an explicit vocalIsolation=False under voices/
+        # chords (already skipped above), or a declared-mono source
+        # all stay on the raw path.
+        rescue_applied = False
+        if (
+            mix_signature
+            and params.texture in ("auto", "melody")
+            and not params.vocal_isolation
+            and params.backend != "pyin"
+            and backend is None
+            and vocal_path is None
+        ):
+            (
+                rescue_vocal_path,
+                _rescue_reason,
+                rescue_managed,
+                rescue_method,
+                rescue_method_version,
+            ) = vocal_wav(
+                params.audio_path,
+                audio_hash,
+                vis_lo,
+                vis_hi,
+                sample_rate,
+                # Engine-initiated separation keeps the fast tier — a
+                # ~4x precision run is the user's explicit choice,
+                # not something the pipeline spends silently.
+                quality="standard",
+            )
+            rescue_accomp_path = (
+                accompaniment_wav_for(rescue_vocal_path) if rescue_vocal_path is not None else None
+            )
+            rescue_cleaned = None
+            rescue_events: tuple[RawNoteEvent, ...] = ()
+            if rescue_vocal_path is not None and not stop(2):
+                rescue_preprocess = {
+                    "vocalIsolation": True,
+                    "method": rescue_method or "none",
+                    "methodVersion": rescue_method_version,
+                    "auto": True,
+                }
+                rescue_revision = new_transcription_revision(
+                    audio_hash or params.audio_path,
+                    params.settings_dict(),
+                    backend_id=BACKEND_ID,
+                    backend_version=BACKEND_VERSION + "+rescue",
+                    preprocess=rescue_preprocess,
+                )
+                try:
+                    rescue_events = predict_note_events_rescued(
+                        rescue_vocal_path,
+                        revision=rescue_revision,
+                        **hz_kwargs,
+                    )
+                except Exception:
+                    rescue_events = ()
+                rescue_events = _shift_event_times(rescue_events, selection_offset_sec)
+                rescue_ranged = clip_to_range(
+                    rescue_events,
+                    params.selection_start_sec,
+                    params.selection_end_sec,
+                )
+                rescue_cleaned = clean_monophonic(
+                    rescue_ranged,
+                    merge_gap_sec=MERGE_GAP_SEC,
                     prefer="top",
                     octave_verdict=_octave_ev,
                 )
-                auto_mix_detected = True
-                # The re-clean is a second real unit — the total grows
-                # from 1 to 2 only when the mix signature actually
-                # forced the extra pass.
+            if rescue_cleaned is not None and rescue_cleaned.events:
+                # Adopt the rescue: provenance re-mints so the tr-* id
+                # names the chain that actually produced the score.
+                revision = rescue_revision
+                preprocess = rescue_preprocess
+                backend_id = BACKEND_ID
+                backend_version = BACKEND_VERSION + "+rescue"
+                vocal_path = rescue_vocal_path
+                vocal_managed = rescue_managed
+                vocal_reason = "applied"
+                vocal_method = rescue_method
+                vocal_method_version = rescue_method_version
+                accomp_path = rescue_accomp_path
+                accomp_managed = rescue_managed
+                ranged = rescue_ranged
+                cleaned = rescue_cleaned
+                rescue_applied = True
+                auto_mix_detected = params.texture == "auto"
+                # Adopting the stem replaces the whole raw-event set —
+                # earlier raw detection output is discarded.
+                raw_events = rescue_events
+                # Same temp lifecycle as the opt-in path — the
+                # backend already consumed the stem.
+                if not vocal_managed:
+                    with contextlib.suppress(OSError):
+                        os.unlink(vocal_path)
+            else:
+                # Stem empty or detection failed — drop the rescue
+                # temps; the top-voice fallback below still applies.
+                for p, managed in (
+                    (rescue_vocal_path, rescue_managed),
+                    (rescue_accomp_path, rescue_managed),
+                ):
+                    if p and not managed:
+                        with contextlib.suppress(OSError):
+                            os.unlink(p)
+            if rescue_applied:
                 step(2, 2, 2)
+        if auto_mix_detected and not rescue_applied:
+            # Mix detected — keep the melody line instead of clipping
+            # it (the #204 rescue did not produce a usable stem).
+            cleaned = clean_monophonic(
+                ranged,
+                merge_gap_sec=clean_merge_gap,
+                prefer="top",
+                octave_verdict=_octave_ev,
+            )
+            # The re-clean is a second real unit — the total grows
+            # from 1 to 2 only when the mix signature actually
+            # forced the extra pass.
+            step(2, 2, 2)
         # #200: a mono-declared job with the same overlap signature
         # probably means the audio was not actually monophonic — the
         # voices re-run remedy applies there too (melody intentionally
@@ -1478,8 +1509,7 @@ def run_transcription_job(
             params.texture == "mono"
             and cleaned.events
             and cleaned.polyphonic_overlaps >= AUTO_TEXTURE_MIN_OVERLAPS
-            and cleaned.polyphonic_overlaps / len(cleaned.events)
-            >= AUTO_TEXTURE_OVERLAP_RATIO
+            and cleaned.polyphonic_overlaps / len(cleaned.events) >= AUTO_TEXTURE_OVERLAP_RATIO
         )
         if not cleaned.events:
             emit(
@@ -1491,6 +1521,64 @@ def run_transcription_job(
                 },
             )
             return
+        # #203: accompaniment staff — when isolation (opt-in or the
+        # #204 rescue) produced an accompaniment stem and the job did
+        # not opt out, detect its lines on the same grid.  Up to two
+        # voices (a top line + a bass-ish line) each become their own
+        # staff at build time; more would just be bleed noise on a
+        # real mix.
+        accomp_cleaned: list[CleanedEvents] = []
+        if accomp_path is not None and params.accompaniment_part:
+            try:
+                accomp_events = predict_note_events(
+                    accomp_path,
+                    revision=revision,
+                    # The accompaniment band is the full melody band —
+                    # a declared-mono texture caps the LEAD at 880 Hz
+                    # but backing keys/guitar live far above it.
+                    max_frequency_hz=MELODY_MAX_FREQUENCY_HZ,
+                )
+            except Exception:
+                accomp_events = ()
+            # A second predict_* call re-mints rne-* ids from zero —
+            # identical to the lead line's ids.  Rename BEFORE the
+            # events enter the shared event_by_id namespace or an
+            # accompaniment note would resolve its pitch/confidence
+            # off the colliding lead event and render garbage.
+            accomp_events = tuple(
+                replace(e, id=RawNoteEventId(f"rne-a{i + 1:06d}"))
+                for i, e in enumerate(accomp_events)
+            )
+            accomp_events = _shift_event_times(accomp_events, selection_offset_sec)
+            accomp_ranged = clip_to_range(
+                accomp_events,
+                params.selection_start_sec,
+                params.selection_end_sec,
+            )
+            if accomp_ranged:
+                a_split = split_voices(
+                    accomp_ranged,
+                    max_voices=min(2, params.max_voices),
+                )
+                for v in a_split.voices:
+                    c = clean_monophonic(
+                        v,
+                        merge_gap_sec=MERGE_GAP_SEC,
+                        octave_verdict=_octave_ev,
+                    )
+                    if c.events:
+                        accomp_cleaned.append(c)
+            # The stem file's job ends at detection — an unmanaged
+            # temp is released here, the managed cache copy stays.
+            if not accomp_managed:
+                with contextlib.suppress(OSError):
+                    os.unlink(accomp_path)
+            accomp_path = None
+        elif accomp_path is not None and not accomp_managed:
+            # Part opted out — release the unused stem temp.
+            with contextlib.suppress(OSError):
+                os.unlink(accomp_path)
+            accomp_path = None
         if stop(2):
             return
 
@@ -1533,9 +1621,7 @@ def run_transcription_job(
                 samples,
                 sample_rate,
             )
-            meter_est = estimate_meter(
-                beat_times or (), strengths, event_accents=accents
-            )
+            meter_est = estimate_meter(beat_times or (), strengths, event_accents=accents)
             meter_est_label = meter_est.meter
             # #24 contract fix: an uncertain estimate never writes its
             # guess — the estimator contract (meter.py) says the caller
@@ -1578,9 +1664,7 @@ def run_transcription_job(
                 start_ql=Fraction(0),
                 numerator=meter.numerator,
                 denominator=meter.denominator,
-                measure_phase_ql=(
-                    meter.measure_length_ql - estimate.pickup_len_ql
-                ),
+                measure_phase_ql=(meter.measure_length_ql - estimate.pickup_len_ql),
             )
         meter_map = MeterMap((meter,))
         if stop(3):
@@ -1589,13 +1673,11 @@ def run_transcription_job(
         # ---- quantizing ------------------------------------------------
         stage(4)
         profile = params.quantization_profile()
-        alternatives = quantize_events(
-            cleaned.events, estimate.warp, meter_map, profile
-        )
+        alternatives = quantize_events(cleaned.events, estimate.warp, meter_map, profile)
         # #385: one real unit per quantized voice.
-        quantize_total = 1 + sum(
-            1 for c in cleaned_lowers if c.events
-        )
+        quantize_total = 1 + sum(1 for c in cleaned_lowers if c.events)
+        # #203: each surviving accompaniment voice is a real unit too.
+        quantize_total += len(accomp_cleaned)
         step(4, 1, quantize_total)
         if not alternatives:
             emit(
@@ -1629,6 +1711,30 @@ def run_transcription_job(
             step(4, quantize_done, quantize_total)
         if stop(4):
             return
+        # #203: accompaniment voices quantize against the SAME warp,
+        # meter map and alignment shift — the two staves must stay
+        # glued to one grid.
+        accomp_alternatives = []
+        accomp_evidence: list[list[RawNoteEvent]] = []
+        for c in accomp_cleaned:
+            alts = quantize_events(
+                c.events,
+                estimate.warp,
+                meter_map,
+                profile,
+                alignment_shift_sec=best.diagnostics.alignment_shift_sec,
+            )
+            if alts:
+                accomp_alternatives.append(alts)
+                # Keep one evidence entry per voice that survived — the
+                # document's raw_evidence.parts must line up 1:1 with
+                # payload.parts or requantize silently falls back to
+                # the synthetic path for the whole score.
+                accomp_evidence.append(list(c.events))
+            quantize_done += 1
+            step(4, quantize_done, quantize_total)
+        if stop(4):
+            return
 
         # ---- building_score -------------------------------------------
         stage(5)
@@ -1636,11 +1742,12 @@ def run_transcription_job(
         # octave census (auto tempo only), build_score, evidence doc.
         build_done = 0
         build_total = 4 + int(estimate.auto)
-        event_by_id: dict[RawNoteEventId, RawNoteEvent] = {
-            e.id: e for e in cleaned.events
-        }
+        event_by_id: dict[RawNoteEventId, RawNoteEvent] = {e.id: e for e in cleaned.events}
         for cleaned_lower in cleaned_lowers:
             for e in cleaned_lower.events:
+                event_by_id.setdefault(e.id, e)
+        for c in accomp_cleaned:
+            for e in c.events:
                 event_by_id.setdefault(e.id, e)
         key_pitches: list[int] = []
         key_durations: list[Fraction] = []
@@ -1659,9 +1766,7 @@ def run_transcription_job(
         measure_len_ql = meter.measure_length_ql
         measure_starts: list[Fraction] = [Fraction(0)]
         pos = (estimate.pickup_len_ql or measure_len_ql) / beat_ql
-        last_onset = max(
-            (n.onset_ql / beat_ql for n in best.notes), default=Fraction(0)
-        )
+        last_onset = max((n.onset_ql / beat_ql for n in best.notes), default=Fraction(0))
         while pos <= last_onset:
             measure_starts.append(pos)
             pos += measure_len_ql / beat_ql
@@ -1707,14 +1812,8 @@ def run_transcription_job(
             seg_beats: list[tuple[Fraction, Fraction]] = []
             seg_secs: list[tuple[float, float]] = []
             for lo_b, hi_b in pairwise(ordered_bounds):
-                lo_s = (
-                    estimate.warp.ql_to_seconds(lo_b * beat_ql)
-                    - selection_offset_sec
-                )
-                hi_s = (
-                    estimate.warp.ql_to_seconds(hi_b * beat_ql)
-                    - selection_offset_sec
-                )
+                lo_s = estimate.warp.ql_to_seconds(lo_b * beat_ql) - selection_offset_sec
+                hi_s = estimate.warp.ql_to_seconds(hi_b * beat_ql) - selection_offset_sec
                 if hi_s > lo_s:
                     seg_beats.append((lo_b, hi_b))
                     seg_secs.append((lo_s, hi_s))
@@ -1742,9 +1841,7 @@ def run_transcription_job(
                     margin=est.margin,
                     label=est.label(prefer_flats),
                 )
-                for (lo_b, hi_b), est in zip(
-                    seg_beats, chord_map, strict=True
-                )
+                for (lo_b, hi_b), est in zip(seg_beats, chord_map, strict=True)
             )
         except Exception:  # noqa: BLE001 - enhancement layer
             chord_map = ()
@@ -1797,22 +1894,25 @@ def run_transcription_job(
             source_audio_path=params.audio_path,
             source_audio_hash=audio_hash,
             settings=params.settings_dict(),
-            extra_voices=(
-                tuple(alts[0] for alts in lower_alternatives)
+            extra_voices=(tuple(alts[0] for alts in lower_alternatives)),
+            extra_parts=(
+                # #203: each surviving accompaniment voice is its own
+                # staff — a self-tiling stream keeps the canonical
+                # rest contract a merged layer-0 could not.
+                tuple(
+                    ("伴奏" if len(accomp_alternatives) == 1 else f"伴奏 {i + 1}", alts[0])
+                    for i, alts in enumerate(accomp_alternatives)
+                )
             ),
             merge_voices=params.texture == "chords",
             voice_names=(
                 # #251: the chords texture is an analytical capture of
                 # simultaneous notes, not a one-player part — the part
                 # name says so wherever the score is exported.
-                ("Horn in F (chords)",)
-                if params.texture == "chords"
-                else ()
+                ("Horn in F (chords)",) if params.texture == "chords" else ()
             ),
             key_changes=key_changes,
-            swing_feel=(
-                swing_est.mean_phase if swing_est.detected else None
-            ),
+            swing_feel=(swing_est.mean_phase if swing_est.detected else None),
             transcription_backend=backend_id,
             transcription_backend_version=backend_version,
         )
@@ -1834,15 +1934,16 @@ def run_transcription_job(
             if params.texture == "chords"
             else [list(c.events) for c in (cleaned, *cleaned_lowers)]
         )
+        # #203: accompaniment staves keep their events in evidence
+        # too — one entry per emitted part (positional parity with
+        # payload.parts is what lets requantize replay them).
+        evidence_parts.extend(accomp_evidence)
         document = replace(
             built.document,
             raw_evidence={
                 "transcriptionRevision": str(revision),
                 "warp": _warp_evidence(estimate.warp),
-                "parts": [
-                    {"events": [e.to_dict() for e in evs]}
-                    for evs in evidence_parts
-                ],
+                "parts": [{"events": [e.to_dict() for e in evs]} for evs in evidence_parts],
             },
             # #44: the chord map rides along as document-level
             # analysis - MusicXML export renders it as <harmony>.
@@ -1868,9 +1969,7 @@ def run_transcription_job(
         quantizer_issues_count = len(issues)
         issues.extend(
             _extra_issues(
-                tuple(
-                    n for p in built.payload.parts for n in p.notes
-                ),
+                tuple(n for p in built.payload.parts for n in p.notes),
                 built.note_confidence,
                 built.note_onset_sec,
                 event_by_id,
@@ -1989,9 +2088,7 @@ def run_transcription_job(
         # low-confidence or two-candidate estimate silently.
         # #53: a pinned key is user attestation — certainty by
         # definition, so no uncertainty issue can fire.
-        key_uncertain = (
-            key_uncertainty(key_analysis) if key_analysis is not None else None
-        )
+        key_uncertain = key_uncertainty(key_analysis) if key_analysis is not None else None
         if key_uncertain is not None:
             issues.append(
                 ReviewIssue(
@@ -2021,9 +2118,7 @@ def run_transcription_job(
                         evidence={
                             "secondVoiceNotes": extra_counts[0],
                             "extraVoiceNotes": sum(extra_counts),
-                            "voiceCounts": [
-                                len(voice_split.voices[0])
-                            ] + extra_counts,
+                            "voiceCounts": [len(voice_split.voices[0])] + extra_counts,
                             "droppedBeyondVoices": voice_split.dropped_beyond_voices,
                             "note": (
                                 "overlapping pitches were kept as extra parts"
@@ -2056,7 +2151,12 @@ def run_transcription_job(
                         # vocal first — offered alongside voices only
                         # when isolation was not already used.
                         "suggestVocalIsolation": (
-                            mix_suggest_voices and not params.vocal_isolation
+                            # #204: an isolation that ran (opt-in or
+                            # auto-rescue) already applied the remedy —
+                            # and one the user already asked for is
+                            # reported by its own issue, so re-suggesting
+                            # would be noise either way.
+                            mix_suggest_voices and vocal_path is None and not params.vocal_isolation
                         ),
                     },
                 )
@@ -2071,10 +2171,7 @@ def run_transcription_job(
         if (
             resolved_pyin
             and params.texture in ("voices", "chords", "auto")
-            and (
-                vocal_path is None
-                or params.texture in ("voices", "chords")
-            )
+            and (vocal_path is None or params.texture in ("voices", "chords"))
         ):
             issues.append(
                 ReviewIssue(
@@ -2127,9 +2224,7 @@ def run_transcription_job(
                 source_rms = _samples_rms(samples)
                 if estimate_rms is not None and source_rms > 0:
                     ratio = estimate_rms / source_rms
-                    threshold = _LOW_LEAD_RMS_RATIO.get(
-                        vocal_method, _LOW_LEAD_RMS_RATIO_DEFAULT
-                    )
+                    threshold = _LOW_LEAD_RMS_RATIO.get(vocal_method, _LOW_LEAD_RMS_RATIO_DEFAULT)
                     if ratio < threshold:
                         issues.append(
                             ReviewIssue(
@@ -2142,11 +2237,8 @@ def run_transcription_job(
                                 evidence={
                                     "sourceRms": round(source_rms, 5),
                                     "vocalRms": round(estimate_rms, 5),
-                                    "ratioDb": round(
-                                        20.0 * math.log10(ratio), 1
-                                    ),
-                                    "method": vocal_method
-                                    or "center_extraction",
+                                    "ratioDb": round(20.0 * math.log10(ratio), 1),
+                                    "method": vocal_method or "center_extraction",
                                 },
                             )
                         )
@@ -2211,19 +2303,13 @@ def run_transcription_job(
                 )
             )
         # Deterministic renumber across the merged set.
-        issues.sort(
-            key=lambda i: (i.time_range.start_sec, i.reason.value)
-        )
+        issues.sort(key=lambda i: (i.time_range.start_sec, i.reason.value))
         allocator = IssueIdAllocator()
-        issues = [
-            replace(issue, id=allocator.allocate()) for issue in issues
-        ]
+        issues = [replace(issue, id=allocator.allocate()) for issue in issues]
         # #360: deferred extras need real ids too — they were sliced
         #  out before the renumber, so continue the same allocator or
         #  the desktop's lazy expansion meets empty/duplicate ids.
-        omitted_extras = [
-            replace(issue, id=allocator.allocate()) for issue in omitted_extras
-        ]
+        omitted_extras = [replace(issue, id=allocator.allocate()) for issue in omitted_extras]
         if stop(5):
             return
 
@@ -2249,13 +2335,12 @@ def run_transcription_job(
             verify_rhythm_roundtrip,
             verify_written_projection,
         )
+
         rhythm_problems: list[str] = []
         for pi in range(len(payload.parts)):
             rhythm_problems += [
                 f"part {pi}: {p}"
-                for p in verify_rhythm_roundtrip(
-                    document, musicxml_concert, part_index=pi
-                )
+                for p in verify_rhythm_roundtrip(document, musicxml_concert, part_index=pi)
             ]
             render_done += 1
             step(6, 3 + render_done, render_total)
@@ -2267,9 +2352,7 @@ def run_transcription_job(
         for pi in range(len(payload.parts)):
             rhythm_problems += [
                 f"hornF part {pi}: {p}"
-                for p in verify_rhythm_roundtrip(
-                    document, musicxml_horn, part_index=pi
-                )
+                for p in verify_rhythm_roundtrip(document, musicxml_horn, part_index=pi)
             ]
             render_done += 1
             step(6, 3 + render_done, render_total)
@@ -2291,9 +2374,7 @@ def run_transcription_job(
         for pi in range(len(payload.parts)):
             rhythm_problems += [
                 f"bFlat part {pi}: {p}"
-                for p in verify_rhythm_roundtrip(
-                    document, musicxml_b_flat, part_index=pi
-                )
+                for p in verify_rhythm_roundtrip(document, musicxml_b_flat, part_index=pi)
             ]
             render_done += 1
             step(6, 3 + render_done, render_total)
@@ -2315,18 +2396,18 @@ def run_transcription_job(
             # unique by continuing the same allocator).
             issues.append(
                 replace(
-                ReviewIssue(
-                    id="",
-                    score_revision=score_revision,
-                    canonical_note_ids=(),
-                    time_range=analysis_range,
-                    reason=ReviewReason.STRUCTURAL_MEASURE_CONFLICT,
-                    severity=Severity.WARNING,
-                    evidence={
-                        "rhythmRoundtripProblems": rhythm_problems[:10],
-                    },
-                ),
-                id=allocator.allocate(),
+                    ReviewIssue(
+                        id="",
+                        score_revision=score_revision,
+                        canonical_note_ids=(),
+                        time_range=analysis_range,
+                        reason=ReviewReason.STRUCTURAL_MEASURE_CONFLICT,
+                        severity=Severity.WARNING,
+                        evidence={
+                            "rhythmRoundtripProblems": rhythm_problems[:10],
+                        },
+                    ),
+                    id=allocator.allocate(),
                 ),
             )
 
@@ -2357,11 +2438,7 @@ def run_transcription_job(
                     # isolation method+version (or why it did not run)
                     # produced the audio the backend saw. Absent when
                     # no preprocessing was requested.
-                    **(
-                        {"preprocess": preprocess}
-                        if preprocess is not None
-                        else {}
-                    ),
+                    **({"preprocess": preprocess} if preprocess is not None else {}),
                     "tempoBpm": round(estimate.median_bpm, 2),
                     "tempoAuto": estimate.auto,
                     "meter": f"{meter.numerator}/{meter.denominator}",
@@ -2375,16 +2452,12 @@ def run_transcription_job(
                     "keyHinted": key_hint_sig is not None,
                     # #419: measure-segmented chord map - consecutive
                     # same-chord spans merged for readability.
-                    "chordProgression": _merged_chord_dicts(
-                        chord_map, prefer_flats
-                    ),
+                    "chordProgression": _merged_chord_dicts(chord_map, prefer_flats),
                     "noteCount": sum(len(p.notes) for p in payload.parts),
                     "partCount": len(payload.parts),
                     "pickupBeats": str(payload.pickup_beats),
                     "alignmentShiftSec": round(shift, 4),
-                    "alignmentMeterResolved": bool(
-                        best.diagnostics.alignment_meter_resolved
-                    ),
+                    "alignmentMeterResolved": bool(best.diagnostics.alignment_meter_resolved),
                     "reviewReasons": list(best.diagnostics.review_reasons),
                     # #272: the surfacing cap is never silent — how
                     # many detected issues were left out, by severity.
@@ -2394,9 +2467,7 @@ def run_transcription_job(
                         "omittedBySeverity": omitted_by_severity,
                     },
                     "cleaning": (
-                        voice_split.stats()
-                        if voice_split is not None
-                        else cleaned.stats()
+                        voice_split.stats() if voice_split is not None else cleaned.stats()
                     ),
                     "settings": params.settings_dict(),
                 },
