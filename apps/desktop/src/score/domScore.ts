@@ -231,11 +231,24 @@ export function markReviewMarkers(
   index: ElementIndex,
   canonicalIds: ReadonlySet<string>,
 ): number {
-  for (const el of Array.from(container.querySelectorAll(`g.${REVIEW_MARK_CLASS}`))) {
+  for (const el of Array.from(
+    container.querySelectorAll("g." + REVIEW_MARK_CLASS),
+  )) {
     el.remove();
   }
   let n = 0;
   if (typeof document.createElementNS !== "function") return 0;
+
+  // #220: group flagged notes by their containing staff so a dense
+  // run of open issues draws ONE badge per staff (carrying the count)
+  // instead of a badge per note — the dotted underline still marks
+  // every flagged note individually, and the inspector still lists
+  // each issue on click.
+  interface Flagged {
+    el: SVGGElement;
+    box: DOMRect;
+  }
+  const groups = new Map<Element, Flagged[]>();
   for (const canonicalId of canonicalIds) {
     // One marker per canonical note, on its first rendered fragment.
     const host = index.byCanonical.get(canonicalId)?.[0];
@@ -243,6 +256,22 @@ export function markReviewMarkers(
     try {
       const box = (host as SVGGElement).getBBox();
       if (box.width <= 0 || box.height <= 0) continue;
+      const group =
+        host.closest("g.staff") ?? measureElementOf(host) ?? host;
+      const list = groups.get(group) ?? [];
+      list.push({ el: host as SVGGElement, box });
+      groups.set(group, list);
+    } catch {
+      /* getBBox unsupported — skip this marker */
+    }
+  }
+
+  for (const hosts of groups.values()) {
+    // Leftmost flagged note carries the consolidated badge — a
+    // deterministic anchor regardless of issue ordering.
+    const sorted = hosts.slice().sort((a, b) => a.box.x - b.box.x);
+    const count = sorted.length;
+    sorted.forEach(({ el, box }, i) => {
       const padX = Math.max(6, box.width * 0.2);
       const lineY = box.y + box.height + Math.max(8, box.height * 0.25);
       const mark = document.createElementNS(SVG_NS, "g");
@@ -254,31 +283,34 @@ export function markReviewMarkers(
       line.setAttribute("x2", String(box.x + box.width + padX));
       line.setAttribute("y1", String(lineY));
       line.setAttribute("y2", String(lineY));
-      line.setAttribute("class", `${REVIEW_MARK_CLASS}__line`);
+      line.setAttribute("class", REVIEW_MARK_CLASS + "__line");
       mark.appendChild(line);
 
-      const r = Math.max(10, box.height * 0.3);
-      const badge = document.createElementNS(SVG_NS, "circle");
-      badge.setAttribute("cx", String(box.x + box.width + padX + r));
-      badge.setAttribute("cy", String(box.y - r * 0.6));
-      badge.setAttribute("r", String(r));
-      badge.setAttribute("class", `${REVIEW_MARK_CLASS}__badge`);
-      mark.appendChild(badge);
+      if (i === 0) {
+        const r = Math.max(10, box.height * 0.3);
+        const badge = document.createElementNS(SVG_NS, "circle");
+        badge.setAttribute("cx", String(box.x + box.width + padX + r));
+        badge.setAttribute("cy", String(box.y - r * 0.6));
+        badge.setAttribute("r", String(r));
+        badge.setAttribute("class", REVIEW_MARK_CLASS + "__badge");
+        mark.appendChild(badge);
 
-      const glyph = document.createElementNS(SVG_NS, "text");
-      glyph.setAttribute("x", String(box.x + box.width + padX + r));
-      glyph.setAttribute("y", String(box.y - r * 0.6 + r * 0.42));
-      glyph.setAttribute("text-anchor", "middle");
-      glyph.setAttribute("font-size", String(r * 1.3));
-      glyph.setAttribute("class", `${REVIEW_MARK_CLASS}__glyph`);
-      glyph.textContent = "!";
-      mark.appendChild(glyph);
+        const glyph = document.createElementNS(SVG_NS, "text");
+        glyph.setAttribute("x", String(box.x + box.width + padX + r));
+        glyph.setAttribute("y", String(box.y - r * 0.6 + r * 0.42));
+        glyph.setAttribute("text-anchor", "middle");
+        glyph.setAttribute(
+          "font-size",
+          String(count > 9 ? r * 0.85 : r * 1.3),
+        );
+        glyph.setAttribute("class", REVIEW_MARK_CLASS + "__glyph");
+        glyph.textContent = count > 1 ? String(count) : "!";
+        mark.appendChild(glyph);
+      }
 
-      host.appendChild(mark);
-      n++;
-    } catch {
-      /* getBBox unsupported — skip this marker */
-    }
+      el.appendChild(mark);
+    });
+    n += count;
   }
   return n;
 }

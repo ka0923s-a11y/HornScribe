@@ -17,6 +17,7 @@ import {
   measureElementOf,
   resolveHitElement,
   MEASURE_ACTIVE_CLASS,
+  REVIEW_MARK_CLASS,
 } from "./domScore";
 
 function scoreDom(): HTMLElement {
@@ -131,5 +132,80 @@ describe("markReviewMarkers", () => {
     expect(markReviewMarkers(root, idx, new Set(["sn-000001"]))).toBe(0);
     // No markers left behind.
     expect(root.querySelectorAll(".hs-review-mark").length).toBe(0);
+  });
+});
+
+describe("markReviewMarkers staff grouping (#220)", () => {
+  function withBboxes(root: HTMLElement): void {
+    let x = 0;
+    root.querySelectorAll("g.note").forEach((el) => {
+      x += 100;
+      Object.defineProperty(el, "getBBox", {
+        value: () => ({ x, y: 50, width: 20, height: 30 }),
+      });
+    });
+  }
+
+  it("draws one badge per staff while underlining every flagged note", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      '<svg><g class="system">',
+      '<g class="measure" id="m1"><g class="staff" id="s1">',
+      '<g class="note" id="hs-sn-000001"><g class="notehead"><use/></g></g>',
+      '<g class="note" id="hs-sn-000002"><g class="notehead"><use/></g></g>',
+      '<g class="note" id="hs-sn-000003"><g class="notehead"><use/></g></g>',
+      "</g></g>",
+      '<g class="measure" id="m2"><g class="staff" id="s2">',
+      '<g class="note" id="hs-sn-000004"><g class="notehead"><use/></g></g>',
+      "</g></g>",
+      "</g></svg>",
+    ].join("");
+    withBboxes(root);
+    const idx = buildElementIndex(root);
+    const n = markReviewMarkers(
+      root,
+      idx,
+      new Set(["sn-000001", "sn-000002", "sn-000003", "sn-000004"]),
+    );
+    expect(n).toBe(4);
+    expect(
+      root.querySelectorAll("." + REVIEW_MARK_CLASS + "__badge").length,
+    ).toBe(2);
+    expect(
+      root.querySelectorAll("." + REVIEW_MARK_CLASS + "__line").length,
+    ).toBe(4);
+    const glyphs = Array.from(
+      root.querySelectorAll("." + REVIEW_MARK_CLASS + "__glyph"),
+    ).map((g) => g.textContent);
+    expect([...glyphs].sort()).toEqual(["!", "3"]);
+  });
+
+  it("falls back to measure grouping when no staff group exists", () => {
+    const root = scoreDom();
+    withBboxes(root);
+    const idx = buildElementIndex(root);
+    const n = markReviewMarkers(
+      root,
+      idx,
+      new Set(["sn-000001", "sn-000002"]),
+    );
+    expect(n).toBe(2);
+    expect(
+      root.querySelectorAll("." + REVIEW_MARK_CLASS + "__badge").length,
+    ).toBe(1);
+    expect(
+      root.querySelectorAll("." + REVIEW_MARK_CLASS + "__line").length,
+    ).toBe(2);
+  });
+
+  it("clears stale marks before regrouping", () => {
+    const root = scoreDom();
+    withBboxes(root);
+    const idx = buildElementIndex(root);
+    markReviewMarkers(root, idx, new Set(["sn-000001", "sn-000002"]));
+    markReviewMarkers(root, idx, new Set(["sn-000001"]));
+    expect(
+      root.querySelectorAll("." + REVIEW_MARK_CLASS + "__line").length,
+    ).toBe(1);
   });
 });
