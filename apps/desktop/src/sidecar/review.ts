@@ -24,6 +24,9 @@ export const REVIEW_REASONS = [
   // #187: vocal-isolation provenance — applied or reported unavailable.
   "vocal_isolation_applied",
   "vocal_isolation_unavailable",
+  // #212: separation-derived accompaniment staff — one informational
+  // provenance marker for the whole part.
+  "accompaniment_part",
   // #358: auto-estimated anacrusis the evidence cannot justify.
   "pickup_uncertain",
   // #423: audio-evidence boundary re-scoring (merge/split/uncertain).
@@ -61,6 +64,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "vocal_isolation_applied",
   "vocal_isolation_unavailable",
   "key_uncertain",
+  "accompaniment_part",
   "pickup_uncertain",
   "boundary_uncertain",
   "chord_uncertain",

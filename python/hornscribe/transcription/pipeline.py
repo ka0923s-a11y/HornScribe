@@ -2260,6 +2260,30 @@ def run_transcription_job(
                     evidence={"detail": vocal_reason},
                 )
             )
+        # #212: the accompaniment staff is separation-derived — the
+        # detection there is necessarily rougher than the lead line's,
+        # so the whole part gets ONE provenance marker instead of
+        # per-note flags (which would double the review list).
+        if accomp_alternatives:
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=analysis_range,
+                    reason=ReviewReason.ACCOMPANIMENT_PART,
+                    severity=Severity.INFO,
+                    evidence={
+                        # Read the emitted names off the document — the
+                        # issue's part list can never drift from the
+                        # staves the user actually sees.
+                        "partNames": [
+                            p.name for p in built.payload.parts if not p.transposing
+                        ],
+                        "method": vocal_method or "none",
+                    },
+                )
+            )
         # #188: the tracked tempo looks like a half/double pick —
         # surface it with the corrected value so the UI can offer a
         # one-click setTempo.

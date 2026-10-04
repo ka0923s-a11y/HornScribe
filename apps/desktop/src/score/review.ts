@@ -34,6 +34,7 @@ export type ReviewReason =
   | "tempo_uncertain"
   | "vocal_isolation_applied"
   | "vocal_isolation_unavailable"
+  | "accompaniment_part"
   | "key_uncertain"
   | "pickup_uncertain"
   | "boundary_uncertain"

@@ -59,6 +59,8 @@ def test_all_master_plan_reasons_exist() -> None:
             "chord_uncertain",
             # #191: buried-lead / possible missed-notes honesty signal.
             "low_lead_level",
+            # #212: separation-derived accompaniment staff provenance.
+            "accompaniment_part",
         }
     assert {r.value for r in ReviewReason} == expected
 
