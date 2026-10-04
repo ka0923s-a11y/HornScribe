@@ -3082,6 +3082,55 @@ class TestAutoRescueAndAccompaniment:
         reasons = {i["reason"] for i in result["reviewIssues"]}
         assert "accompaniment_part" in reasons
 
+    def test_accompaniment_voices_merge_to_one_chordal_part(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # #213: simultaneous backing lines merge into ONE 伴奏 part —
+        # aligned rhythms render as in-part chords, not extra staves.
+        mix = self._mix_events()
+        melody = make_events([72, 74, 76, 74, 72], beat_sec=0.5)
+        backing: list[RawNoteEvent] = []
+        for i in range(4):
+            for pid, pitch in ((0, 40), (1, 57)):
+                backing.append(
+                    RawNoteEvent(
+                        id=RawNoteEventId(f"rne-b{i * 2 + pid:06d}"),
+                        transcription_revision=_REV,
+                        pitch_midi=float(pitch),
+                        onset_sec=float(i),
+                        offset_sec=float(i) + 0.9,
+                        confidence=0.9,
+                        velocity=80,
+                        source="test",
+                    )
+                )
+
+        def _predict(path: str, **kw: Any) -> tuple[RawNoteEvent, ...]:
+            return (
+                tuple(backing)
+                if Path(path).name.endswith(".accomp.wav")
+                else mix
+            )
+
+        log = self._run_engine(
+            tmp_path,
+            monkeypatch,
+            _predict,
+            vocal_wav_result=self._stems(tmp_path),
+            rescued=melody,
+        )
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        parts = result["scoreDocument"]["content"]["parts"]
+        # Both backing voices fold into ONE staff — never 伴奏 1/伴奏 2.
+        assert len(parts) == 2
+        assert parts[1]["name"] == "伴奏"
+        assert parts[1]["transposing"] is False
+        assert {n["pitchMidi"] for n in parts[1]["notes"]} == {40, 57}
+        # Positional evidence parity still holds for requantize.
+        evidence = result["scoreDocument"]["rawEvidence"]
+        assert len(evidence["parts"]) == len(parts)
+
     def test_accompaniment_part_opt_out(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
