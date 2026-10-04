@@ -1000,6 +1000,61 @@ class TestRequantizeEvidence:
         # Real source ids — not positional placeholders.
         assert out.payload.parts[0].notes[1].source_event_ids
 
+    def test_polyphonic_part_requantizes_as_voices(self) -> None:
+        # #218: a merged part's evidence holds simultaneous events —
+        # requantize must re-split voices and re-merge them instead of
+        # clipping every note at the next onset (chords would die).
+        doc = _doc([_note(1, 72, "0", "1")])
+        accomp = Part(
+            id="part-2",
+            name="伴奏",
+            notes=(
+                _note(2, 57, "0", "1"),
+                _note(3, 40, "0", "1"),
+            ),
+            transposing=False,
+        )
+        doc = replace(
+            doc, payload=replace(doc.payload, parts=(*doc.payload.parts, accomp))
+        )
+        rev = TranscriptionRevisionId("tr-" + "0" * 16)
+
+        def ev(i: int, pitch: int, onset: float, offset: float) -> RawNoteEvent:
+            return RawNoteEvent(
+                id=RawNoteEventId(f"rne-{i:06d}"),
+                transcription_revision=rev,
+                pitch_midi=float(pitch),
+                onset_sec=onset,
+                offset_sec=offset,
+                confidence=0.9,
+            )
+
+        evidence = {
+            "transcriptionRevision": str(rev),
+            "warp": {"kind": "fixedBpm", "bpm": 120.0, "zeroSec": 0.0},
+            "parts": [
+                {"events": [ev(1, 72, 0.0, 0.5).to_dict()]},
+                {
+                    "events": [
+                        ev(2, 57, 0.0, 0.5).to_dict(),
+                        ev(3, 40, 0.0, 0.5).to_dict(),
+                        ev(4, 45, 0.5, 1.0).to_dict(),
+                    ]
+                },
+            ],
+        }
+        doc = replace(doc, raw_evidence=evidence)
+        out = apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/4"}),
+        )
+        p2 = out.payload.parts[1]
+        at_zero = sorted(n.pitch_midi for n in p2.notes if n.start_beat == 0)
+        # The simultaneous 40/57 attack survives as two notes on one
+        # onset — a monophonic pass would have serialized them.
+        assert at_zero == [40, 57]
+        assert any(n.pitch_midi == 45 for n in p2.notes)
+
     def test_missing_evidence_falls_back_to_synthetic(self) -> None:
         doc = _doc([_note(1, 60, "0", "1")])
         meta: dict = {}
