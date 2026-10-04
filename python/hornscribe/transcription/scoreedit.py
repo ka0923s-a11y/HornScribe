@@ -64,8 +64,9 @@ from hornscribe.rhythm.triplet import (
     region_evidence,
 )
 
+from .clean import split_voices
 from .options import _PROFILES, _TRIPLET_POLICIES
-from .scorebuild import _part_content
+from .scorebuild import _layer0_gap_rests, _part_content
 
 
 class ScoreEditError(ValueError):
@@ -1564,6 +1565,35 @@ def _remap_note_ids(
     return tuple(new_parts)
 
 
+def _evidence_is_polyphonic(events: list[RawNoteEvent]) -> bool:
+    """Any two events overlapping in time marks a merged multi-voice
+    part (chords texture / merged accompaniment staff)."""
+    ordered = sorted(events, key=lambda e: (e.onset_sec, e.offset_sec))
+    max_off = 0.0
+    for e in ordered:
+        if e.onset_sec < max_off:
+            return True
+        max_off = max(max_off, e.offset_sec)
+    return False
+
+
+def _max_concurrent(events: list[RawNoteEvent]) -> int:
+    """Peak simultaneous-event count — the voice cap for re-splitting.
+
+    Offsets are processed before onsets at the same instant so abutting
+    events do not count as concurrent.
+    """
+    points = sorted(
+        [(e.onset_sec, 1) for e in events]
+        + [(e.offset_sec, -1) for e in events]
+    )
+    cur = best = 0
+    for _t, d in points:
+        cur += d
+        best = max(best, cur)
+    return max(best, 1)
+
+
 def _requantize_from_events(
     payload: ScoreRevisionPayload,
     evidence_parts: list[list[RawNoteEvent]],
@@ -1578,10 +1608,48 @@ def _requantize_from_events(
     part 1 re-searches its alignment shift; later parts inherit it so
     the voices cannot drift against each other."""
     results: list[tuple[tuple[QuantizedNote, ...], tuple[ScoreRest, ...]]] = []
+    merged_indexes: list[int] = []
     shared_shift: float | None = None
-    for events in evidence_parts:
+    for part_index, events in enumerate(evidence_parts):
         if not events:
             results.append(((), ()))
+            continue
+        if _evidence_is_polyphonic(events):
+            # #218: a merged multi-voice part (chords texture, merged
+            # accompaniment staff).  Replay like the pipeline did —
+            # re-split the persisted events into monophonic lines,
+            # quantize each under the shared shift, merge the results —
+            # a single monophonic pass would clip every note at the
+            # next onset and destroy the chords.
+            voices = split_voices(tuple(events), max_voices=_max_concurrent(events)).voices
+            merged_notes: list[QuantizedNote] = []
+            base_rests: tuple[ScoreRest, ...] = ()
+            rests_taken = False
+            for voice in voices:
+                if not voice:
+                    continue
+                alts = quantize_events(
+                    voice,
+                    warp,
+                    meter_map,
+                    profile,
+                    alignment_shift_sec=shared_shift,
+                )
+                if not alts:
+                    continue
+                if shared_shift is None:
+                    shared_shift = alts[0].diagnostics.alignment_shift_sec
+                ev_by_id = {e.id: e for e in voice}
+                v_notes, v_rests, _c, _o = _part_content(
+                    alts[0], beat_ql, ev_by_id
+                )
+                merged_notes.extend(v_notes)
+                if not rests_taken:
+                    base_rests = tuple(v_rests)
+                    rests_taken = True
+            merged_notes.sort(key=lambda n: (n.start_beat, n.pitch_midi, n.id))
+            results.append((tuple(merged_notes), base_rests))
+            merged_indexes.append(part_index)
             continue
         alternatives = quantize_events(
             events,
@@ -1604,11 +1672,16 @@ def _requantize_from_events(
         raise ScoreEditError(
             "re-quantization produced no notes for this score"
         )
-    return replace(
+    out = replace(
         payload,
         parts=_remap_note_ids(payload, results, keep_source_ids=True),
         quantization_settings=settings,
     )
+    if merged_indexes:
+        # Voice-1 rests alone leave layer-0 holes under displaced or
+        # out-of-reach notes — tile them the way build_score does.
+        out = _layer0_gap_rests(out, tuple(merged_indexes))
+    return out
 
 
 def _requantize_synthetic(
