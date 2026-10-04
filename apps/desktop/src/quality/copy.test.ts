@@ -22,6 +22,8 @@ const ALLOWED_WORDS = new Set(
     "MuseScore",
     "Verovio",
     "WebView2",
+    /* #222: the addon download page lives on the GitHub releases */
+    "GitHub",
     "WAV",
     "FLAC",
     "MP3",
