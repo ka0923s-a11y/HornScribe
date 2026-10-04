@@ -219,6 +219,23 @@ export function partNames(canonicalDocument: unknown): string[] {
 }
 
 /**
+ * Per-part transposing flags in canonical order (#203). The engine omits
+ * the field on transposing parts, so anything but an explicit false
+ * counts as transposing — the same sparse-payload rule the option uses.
+ * Non-transposing parts (the accompaniment staves) are how the mixer
+ * picks a lower default fader so the lead line stays on top.
+ */
+export function partTransposing(canonicalDocument: unknown): boolean[] {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  const parts = content?.["parts"];
+  if (!Array.isArray(parts)) return [];
+  return parts.map(
+    (rawPart) => (rawPart as Record<string, unknown>)["transposing"] !== false,
+  );
+}
+
+/**
  * One mixer row for a canonical part (#398): the UI state the user edits
  * (volume slider + mute + solo), kept separate from the synth so the
  * effective-gain math is a pure, testable function.

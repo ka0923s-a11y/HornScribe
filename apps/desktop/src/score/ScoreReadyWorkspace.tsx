@@ -84,6 +84,7 @@ import {
   effectivePartGains,
   partIndexByCanonicalId,
   partNames,
+  partTransposing,
   type PartMixEntry,
 } from "./playbackSynth";
 import { buildSwingWarp } from "./swingWarp";
@@ -470,10 +471,14 @@ export function ScoreReadyWorkspace({
    *  for synth.load. */
   const syncPartMix = useCallback((canonicalDoc: unknown) => {
     const names = partNames(canonicalDoc);
+    const transposing = partTransposing(canonicalDoc);
     const prev = partMixRef.current;
     const next: PartMixEntry[] = names.map((name, i) => ({
       name,
-      volume: prev[i]?.volume ?? 1,
+      // #203: a fresh non-transposing staff (accompaniment) opens at
+      // 0.7 — audible underneath the lead it backs, not on top of it.
+      // Rows the user already mixed keep their fader verbatim.
+      volume: prev[i]?.volume ?? (transposing[i] === false ? 0.7 : 1),
       muted: prev[i]?.muted ?? false,
       solo: prev[i]?.solo ?? false,
     }));

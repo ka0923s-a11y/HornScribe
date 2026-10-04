@@ -12,6 +12,7 @@ import {
   effectivePartGains,
   partIndexByCanonicalId,
   partNames,
+  partTransposing,
 } from "./playbackSynth";
 import type { PlaybackTable } from "./playbackTable";
 import type { ParsedNote } from "./scoreDoc";
@@ -251,6 +252,22 @@ describe("partNames (#398)", () => {
     expect(names[0]).not.toBe(names[1]);
     expect(partNames(null)).toEqual([]);
     expect(partNames(doc([]))).toEqual([]);
+  });
+});
+
+describe("partTransposing (#203)", () => {
+  it("reads the sparse flag — absent means transposing", () => {
+    const d = doc([
+      { id: "P1", name: "Horn in F", notes: [] },
+      { id: "P2", name: "伴奏", transposing: false, notes: [] },
+      { id: "P3", name: "x", transposing: true, notes: [] },
+    ]);
+    expect(partTransposing(d)).toEqual([true, false, true]);
+  });
+
+  it("empty documents yield no flags", () => {
+    expect(partTransposing(null)).toEqual([]);
+    expect(partTransposing(doc([]))).toEqual([]);
   });
 });
 
