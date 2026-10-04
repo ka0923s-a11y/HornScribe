@@ -688,6 +688,11 @@ def _build_part_measures(
         # signature and no <transpose> declaration whatever view the
         # lead part uses.
         presentation = PitchSpace.CONCERT
+        # The staff carries no transposition but still wants a real
+        # instrument declaration: without one the export's score-part
+        # has no <score-instrument>/<midi-instrument> and readers
+        # play the backing lines on an arbitrary default timbre.
+        part.insert(0, instrument.Piano())
     spec = transposition.spec_for(presentation)
     if spec is not None:
         # Every written view keeps the Horn instrument identity (the
