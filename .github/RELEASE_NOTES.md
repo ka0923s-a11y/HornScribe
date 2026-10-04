@@ -6,6 +6,7 @@ Windows向けデスクトップアプリ（Tauri 2 + React + Verovio）。日本
 
 - `*-setup.exe` — NSISインストーラー
 - `*-portable.zip` — インストール不要のポータブル版（展開して `HornScribe.exe` を実行）
+- `HornScribe-demucs-addon-*-win64.zip` — 任意アドオン: 高精度ボーカル分離(demucs)。設定→ツールの「アドオンの場所」に展開してエンジンを再起動すると有効化します（約160MB、初回利用時に分離モデルが自動ダウンロードされます）
 
 ### 要件
 
