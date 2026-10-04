@@ -134,7 +134,13 @@ export interface ScoreWorkspaceController {
    *  part. Applied live to the audition synth; mirrored into state. */
   updatePartMix?(
     index: number,
-    patch: { volume?: number; muted?: boolean; solo?: boolean },
+    patch: {
+      volume?: number;
+      muted?: boolean;
+      solo?: boolean;
+      /** #210: score-view visibility (display-only). */
+      visible?: boolean;
+    },
   ): void;
   /** #101: mixer row edit — the click layer's fader (0..1). */
   updateClickVolume?(volume: number): void;
@@ -219,6 +225,8 @@ export interface ScoreWorkspaceState {
     volume: number;
     muted: boolean;
     solo: boolean;
+    /** #210: score-view visibility (display-only). */
+    visible: boolean;
   }[];
   /** #399: in-flight serialized engine edits — >0 means committed
    *  content trails the user's actions; guards must treat this as

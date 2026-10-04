@@ -184,6 +184,9 @@ export const ja = {
     partUnmute: "ミュート解除",
     partSolo: "このパートだけ聴く",
     partUnsolo: "ソロを解除",
+    /* #210: スコア表示のパート単位トグル — 表示のみで再生には影響しない。 */
+    partShow: "このパートを譜面に表示",
+    partHide: "このパートを譜面から隠す",
   },
 
   status: {

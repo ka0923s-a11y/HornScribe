@@ -22,6 +22,8 @@ import {
   Headphones24Regular,
   TopSpeed24Regular,
   Timer324Regular,
+  Eye24Regular,
+  EyeOff24Regular,
 } from "@fluentui/react-icons";
 import { ja } from "../strings/ja";
 import type { CommandSurface } from "../commands/registry";
@@ -95,10 +97,18 @@ export function TransportBar({
       volume: number;
       muted: boolean;
       solo: boolean;
+      /** #210: score-view visibility — display-only, the part still
+       *  sounds through its mixer channel. */
+      visible: boolean;
     }[];
     onPartChange(
       index: number,
-      patch: { volume?: number; muted?: boolean; solo?: boolean },
+      patch: {
+        volume?: number;
+        muted?: boolean;
+        solo?: boolean;
+        visible?: boolean;
+      },
     ): void;
     /** 元音源 fader — only while audio is loaded. */
     readonly source?: { volume: number; onVolume(v: number): void } | null;
@@ -404,6 +414,38 @@ export function TransportBar({
                 disabled={part.muted}
                 onChange={(v) => mixer.onPartChange(i, { volume: v / 100 })}
               />
+              {/* #210: visibility is display-only — hiding the staff
+                  never mutes the part. The last visible row keeps its
+                  eye locked on so the score never renders empty. */}
+              <Tooltip
+                content={
+                  part.visible ? ja.transport.partHide : ja.transport.partShow
+                }
+                relationship="label"
+              >
+                <ToggleButton
+                  className="hs-mixer__toggle"
+                  size="small"
+                  icon={
+                    part.visible ? <Eye24Regular /> : <EyeOff24Regular />
+                  }
+                  checked={part.visible}
+                  disabled={
+                    part.visible &&
+                    (mixer?.parts.filter((p) => p.visible).length ?? 0) <= 1
+                  }
+                  aria-label={
+                    part.name +
+                    ": " +
+                    (part.visible
+                      ? ja.transport.partHide
+                      : ja.transport.partShow)
+                  }
+                  onClick={() =>
+                    mixer.onPartChange(i, { visible: !part.visible })
+                  }
+                />
+              </Tooltip>
               <Tooltip
                 content={
                   part.solo ? ja.transport.partUnsolo : ja.transport.partSolo
