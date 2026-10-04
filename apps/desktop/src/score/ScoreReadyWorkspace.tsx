@@ -363,6 +363,29 @@ function inspectorCopy(): InspectorCopy {
         ) {
           return ja.reviewEvidence.vocalIsolationPolyphonic;
         }
+        // #222: buried lead — name the measured deficit and only the
+        // remedy this install can reach: addon install when demucs is
+        // absent, a precision-tier retry when the standard tier ran,
+        // or listen-and-edit once precision already ran. Older projects
+        // carry no tier/demucsAvailable evidence — a missing demucs flag
+        // resolves to "listen" rather than a possibly dead-end hint.
+        if (issue.reason === "low_lead_level") {
+          const method = issue.evidence["method"];
+          if (typeof method === "string") {
+            const demucsAvailable = issue.evidence["demucsAvailable"];
+            const tier = issue.evidence["tier"];
+            return ja.reviewEvidence.lowLeadLevel({
+              ratioDb: numEvidence(issue, "ratioDb"),
+              remedy:
+                method === "center_extraction" &&
+                demucsAvailable === false
+                  ? "addon"
+                  : method === "demucs" && tier !== "precision"
+                    ? "precision"
+                    : "listen",
+            });
+          }
+        }
         return (REASON_DECK[issue.reason] ?? ja.reviewReasons.other).detail;
       },
       severityLabel: (s) => ja.reviewSeverity[s] ?? ja.reviewSeverity.info,
