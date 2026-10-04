@@ -167,6 +167,7 @@ import {
 import {
   TranscriptionSession,
   createDefaultSidecarPort,
+  isSettled,
   type EngineStatus,
 } from "./sidecar";
 import {
@@ -343,6 +344,9 @@ export default function App() {
             // #81: the applied timing correction rides the same meta —
             // null (row omitted) when no nonzero shift was applied.
             timingCorrection: extractTimingCorrection(s.lastResult),
+            // #199: restart buttons disable while a job is live —
+            // restarting a healthy engine would kill it.
+            jobRunning: Boolean(s.job && !isSettled(s.job)),
           };
         },
         restartEngine: () => session.restartEngine(),

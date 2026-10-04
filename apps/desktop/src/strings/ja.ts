@@ -1348,6 +1348,10 @@ export const ja = {
     restartEngine: "エンジンを再起動",
     restarted: "エンジンを再起動しました",
     restartFailed: "エンジンを再起動できませんでした",
+    /* #199: restart is refused/disabled while a job is live —
+     *  restarting a healthy engine would kill the transcription. */
+    restartWhileJobRunning:
+      "採譜の実行中はエンジンを再起動できません",
     collecting: "診断情報を集めています",
     notConnected: "未接続",
     unknown: "不明",

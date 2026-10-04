@@ -296,6 +296,22 @@ describe("TranscriptionSession", () => {
     await session.dispose();
   });
 
+  it("restartEngine refuses while a healthy engine runs a job (#199)", async () => {
+    const { session } = makeSession();
+    await session.startTranscription({ steps: 100, stepDurationMs: 5 });
+    await until(() => session.getSnapshot().job?.phase === "running");
+    // A restart here would kill the worker mid-transcription — the
+    // refusal keeps the job alive on the same engine.
+    await expect(session.restartEngine()).rejects.toMatchObject({
+      code: ERR.JOB_ALREADY_RUNNING,
+    });
+    expect(session.getSnapshot().engine).toBe("ready");
+    expect(session.getSnapshot().job?.phase).toBe("running");
+    await session.cancelTranscription();
+    await until(() => session.getSnapshot().job?.phase === "cancelled");
+    await session.dispose();
+  });
+
   it("protocolVersion tracks the negotiated handshake (#403)", async () => {
     const { session } = makeSession();
     // Offline: never negotiated — honest null, not a hardcoded 1.

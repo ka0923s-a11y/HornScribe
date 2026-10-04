@@ -30,6 +30,8 @@ export interface MockDiagnosticsPortOptions {
   /** `undefined` → a sample applied correction exercises the row;
    *  `null` → the sheet's silent state (no correction reported). */
   timingCorrection?: TimingCorrection | null;
+  /** #199: pretend a job is in flight — the restart button disables. */
+  jobRunning?: boolean;
 }
 
 export class MockDiagnosticsPort implements DiagnosticsPort {
@@ -97,6 +99,7 @@ export class MockDiagnosticsPort implements DiagnosticsPort {
         logs: "C:\\Users\\user\\AppData\\Local\\HornScribe\\logs",
       },
       workerStatus: "running",
+      jobRunning: this.options.jobRunning === true,
       timingCorrection:
         this.options.timingCorrection === undefined
           ? { shiftSec: 0.017, meterResolved: true }
