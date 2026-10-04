@@ -1086,7 +1086,7 @@ export const ja = {
       /* #187: opt-in vocal isolation (center extraction). */
       vocalIsolation: "ボーカル分離を使う（ミックス音源向け）",
       vocalIsolationHint:
-        "中央定位のボーカルを推定してから採譜します。JPOPなど伴奏付き音源の主旋律抽出に有効ですが、完全な分離ではありません。開発環境で pip install hornscribe[engine-vocal] を入れると、より精度の高い demucs による分離に自動で切り替わります。",
+        "中央定位のボーカルを推定してから採譜します。JPOPなど伴奏付き音源の主旋律抽出に有効ですが、完全な分離ではありません。分離アドオン(demucs)を導入すると、より精度の高い分離に自動で切り替わります（設定→ツール）。",
       /* #322: shown in place of vocalIsolationHint when the texture
        * is voices/chords — the checkbox is disabled and this explains
        * why the two options cannot combine. */
@@ -1102,7 +1102,7 @@ export const ja = {
       /* #189: replaces the quality hint when the engine reports no
        * demucs — the select disables at the same time. */
       vocalIsolationQualityNoDemucs:
-        "このエンジンには分離モデル(demucs)が導入されていないため、標準のみ有効です。",
+        "このエンジンには分離モデル(demucs)が導入されていないため、標準のみ有効です。設定→ツールからアドオンを導入すると高精度も選べます。",
       /* #203: accompaniment staff opt-out — on by default; disabled
           where the texture forbids isolation entirely. */
       accompanimentPart: "伴奏も別パートで採譜する",
