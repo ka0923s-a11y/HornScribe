@@ -276,11 +276,18 @@ describe("effectivePartGains (#398)", () => {
     volume: number,
     muted = false,
     solo = false,
-  ): { name: string; volume: number; muted: boolean; solo: boolean } => ({
+  ): {
+    name: string;
+    volume: number;
+    muted: boolean;
+    solo: boolean;
+    visible: boolean;
+  } => ({
     name: "p",
     volume,
     muted,
     solo,
+    visible: true,
   });
 
   it("passes fader values through with no mute/solo", () => {

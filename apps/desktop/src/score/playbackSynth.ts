@@ -246,6 +246,9 @@ export interface PartMixEntry {
   readonly volume: number;
   readonly muted: boolean;
   readonly solo: boolean;
+  /** #210: score-view visibility — display-only, the part still
+   *  sounds through its mixer channel while hidden. */
+  readonly visible: boolean;
 }
 
 /**

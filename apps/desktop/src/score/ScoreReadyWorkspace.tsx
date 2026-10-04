@@ -87,6 +87,7 @@ import {
   partTransposing,
   type PartMixEntry,
 } from "./playbackSynth";
+import { filterScorePartsXml } from "./partFilter";
 import { buildSwingWarp } from "./swingWarp";
 import { clickTrack, countInMs, countInPattern } from "./metronome";
 import {
@@ -481,6 +482,7 @@ export function ScoreReadyWorkspace({
       volume: prev[i]?.volume ?? (transposing[i] === false ? 0.7 : 1),
       muted: prev[i]?.muted ?? false,
       solo: prev[i]?.solo ?? false,
+      visible: prev[i]?.visible ?? true,
     }));
     partMixRef.current = next;
     setPartMix(next);
@@ -770,7 +772,12 @@ export function ScoreReadyWorkspace({
       try {
         r.setViewMode(viewModeRef.current);
         r.setZoom(zoomRef.current);
-        const xml = scoreDoc.musicXml(view);
+        // #210: render only the staves the mixer rows leave visible —
+        // hidden parts keep sounding (visibility is display-only).
+        const xml = filterScorePartsXml(
+          scoreDoc.musicXml(view),
+          partMixRef.current.map((m) => m.visible),
+        );
         const ok = r.load(xml);
         const parsed = ok ? parseScoreDoc(xml) : null;
         // UI-003 finding: loadData returns true for truncated-but-parseable
@@ -2318,12 +2325,18 @@ const setKey = useCallback(
                     : m.volume,
                 muted: patch.muted ?? m.muted,
                 solo: patch.solo ?? m.solo,
+                visible: patch.visible ?? m.visible,
               }
             : m,
         );
         partMixRef.current = next;
         setPartMix(next);
         pushPartGains(synthRef.current, next);
+        // #210: a visibility flip re-renders — hidden staves drop out
+        // of the next Verovio pass, scroll stays where it was.
+        if (patch.visible !== undefined) {
+          renderScore(pitchRef.current, { keepScroll: true });
+        }
       },
       openReview: () => openReview(),
       openReviewAt: (i) => openReviewAt(i),
@@ -2417,6 +2430,7 @@ const setKey = useCallback(
     convertSelectedRest,
     announce,
     scoreDoc,
+    renderScore,
   ]);
 
   /* --------------------------- state mirror ------------------------------ */
