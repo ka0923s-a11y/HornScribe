@@ -81,14 +81,23 @@ order:
 - `demucs` console script on PATH — covers a bundled
   `tools/demucs.exe` (the dir is PATH-injected) and a user-side
   `pip install demucs`
+- the folder-form addon — the published
+  `HornScribe-demucs-addon-*-win64.zip` (a PyInstaller onedir
+  bundle) extracts as `<tools>/demucs/demucs.exe` next to its
+  `_internal/` tree; `_demucs_cmd()` probes that nested
+  layout on each PATH dir (plus one level deeper for the common
+  `<tools>/<zip name>/demucs/` extract shape)
 - `HORNSCRIBE_PYTHON` / PATH `python`/`python3` with demucs importable
   — probed via `find_spec`, never by importing torch
 
 So a user who runs `pip install demucs` into their own Python gets
 neural vocal separation in the packaged app with zero extra config —
-the free path stays intact. Shipping a frozen `demucs.exe` in tools/
-is the fully-offline option (~1-2 GB with torch + model weights, so
-it stays opt-in). The worker handshake reports `demucsAvailable` via
+the free path stays intact. The zero-install path for packaged
+users is the published addon zip (`build_demucs_addon.py`,
+uploaded to each GitHub release since v0.2.11, #165): extract it
+into the writable `data_dir()/tools` and restart the engine.
+Shipping demucs inside the app itself is rejected on size grounds
+(~500-800 MB of torch-cpu payload vs ~160 MB opt-in zip). The worker handshake reports `demucsAvailable` via
 the same resolver; the diagnostics sheet shows it as the
 demucs(ボーカル分離) row.
 
