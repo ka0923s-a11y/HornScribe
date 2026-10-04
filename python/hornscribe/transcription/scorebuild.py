@@ -38,6 +38,8 @@ from hornscribe.domain.score import (
     ScoreRevisionPayload,
     TempoSegment,
     TimeSignature,
+    measure_spans,
+    note_layers,
 )
 from hornscribe.rhythm.contracts import QuantizationAlternative, RhythmAtom
 from hornscribe.rhythm.meter import MeterSegment
@@ -101,7 +103,7 @@ def build_score(
     extra_voices: tuple[QuantizationAlternative, ...] = (),
     voice_names: tuple[str, ...] = (),
     merge_voices: bool = False,
-    extra_parts: tuple[tuple[str, QuantizationAlternative], ...] = (),
+    extra_parts: tuple[tuple[str, tuple[QuantizationAlternative, ...]], ...] = (),
     key_changes: tuple[KeyChange, ...] = (),
     swing_feel: Fraction | None = None,
     transcription_backend: str | None = None,
@@ -125,12 +127,13 @@ def build_score(
     voice 1's rests are kept (canonical rests tile the primary layer;
     secondary layers gap-fill at render time).
 
-    extra_parts (#203): (name, alternative) pairs appended as their
-    own parts — the accompaniment staff/staves. Each alternative is a
-    self-tiling monophonic stream, so every part keeps the canonical
-    rest contract a merged multi-voice part could not satisfy (layer 0
-    must tile every occupied measure; voices with independent gaps
-    leave untiled holes a first-voice rest set cannot cover).
+    extra_parts (#203/#213): (name, alternatives) groups appended as
+    their own parts — the accompaniment staves. Each group merges into
+    ONE part the way merge_voices folds part 1: the first
+    alternative's notes + rests form layer 0, later voices contribute
+    notes only (in-part chords when rhythms align, notation layers
+    otherwise), and uncovered layer-0 intervals get synthesized rests
+    so the canonical rest contract still tiles every occupied measure.
     """
     ts = meter.time_signature
     beat_ql = _beat_ql(ts)
@@ -182,30 +185,46 @@ def build_score(
             )
         )
 
-    for p_name, p_alt in extra_parts:
-        p_notes, p_rests, p_conf, p_onsets = _part_content(p_alt, beat_ql, event_by_id)
-        renumbered_p: list[QuantizedNote] = []
-        for n in p_notes:
-            new_id = ScoreNoteId(f"sn-{next_ordinal:06d}")
-            next_ordinal += 1
-            renumbered_p.append(replace(n, id=new_id))
-            if n.id in p_conf:
-                confidence[new_id] = p_conf[n.id]
-            if n.id in p_onsets:
-                onsets[new_id] = p_onsets[n.id]
-        if renumbered_p or p_rests:
+    # Merged multi-voice parts (folded extra_voices into part 1, and
+    # grouped extra_parts) get a layer-0 gap-rest pass below: merged
+    # notes can displace voice-1 elements from layer 0 and leave
+    # sub-measure holes the strict tiling check rejects.
+    merged_part_indexes: list[int] = []
+    if merge_voices and extra_voices:
+        merged_part_indexes.append(0)
+    for p_name, p_alts in extra_parts:
+        if not p_alts:
+            continue
+        merged_notes: list[QuantizedNote] = []
+        base_rests: tuple[ScoreRest, ...] = ()
+        for ai, alt in enumerate(p_alts):
+            p_notes, p_rests, p_conf, p_onsets = _part_content(alt, beat_ql, event_by_id)
+            if ai == 0:
+                base_rests = tuple(p_rests)
+            for n in p_notes:
+                new_id = ScoreNoteId(f"sn-{next_ordinal:06d}")
+                next_ordinal += 1
+                merged_notes.append(replace(n, id=new_id))
+                if n.id in p_conf:
+                    confidence[new_id] = p_conf[n.id]
+                if n.id in p_onsets:
+                    onsets[new_id] = p_onsets[n.id]
+        merged_notes.sort(key=lambda n: (n.start_beat, n.pitch_midi, n.id))
+        if merged_notes or base_rests:
             parts.append(
                 Part(
                     id=f"part-{len(parts) + 1}",
                     name=p_name,
-                    notes=tuple(renumbered_p),
-                    rests=tuple(p_rests),
+                    notes=tuple(merged_notes),
+                    rests=base_rests,
                     # Accompaniment staves are not transposing
                     # instruments — a written view must keep them in
                     # the sounding projection.
                     transposing=False,
                 )
             )
+            if len(p_alts) > 1:
+                merged_part_indexes.append(len(parts) - 1)
 
     # Pickup: the beat-map lift (tempo.py) says how long the anacrusis
     # measure is; the meter segment's phase is its complement inside the
@@ -233,6 +252,8 @@ def build_score(
         key_changes=key_changes,
         swing_feel=swing_feel,
     )
+    if merged_part_indexes:
+        payload = _layer0_gap_rests(payload, tuple(merged_part_indexes))
     document = ScoreDocument(
         project_id=project_id or derive_project_id({"audio": source_audio_path}),
         payload=payload,
@@ -250,6 +271,68 @@ def build_score(
         note_confidence=confidence,
         note_onset_sec=onsets,
     )
+
+
+def _gap_rest(start: Fraction, end: Fraction) -> ScoreRest:
+    # One rest of an exact (possibly odd) span: a "whole" atom carries
+    # the true duration — inside a partial span the notation layer falls
+    # back to a duration-typed rest; a full measure renders as the
+    # usual measure rest.
+    return ScoreRest(
+        start_beat=start,
+        atoms=(ScoreAtom(duration_beats=end - start, symbol="whole"),),
+    )
+
+
+def _layer0_gap_rests(
+    payload: ScoreRevisionPayload,
+    part_indexes: tuple[int, ...],
+) -> ScoreRevisionPayload:
+    """Fill uncovered layer-0 intervals in merged multi-voice parts.
+
+    Merged parts keep only voice 1's rests, but the layer assignment
+    (note_layers) sorts groups by onset/pitch/id, not by voice: a later
+    voice's note can take layer 0 under a displaced voice-1 element and
+    leave a sub-measure hole — or occupy a measure voice 1 never
+    reached.  Both cases break the strict per-measure tiling the
+    notation layer verifies, so every uncovered interval inside the
+    part's active span gets a synthesized rest.
+    """
+    spans = measure_spans(payload)
+    new_parts = list(payload.parts)
+    changed = False
+    for part_index in part_indexes:
+        part = new_parts[part_index]
+        layers = note_layers(tuple(part.notes), part.rests)
+        covered = [(r.start_beat, r.end_beat) for r in part.rests]
+        covered += [(n.start_beat, n.end_beat) for n in part.notes if layers.get(n.id, 0) == 0]
+        if not covered:
+            continue
+        last_end = max(b for _, b in covered)
+        gap_rests: list[ScoreRest] = []
+        for span in spans:
+            if span.start_beat >= last_end:
+                break
+            iv = sorted(
+                (max(a, span.start_beat), min(b, span.end_beat))
+                for a, b in covered
+                if a < span.end_beat and b > span.start_beat
+            )
+            cursor = span.start_beat
+            for a, b in iv:
+                if a > cursor:
+                    gap_rests.append(_gap_rest(cursor, a))
+                cursor = max(cursor, b)
+            if cursor < span.end_beat:
+                gap_rests.append(_gap_rest(cursor, span.end_beat))
+        if not gap_rests:
+            continue
+        rests = tuple(sorted((*part.rests, *gap_rests), key=lambda r: r.start_beat))
+        new_parts[part_index] = replace(part, rests=rests)
+        changed = True
+    if not changed:
+        return payload
+    return replace(payload, parts=tuple(new_parts))
 
 
 def _collect_pitch_bends(

@@ -435,6 +435,105 @@ class TestMergeVoices:
         assert len(ids) == len(set(ids))
 
 
+# --- build_score extra_parts (merged accompaniment staff) ----------------------
+
+
+def _build_accomp(
+    lead: list[tuple[int, str, str]],
+    voices: list[list[tuple[int, str, str]]],
+):
+    """Lead alternative + a grouped (name, alternatives) extra part."""
+    event_by_id = dict(_events(lead, 1))
+    for vi, spec in enumerate(voices):
+        event_by_id.update(_events(spec, 100 + vi * 100))
+    return build_score(
+        _alt(lead, 1),
+        MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4),
+        (TempoSegment(start_beat=Fraction(0), bpm=120.0),),
+        KeySignature(fifths=0, mode="major"),
+        event_by_id=event_by_id,
+        title="t",
+        source_audio_path="a.wav",
+        source_audio_hash=None,
+        settings={},
+        extra_parts=(
+            (
+                "伴奏",
+                tuple(_alt(spec, 100 + vi * 100) for vi, spec in enumerate(voices)),
+            ),
+        ),
+    )
+
+
+class TestMergedExtraParts:
+    """#213: accompaniment voices merge into ONE staff; aligned
+    rhythms become in-part chords and voice-1 gaps get synthesized
+    measure rests so layer 0 still tiles every occupied measure."""
+
+    def test_voices_merge_into_one_part(self) -> None:
+        built = _build_accomp(
+            [(72, "0", "4")],
+            [[(57, "0", "4")], [(40, "0", "4")]],
+        )
+        assert len(built.payload.parts) == 2
+        accomp = built.payload.parts[1]
+        assert accomp.name == "伴奏"
+        assert accomp.transposing is False
+        assert {n.pitch_midi for n in accomp.notes} == {40, 57}
+        ids = [n.id for n in accomp.notes]
+        assert len(ids) == len(set(ids))
+
+    def test_silent_middle_measure_gets_whole_rest(self) -> None:
+        # Voice 1 plays measures 1 and 3 but rests through measure 2;
+        # voice 2 only covers measure 1.  The empty middle measure of
+        # the part's active span gets a whole-measure rest so layer 0
+        # still tiles (measures past the last content stay empty, the
+        # same as a single-voice part's trailing measures).
+        built = _build_accomp(
+            [(72, "0", "12")],
+            [[(57, "0", "4"), (59, "8", "4")], [(40, "0", "4")]],
+        )
+        accomp = built.payload.parts[1]
+        assert {n.pitch_midi for n in accomp.notes} == {40, 57, 59}
+        assert any(
+            r.start_beat == Fraction(4)
+            and r.atoms[0].symbol == "whole"
+            and r.atoms[0].duration_beats == Fraction(4)
+            for r in accomp.rests
+        )
+
+    def test_submeasure_hole_gets_gap_rest(self) -> None:
+        # A later voice's shorter note displacing voice 1's longer one
+        # leaves a sub-measure hole on layer 0 — it must be rest-filled
+        # or the strict per-measure tiling check rejects the part.
+        built = _build_accomp(
+            [(72, "0", "4")],
+            [[(57, "1", "2")], [(40, "1", "1"), (45, "2", "1")]],
+        )
+        accomp = built.payload.parts[1]
+        # Layer-0 coverage must tile [0, last content end): every gap
+        # between consecutive elements is exactly one rest.
+        from hornscribe.domain.score import note_layers
+
+        layers = note_layers(tuple(accomp.notes), accomp.rests)
+        l0 = sorted(
+            [
+                (r.start_beat, r.end_beat)
+                for r in accomp.rests
+            ]
+            + [
+                (n.start_beat, n.end_beat)
+                for n in accomp.notes
+                if layers.get(n.id, 0) == 0
+            ]
+        )
+        cursor = Fraction(0)
+        for a, b in l0:
+            assert a == cursor, f"hole {cursor}->{a}"
+            cursor = max(cursor, b)
+        assert cursor == Fraction(4)
+
+
 # --- notation / export --------------------------------------------------------
 
 

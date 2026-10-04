@@ -1521,12 +1521,12 @@ def run_transcription_job(
                 },
             )
             return
-        # #203: accompaniment staff — when isolation (opt-in or the
-        # #204 rescue) produced an accompaniment stem and the job did
-        # not opt out, detect its lines on the same grid.  Up to two
-        # voices (a top line + a bass-ish line) each become their own
-        # staff at build time; more would just be bleed noise on a
-        # real mix.
+        # #203/#213: accompaniment staff — when isolation (opt-in or
+        # the #204 rescue) produced an accompaniment stem and the job
+        # did not opt out, detect its lines on the same grid.  Up to
+        # four voices are kept so triads and seventh chords survive;
+        # they merge into ONE accompaniment staff at build time, where
+        # aligned rhythms render as in-part chords.
         accomp_cleaned: list[CleanedEvents] = []
         if accomp_path is not None and params.accompaniment_part:
             try:
@@ -1558,7 +1558,7 @@ def run_transcription_job(
             if accomp_ranged:
                 a_split = split_voices(
                     accomp_ranged,
-                    max_voices=min(2, params.max_voices),
+                    max_voices=min(4, params.max_voices),
                 )
                 for v in a_split.voices:
                     c = clean_monophonic(
@@ -1715,7 +1715,11 @@ def run_transcription_job(
         # meter map and alignment shift — the two staves must stay
         # glued to one grid.
         accomp_alternatives = []
-        accomp_evidence: list[list[RawNoteEvent]] = []
+        # #213: the voices merge into ONE accompaniment part at build
+        # time, so their events merge into ONE evidence list too —
+        # raw_evidence.parts must line up 1:1 with payload.parts or
+        # requantize silently falls back to the synthetic path.
+        accomp_evidence: list[RawNoteEvent] = []
         for c in accomp_cleaned:
             alts = quantize_events(
                 c.events,
@@ -1726,11 +1730,7 @@ def run_transcription_job(
             )
             if alts:
                 accomp_alternatives.append(alts)
-                # Keep one evidence entry per voice that survived — the
-                # document's raw_evidence.parts must line up 1:1 with
-                # payload.parts or requantize silently falls back to
-                # the synthetic path for the whole score.
-                accomp_evidence.append(list(c.events))
+                accomp_evidence.extend(c.events)
             quantize_done += 1
             step(4, quantize_done, quantize_total)
         if stop(4):
@@ -1896,13 +1896,13 @@ def run_transcription_job(
             settings=params.settings_dict(),
             extra_voices=(tuple(alts[0] for alts in lower_alternatives)),
             extra_parts=(
-                # #203: each surviving accompaniment voice is its own
-                # staff — a self-tiling stream keeps the canonical
-                # rest contract a merged layer-0 could not.
-                tuple(
-                    ("伴奏" if len(accomp_alternatives) == 1 else f"伴奏 {i + 1}", alts[0])
-                    for i, alts in enumerate(accomp_alternatives)
-                )
+                # #213: all surviving accompaniment voices merge into
+                # ONE staff — same-rhythm notes become in-part chords,
+                # the rest become notation layers, and voice-1 gaps
+                # get synthesized measure rests so layer 0 still tiles.
+                (("伴奏", tuple(alts[0] for alts in accomp_alternatives)),)
+                if accomp_alternatives
+                else ()
             ),
             merge_voices=params.texture == "chords",
             voice_names=(
@@ -1934,10 +1934,16 @@ def run_transcription_job(
             if params.texture == "chords"
             else [list(c.events) for c in (cleaned, *cleaned_lowers)]
         )
-        # #203: accompaniment staves keep their events in evidence
-        # too — one entry per emitted part (positional parity with
-        # payload.parts is what lets requantize replay them).
-        evidence_parts.extend(accomp_evidence)
+        # #203/#213: the merged accompaniment part keeps its events in
+        # evidence too — one entry per emitted part (positional parity
+        # with payload.parts is what lets requantize replay them).
+        if accomp_evidence:
+            evidence_parts.append(
+                sorted(
+                    accomp_evidence,
+                    key=lambda e: (e.onset_sec, e.pitch_midi, str(e.id)),
+                )
+            )
         document = replace(
             built.document,
             raw_evidence={
