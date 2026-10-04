@@ -3077,6 +3077,10 @@ class TestAutoRescueAndAccompaniment:
         # makes requantize silently drop to the synthetic path.
         evidence = result["scoreDocument"]["rawEvidence"]
         assert len(evidence["parts"]) == len(parts)
+        # #212: one informational provenance marker for the whole
+        # separation-derived staff — not per-note flags.
+        reasons = {i["reason"] for i in result["reviewIssues"]}
+        assert "accompaniment_part" in reasons
 
     def test_accompaniment_part_opt_out(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -1612,6 +1612,13 @@ export const ja = {
       detail:
         "モノラル音源または読み込み失敗のため、元の音源のまま採譜しました。ステレオのミックス音源で有効です。",
     },
+    // #212: the accompaniment staff is separation-derived — a single
+    // provenance marker for the whole part, not per-note flags.
+    accompaniment_part: {
+      title: "伴奏パートは自動分離から生成しました",
+      detail:
+        "ソース分離で得た伴奏ステムを採譜したパートです。主旋律より検出精度が落ちるため、耳で確認しながら修正してください。不要なら設定の「伴奏も別パートで採譜する」を外せます。",
+    },
     // #352: the auto-estimated key could not be justified — the
     // evidence branch names the estimate and why it is unsure.
     key_uncertain: {

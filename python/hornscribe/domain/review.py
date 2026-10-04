@@ -90,6 +90,12 @@ class ReviewReason(Enum):
     # item, so the possibility itself is surfaced. Evidence carries
     # source/estimate RMS + the ratio in dB.
     LOW_LEAD_LEVEL = "low_lead_level"
+    # #212: an accompaniment staff was generated from the separation
+    # stem — the detection there is necessarily rougher than the lead
+    # line, so the part's provenance is surfaced as one informational
+    # item rather than per-note flags (which would double review
+    # noise). Evidence carries the emitted part names + method.
+    ACCOMPANIMENT_PART = "accompaniment_part"
 
 
 class Severity(Enum):
