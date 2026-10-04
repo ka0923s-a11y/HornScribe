@@ -174,21 +174,29 @@ export function SettingsView({
   // whenever the user commits a different tool path (the override flips
   // the reported status to 検出済み).
   const [diag, setDiag] = useState<DiagnosticsInfo | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void diagnosticsPort
-      .collect({
+  const refreshDiag = useCallback(async () => {
+    try {
+      const info = await diagnosticsPort.collect({
         museScorePath: settings.museScorePath,
         ffmpegPath: settings.ffmpegPath,
-      })
-      .then((info) => {
-        if (!cancelled) setDiag(info);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
+      });
+      setDiag(info);
+    } catch {
+      /* collect degrades per-field; a reject leaves the stale view */
+    }
   }, [diagnosticsPort, settings.museScorePath, settings.ffmpegPath]);
+  useEffect(() => {
+    void refreshDiag();
+  }, [refreshDiag]);
+  /* #199: jobRunning + the capability badges are collect-time
+   * snapshots — re-collect whenever a diag-backed panel opens so a
+   * job that finished in the background re-enables the restart
+   * button (and a dropped-in addon shows up). */
+  useEffect(() => {
+    if (category === "tools" || category === "advanced") {
+      void refreshDiag();
+    }
+  }, [category, refreshDiag]);
 
   const pickExportDir = useCallback(async () => {
     try {
@@ -251,11 +259,7 @@ export function SettingsView({
         ok ? ja.diagnostics.restarted : ja.diagnostics.restartFailed,
       );
       if (ok) {
-        const info = await diagnosticsPort.collect({
-          museScorePath: settings.museScorePath,
-          ffmpegPath: settings.ffmpegPath,
-        });
-        setDiag(info);
+        await refreshDiag();
       }
     } finally {
       setEngineRestarting(false);
@@ -263,8 +267,7 @@ export function SettingsView({
   }, [
     diagnosticsPort,
     onAnnounce,
-    settings.museScorePath,
-    settings.ffmpegPath,
+    refreshDiag,
   ]);
 
   // #78: 録音ファイル管理 — カテゴリを開いた時に情報を取り直す。
@@ -745,11 +748,20 @@ export function SettingsView({
                 <HsButton
                   size="small"
                   loading={engineRestarting}
+                  disabled={diag?.jobRunning === true}
+                  disabledFocusable={
+                    diag?.jobRunning === true && !engineRestarting
+                  }
                   onClick={() => void restartEngine()}
                 >
                   {ja.diagnostics.restartEngine}
                 </HsButton>
               </div>
+              {diag?.jobRunning === true ? (
+                <p className="hs-settings__note">
+                  {ja.diagnostics.restartWhileJobRunning}
+                </p>
+              ) : null}
             </div>
             <div className="hs-settings__field">
               <Label>{s.modelInfo}</Label>

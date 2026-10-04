@@ -78,6 +78,9 @@ export interface DiagnosticsSessionView {
    *  (extractTimingCorrection output); undefined/null when none was
    *  applied or no result exists yet. */
   readonly timingCorrection?: TimingCorrection | null;
+  /** #199: a non-settled job exists — restart buttons disable on it
+   *  because restarting a healthy engine would kill the live job. */
+  readonly jobRunning?: boolean;
 }
 
 export interface ShellDiagnosticsDeps {
@@ -191,6 +194,7 @@ export class ShellDiagnosticsPort implements DiagnosticsPort {
       },
       paths: paths ?? { cache: null, logs: null },
       workerStatus: view ? toWorkerStatus(view.engine) : "unavailable",
+      jobRunning: view?.jobRunning === true,
       timingCorrection: view?.timingCorrection ?? null,
     };
   }

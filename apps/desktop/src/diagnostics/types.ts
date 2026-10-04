@@ -60,6 +60,10 @@ export interface DiagnosticsInfo {
     readonly logs: string | null;
   };
   readonly workerStatus: WorkerStatus;
+  /** #199: a transcription job is in flight — the restart buttons
+   *  disable on it because restarting a healthy engine would kill
+   *  the running job. */
+  readonly jobRunning: boolean;
   /** #81: timing correction applied by the last completed job —
    *  null when none was applied (zero shift, no result yet, or an
    *  engine too old to report). The sheet omits the row entirely. */

@@ -23,6 +23,7 @@ const FULL: DiagnosticsInfo = {
   },
   paths: { cache: "C:\\cache", logs: "C:\\logs" },
   workerStatus: "running",
+  jobRunning: false,
   timingCorrection: { shiftSec: 0.0124, meterResolved: true },
 };
 
@@ -40,6 +41,7 @@ const EMPTY: DiagnosticsInfo = {
   },
   paths: { cache: null, logs: null },
   workerStatus: "unavailable",
+  jobRunning: false,
   timingCorrection: null,
 };
 

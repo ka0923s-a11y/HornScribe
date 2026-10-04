@@ -169,7 +169,12 @@ export function DiagnosticsSheet({
             {d.openLogs}
           </HsButton>
           <HsButton
-            disabled={busy !== null}
+            /* #199: a live job would die with the restart — disable,
+               keep it focusable, and say why (note below). */
+            disabled={busy !== null || info?.jobRunning === true}
+            disabledFocusable={
+              busy === null && info?.jobRunning === true
+            }
             loading={busy === "restart"}
             onClick={() => void restart()}
           >
@@ -229,6 +234,12 @@ export function DiagnosticsSheet({
                 ) : null}
               </span>
             </div>
+            {/* #199: honest reason for the disabled restart button */}
+            {info.jobRunning ? (
+              <p className="hs-diag__detail">
+                {d.restartWhileJobRunning}
+              </p>
+            ) : null}
           </section>
         </div>
       )}

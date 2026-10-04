@@ -77,6 +77,7 @@ export {
   TranscriptionSession,
   TRANSCRIPTION_JOB_KIND,
   FALLBACK_JOB_KIND,
+  isSettled,
 } from "./session";
 export type {
   TranscriptionSessionOptions,

@@ -224,6 +224,22 @@ export class TranscriptionSession {
    * a fresh spawn + handshake. Never resubmits a job.
    */
   async restartEngine(): Promise<void> {
+    /* #199: refuse to restart a HEALTHY engine while a job is in
+     * flight — the teardown kills the worker and silently aborts the
+     * running transcription (both restart buttons live on surfaces
+     * that do not know job state). Crash recovery is unaffected: an
+     * unresponsive/crashed engine with a stale job view can still
+     * restart, because that job is already dead anyway. */
+    if (
+      this.snap.job &&
+      !isSettled(this.snap.job) &&
+      (this.snap.engine === "ready" || this.snap.engine === "starting")
+    ) {
+      throw new SidecarError(
+        ERR.JOB_ALREADY_RUNNING,
+        "cannot restart while a job is running",
+      );
+    }
     const old = this.client;
     this.client = null;
     if (old) {
@@ -586,7 +602,7 @@ export class TranscriptionSession {
   }
 }
 
-function isSettled(job: JobView): boolean {
+export function isSettled(job: JobView): boolean {
   return (
     job.phase === "completed" ||
     job.phase === "cancelled" ||

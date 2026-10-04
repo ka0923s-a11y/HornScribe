@@ -175,6 +175,41 @@ describe("ShellDiagnosticsPort.collect", () => {
     expect(noCaps.tools.demucs.status).toBe("unknown");
   });
 
+  it("jobRunning passes through from the session view (#199)", async () => {
+    const running = await new ShellDiagnosticsPort({
+      sessionSnapshot: () => ({
+        engine: "ready",
+        engineInfo: null,
+        protocolVersion: 1,
+        backend: null,
+        jobRunning: true,
+      }),
+    }).collect();
+    expect(running.jobRunning).toBe(true);
+
+    const idle = await new ShellDiagnosticsPort({
+      sessionSnapshot: () => ({
+        engine: "ready",
+        engineInfo: null,
+        protocolVersion: 1,
+        backend: null,
+        jobRunning: false,
+      }),
+    }).collect();
+    expect(idle.jobRunning).toBe(false);
+    // Absent in the view (older session wiring) reports false, not
+    // undefined — the buttons must never read a live job as enabled.
+    const absent = await new ShellDiagnosticsPort({
+      sessionSnapshot: () => ({
+        engine: "ready",
+        engineInfo: null,
+        protocolVersion: 1,
+        backend: null,
+      }),
+    }).collect();
+    expect(absent.jobRunning).toBe(false);
+  });
+
   it("a supervised-but-idle or crashed engine maps to stopped", async () => {
     for (const engine of ["offline", "crashed", "closed"]) {
       const info = await new ShellDiagnosticsPort({
