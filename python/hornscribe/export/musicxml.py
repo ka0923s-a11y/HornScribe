@@ -141,8 +141,16 @@ def _normalize_musicxml(
 
     spec = transposition.spec_for(presentation)
     if spec is not None:
-        for part_el in root.findall("part"):
-            _ensure_transpose(part_el, spec)
+        for part_index, part_el in enumerate(root.findall("part")):
+            domain_part = (
+                score.payload.parts[part_index] if part_index < len(score.payload.parts) else None
+            )
+            if domain_part is not None and not domain_part.transposing:
+                # #203: accompaniment staves stay in the sounding
+                # projection — no <transpose> declaration.
+                _forbid_transpose(part_el)
+            else:
+                _ensure_transpose(part_el, spec)
     else:
         for part_el in root.findall("part"):
             _forbid_transpose(part_el)
@@ -1011,12 +1019,22 @@ def verify_written_projection(
     part_el = part_els[part_index]
     part_id = part_el.get("id") or f"part {part_index + 1}"
 
+    # #203: a non-transposing part renders the sounding projection in
+    # every written file — the spec checks below resolve to the
+    # identity (no <transpose>, concert key, written == sounding).
+    part_space = presentation if payload.parts[part_index].transposing else PitchSpace.CONCERT
+    part_spec = transposition.spec_for(part_space)
+
     # 1. The written -> sounding declaration itself: without it a
     # reader plays written pitch as sounding (a fifth/second too high).
     transpose = _first_transpose(part_el)
     expected_transpose = (
-        str(spec.written_to_sounding_diatonic),
-        str(spec.written_to_sounding_chromatic),
+        (
+            str(part_spec.written_to_sounding_diatonic),
+            str(part_spec.written_to_sounding_chromatic),
+        )
+        if part_spec is not None
+        else (None, None)
     )
     actual_transpose = (
         (transpose.findtext("diatonic"), transpose.findtext("chromatic"))
@@ -1070,9 +1088,7 @@ def verify_written_projection(
                 concert_key = change.key_signature
             else:
                 break
-        expected_key = transposition.written_key_signature(
-            concert_key, presentation
-        )
+        expected_key = transposition.written_key_signature(concert_key, part_space)
         if inherited[0] != expected_key.fifths:
             problems.append(
                 f"{part_id} measure {m_el.get('number') or i}: key fifths "

@@ -676,11 +676,18 @@ def _build_part_measures(
     part_name: str,
     spans: tuple[MeasureSpan, ...],
     presentation: PitchSpace,
+    transposing: bool = True,
 ) -> stream.Part:
     beat_ql = beat_ql_of(payload)
     strict = bool(part_rests)
     part = stream.Part()
     part.partName = part_name
+    if not transposing:
+        # #203 accompaniment staves: never project into a written
+        # space — the part renders sounding pitches, the concert key
+        # signature and no <transpose> declaration whatever view the
+        # lead part uses.
+        presentation = PitchSpace.CONCERT
     spec = transposition.spec_for(presentation)
     if spec is not None:
         # Every written view keeps the Horn instrument identity (the
@@ -873,6 +880,7 @@ def build_music21_score(
                 transposition.display_part_name(part.name, presentation),
                 spans,
                 presentation,
+                transposing=part.transposing,
             )
         )
     return m21_score

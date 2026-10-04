@@ -55,7 +55,8 @@ def test_center_signal_survives_side_is_suppressed(tmp_path):
 
     out = isolate_center_vocals(src)
     assert out is not None
-    out = np.asarray(out)
+    vocal_out, accomp_out = out
+    out = np.asarray(vocal_out)
     # Spectral check: the 440 Hz center tone dominates, the 220 Hz
     # side tone is largely cancelled.
     spec = np.abs(np.fft.rfft(out))
@@ -130,11 +131,17 @@ def test_vocal_wav_prefers_demucs_when_available(tmp_path, monkeypatch):
 
     def fake_demucs(path, start, end, **_kw):
         calls.append("demucs")
-        return np.zeros(22050, dtype=np.float32)
+        return (
+            np.zeros(22050, dtype=np.float32),
+            np.zeros(22050, dtype=np.float32),
+        )
 
     def fake_center(path, start, end, **_kw):
         calls.append("center")
-        return np.zeros(22050, dtype=np.float32)
+        return (
+            np.zeros(22050, dtype=np.float32),
+            np.zeros(22050, dtype=np.float32),
+        )
 
     monkeypatch.setattr(vocal_mod, "isolate_demucs_vocals", fake_demucs)
     monkeypatch.setattr(vocal_mod, "isolate_center_vocals", fake_center)
@@ -145,9 +152,7 @@ def test_vocal_wav_prefers_demucs_when_available(tmp_path, monkeypatch):
     assert reason == "applied" and managed is True
 
 
-def test_vocal_wav_falls_back_to_center_on_demucs_failure(
-    tmp_path, monkeypatch
-):
+def test_vocal_wav_falls_back_to_center_on_demucs_failure(tmp_path, monkeypatch):
     """#302: a demucs failure degrades to center extraction — and the
     cache records the method that actually produced the audio."""
     import hornscribe.transcription.vocal as vocal_mod
@@ -156,13 +161,14 @@ def test_vocal_wav_falls_back_to_center_on_demucs_failure(
     cache_dir.mkdir()
     monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
     monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
-    monkeypatch.setattr(
-        vocal_mod, "isolate_demucs_vocals", lambda *a, **k: None
-    )
+    monkeypatch.setattr(vocal_mod, "isolate_demucs_vocals", lambda *a, **k: None)
     monkeypatch.setattr(
         vocal_mod,
         "isolate_center_vocals",
-        lambda *a, **k: np.zeros(22050, dtype=np.float32),
+        lambda *a, **k: (
+            np.zeros(22050, dtype=np.float32),
+            np.zeros(22050, dtype=np.float32),
+        ),
     )
 
     path, reason, managed, method, _ver = vocal_wav("a.wav", "h", 0.0, None, 22050)
@@ -195,13 +201,18 @@ def test_vocal_wav_rejects_silent_demucs_stem(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vocal_mod,
         "isolate_demucs_vocals",
-        lambda *a, **k: calls.append("demucs")
-        or np.zeros(22050, dtype=np.float32),
+        lambda *a, **k: (
+            calls.append("demucs")
+            or (
+                np.zeros(22050, dtype=np.float32),
+                np.zeros(22050, dtype=np.float32),
+            )
+        ),
     )
     monkeypatch.setattr(
         vocal_mod,
         "isolate_center_vocals",
-        lambda *a, **k: calls.append("center") or _tone(440.0, 1.0),
+        lambda *a, **k: calls.append("center") or (_tone(440.0, 1.0), _tone(220.0, 1.0)),
     )
 
     _p, reason, _m, method, _v = vocal_wav(src, "h", 0.0, None, 22050)
@@ -217,9 +228,7 @@ def test_vocal_wav_rejects_silent_demucs_stem(tmp_path, monkeypatch):
     assert method2 == "center_extraction"
 
 
-def test_vocal_wav_rejects_cached_silent_demucs_stem(
-    tmp_path, monkeypatch
-):
+def test_vocal_wav_rejects_cached_silent_demucs_stem(tmp_path, monkeypatch):
     """#169: a silent stem already in the cache is re-verified
     against the source instead of being served for the TTL."""
     pytest.importorskip("librosa")
@@ -230,27 +239,23 @@ def test_vocal_wav_rejects_cached_silent_demucs_stem(
     monkeypatch.setattr(vocal_mod, "_cache_dir", lambda: str(cache_dir))
     monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
 
-    src = _write_stereo_wav(
-        tmp_path / "mix.wav", _tone(440.0, 1.5), _tone(330.0, 1.5)
-    )
+    src = _write_stereo_wav(tmp_path / "mix.wav", _tone(440.0, 1.5), _tone(330.0, 1.5))
     # Pre-seed the demucs cache slot with a silent stem — the shape a
     # pre-fix run would have left behind.
     key = vocal_mod._cache_key(src, "h", 0.0, None, "demucs")
     silent = cache_dir / f"{vocal_mod._CACHE_PREFIX}{key}.wav"
-    assert vocal_mod._write_mono_wav(
-        str(silent), np.zeros(22050, dtype=np.float32), 22050
-    )
+    assert vocal_mod._write_mono_wav(str(silent), np.zeros(22050, dtype=np.float32), 22050)
 
     calls: list[str] = []
     monkeypatch.setattr(
         vocal_mod,
         "isolate_demucs_vocals",
-        lambda *a, **k: calls.append("demucs") or _tone(440.0, 1.0),
+        lambda *a, **k: calls.append("demucs") or (_tone(440.0, 1.0), _tone(220.0, 1.0)),
     )
     monkeypatch.setattr(
         vocal_mod,
         "isolate_center_vocals",
-        lambda *a, **k: calls.append("center") or _tone(440.0, 1.0),
+        lambda *a, **k: calls.append("center") or (_tone(440.0, 1.0), _tone(220.0, 1.0)),
     )
 
     _p, reason, _m, method, _v = vocal_wav(src, "h", 0.0, None, 22050)
@@ -280,12 +285,12 @@ def test_vocal_wav_keeps_audible_demucs_stem(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vocal_mod,
         "isolate_demucs_vocals",
-        lambda *a, **k: calls.append("demucs") or _tone(440.0, 1.0),
+        lambda *a, **k: calls.append("demucs") or (_tone(440.0, 1.0), _tone(220.0, 1.0)),
     )
     monkeypatch.setattr(
         vocal_mod,
         "isolate_center_vocals",
-        lambda *a, **k: calls.append("center") or _tone(220.0, 1.0),
+        lambda *a, **k: calls.append("center") or (_tone(440.0, 1.0), _tone(220.0, 1.0)),
     )
 
     _p, reason, _m, method, _v = vocal_wav("a.wav", "h", 0.0, None, 22050)
@@ -301,9 +306,7 @@ class TestSilentStemGate:
         pytest.importorskip("librosa")
         from hornscribe.transcription.vocal import _demucs_stem_silent
 
-        src = _write_stereo_wav(
-            tmp_path / "s.wav", _tone(440.0, 1.0), _tone(330.0, 1.0)
-        )
+        src = _write_stereo_wav(tmp_path / "s.wav", _tone(440.0, 1.0), _tone(330.0, 1.0))
         assert _demucs_stem_silent(0.0005, src, 0.0, None) is True
 
     def test_audible_stem_never_decodes_source(self):
@@ -318,9 +321,7 @@ class TestSilentStemGate:
         from hornscribe.transcription.vocal import _demucs_stem_silent
 
         # Cannot judge without the source — conservative keep.
-        assert (
-            _demucs_stem_silent(0.0001, "missing.wav", 0.0, None) is False
-        )
+        assert _demucs_stem_silent(0.0001, "missing.wav", 0.0, None) is False
 
     def test_quiet_source_keeps_comparable_stem(self, tmp_path):
         pytest.importorskip("librosa")
@@ -363,9 +364,7 @@ def test_vocal_isolation_quality_parses_and_echoes():
     assert default.vocal_isolation_quality == "standard"
     assert default.settings_dict()["vocalIsolationQuality"] == "standard"
     with pytest.raises(ValueError, match="vocalIsolationQuality"):
-        TranscriptionParams.from_payload(
-            {"audioPath": "a.wav", "vocalIsolationQuality": "ultra"}
-        )
+        TranscriptionParams.from_payload({"audioPath": "a.wav", "vocalIsolationQuality": "ultra"})
 
 
 class TestSeparationQuality:
@@ -388,17 +387,13 @@ class TestSeparationQuality:
 
         def fake_demucs(path, start, end, model, shifts):
             calls.append({"model": model, "shifts": shifts})
-            return _tone(440.0, 1.0)
+            return (_tone(440.0, 1.0), _tone(220.0, 1.0))
 
-        monkeypatch.setattr(
-            vocal_mod, "isolate_demucs_vocals", fake_demucs
-        )
+        monkeypatch.setattr(vocal_mod, "isolate_demucs_vocals", fake_demucs)
 
         vocal_wav("a.wav", "h-std", 0.0, None, 22050)
         vocal_wav("b.wav", "h-std2", 0.0, None, 22050)  # distinct hash
-        vocal_wav(
-            "a.wav", "h-pre", 0.0, None, 22050, quality="precision"
-        )
+        vocal_wav("a.wav", "h-pre", 0.0, None, 22050, quality="precision")
 
         assert calls == [
             {"model": "htdemucs", "shifts": 1},
@@ -406,9 +401,7 @@ class TestSeparationQuality:
             {"model": "htdemucs_ft", "shifts": 2},
         ]
 
-    def test_unknown_tier_degrades_to_standard_pins(
-        self, tmp_path, monkeypatch
-    ):
+    def test_unknown_tier_degrades_to_standard_pins(self, tmp_path, monkeypatch):
         """A caller-side quality the table doesn't know still runs —
         the engine's strict whitelist lives in options.py; vocal_wav
         degrades gracefully on direct calls."""
@@ -419,7 +412,7 @@ class TestSeparationQuality:
             "isolate_demucs_vocals",
             lambda path, start, end, model, shifts: (
                 calls.append({"model": model, "shifts": shifts})
-                or _tone(440.0, 1.0)
+                or (_tone(440.0, 1.0), _tone(220.0, 1.0))
             ),
         )
 
@@ -434,7 +427,7 @@ class TestSeparationQuality:
         monkeypatch.setattr(
             vocal_mod,
             "isolate_demucs_vocals",
-            lambda *a, **k: calls.append("demucs") or _tone(440.0, 1.0),
+            lambda *a, **k: calls.append("demucs") or (_tone(440.0, 1.0), _tone(220.0, 1.0)),
         )
 
         vocal_wav("a.wav", "h", 0.0, None, 22050)
@@ -445,55 +438,40 @@ class TestSeparationQuality:
         # The key contract: same source/span, different tier -> a
         # different slot; center extraction has no tier identity.
         std = vocal_mod._cache_key("a.wav", "h", 0.0, None, "demucs", "")
-        pre = vocal_mod._cache_key(
-            "a.wav", "h", 0.0, None, "demucs", "htdemucs_ft-s2"
-        )
-        center = vocal_mod._cache_key(
-            "a.wav", "h", 0.0, None, "center_extraction", ""
-        )
+        pre = vocal_mod._cache_key("a.wav", "h", 0.0, None, "demucs", "htdemucs_ft-s2")
+        center = vocal_mod._cache_key("a.wav", "h", 0.0, None, "center_extraction", "")
         assert std != pre != center
 
     def test_variant_tags_the_provenance(self, monkeypatch):
         import hornscribe.transcription.vocal as vocal_mod
 
-        monkeypatch.setattr(
-            vocal_mod, "_demucs_version", lambda: "4.0.1"
-        )
+        monkeypatch.setattr(vocal_mod, "_demucs_version", lambda: "4.0.1")
         # Standard keeps the bare version — existing provenance is
         # unchanged for the unchanged tier.
         assert vocal_mod.method_version("demucs") == "4.0.1"
         assert vocal_mod.method_version("demucs", "") == "4.0.1"
-        assert (
-            vocal_mod.method_version("demucs", "htdemucs_ft-s2")
-            == "4.0.1:htdemucs_ft-s2"
-        )
+        assert vocal_mod.method_version("demucs", "htdemucs_ft-s2") == "4.0.1:htdemucs_ft-s2"
         # Center extraction never wears a demucs variant.
-        assert (
-            vocal_mod.method_version("center_extraction", "htdemucs_ft-s2")
-            == "1"
-        )
+        assert vocal_mod.method_version("center_extraction", "htdemucs_ft-s2") == "1"
 
-    def test_center_tier_is_quality_independent(
-        self, tmp_path, monkeypatch
-    ):
+    def test_center_tier_is_quality_independent(self, tmp_path, monkeypatch):
         """Without demucs the tier must not split the cache — a
         center stem is identical audio under any quality value."""
         vocal_mod = self._stub_isolation(monkeypatch, tmp_path)
-        monkeypatch.setattr(
-            vocal_mod, "_demucs_available", lambda: False
-        )
+        monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: False)
         monkeypatch.setattr(
             vocal_mod,
             "isolate_center_vocals",
-            lambda *a, **k: np.zeros(22050, dtype=np.float32),
+            lambda *a, **k: (
+                np.zeros(22050, dtype=np.float32),
+                np.zeros(22050, dtype=np.float32),
+            ),
         )
 
         _p, _r, _m, method, ver = vocal_wav("a.wav", "h", 0.0, None, 22050)
         assert method == "center_extraction"
         assert ver == "1"  # untagged — no demucs ran
-        p2, _r2, _m2, _mth2, _v2 = vocal_wav(
-            "a.wav", "h", 0.0, None, 22050, quality="precision"
-        )
+        p2, _r2, _m2, _mth2, _v2 = vocal_wav("a.wav", "h", 0.0, None, 22050, quality="precision")
         assert p2 == _p  # precision hits the standard center slot
 
 
@@ -526,9 +504,7 @@ class TestDemucsQualityCli:
 
         monkeypatch.setattr(vocal_mod.subprocess, "run", fake_run)
         model, shifts = vocal_mod._SEPARATION_QUALITIES[quality]
-        vocal_mod.isolate_demucs_vocals(
-            "src.wav", 0.0, None, model=model, shifts=shifts
-        )
+        vocal_mod.isolate_demucs_vocals("src.wav", 0.0, None, model=model, shifts=shifts)
         return seen_cmd
 
     def test_standard_pins_htdemucs_without_shifts(self, monkeypatch):
@@ -550,9 +526,7 @@ class TestDemucsSpanStaging:
         import hornscribe.transcription.vocal as vocal_mod
 
         monkeypatch.setattr(vocal_mod, "_demucs_available", lambda: True)
-        monkeypatch.setattr(
-            vocal_mod, "_demucs_cmd", lambda: ("demucs",)
-        )
+        monkeypatch.setattr(vocal_mod, "_demucs_cmd", lambda: ("demucs",))
         # librosa is an engine extra — absent in dev/CI — but the
         # dispatch under test never reaches it (staging + run are
         # stubbed, run fails before the decode). A bare module stub
@@ -581,9 +555,7 @@ class TestDemucsSpanStaging:
 
         monkeypatch.setattr(vocal_mod, "_stage_span_wav", fake_stage)
         monkeypatch.setattr(vocal_mod.subprocess, "run", fake_run)
-        return staged, seen_cmd, vocal_mod.isolate_demucs_vocals(
-            "src.wav", start, end
-        )
+        return staged, seen_cmd, vocal_mod.isolate_demucs_vocals("src.wav", start, end)
 
     def test_selection_stages_the_span(self, monkeypatch):
         staged, seen_cmd, out = self._run(monkeypatch, 60.0, 90.0)
@@ -607,9 +579,7 @@ class TestIsolationProvenance:
     def test_method_version_tracks_the_method(self, monkeypatch):
         import hornscribe.transcription.vocal as vocal_mod
 
-        monkeypatch.setattr(
-            vocal_mod, "_demucs_version", lambda: "4.0.1"
-        )
+        monkeypatch.setattr(vocal_mod, "_demucs_version", lambda: "4.0.1")
         assert vocal_mod.method_version("demucs") == "4.0.1"
         assert vocal_mod.method_version("center_extraction") == "1"
         assert vocal_mod.method_version(None) is None
@@ -685,9 +655,7 @@ class TestDemucsResolution:
         monkeypatch.delenv("HORNSCRIBE_DEMUCS", raising=False)
         monkeypatch.delenv("HORNSCRIBE_PYTHON", raising=False)
         monkeypatch.delattr(_sys, "frozen", raising=False)
-        monkeypatch.setattr(
-            vocal_mod, "_demucs_module_importable", lambda: False
-        )
+        monkeypatch.setattr(vocal_mod, "_demucs_module_importable", lambda: False)
         monkeypatch.setattr(vocal_mod.shutil, "which", lambda _n: None)
         # #190: hermetic PATH — the folder-form addon probe scans real
         # PATH dirs otherwise, so a stray <dir>/demucs/demucs.exe on a
@@ -702,20 +670,14 @@ class TestDemucsResolution:
         exe.write_bytes(b"x")
         monkeypatch.setenv("HORNSCRIBE_DEMUCS", str(exe))
         # Explicit override beats even an importable module.
-        monkeypatch.setattr(
-            _resolver, "_demucs_module_importable", lambda: True
-        )
+        monkeypatch.setattr(_resolver, "_demucs_module_importable", lambda: True)
         assert _resolver._demucs_cmd() == (str(exe),)
 
-    def test_env_exe_missing_file_never_falls_through(
-        self, _resolver, monkeypatch
-    ):
+    def test_env_exe_missing_file_never_falls_through(self, _resolver, monkeypatch):
         """Same contract as resolve_ffmpeg — a typo'd override must
         report missing, not silently grab another demucs."""
         monkeypatch.setenv("HORNSCRIBE_DEMUCS", r"C:\no\demucs.exe")
-        monkeypatch.setattr(
-            _resolver, "_demucs_module_importable", lambda: True
-        )
+        monkeypatch.setattr(_resolver, "_demucs_module_importable", lambda: True)
         monkeypatch.setattr(
             _resolver.shutil,
             "which",
@@ -726,9 +688,7 @@ class TestDemucsResolution:
     def test_dev_uses_this_interpreter(self, _resolver, monkeypatch):
         import sys
 
-        monkeypatch.setattr(
-            _resolver, "_demucs_module_importable", lambda: True
-        )
+        monkeypatch.setattr(_resolver, "_demucs_module_importable", lambda: True)
         assert _resolver._demucs_cmd() == (
             sys.executable,
             "-m",
@@ -754,27 +714,18 @@ class TestDemucsResolution:
         monkeypatch.setenv("PATH", str(tool_root))
         assert _resolver._demucs_cmd() == (str(exe),)
 
-    def test_path_folder_addon_in_named_zip_subfolder(
-        self, _resolver, tmp_path, monkeypatch
-    ):
+    def test_path_folder_addon_in_named_zip_subfolder(self, _resolver, tmp_path, monkeypatch):
         """Windows "Extract All" defaults to ``<tools>/<zip name>/``
         -- the bundle then sits one level deeper and must still
         resolve (the common mistaken-but-supported shape)."""
         tool_root = tmp_path / "tools"
-        exe = (
-            tool_root
-            / "HornScribe-demucs-addon-4.1.0-win64"
-            / "demucs"
-            / "demucs.exe"
-        )
+        exe = tool_root / "HornScribe-demucs-addon-4.1.0-win64" / "demucs" / "demucs.exe"
         exe.parent.mkdir(parents=True)
         exe.write_bytes(b"x")
         monkeypatch.setenv("PATH", str(tool_root))
         assert _resolver._demucs_cmd() == (str(exe),)
 
-    def test_path_folder_addon_skips_dirs_without_bundle(
-        self, _resolver, tmp_path, monkeypatch
-    ):
+    def test_path_folder_addon_skips_dirs_without_bundle(self, _resolver, tmp_path, monkeypatch):
         """A PATH dir that has no demucs/ subfolder is skipped — the
         search falls through to the python probes, not to None."""
         tool_root = tmp_path / "tools"
@@ -782,18 +733,14 @@ class TestDemucsResolution:
         monkeypatch.setenv("PATH", str(tool_root))
         assert _resolver._demucs_cmd() is None
 
-    def test_frozen_never_uses_sys_executable(
-        self, _resolver, monkeypatch
-    ):
+    def test_frozen_never_uses_sys_executable(self, _resolver, monkeypatch):
         """The packaged engine's sys.executable is the worker — even
         with the module bundled, `-m demucs` must not run: the spawn
         would start a second worker on the NDJSON pipe."""
         import sys
 
         monkeypatch.setattr(sys, "frozen", True, raising=False)
-        monkeypatch.setattr(
-            _resolver, "_demucs_module_importable", lambda: True
-        )
+        monkeypatch.setattr(_resolver, "_demucs_module_importable", lambda: True)
         assert _resolver._demucs_cmd() is None
         assert _resolver._demucs_available() is False
 
@@ -806,13 +753,9 @@ class TestDemucsResolution:
         monkeypatch.setattr(
             _resolver.shutil,
             "which",
-            lambda n: (
-                "C:\\Python312\\python.exe" if n == "python" else None
-            ),
+            lambda n: "C:\\Python312\\python.exe" if n == "python" else None,
         )
-        monkeypatch.setattr(
-            _resolver, "_python_has_demucs", lambda _p: True
-        )
+        monkeypatch.setattr(_resolver, "_python_has_demucs", lambda _p: True)
         assert _resolver._demucs_cmd() == (
             "C:\\Python312\\python.exe",
             "-m",

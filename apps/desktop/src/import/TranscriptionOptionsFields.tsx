@@ -195,6 +195,25 @@ export function TranscriptionOptionsFields({
           })
         }
       />
+      {/* #203: the accompaniment staff rides the same separation —
+          on by default (the JPOP lead-sheet case), disabled where
+          the texture forbids isolation (voices/chords keep every
+          line, so no stems exist to split). */}
+      <Checkbox
+        label={ja.import.audioOptions.accompanimentPart}
+        checked={options.accompanimentPart}
+        disabled={
+          options.texture === "voices" || options.texture === "chords"
+        }
+        onChange={(_e, data) =>
+          set({ accompanimentPart: data.checked === true })
+        }
+      />
+      <p className="hs-audio-options__hint">
+        {options.texture === "voices" || options.texture === "chords"
+          ? ja.import.audioOptions.accompanimentPartPolyphonicHint
+          : ja.import.audioOptions.accompanimentPartHint}
+      </p>
       <HsSelect
         label={ja.import.audioOptions.tempo}
         options={TEMPO_OPTIONS}

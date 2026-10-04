@@ -67,7 +67,14 @@ _PROFILES = {
 }
 
 _SUPPORTED_METERS = {
-    "4/4", "3/4", "2/4", "5/4", "6/8", "7/8", "9/8", "12/8",
+    "4/4",
+    "3/4",
+    "2/4",
+    "5/4",
+    "6/8",
+    "7/8",
+    "9/8",
+    "12/8",
 }
 
 _BACKENDS = {"auto", "basicPitch", "pyin"}
@@ -156,6 +163,12 @@ class TranscriptionParams:
     # skip modulation detection — the hint means "this song is in
     # this key", which is the honest contract for an explicit choice.
     key_hint: str = "auto"
+    # #203: when vocal isolation produced an accompaniment stem
+    # (demucs no_vocals / center complement), transcribe it as a
+    # second '伴奏' part on the shared measure grid. Solo sources
+    # drop the stem during isolation so the flag is inert there;
+    # mixes under auto/melody get the split automatically (#204).
+    accompaniment_part: bool = True
 
     @classmethod
     def from_payload(cls, raw: Any) -> TranscriptionParams:
@@ -163,20 +176,14 @@ class TranscriptionParams:
             raise ValueError("params must be an object")
         audio_path = raw.get("audioPath")
         if not isinstance(audio_path, str) or not audio_path.strip():
-            raise ValueError(
-                "params.audioPath is required (absolute path to the audio file)"
-            )
+            raise ValueError("params.audioPath is required (absolute path to the audio file)")
         tempo_bpm = cls._opt_float(raw, "tempoBpm", None, lo=20.0, hi=400.0)
         meter = cls._opt_choice(raw, "meter", "auto", _SUPPORTED_METERS | {"auto"})
-        min_dur_raw = cls._opt_choice(
-            raw, "minDuration", "16", set(_MIN_DURATION_DENOMINATORS)
-        )
+        min_dur_raw = cls._opt_choice(raw, "minDuration", "16", set(_MIN_DURATION_DENOMINATORS))
         triplets = cls._opt_choice(raw, "triplets", "auto", set(_TRIPLET_POLICIES))
         simplicity = cls._opt_choice(raw, "simplicity", "standard", set(_PROFILES))
         range_kind = cls._opt_choice(raw, "range", "all", {"all", "selection"})
-        sel_start = cls._opt_float(
-            raw, "selectionStartSec", None, lo=0.0, hi=86400.0
-        )
+        sel_start = cls._opt_float(raw, "selectionStartSec", None, lo=0.0, hi=86400.0)
         sel_end = cls._opt_float(raw, "selectionEndSec", None, lo=0.0, hi=86400.0)
         if range_kind == "selection" and (
             sel_start is None or sel_end is None or sel_end <= sel_start
@@ -197,9 +204,11 @@ class TranscriptionParams:
             {"standard", "precision"},
         )
         display_name = cls._opt_str(raw, "displayName")
-        key_hint = cls._opt_choice(
-            raw, "keyHint", "auto", set(_KEY_HINTS) | {"auto"}
-        )
+        key_hint = cls._opt_choice(raw, "keyHint", "auto", set(_KEY_HINTS) | {"auto"})
+        # #203: strict opt-out — anything but an explicit false keeps
+        # the accompaniment staff on (the JPOP default the issue
+        # asked for).
+        accompaniment_part = raw.get("accompanimentPart", True) is not False
         return cls(
             audio_path=audio_path,
             tempo_bpm=tempo_bpm,
@@ -218,6 +227,7 @@ class TranscriptionParams:
             vocal_isolation_quality=vocal_isolation_quality,
             display_name=display_name,
             key_hint=key_hint,
+            accompaniment_part=accompaniment_part,
         )
 
     def meter_segment(self) -> MeterSegment:
@@ -275,17 +285,14 @@ class TranscriptionParams:
             "vocalIsolation": self.vocal_isolation,
             "vocalIsolationQuality": self.vocal_isolation_quality,
             "keyHint": self.key_hint,
+            "accompanimentPart": self.accompaniment_part,
         }
 
     @staticmethod
-    def _opt_choice(
-        raw: dict[str, Any], name: str, default: str, choices: set[str]
-    ) -> str:
+    def _opt_choice(raw: dict[str, Any], name: str, default: str, choices: set[str]) -> str:
         value = raw.get(name, default)
         if not isinstance(value, str) or value not in choices:
-            raise ValueError(
-                f"params.{name} must be one of {sorted(choices)}, got {value!r}"
-            )
+            raise ValueError(f"params.{name} must be one of {sorted(choices)}, got {value!r}")
         return value
 
     @staticmethod
@@ -316,9 +323,7 @@ class TranscriptionParams:
         return stripped or None
 
     @staticmethod
-    def _opt_int(
-        raw: dict[str, Any], name: str, default: int, *, lo: int, hi: int
-    ) -> int:
+    def _opt_int(raw: dict[str, Any], name: str, default: int, *, lo: int, hi: int) -> int:
         """Optional integer field -> bounded int.
 
         Booleans and non-numeric values are rejected outright; a float

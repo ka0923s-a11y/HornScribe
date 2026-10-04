@@ -2910,6 +2910,269 @@ class TestVocalPolyphonicConflict:
         )
 
 
+class TestAutoRescueAndAccompaniment:
+    """#204/#203: a detected mix under auto/melody tries vocal
+    isolation before clipping to the top voice, and the companion
+    accompaniment stem becomes a second score part.  These tests run
+    without an injected backend — the real pipeline calls
+    ``predict_note_events``/``vocal_wav``, stubbed here — because the
+    rescue guard explicitly refuses to fire on an injected engine."""
+
+    def _mix_events(self) -> tuple[RawNoteEvent, ...]:
+        # Melody line + an overlapping lower line — 8 overlapping
+        # pairs comfortably clears the 4-overlap/5% mix signature.
+        events: list[RawNoteEvent] = []
+        for i in range(8):
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 1:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=76.0,
+                    onset_sec=i * 0.5,
+                    offset_sec=i * 0.5 + 0.45,
+                    confidence=0.9,
+                )
+            )
+            events.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-{i * 2 + 2:06d}"),
+                    transcription_revision=_REV,
+                    pitch_midi=55.0,
+                    onset_sec=i * 0.5 + 0.2,
+                    offset_sec=i * 0.5 + 0.4,
+                    confidence=0.9,
+                )
+            )
+        return tuple(events)
+
+    def _run_engine(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        predict: Any,
+        params_extra: dict[str, Any] | None = None,
+        vocal_wav_result: tuple | None = None,
+        rescued: tuple[RawNoteEvent, ...] = (),
+    ) -> list[dict[str, Any]]:
+        import hornscribe.transcription.pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "predict_note_events", predict)
+        monkeypatch.setattr(
+            pipeline_mod,
+            "predict_note_events_rescued",
+            lambda *a, **k: rescued,
+        )
+        if vocal_wav_result is not None:
+            monkeypatch.setattr(
+                pipeline_mod,
+                "vocal_wav",
+                lambda *a, **k: vocal_wav_result,
+            )
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected, emit = collect()
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                **(params_extra or {}),
+            }
+        )
+        run_transcription_job(
+            job_id="job-0001",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            loader=fake_loader,
+        )
+        return collected
+
+    def _stems(
+        self, tmp_path: Path, with_accomp: bool = True
+    ) -> tuple[str, str, bool, str, str]:
+        vocal = tmp_path / "vocal.wav"
+        vocal.write_bytes(b"x")
+        if with_accomp:
+            # accompaniment_wav_for derives the stem by name — the
+            # file must exist beside the vocal WAV.
+            (tmp_path / "vocal.accomp.wav").write_bytes(b"x")
+        return (str(vocal), "applied", False, "demucs", "4.1.0")
+
+    def test_auto_mix_rescues_through_isolation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # #204: auto texture on a detected mix reaches for the
+        # isolated stem instead of clipping to the top voice — the
+        # rescue's own revision/preprocess lands on the result.
+        calls: list[str] = []
+        mix = self._mix_events()
+        melody = make_events([72, 74, 76, 74, 72], beat_sec=0.5)
+
+        def _predict(path: str, **kw: Any) -> tuple[RawNoteEvent, ...]:
+            calls.append(str(path))
+            return mix
+
+        log = self._run_engine(
+            tmp_path,
+            monkeypatch,
+            _predict,
+            # No accompaniment stem here — this test isolates the
+            # rescue path; the staff is covered by the next tests.
+            vocal_wav_result=self._stems(tmp_path, with_accomp=False),
+            rescued=melody,
+        )
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        # The rescue line replaced the clipped mix — 5 notes, not 8+.
+        parts = result["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 1
+        assert len(parts[0]["notes"]) == 5
+        pre = result["meta"]["preprocess"]
+        assert pre["vocalIsolation"] is True
+        assert pre["auto"] is True
+        assert pre["method"] == "demucs"
+        reasons = {i["reason"] for i in result["reviewIssues"]}
+        assert "vocal_isolation_applied" in reasons
+
+    def test_accompaniment_stem_becomes_second_part(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # #203: the no_vocals stem beside the vocal is detected on the
+        # same grid and lands as a second 伴奏 part — with its OWN
+        # pitches, not the lead line's (id-collision guard).
+        mix = self._mix_events()
+        melody = make_events([72, 74, 76, 74, 72], beat_sec=0.5)
+        backing = make_events([45, 45, 48, 48], beat_sec=1.0)
+        calls: list[str] = []
+
+        def _predict(path: str, **kw: Any) -> tuple[RawNoteEvent, ...]:
+            calls.append(str(path))
+            # Match the stem by FILENAME — the pytest tmp dir is named
+            # after this test and itself contains 'accomp'.
+            return backing if Path(path).name.endswith(".accomp.wav") else mix
+
+        log = self._run_engine(
+            tmp_path,
+            monkeypatch,
+            _predict,
+            vocal_wav_result=self._stems(tmp_path),
+            rescued=melody,
+        )
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        parts = result["scoreDocument"]["content"]["parts"]
+        assert len(calls) == 2  # take.wav + the .accomp.wav stem
+        assert len(parts) == 2
+        assert parts[1]["name"] == "伴奏"
+        # The accompaniment staff is not a transposing instrument —
+        # written exports keep it in the sounding projection.
+        assert parts[1]["transposing"] is False
+        accomp_pitches = {n["pitchMidi"] for n in parts[1]["notes"]}
+        assert accomp_pitches == {45, 48}
+        # Re-aliased ids stay unique across the merged document.
+        ids = [n["id"] for p in parts for n in p["notes"]]
+        assert len(ids) == len(set(ids))
+        # raw_evidence.parts lines up 1:1 with score parts — any skew
+        # makes requantize silently drop to the synthetic path.
+        evidence = result["scoreDocument"]["rawEvidence"]
+        assert len(evidence["parts"]) == len(parts)
+
+    def test_accompaniment_part_opt_out(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # accompanimentPart=False: the stem exists but no second
+        # staff is generated — the opt-out is honoured end to end.
+        mix = self._mix_events()
+
+        def _predict(path: str, **kw: Any) -> tuple[RawNoteEvent, ...]:
+            if Path(path).name.endswith(".accomp.wav"):
+                return self._mix_events()
+            return mix
+
+        log = self._run_engine(
+            tmp_path,
+            monkeypatch,
+            _predict,
+            params_extra={"accompanimentPart": False},
+            vocal_wav_result=self._stems(tmp_path),
+            rescued=make_events([72, 74], beat_sec=0.5),
+        )
+        assert log[-1]["phase"] == "completed"
+        parts = log[-1]["result"]["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 1
+
+    def test_no_accompaniment_stem_stays_single_part(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Solo-ish source: separation produced no accompaniment stem
+        # (or it was near-silent and dropped) — no empty second staff.
+        mix = self._mix_events()
+        calls: list[str] = []
+
+        def _predict(path: str, **kw: Any) -> tuple[RawNoteEvent, ...]:
+            calls.append(str(path))
+            return mix
+
+        log = self._run_engine(
+            tmp_path,
+            monkeypatch,
+            _predict,
+            vocal_wav_result=self._stems(tmp_path, with_accomp=False),
+            rescued=make_events([72, 74], beat_sec=0.5),
+        )
+        assert log[-1]["phase"] == "completed"
+        parts = log[-1]["result"]["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 1
+        # predict ran exactly once — the accomp stem never existed,
+        # so no second detection pass fired either. (Basename check:
+        # the pytest tmp dir itself may contain 'accomp'.)
+        assert all(not Path(c).name.endswith(".accomp.wav") for c in calls)
+        assert len(calls) == 1
+
+    def test_mono_texture_never_rescues(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A declared-mono source stays on the raw path even with the
+        # same overlap signature — the rescue is an auto/melody remedy.
+        import hornscribe.transcription.pipeline as pipeline_mod
+
+        mix = self._mix_events()
+        vocal_calls: list[bool] = []
+        monkeypatch.setattr(
+            pipeline_mod,
+            "vocal_wav",
+            lambda *a, **k: vocal_calls.append(True)
+            or (None, "x", False, None, None),
+        )
+        monkeypatch.setattr(
+            pipeline_mod,
+            "predict_note_events_pyin",
+            lambda *a, **k: mix,
+        )
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected, emit = collect()
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                "texture": "mono",
+            }
+        )
+        run_transcription_job(
+            job_id="job-0001",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            loader=fake_loader,
+        )
+        assert collected[-1]["phase"] == "completed"
+        assert vocal_calls == []
+
+
+
 class TestOmittedIssues:
     """#360: the 60-issue surfacing cap keeps the omitted tail inside
     the result — with real allocated ids — so the desktop can expand

@@ -57,6 +57,9 @@ export interface TranscriptionJobParams {
   /** #181: demucs tier — only emitted for an explicit "precision"
    *  under vocalIsolation ("standard" is the engine default). */
   vocalIsolationQuality?: string;
+  /** #203: opt-out flag — absent means the accompaniment staff is
+   *  generated whenever a separation stem exists (engine default). */
+  accompanimentPart?: boolean;
   /** #53: user-pinned key signature ("auto" omitted). */
   keyHint?: string;
 }
@@ -116,6 +119,9 @@ export function buildTranscriptionParams(
   if (options.vocalIsolation && options.vocalIsolationQuality === "precision") {
     params.vocalIsolationQuality = "precision";
   }
+  // #203: accompaniment staff is engine-default on — only an
+  // explicit opt-out travels on the wire (same sparse-param rule).
+  if (!options.accompanimentPart) params.accompanimentPart = false;
   // #53: "auto" is the engine default — pin only an explicit key.
   if (options.keyHint && options.keyHint !== "auto") {
     params.keyHint = options.keyHint;
@@ -258,6 +264,9 @@ export function transcriptionOptionsFromSettings(
       ["standard", "precision"] as const,
       "standard",
     ),
+    // #203: absent (or a non-boolean echo) means the engine default
+    // — the accompaniment staff stays on.
+    accompanimentPart: s.accompanimentPart !== false,
     // #53: restore a pinned key verbatim — an unknown name falls back
     // to auto rather than pinning a key the engine would reject.
     keyHint: pick("keyHint", KEY_HINT_VALUES, "auto"),

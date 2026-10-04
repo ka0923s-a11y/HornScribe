@@ -1100,6 +1100,13 @@ export const ja = {
        * demucs — the select disables at the same time. */
       vocalIsolationQualityNoDemucs:
         "このエンジンには分離モデル(demucs)が導入されていないため、標準のみ有効です。",
+      /* #203: accompaniment staff opt-out — on by default; disabled
+          where the texture forbids isolation entirely. */
+      accompanimentPart: "伴奏も別パートで採譜する",
+      accompanimentPartHint:
+        "分離で得られた伴奏ステムを 2 段目の譜面として採譜します。JPOP などのミックス音源で主旋律と伴奏を分けて読めます。ボーカル分離を使わなくても、ミックス判定時の自動分離があれば適用されます。",
+      accompanimentPartPolyphonicHint:
+        "複数声部・和音として採譜する場合、分離は行われないため伴奏パートは生成されません。",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {

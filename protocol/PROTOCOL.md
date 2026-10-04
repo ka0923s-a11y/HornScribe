@@ -197,6 +197,7 @@ payload below).
 | `texture`            | string  | `"auto"`/`"mono"`/`"melody"`/`"voices"`/`"chords"` — source texture hint (#85, #155) |
 | `backend`            | string  | `"auto"`/`"basicPitch"`/`"pyin"` — engine selector; auto resolves pYIN for `texture:"mono"`, Basic Pitch otherwise (#175, #189) |
 | `vocalIsolation`     | bool    | opt-in vocal isolation — center extraction, or demucs when the `engine-vocal` extra is installed (#187, #302) |
+| `accompanimentPart`  | bool    | default `true` — when separation produced an accompaniment stem, transcribe it as a second 伴奏 part on the shared grid (#203) |
 
 #### `completed` → `result` (`transcription`) [ENG-002]
 
