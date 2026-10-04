@@ -80,6 +80,21 @@ export function buildReviewAction(
     };
   }
 
+  // #222: a buried lead under the standard demucs tier still has a
+  // stronger tier to try — the vocal-isolation retry pins precision.
+  // demucs-less installs emit no flag (the remedy there is the addon).
+  if (
+    issue.reason === "low_lead_level" &&
+    issue.evidence["suggestPrecisionIsolation"] === true &&
+    handlers.retranscribeVocalIsolation
+  ) {
+    return {
+      label: r.retranscribePrecisionIsolation,
+      tooltip: r.retranscribePrecisionIsolationTip,
+      run: () => handlers.retranscribeVocalIsolation?.(),
+    };
+  }
+
   // #148: detected a mix -> retry with the voices texture.
   if (
     issue.evidence["suggestVoicesTexture"] === true &&

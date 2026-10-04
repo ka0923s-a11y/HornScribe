@@ -401,5 +401,41 @@ describe("buildReviewAction", () => {
         h,
       ),
     ).toBeNull();
+  });  it("#222: buried lead offers the precision-tier retry when one exists", () => {
+    const h = handlers();
+    const a = buildReviewAction(
+      issue({
+        reason: "low_lead_level",
+        canonicalNoteIds: [],
+        evidence: { suggestPrecisionIsolation: true },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.retranscribePrecisionIsolation);
+    expect(a?.tooltip).toBe(
+      ja.review.retranscribePrecisionIsolationTip,
+    );
+    a?.run();
+    expect(h.retranscribeVocalIsolation).toHaveBeenCalledOnce();
   });
+
+  it("#222: buried lead hides the retry without flag or handler", () => {
+    expect(
+      buildReviewAction(
+        issue({ reason: "low_lead_level", canonicalNoteIds: [] }),
+        handlers(),
+      ),
+    ).toBeNull();
+    expect(
+      buildReviewAction(
+        issue({
+          reason: "low_lead_level",
+          canonicalNoteIds: [],
+          evidence: { suggestPrecisionIsolation: true },
+        }),
+        handlers({ retranscribeVocalIsolation: undefined }),
+      ),
+    ).toBeNull();
+  });
+
 });

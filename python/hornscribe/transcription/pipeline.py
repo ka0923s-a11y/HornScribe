@@ -135,7 +135,12 @@ from .tempo import (
     tempo_map_from_estimate,
 )
 from .tempo_octave import detect_tempo_octave
-from .vocal import accompaniment_wav_for, vocal_wav, wav_rms
+from .vocal import (
+    accompaniment_wav_for,
+    demucs_available,
+    vocal_wav,
+    wav_rms,
+)
 
 JOB_KIND_TRANSCRIPTION = "transcription"
 
@@ -2245,6 +2250,18 @@ def run_transcription_job(
                                     "vocalRms": round(estimate_rms, 5),
                                     "ratioDb": round(20.0 * math.log10(ratio), 1),
                                     "method": vocal_method or "center_extraction",
+                                    # #222: the remedy depends on what
+                                    # already ran — the requested demucs
+                                    # tier + engine-side availability let
+                                    # the UI pick between an addon-install
+                                    # hint, a precision-tier retry, or a
+                                    # plain listen-and-fix message.
+                                    "tier": params.vocal_isolation_quality,
+                                    "demucsAvailable": demucs_available(),
+                                    "suggestPrecisionIsolation": (
+                                        vocal_method == "demucs"
+                                        and params.vocal_isolation_quality != "precision"
+                                    ),
                                 },
                             )
                         )

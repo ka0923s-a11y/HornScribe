@@ -468,3 +468,74 @@ def test_low_lead_level_needs_estimate_rms(tmp_path, monkeypatch) -> None:
     )
     reasons = {i["reason"] for i in result["reviewIssues"]}
     assert "low_lead_level" not in reasons
+
+
+def test_low_lead_level_evidence_names_reachable_remedy(
+    tmp_path, monkeypatch
+) -> None:
+    """#222: the evidence must let the UI pick the remedy that actually
+    exists — a precision retry only when the standard demucs tier ran,
+    and demucsAvailable so a missing addon gets an install hint, not a
+    dead-end precision suggestion."""
+    _stub_isolation(monkeypatch, estimate_rms=0.04, method="demucs")
+    monkeypatch.setattr(pipeline, "demucs_available", lambda: True)
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True, "vocalIsolationQuality": "standard"},
+        source_level=0.5,
+        estimate_rms=0.04,
+        method="demucs",
+    )
+    ev = {i["reason"]: i for i in result["reviewIssues"]}[
+        "low_lead_level"
+    ]["evidence"]
+    assert ev["method"] == "demucs"
+    assert ev["tier"] == "standard"
+    assert ev["demucsAvailable"] is True
+    assert ev["suggestPrecisionIsolation"] is True
+
+
+def test_low_lead_level_no_retry_after_precision(
+    tmp_path, monkeypatch
+) -> None:
+    """#222: precision already ran — there is no stronger tier left to
+    suggest, so the retry flag stays off."""
+    _stub_isolation(monkeypatch, estimate_rms=0.04, method="demucs")
+    monkeypatch.setattr(pipeline, "demucs_available", lambda: True)
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True, "vocalIsolationQuality": "precision"},
+        source_level=0.5,
+        estimate_rms=0.04,
+        method="demucs",
+    )
+    ev = {i["reason"]: i for i in result["reviewIssues"]}[
+        "low_lead_level"
+    ]["evidence"]
+    assert ev["tier"] == "precision"
+    assert ev["suggestPrecisionIsolation"] is False
+
+
+def test_low_lead_level_addon_hint_when_demucs_absent(
+    tmp_path, monkeypatch
+) -> None:
+    """#222: center extraction under a demucs-less install — the UI
+    needs demucsAvailable=False to offer the addon install instead of
+    a precision hint the user cannot reach."""
+    _stub_isolation(
+        monkeypatch, estimate_rms=0.09, method="center_extraction"
+    )
+    monkeypatch.setattr(pipeline, "demucs_available", lambda: False)
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True},
+        source_level=0.5,
+        estimate_rms=0.09,
+        method="center_extraction",
+    )
+    ev = {i["reason"]: i for i in result["reviewIssues"]}[
+        "low_lead_level"
+    ]["evidence"]
+    assert ev["method"] == "center_extraction"
+    assert ev["demucsAvailable"] is False
+    assert ev["suggestPrecisionIsolation"] is False

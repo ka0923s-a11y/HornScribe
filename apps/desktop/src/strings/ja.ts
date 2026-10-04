@@ -273,7 +273,7 @@ export const ja = {
     addonsOpen: "フォルダを開く",
     addonsOpenFailed: "フォルダを開けませんでした",
     demucsAddonHint:
-      "配布ページから分離アドオン(demucs)をダウンロードし、このフォルダに展開すると高精度なボーカル分離が使えます。エンジンの再起動後に有効になります。",
+      "GitHubのHornScribe配布ページ（リリース）から分離アドオン(demucs)をダウンロードし、このフォルダに展開すると高精度なボーカル分離が使えます。エンジンの再起動後に有効になります。",
     backendLabel: "採譜エンジン",
     /* #71: エンジン選択肢 — テンポの tempoAuto と文脈が違うので
      *  専用キーを持つ(値は同じ「自動」)。 */
@@ -1726,6 +1726,37 @@ export const ja = {
      *  would defeat the multi-voice texture. */
     vocalIsolationPolyphonic:
       "複数声部・和音の採譜とボーカル分離は同時に使えません。重なった音を残すため、元の音源のまま採譜しました",
+    // #222: buried-lead detail — names the measured deficit and only
+    // offers the remedy this install can reach (addon install when
+    // demucs is missing, a precision-tier retry when a stronger tier
+    // exists, or listen-and-edit when precision already ran).
+    lowLeadLevel: (p: {
+      readonly ratioDb: number | null;
+      readonly remedy: "addon" | "precision" | "listen";
+    }) => {
+      const clauses = [
+        "元の音源に対して主旋律の音量がかなり小さいため、検出されなかった音符が残っている可能性があります",
+      ];
+      if (p.ratioDb != null) {
+        clauses.push(
+          "推定された音量差は約" +
+            Math.abs(Math.round(p.ratioDb)) +
+            "dBです",
+        );
+      }
+      if (p.remedy === "addon") {
+        clauses.push(
+          "設定の「ツール」から分離アドオン(demucs)を導入すると、より高精度な分離で再採譜できます",
+        );
+      } else if (p.remedy === "precision") {
+        clauses.push("「分離品質：高精度」での再採譜をおすすめします");
+      } else {
+        clauses.push(
+          "元の音源を聴き比べながら、抜けた音を手で補ってください",
+        );
+      }
+      return clauses.join("。") + "。";
+    },
     // #352: key-uncertainty evidence — names the estimate and each
     // reason it is unsure (few notes / low confidence / a close
     // runner-up / an ambiguous mid-piece span).
@@ -1914,6 +1945,12 @@ export const ja = {
     retranscribeVocalIsolation: "ボーカル分離で採譜し直す",
     retranscribeVocalIsolationTip:
       "ボーカルを分離して主旋律だけを採譜し直します（現在の編集は破棄されます）",
+    /** #222: the buried-lead retry when the standard demucs tier
+     *  already ran — same handler as the vocal-isolation retry
+     *  (the job pins the precision tier). */
+    retranscribePrecisionIsolation: "高精度分離で採譜し直す",
+    retranscribePrecisionIsolationTip:
+      "より高精度な分離モデルで採譜し直します（現在の編集は破棄されます）",
     /** #188: apply the suggested BPM on the tempo-uncertain issue. */
     applyTempoSuggestion: (bpm: number) => `♩=${Math.round(bpm)}に修正`,
     /** #209: meter_conflict cannot auto-resolve — open the meter
