@@ -270,6 +270,12 @@ export interface ScoreSynthOptions {
   volume?: number;
 }
 
+/** #211: per-part bus low-pass cutoffs — open (transparent) for lead
+ *  parts, dark for backing staves so the accompaniment sits under the
+ *  lead's timbre while auditioning. */
+const PART_LP_OPEN_HZ = 20000;
+const PART_LP_BACKING_HZ = 1200;
+
 /**
  * 楽譜の発音エンジン。`ScoreCursorClock` に追従するので、UI の再生位置
  * と同期した「楽譜が鳴る」体験を提供する。
@@ -279,9 +285,15 @@ export class ScorePlaybackSynth {
   private master: GainNode | null = null;
   /* #398: per-part gain bus. Lazily created the first time a voice from
    * that part is scheduled; setPartGain edits apply live to ringing
-   * notes — no reschedule needed. */
+   * notes — no reschedule needed.
+   * #211: the bus is a chain — low-pass filter -> fader gain — so a
+   * backing part (accompaniment staff) can run a darker timbre than
+   * the lead while still sharing one voice implementation. */
   private partNodes = new Map<number, GainNode>();
+  private partInputs = new Map<number, AudioNode>();
+  private partFilters = new Map<number, BiquadFilterNode>();
   private partMixGains = new Map<number, number>();
+  private partBacking = new Map<number, boolean>();
   private notes: ScheduledNote[] = [];
   private scheduledNodes: OscillatorNode[] = [];
   private loopRangeMs: { startMs: number; endMs: number } | null = null;
@@ -473,19 +485,46 @@ export class ScorePlaybackSynth {
     if (node) node.gain.value = clamped;
   }
 
-  /** The part's bus node, created on first use. Child of master. */
-  private partBus(partIndex: number): GainNode | null {
+  /**
+   * #211: mark a part as a backing staff — its bus low-pass drops to a
+   * dark cutoff so the accompaniment audibly sits under the lead's
+   * timbre rather than sharing it. Applies live (ringing voices shift
+   * too); safe to call before the AudioContext exists.
+   */
+  setPartBacking(partIndex: number, backing: boolean): void {
+    this.partBacking.set(partIndex, backing);
+    const filter = this.partFilters.get(partIndex);
+    if (filter) {
+      filter.frequency.value = backing
+        ? PART_LP_BACKING_HZ
+        : PART_LP_OPEN_HZ;
+    }
+  }
+
+  /** The part's bus INPUT node (its low-pass), created on first use.
+   *  Voices connect here; the chain continues filter -> gain -> master. */
+  private partBus(partIndex: number): AudioNode | null {
     const ctx = this.ctx;
     const master = this.master;
     if (!ctx || !master) return null;
-    let node = this.partNodes.get(partIndex);
-    if (!node) {
-      node = ctx.createGain();
-      node.gain.value = this.partMixGains.get(partIndex) ?? 1;
-      node.connect(master);
-      this.partNodes.set(partIndex, node);
+    let input = this.partInputs.get(partIndex);
+    if (!input) {
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.Q.value = 0.5;
+      filter.frequency.value = this.partBacking.get(partIndex)
+        ? PART_LP_BACKING_HZ
+        : PART_LP_OPEN_HZ;
+      const gain = ctx.createGain();
+      gain.gain.value = this.partMixGains.get(partIndex) ?? 1;
+      filter.connect(gain);
+      gain.connect(master);
+      this.partInputs.set(partIndex, filter);
+      this.partFilters.set(partIndex, filter);
+      this.partNodes.set(partIndex, gain);
+      input = filter;
     }
-    return node;
+    return input;
   }
 
   dispose(): void {

@@ -372,6 +372,7 @@ interface FakeOsc {
  *  assert what got scheduled and when — without real audio. */
 function fakeAudio() {
   const oscs: FakeOsc[] = [];
+  const filters: { type: string; Q: { value: number }; frequency: { value: number } }[] = [];
   const gain = () => ({
     gain: {
       value: 0,
@@ -386,6 +387,17 @@ function fakeAudio() {
     currentTime: 0,
     destination: {},
     createGain: gain,
+    createBiquadFilter: () => {
+      const f = {
+        type: "",
+        Q: { value: 0 },
+        frequency: { value: 0 },
+        connect: () => {},
+        disconnect: () => {},
+      };
+      filters.push(f);
+      return f;
+    },
     createOscillator: () => {
       const o: FakeOsc & Record<string, unknown> = {
         type: "",
@@ -410,7 +422,7 @@ function fakeAudio() {
       return o;
     },
   };
-  return { ctx: ctx as unknown as AudioContext, oscs };
+  return { ctx: ctx as unknown as AudioContext, oscs, filters };
 }
 
 /** Click oscillators ring at 2350/1760 Hz — voices stay under ~2093. */
@@ -420,6 +432,32 @@ const noteOscs = (oscs: FakeOsc[]) =>
   oscs.filter((o) => o.frequency.value < 1000);
 
 describe("ScorePlaybackSynth click layer (#101)", () => {
+  it("#211: backing parts route through the dark low-pass bus", () => {
+    const { ctx, filters } = fakeAudio();
+    const synth = new ScorePlaybackSynth({ audioContext: ctx });
+    synth.load(
+      table([seg(0, 500, ["sn-1", "sn-2"])]),
+      new Map([
+        ["sn-1", [note("C", 4)]],
+        ["sn-2", [note("G", 3)]],
+      ]),
+      undefined,
+      undefined,
+      new Map([
+        ["sn-1", 0],
+        ["sn-2", 1],
+      ]),
+    );
+    synth.setPartBacking(1, true);
+    synth.setEnabled(true);
+    synth.sync(0, true, 1);
+    // One filter per part bus: lead stays open, backing goes dark.
+    expect(filters.map((f) => f.frequency.value).sort()).toEqual([
+      1200, 20000,
+    ]);
+    synth.dispose();
+  });
+
   it("#113: audition OFF schedules nothing — silent play no longer blips", () => {
     const { ctx, oscs } = fakeAudio();
     const synth = new ScorePlaybackSynth({ audioContext: ctx });

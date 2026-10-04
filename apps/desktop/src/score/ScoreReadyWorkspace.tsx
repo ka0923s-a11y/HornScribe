@@ -487,6 +487,11 @@ export function ScoreReadyWorkspace({
     partMixRef.current = next;
     setPartMix(next);
     pushPartGains(synthRef.current, next);
+    // #211: non-transposing staves (accompaniment) run the darker
+    // backing timbre on their bus — the lead keeps the open one.
+    transposing.forEach((t, i) =>
+      synthRef.current?.setPartBacking(i, t === false),
+    );
     return partIndexByCanonicalId(canonicalDoc);
   }, []);
 
