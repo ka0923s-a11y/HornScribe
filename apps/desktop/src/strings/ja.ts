@@ -355,6 +355,11 @@ export const ja = {
     progressAria: "採譜の進捗",
     elapsedLabel: "経過時間",
     note: "採譜中も再生・一時停止・波形の移動ができます。",
+    /* #229: transient job.event note ids - keyed by the protocol
+     * token the engine emits; resolved client-side, never shown raw. */
+    notes: {
+      model_download: "分離モデルをダウンロードしています（初回のみ・以後はオフラインで動作します）",
+    },
     stages: {
       preparing_audio: {
         pending: "音声を準備",

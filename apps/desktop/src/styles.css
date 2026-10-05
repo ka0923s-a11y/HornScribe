@@ -2246,6 +2246,13 @@ body {
   color: var(--hs-text-muted);
   font-size: var(--hs-font-size-caption);
 }
+/* #229: transient engine note (e.g. model download) — secondary line
+   between the meta row and the stage list. */
+.hs-transcribing__stage-note {
+  margin: 0;
+  color: var(--hs-text-secondary);
+  font-size: var(--hs-font-size-compact);
+}
 /* The HsProgress field stretches inside the transcribing column. */
 .hs-transcribing .hs-field {
   width: 100%;

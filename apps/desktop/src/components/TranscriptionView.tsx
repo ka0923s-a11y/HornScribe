@@ -42,6 +42,12 @@ export function formatElapsedMs(ms: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/** #229: engine note ids resolve through the copy deck — an unknown
+ *  id renders nothing rather than leaking a protocol token. */
+function noteLabel(id: string): string | null {
+  return (ja.transcription.notes as Record<string, string>)[id] ?? null;
+}
+
 function stageLabel(id: TranscriptionStageId, status: StageStatus): string {
   const copy = ja.transcription.stages[id];
   return status === "done"
@@ -92,6 +98,9 @@ export function TranscriptionView({
   const percent = progress !== null ? Math.round(progress * 100) : null;
   const stepText =
     stepCount !== null ? `${stepCount.step}/${stepCount.total}` : null;
+  // #229: transient engine note (model download etc.)
+  const stageNote = job?.note != null ? noteLabel(job.note) : null;
+
 
   return (
       // No role=status here: the container holds a ticking elapsed readout,
@@ -122,6 +131,12 @@ export function TranscriptionView({
             {ja.transcription.elapsedLabel} {elapsed}
           </span>
         </div>
+
+        {stageNote !== null ? (
+          <p className="hs-transcribing__stage-note" aria-live="polite">
+            {stageNote}
+          </p>
+        ) : null}
 
         <ul className="hs-stage-list" aria-label={ja.transcription.progressAria}>
           {stages.map((stage, i) => (

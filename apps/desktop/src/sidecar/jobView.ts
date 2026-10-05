@@ -71,6 +71,11 @@ export interface JobView {
   hasStageInfo: boolean;
   /** Job-level error from the terminal `failed` event. */
   error: ProtocolErrorObject | null;
+  // #229: transient engine note id (e.g. "model_download" while demucs
+  // fetches its weights) — cleared by the next event that carries no
+  // note, and on every terminal phase. Resolved through the copy deck's
+  // transcription.notes map, never shown raw.
+  note: string | null;
   /** `completed` payload — the score-data handoff consumed by UI-030. */
   result: unknown;
   startedAt: number;
@@ -97,6 +102,7 @@ export function createJobView(
     error: null,
     result: null,
     startedAt,
+    note: null,
   };
 }
 
@@ -163,6 +169,10 @@ export function reduceJobEvent(view: JobView, event: JobEventPayload): JobView {
     };
   }
 
+  // #229: notes are transient — an event with no 'note' field clears
+  // whatever the previous one announced.
+  const note = typeof event.note === "string" ? event.note : null;
+
   switch (event.phase) {
     case "completed":
       return {
@@ -174,6 +184,7 @@ export function reduceJobEvent(view: JobView, event: JobEventPayload): JobView {
         hasStageInfo,
         error: null,
         result: event.result ?? null,
+        note: null,
       };
     case "cancelled":
       return {
@@ -184,6 +195,7 @@ export function reduceJobEvent(view: JobView, event: JobEventPayload): JobView {
         activeStageIndex,
         hasStageInfo,
         error: null,
+        note: null,
       };
     case "failed":
       return {
@@ -197,6 +209,7 @@ export function reduceJobEvent(view: JobView, event: JobEventPayload): JobView {
           code: ERR.JOB_FAILED,
           message: "job failed without an error object",
         },
+        note: null,
       };
     default:
       // started | progress — running view.
@@ -207,6 +220,7 @@ export function reduceJobEvent(view: JobView, event: JobEventPayload): JobView {
         stepCount,
         activeStageIndex,
         hasStageInfo,
+        note,
       };
   }
 }
