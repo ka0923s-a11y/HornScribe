@@ -249,6 +249,31 @@ def _refine_beat_frame(onset_env: Any, frame: int) -> float:
     return float(frame) + max(-1.0, min(1.0, refined - float(frame)))
 
 
+def _stem_onset_env(stem_path: str | None) -> tuple[Any, int]:
+    """Onset-strength envelope of a separation stem, for meter accents.
+
+    The no_vocals accompaniment stem keeps the drums/bass/guitars that
+    carry the downbeat structure a vocal line lacks (#233). Returns
+    (envelope, sample_rate) or (None, 0) when there is no stem or the
+    audio stack is unavailable -- a silent miss costs the caller only
+    the stem accent pool, never the job.
+    """
+    if not stem_path:
+        return None, 0
+    try:
+        require_module("librosa")
+        import librosa  # noqa: PLC0415 - lazy optional dependency
+    except Exception:
+        return None, 0
+    try:
+        y, sr = librosa.load(stem_path, sr=22050, mono=True)
+    except Exception:
+        return None, 0
+    if y.size == 0:
+        return None, 0
+    return librosa.onset.onset_strength(y=y, sr=sr), sr
+
+
 def _track_beats(samples: Any, sample_rate: int) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Beat times + onset strength sampled at each beat (librosa).
 
@@ -1440,6 +1465,9 @@ def run_transcription_job(
             )
             rescue_cleaned = None
             rescue_events: tuple[RawNoteEvent, ...] = ()
+            rescue_adopted_pyin = False
+            rescue_pyin_revision: TranscriptionRevisionId | None = None
+            rescue_pyin_version = ""
             if rescue_vocal_path is not None and not stop(2):
                 rescue_preprocess = {
                     "vocalIsolation": True,
@@ -1454,14 +1482,48 @@ def run_transcription_job(
                     backend_version=BACKEND_VERSION + "+rescue",
                     preprocess=rescue_preprocess,
                 )
+                # #234: the rescue stem gets the same dual-track
+                # arbitration the opt-in path runs (#165) -- on a real
+                # mix the ungated Basic Pitch line crushed ~270
+                # polyphonic overlaps into the top voice; a pYIN
+                # track that agrees with the melody line is the
+                # cleaner single-line answer.
+                rescue_pyin_version = "unknown"
                 try:
-                    rescue_events = predict_note_events_rescued(
-                        rescue_vocal_path,
-                        revision=rescue_revision,
-                        **hz_kwargs,
-                    )
+                    import librosa  # noqa: PLC0415
+
+                    rescue_pyin_version = librosa.__version__ + "+lead"
                 except Exception:
-                    rescue_events = ()
+                    pass
+                rescue_pyin_revision = new_transcription_revision(
+                    audio_hash or params.audio_path,
+                    params.settings_dict(),
+                    backend_id=PYIN_BACKEND_ID,
+                    backend_version=rescue_pyin_version,
+                    preprocess=rescue_preprocess,
+                )
+                try:
+                    rescue_adopted_pyin, agreement, gate_events = _lead_track_gate(
+                        rescue_vocal_path,
+                        bp_revision=rescue_revision,
+                        pyin_revision=rescue_pyin_revision,
+                        hz_kwargs=hz_kwargs,
+                        prefer="top",
+                    )
+                    rescue_events = gate_events
+                    rescue_preprocess["leadTrackGate"] = {
+                        "pyinAgreement": round(agreement, 4),
+                        "adopted": "pyin" if rescue_adopted_pyin else "basicPitch",
+                    }
+                except Exception:
+                    try:
+                        rescue_events = predict_note_events_rescued(
+                            rescue_vocal_path,
+                            revision=rescue_revision,
+                            **hz_kwargs,
+                        )
+                    except Exception:
+                        rescue_events = ()
                 rescue_events = _shift_event_times(rescue_events, selection_offset_sec)
                 rescue_ranged = clip_to_range(
                     rescue_events,
@@ -1470,17 +1532,29 @@ def run_transcription_job(
                 )
                 rescue_cleaned = clean_monophonic(
                     rescue_ranged,
-                    merge_gap_sec=MERGE_GAP_SEC,
+                    # #180: an adopted pYIN track already bridges
+                    # dropouts — re-merging would undo its real
+                    # re-articulation splits.
+                    merge_gap_sec=0.0 if rescue_adopted_pyin else MERGE_GAP_SEC,
                     prefer="top",
                     octave_verdict=_octave_ev,
                 )
             if rescue_cleaned is not None and rescue_cleaned.events:
                 # Adopt the rescue: provenance re-mints so the tr-* id
                 # names the chain that actually produced the score.
-                revision = rescue_revision
+                if rescue_adopted_pyin and rescue_pyin_revision is not None:
+                    # #234: the gate picked pYIN — the adopted track's
+                    # own identity becomes THE revision (#237), same
+                    # rule the opt-in dual_track path follows.
+                    revision = rescue_pyin_revision
+                    backend_id = PYIN_BACKEND_ID
+                    backend_version = rescue_pyin_version
+                    resolved_pyin = True
+                else:
+                    revision = rescue_revision
+                    backend_id = BACKEND_ID
+                    backend_version = BACKEND_VERSION + "+rescue"
                 preprocess = rescue_preprocess
-                backend_id = BACKEND_ID
-                backend_version = BACKEND_VERSION + "+rescue"
                 vocal_path = rescue_vocal_path
                 vocal_managed = rescue_managed
                 vocal_reason = "applied"
@@ -1552,6 +1626,9 @@ def run_transcription_job(
         # they merge into ONE accompaniment staff at build time, where
         # aligned rhythms render as in-part chords.
         accomp_cleaned: list[CleanedEvents] = []
+        # #233: grab the stem's percussive accent envelope now, while
+        # the file still exists -- stage 3 uses it for meter evidence.
+        accomp_env, accomp_env_sr = _stem_onset_env(accomp_path)
         if accomp_path is not None and params.accompaniment_part:
             try:
                 accomp_events = predict_note_events(
@@ -1645,6 +1722,33 @@ def run_transcription_job(
                 samples,
                 sample_rate,
             )
+            # #233: on a separated mix the melody line's onsets are the
+            # WORST meter evidence (vocal phrases start off-beat); the
+            # no_vocals stem still carries the drums/bass that mark
+            # downbeats -- inject its percussive envelope, sampled at
+            # the tracked beats and normalised into the accent-RMS
+            # scale so the pool stays internally consistent.
+            if accomp_env is not None and beat_times:
+                stem_acc = [
+                    (
+                        t,
+                        float(accomp_env[i])
+                        if 0 <= (i := int(round((t - vis_lo) * accomp_env_sr / 512.0))) < len(accomp_env)
+                        else 0.0,
+                    )
+                    for t in beat_times
+                ]
+                if accents and any(a > 0 for _, a in stem_acc):
+                    med_a = sorted(a for _, a in accents)[len(accents) // 2]
+                    med_s = sorted(a for _, a in stem_acc)[len(stem_acc) // 2]
+                    scale = med_a / med_s if med_a > 0 and med_s > 0 else 0.0
+                    if scale > 0:
+                        accents = tuple(
+                            sorted(
+                                (*accents, *((t, a * scale) for t, a in stem_acc)),
+                                key=lambda p: p[0],
+                            )
+                        )
             meter_est = estimate_meter(beat_times or (), strengths, event_accents=accents)
             meter_est_label = meter_est.meter
             # #24 contract fix: an uncertain estimate never writes its
