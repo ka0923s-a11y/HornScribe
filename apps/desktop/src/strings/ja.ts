@@ -1617,7 +1617,7 @@ export const ja = {
     accompaniment_part: {
       title: "伴奏パートは自動分離から生成しました",
       detail:
-        "ソース分離で得た伴奏ステムを採譜したパートです。主旋律より検出精度が落ちるため、耳で確認しながら修正してください。不要なら設定の「伴奏も別パートで採譜する」を外せます。",
+        "ソース分離で得た伴奏ステムを採譜したパートです。主旋律より検出精度が落ちるため、耳で確認しながら修正してください。不要なら採譜オプションの「伴奏も別パートで採譜する」を外せます。",
     },
     // #352: the auto-estimated key could not be justified — the
     // evidence branch names the estimate and why it is unsure.
@@ -1726,6 +1726,10 @@ export const ja = {
      *  would defeat the multi-voice texture. */
     vocalIsolationPolyphonic:
       "複数声部・和音の採譜とボーカル分離は同時に使えません。重なった音を残すため、元の音源のまま採譜しました",
+    /** #227: the applied-isolation marker when demucs (not the center
+     *  extraction) produced the estimate — names the real method. */
+    vocalIsolationDemucs:
+      "分離アドオン(demucs)でボーカル成分を分離してから採譜しています。高精度な分離ですが、伴奏の音が残る箇所は確認してください。",
     // #222: buried-lead detail — names the measured deficit and only
     // offers the remedy this install can reach (addon install when
     // demucs is missing, a precision-tier retry when a stronger tier

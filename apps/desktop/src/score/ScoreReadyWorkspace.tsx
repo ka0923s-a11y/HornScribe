@@ -354,6 +354,15 @@ function inspectorCopy(): InspectorCopy {
               margin != null ? Math.round(margin * 100) : null,
           });
         }
+        // #227: name the separation method that actually ran — the
+        // generic detail describes the center extraction, which is
+        // wrong copy under a demucs addon install.
+        if (
+          issue.reason === "vocal_isolation_applied" &&
+          issue.evidence["stage"] === "demucs"
+        ) {
+          return ja.reviewEvidence.vocalIsolationDemucs;
+        }
         // #322: isolation was skipped because voices/chords keep the
         // overlapping lines — say so instead of the generic mono/
         // decode-failure copy.
