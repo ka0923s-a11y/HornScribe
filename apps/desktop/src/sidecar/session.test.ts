@@ -106,6 +106,20 @@ describe("jobView tracker (pure)", () => {
     expect(v.progress).toBeNull();
   });
 
+  it("#229: a transient engine note sets, clears on the next event, dies at terminal", () => {
+    let v = createJobView("job-1", "transcription", 0);
+    expect(v.note).toBeNull();
+    v = reduceJobEvent(v, ev({ note: "model_download" }));
+    expect(v.note).toBe("model_download");
+    // The next event carrying no note clears it — notes are transient.
+    v = reduceJobEvent(v, ev({ step: 1, totalSteps: 3 }));
+    expect(v.note).toBeNull();
+    // A terminal phase never carries a note forward.
+    v = reduceJobEvent(v, ev({ note: "model_download" }));
+    v = reduceJobEvent(v, ev({ phase: "completed" }));
+    expect(v.note).toBeNull();
+  });
+
   it("a job without stage info stays honest (all pending, real progress)", () => {
     let v = createJobView("job-1", "demoLongTask", 0);
     v = reduceJobEvent(v, ev({ progress: 0.4 }));

@@ -242,6 +242,30 @@ def demucs_available() -> bool:
     return _demucs_cmd() is not None
 
 
+def demucs_weights_pending() -> bool:
+    """#229: True when the demucs weights have never been fetched --
+    the first separation call then spends minutes inside torch.hub
+    before any audio work starts, and the UI should say why.
+
+    torch.hub resolves the checkpoint dir as $TORCH_HOME/hub/
+    checkpoints (default ~/.cache/torch).  An unreadable or
+    ambiguous state answers False -- a silent stage is cheaper than a
+    note claiming a download that is not happening.
+    """
+    try:
+        torch_home = os.environ.get("TORCH_HOME") or os.path.join(
+            os.path.expanduser("~"), ".cache", "torch"
+        )
+        ckpt = os.path.join(torch_home, "hub", "checkpoints")
+        if not os.path.isdir(ckpt):
+            return True
+        return not any(
+            name.endswith((".th", ".ckpt")) for name in os.listdir(ckpt)
+        )
+    except OSError:
+        return False
+
+
 def _stage_span_wav(audio_path: str, start_sec: float, end_sec: float | None) -> str | None:
     """#320: decode [start, end) in stereo and stage it as a temp WAV
     for demucs — None when the span cannot be decoded (the caller then

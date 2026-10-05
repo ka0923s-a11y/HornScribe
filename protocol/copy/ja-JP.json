@@ -185,6 +185,9 @@
     "completed": "採譜が完了しました",
     "progressAria": "採譜の進捗",
     "eta": "残り約 {eta}",
+    "notes": {
+      "model_download": "分離モデルをダウンロードしています（初回のみ・以後はオフラインで動作します）"
+    },
     "options": {
       "label": "採譜オプション",
       "tempo": "テンポ",

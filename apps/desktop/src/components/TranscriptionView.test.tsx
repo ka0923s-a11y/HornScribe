@@ -16,6 +16,7 @@ import {
 import type { JobEventPayload } from "../sidecar/protocol";
 import type { CommandSurface } from "../commands/registry";
 import { TranscriptionView } from "./TranscriptionView";
+import { ja } from "../strings/ja";
 import { installJsdomStubs } from "../quality/testEnv";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -97,5 +98,25 @@ describe("TranscriptionView progress honesty (#385)", () => {
   it("null job renders the same indeterminate shell", () => {
     render(null);
     expect(progressBar()?.getAttribute("aria-valuenow")).toBeNull();
+  });
+});
+
+
+describe("engine notes (#229)", () => {
+  it("a known note id renders the deck copy while active", () => {
+    let job = createJobView("job-1", "transcription", 0);
+    job = reduceJobEvent(job, ev({ stage: "transcribing" }));
+    job = reduceJobEvent(job, ev({ note: "model_download" }));
+    render(job);
+    const el = host?.querySelector(".hs-transcribing__stage-note");
+    expect(el).not.toBeNull();
+    expect(el?.textContent).toContain(ja.transcription.notes.model_download);
+  });
+
+  it("an unknown note id renders nothing (no raw protocol tokens)", () => {
+    let job = createJobView("job-1", "transcription", 0);
+    job = reduceJobEvent(job, ev({ note: "nonsense_id" }));
+    render(job);
+    expect(host?.querySelector(".hs-transcribing__stage-note")).toBeNull();
   });
 });

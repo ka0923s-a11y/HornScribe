@@ -20,6 +20,7 @@ function jobView(phase: JobView["phase"], extra: Partial<JobView> = {}): JobView
     hasStageInfo: false,
     error: null,
     result: null,
+    note: null,
     startedAt: 0,
     ...extra,
   };

@@ -539,3 +539,92 @@ def test_low_lead_level_addon_hint_when_demucs_absent(
     assert ev["method"] == "center_extraction"
     assert ev["demucsAvailable"] is False
     assert ev["suggestPrecisionIsolation"] is False
+
+
+def _collect(tmp_path, payload_extra, monkeypatch):
+    """#229: _run-shaped helper that returns the raw event stream so
+    transient fields (the model-download note) are observable."""
+    audio = tmp_path / "take.wav"
+    audio.write_bytes(b"x" * 64)
+    collected: list[dict] = []
+
+    def emit(phase: str, **kw) -> None:
+        collected.append({"phase": phase, **kw})
+
+    params = TranscriptionParams.from_payload(
+        {
+            "audioPath": str(audio),
+            "tempoBpm": 120.0,
+            "meter": "4/4",
+            **payload_extra,
+        }
+    )
+    run_transcription_job(
+        job_id="j",
+        params=params,
+        emit=emit,
+        cancel=threading.Event(),
+        backend=None,
+        loader=lambda _p: (array("f", [0.0] * (22050 * 5)), 22050),
+    )
+    return collected
+
+
+def _stub_demucs_isolation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        pipeline,
+        "vocal_wav",
+        lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs", "4.0.1"),
+    )
+    monkeypatch.setattr(
+        pipeline, "predict_note_events_pyin", lambda *a, **k: _events()
+    )
+    monkeypatch.setattr(
+        pipeline, "predict_note_events_rescued", lambda *a, **k: _events()
+    )
+
+
+def test_model_download_note_emitted_once_before_demucs_run(
+    tmp_path, monkeypatch
+) -> None:
+    """#229: demucs installed but weights not yet fetched -> the job
+    announces the silent download stretch exactly once."""
+    monkeypatch.setattr(pipeline, "demucs_available", lambda: True)
+    monkeypatch.setattr(pipeline, "demucs_weights_pending", lambda: True)
+    _stub_demucs_isolation(monkeypatch)
+    events = _collect(
+        tmp_path, {"backend": "auto", "vocalIsolation": True}, monkeypatch
+    )
+    notes = [e for e in events if e.get("note") == "model_download"]
+    assert len(notes) == 1, events
+    assert events[-1]["phase"] == "completed", events
+
+
+def test_model_download_note_silent_when_weights_cached(
+    tmp_path, monkeypatch
+) -> None:
+    """#229: weights already on disk -> no imminent download -> no
+    note (a false "downloading" claim is worse than silence)."""
+    monkeypatch.setattr(pipeline, "demucs_available", lambda: True)
+    monkeypatch.setattr(pipeline, "demucs_weights_pending", lambda: False)
+    _stub_demucs_isolation(monkeypatch)
+    events = _collect(
+        tmp_path, {"backend": "auto", "vocalIsolation": True}, monkeypatch
+    )
+    assert all("note" not in e for e in events), events
+    assert events[-1]["phase"] == "completed", events
+
+
+def test_model_download_note_silent_without_demucs(
+    tmp_path, monkeypatch
+) -> None:
+    """#229: no demucs install -> the isolation runs the builtin
+    extractor and no download is coming, so the note stays off."""
+    monkeypatch.setattr(pipeline, "demucs_available", lambda: False)
+    monkeypatch.setattr(pipeline, "demucs_weights_pending", lambda: True)
+    _stub_demucs_isolation(monkeypatch)
+    events = _collect(
+        tmp_path, {"backend": "auto", "vocalIsolation": True}, monkeypatch
+    )
+    assert all("note" not in e for e in events), events
+    assert events[-1]["phase"] == "completed", events

@@ -765,3 +765,31 @@ class TestDemucsResolution:
     def test_nothing_resolves_to_none(self, _resolver):
         assert _resolver._demucs_cmd() is None
         assert _resolver.demucs_available() is False
+
+
+class TestDemucsWeightsPending:
+    """#229: the weights-presence probe gating the "model_download"
+    note -- it reads $TORCH_HOME/hub/checkpoints."""
+
+    def test_missing_dir_is_pending(self, tmp_path, monkeypatch):
+        import hornscribe.transcription.vocal as vocal_mod
+
+        monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+        assert vocal_mod.demucs_weights_pending() is True
+
+    def test_empty_checkpoints_is_pending(self, tmp_path, monkeypatch):
+        import hornscribe.transcription.vocal as vocal_mod
+
+        ckpt = tmp_path / "torch" / "hub" / "checkpoints"
+        ckpt.mkdir(parents=True)
+        monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+        assert vocal_mod.demucs_weights_pending() is True
+
+    def test_downloaded_weights_not_pending(self, tmp_path, monkeypatch):
+        import hornscribe.transcription.vocal as vocal_mod
+
+        ckpt = tmp_path / "torch" / "hub" / "checkpoints"
+        ckpt.mkdir(parents=True)
+        (ckpt / "955717e8-8726e21a.th").write_bytes(b"weights")
+        monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+        assert vocal_mod.demucs_weights_pending() is False

@@ -138,6 +138,7 @@ from .tempo_octave import detect_tempo_octave
 from .vocal import (
     accompaniment_wav_for,
     demucs_available,
+    demucs_weights_pending,
     vocal_wav,
     wav_rms,
 )
@@ -987,6 +988,22 @@ def run_transcription_job(
     def stop(stage_index: int) -> bool:
         return cancelled(stage_index) or timed_out(stage_index)
 
+    # #229: a first-run demucs weight download can sit inside the
+    # separation call for minutes with no stage progress -- name the
+    # silence once per job, right before the call that triggers it.
+    # demucs_available() keeps the note honest: no demucs install
+    # means no download is coming.
+    _model_download_noted = False
+
+    def emit_model_download_note() -> None:
+        nonlocal _model_download_noted
+        if _model_download_noted:
+            return
+        if not (demucs_available() and demucs_weights_pending()):
+            return
+        _model_download_noted = True
+        emit("progress", note="model_download")
+
     emit("started", stage=STAGES[0])
     try:
         # ---- preparing_audio ------------------------------------------
@@ -1092,6 +1109,7 @@ def run_transcription_job(
             # Isolation covers exactly the backend's span: the
             # selection when one is set, else the whole file. A stray
             # selection_start_sec under range=all must not leak in.
+            emit_model_download_note()
             (
                 vocal_path,
                 vocal_reason,
@@ -1399,6 +1417,7 @@ def run_transcription_job(
             and backend is None
             and vocal_path is None
         ):
+            emit_model_download_note()
             (
                 rescue_vocal_path,
                 _rescue_reason,
