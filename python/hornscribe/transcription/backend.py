@@ -322,10 +322,23 @@ def frames_to_note_events(
             if run_pitch is not None
             else float(int(round(center)))
         )
-        # Voiced probability can be NaN on dropout frames; average over
-        # the finite values so confidence stays a real number.
-        probs = [prob[i] for i in run if not math.isnan(prob[i])]
-        amp = sum(probs) / len(probs) if probs else 0.0
+        # Voiced-probability is degenerate on current librosa builds
+        # (~0.01 floor even on solidly voiced frames, observed on a
+        # real demucs stem) -- it cannot carry confidence. Confidence
+        # instead scores the track's own evidence: median |deviation|
+        # of REAL f0 frames from the note pitch (a wandering track
+        # shows up) times voiced coverage of the span (dropout holes
+        # count against it).
+        real_midis = [
+            to_midi(f0[i])
+            for i in run
+            if f0[i] > 0 and not math.isnan(f0[i])
+        ]
+        span_frames = max(1, int(round((offset - onset) / frame_dt)))
+        coverage = min(1.0, len(real_midis) / span_frames)
+        devs = sorted(abs(m - note_pitch) for m in real_midis)
+        spread = devs[len(devs) // 2] if devs else 1.0
+        amp = max(0.0, min(1.0, coverage * (1.0 - spread)))
         bends = [
             max(
                 0,

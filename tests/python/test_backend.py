@@ -212,12 +212,25 @@ class TestFramesToNoteEvents:
         # The merged gap frame borrows the neighbour pitch (bend ~0).
         assert ev[0][4][10] == 8192
 
-    def test_nan_probabilities_ignored(self):
+    def test_stable_track_confidence_high(self):
+        """#234: pYIN confidence is the track's own evidence now -- a
+        steady run (dev ~0, full coverage) earns ~1.0, independent of
+        the degenerate voiced_prob floor."""
         f0, t, v, p = self._frames([60] * 10)
         p[3] = float("nan")
         ev = frames_to_note_events(f0, t, v, p)
         assert len(ev) == 1
-        assert abs(ev[0][3] - 0.9) < 1e-9
+        assert abs(ev[0][3] - 1.0) < 1e-9
+
+    def test_wandering_track_confidence_low(self):
+        """#234: a run whose f0 frames wander ~1 st off the decoded
+        pitch is an unreliable track -- confidence must fall under the
+        review threshold so the note is flagged, not trusted."""
+        midis = [60.0 + (0.9 if i % 2 else -0.9) for i in range(20)]
+        f0, t, v, p = self._frames(midis)
+        ev = frames_to_note_events(f0, t, v, p, decoder="lead")
+        assert len(ev) == 1
+        assert ev[0][3] < 0.5
 
     def test_short_run_dropped(self):
         f0, t, v, p = self._frames([60] * 3)  # 30ms < 70ms default
