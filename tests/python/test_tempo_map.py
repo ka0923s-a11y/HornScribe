@@ -323,3 +323,45 @@ def test_plateau_grouping_folds_short_plateau() -> None:
     assert len(regions) == 2
     assert regions[0][2] < 125.0
     assert regions[1][2] > 135.0
+
+
+def test_reverting_deviation_episodes_do_not_emit() -> None:
+    """#231: a 1-2 measure dip that REVERTS is tracker re-phasing, not
+    a tempo change -- real mixes (JPOP loopback) swing +-10 % every
+    phrase boundary and used to print ~25 marks on one steady song."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    # 4 measures ~120 BPM, then 2-measure 80 BPM dips that each revert:
+    # large enough to defeat the #202 steady-track collapse, short
+    # enough that no episode reaches _TEMPO_PERSIST_MEASURES.
+    intervals = (
+        [0.5] * 16  # 4 measures ~120 BPM
+        + [0.75] * 8  # 2 measures ~80 BPM (dip)
+        + [0.5] * 16  # back to ~120
+        + [0.75] * 8  # second dip
+        + [0.5] * 16  # back to ~120
+    )
+    segs = tempo_map_from_estimate(_estimate(intervals), meter)
+    assert len(segs) == 1
+    assert abs(segs[0].bpm - 120.0) < 6.0
+
+
+def test_sustained_tempo_change_survives_persistence() -> None:
+    """#231: a deviation that HOLDS its new level past the persistence
+    window is a real change -- it emits at the measure it began."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    intervals = [0.5] * 16 + [60.0 / 90.0] * 24  # 4 meas @120 -> 6 meas @90
+    segs = tempo_map_from_estimate(_estimate(intervals), meter)
+    assert len(segs) == 2
+    assert segs[1].start_beat == 16  # deviation onset = measure 4
+    assert abs(segs[1].bpm - 90.0) < 3.0
+
+
+def test_final_jump_still_marks_at_track_end() -> None:
+    """#231: a clear, held tempo change into the final measures is a
+    real rit./shift even without a full persistence window."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    intervals = [0.5] * 24 + [60.0 / 90.0] * 4  # ends on 90 after 120
+    segs = tempo_map_from_estimate(_estimate(intervals), meter)
+    assert len(segs) == 2
+    assert segs[1].start_beat == 24
+    assert abs(segs[1].bpm - 90.0) < 3.0
