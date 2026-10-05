@@ -42,6 +42,15 @@ from .backend import require_module
 # threshold stays tight: a one-bar blip may print a redundant mark,
 # which is cheaper than a merged constant that drifts off-warp.
 _TEMPO_MERGE_RATIO = 0.025
+
+# #231: a tempo mark is earned by PERSISTENT deviation — tracker
+# re-phasing at phrase boundaries swings the per-measure estimate
+# +-10 % for a bar or two and reverts, which is not a tempo change.
+# A mark prints only when the new level holds _TEMPO_PERSIST_MEASURES
+# straight, or the track ends on a clearly different tempo (a final
+# rit. still counts).
+_TEMPO_PERSIST_MEASURES = 4
+_TEMPO_TAIL_JUMP_RATIO = 0.08
 # Off-slope guard: when most intervals deviate >10 % from the
 # regression line the track is genuinely multi-tempo, so the
 # dominant median stays the primary tempo. Frame-quantisation
@@ -655,14 +664,46 @@ def tempo_map_from_estimate(
         )
     ]
     last_bpm = smoothed[indices[0]]
-    for index in indices[1:]:
+    # #231: hysteresis by persistence — an episode is the contiguous run
+    # of out-of-corridor measures in one direction; it prints (at its
+    # onset measure) once it outlives _TEMPO_PERSIST_MEASURES, or when
+    # the piece ends on it and the jump is unambiguous. Reverts inside
+    # the corridor or a direction flip discard the pending episode.
+    pending_pos: int | None = None
+    pending_dir = 0
+    last_pos = len(indices) - 1
+    for pos in range(1, len(indices)):
+        index = indices[pos]
         bpm = smoothed[index]
-        if abs(bpm - last_bpm) / last_bpm > _TEMPO_MERGE_RATIO:
+        dev = bpm - last_bpm
+        if abs(dev) / last_bpm <= _TEMPO_MERGE_RATIO:
+            pending_pos = None
+            pending_dir = 0
+            continue
+        direction = 1 if dev > 0 else -1
+        if pending_pos is None or direction != pending_dir:
+            pending_pos, pending_dir = pos, direction
+        persisted = pos - pending_pos + 1 >= _TEMPO_PERSIST_MEASURES
+        tail_jump = pos == last_pos and (
+            abs(bpm - last_bpm) / last_bpm > _TEMPO_TAIL_JUMP_RATIO
+        )
+        if persisted or tail_jump:
+            # The mark belongs at the first measure already AT the new
+            # level -- a boundary-crossing step starts its episode on
+            # the mixed transition measure, so onset != settle.
+            emit_pos = pos
+            for q in range(pending_pos, pos + 1):
+                q_bpm = smoothed[indices[q]]
+                if abs(q_bpm - bpm) / bpm <= _TEMPO_MERGE_RATIO:
+                    emit_pos = q
+                    break
             segments.append(
                 TempoSegment(
-                    start_beat=measure_start_beats(index),
+                    start_beat=measure_start_beats(indices[emit_pos]),
                     bpm=float(round(bpm)),
                 )
             )
             last_bpm = bpm
+            pending_pos = None
+            pending_dir = 0
     return tuple(segments)
