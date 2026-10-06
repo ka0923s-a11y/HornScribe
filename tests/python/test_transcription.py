@@ -35,6 +35,7 @@ from hornscribe.transcription.meter import estimate_meter
 from hornscribe.transcription.options import TranscriptionParams
 from hornscribe.transcription.pipeline import (
     STAGES,
+    _accomp_confidence_floor,
     _drop_stem_bleed_lows,
     run_transcription_job,
 )
@@ -3485,3 +3486,55 @@ class TestStemBleedDrop:
         assert len(out.events) == 25
         assert out.bleed_dropped == 0
 
+
+class TestAccompConfidenceFloor:
+    """#244: the other-stem flicker floor keeps confident or sustained
+    notes and drops short sub-threshold detections."""
+
+    def _ev(
+        self, midi: float, onset: float, offset: float, conf, i: int = 0
+    ) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-t{i + 1:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=conf,
+            velocity=80,
+            source="test",
+        )
+
+    def test_confident_notes_always_kept(self) -> None:
+        ev = (
+            self._ev(60.0, 0.0, 0.1, 0.9),
+            self._ev(62.0, 0.2, 0.25, 0.7),
+        )
+        assert len(_accomp_confidence_floor(ev)) == 2
+
+    def test_short_low_confidence_dropped(self) -> None:
+        ev = (self._ev(60.0, 0.0, 0.1, 0.4),)
+        assert _accomp_confidence_floor(ev) == ()
+
+    def test_sustained_mid_confidence_kept(self) -> None:
+        # 0.4 conf but 0.5 s long -- a real sustained pad tone.
+        ev = (self._ev(60.0, 0.0, 0.5, 0.4),)
+        assert len(_accomp_confidence_floor(ev)) == 1
+
+    def test_hard_floor_drops_long_weak_notes(self) -> None:
+        # Below the sustain floor even a long note is noise.
+        ev = (self._ev(60.0, 0.0, 1.0, 0.2),)
+        assert _accomp_confidence_floor(ev) == ()
+
+    def test_boundary_values(self) -> None:
+        ev = (
+            self._ev(60.0, 0.0, 0.1, 0.5, 1),   # conf at keep line
+            self._ev(62.0, 0.2, 0.5, 0.35, 2),  # floor conf + sustain
+            self._ev(64.0, 0.5, 0.79, 0.35, 3), # sustain 1 ms short
+        )
+        out = _accomp_confidence_floor(ev)
+        assert [e.pitch_midi for e in out] == [60.0, 62.0]
+
+    def test_none_confidence_dropped(self) -> None:
+        ev = (self._ev(60.0, 0.0, 0.5, None),)
+        assert _accomp_confidence_floor(ev) == ()
