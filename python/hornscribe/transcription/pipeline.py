@@ -274,6 +274,81 @@ def _stem_onset_env(stem_path: str | None) -> tuple[Any, int]:
     return librosa.onset.onset_strength(y=y, sr=sr), sr
 
 
+def _drop_stem_bleed_lows(
+    lead: CleanedEvents,
+    accomp: list[CleanedEvents],
+) -> CleanedEvents:
+    """#236: drop lead notes that are accompaniment-stem bleed.
+
+    Neural separation leaks stable bass/low f0 into the vocal stem;
+    the lead tracker then notates phantom sub-bass melody (real
+    capture: 22 of 36 notes >15 st under the melodic median matched
+    the accompaniment stem pitch-for-pitch). A lead note below the
+    duration-weighted melodic median minus the register band that is
+    overlapped pitch-for-pitch by an accompaniment event is bleed --
+    it already lives in the accompaniment part, so dropping it loses
+    nothing. Vocal-stem-only lows stay: a real low vocal phrase must
+    not be eaten by the register prior alone.
+    """
+    if not lead.events or not accomp:
+        return lead
+    pairs = sorted(
+        (e.pitch_midi, max(e.offset_sec - e.onset_sec, 0.001))
+        for e in lead.events
+    )
+    half = sum(w for _, w in pairs) / 2.0
+    acc = 0.0
+    median = pairs[-1][0]
+    for p_, w in pairs:
+        acc += w
+        if acc >= half:
+            median = p_
+            break
+    floor = median - 15.0
+    accomp_events = [e for c in accomp for e in c.events]
+    dropped_ids: set[RawNoteEventId] = set()
+
+    def _is_bleed(e: RawNoteEvent) -> bool:
+        return any(
+            abs(a.pitch_midi - e.pitch_midi) <= 1.5
+            and a.onset_sec < e.offset_sec
+            and a.offset_sec > e.onset_sec
+            for a in accomp_events
+        )
+
+    kept: list[RawNoteEvent] = []
+    for e in lead.events:
+        if e.pitch_midi < floor and _is_bleed(e):
+            dropped_ids.add(e.id)
+            continue
+        kept.append(e)
+    # Bleed spans interleave corroborated and uncorroborated frames --
+    # a sub-floor fragment sitting inside a dropped bleed region is the
+    # same physical event, not a coincidence the register prior missed.
+    dropped_spans = [
+        (e.onset_sec, e.offset_sec) for e in lead.events if e.id in dropped_ids
+    ]
+    still: list[RawNoteEvent] = []
+    for e in kept:
+        if e.pitch_midi < floor and any(
+            e.onset_sec - b <= 0.6 and a - e.offset_sec <= 0.6
+            for a, b in dropped_spans
+        ):
+            dropped_ids.add(e.id)
+            continue
+        # Below ~D2 a melodic line is never a usable lead vocal --
+        # uncorroborated sub-bass frames are tracker artifacts.
+        if e.pitch_midi < 38.0:
+            dropped_ids.add(e.id)
+            continue
+        still.append(e)
+    if not dropped_ids:
+        return lead
+    return replace(
+        lead, events=tuple(still), bleed_dropped=len(dropped_ids)
+    )
+
+
 def _track_beats(samples: Any, sample_rate: int) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Beat times + onset strength sampled at each beat (librosa).
 
@@ -1680,6 +1755,13 @@ def run_transcription_job(
             with contextlib.suppress(OSError):
                 os.unlink(accomp_path)
             accomp_path = None
+        # #236: the lead track keeps only notes the accompaniment stem
+        # does NOT explain -- sub-register bleed lands in the 伴奏 part
+        # where it belongs instead of dragging the melody into bass
+        # clef. Runs before rhythm analysis so fake bass onsets never
+        # reach the accent pool either.
+        if accomp_cleaned and cleaned.events:
+            cleaned = _drop_stem_bleed_lows(cleaned, accomp_cleaned)
         if stop(2):
             return
 

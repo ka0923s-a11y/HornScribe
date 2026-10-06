@@ -20,7 +20,11 @@ import pytest
 
 from hornscribe.domain.events import PitchBendPoint, RawNoteEvent
 from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId
-from hornscribe.transcription.clean import clean_monophonic, clip_to_range
+from hornscribe.transcription.clean import (
+    CleanedEvents,
+    clean_monophonic,
+    clip_to_range,
+)
 from hornscribe.transcription.key import (
     analyze_key,
     estimate_key,
@@ -31,6 +35,7 @@ from hornscribe.transcription.meter import estimate_meter
 from hornscribe.transcription.options import TranscriptionParams
 from hornscribe.transcription.pipeline import (
     STAGES,
+    _drop_stem_bleed_lows,
     run_transcription_job,
 )
 from hornscribe.transcription.swing import detect_swing
@@ -3372,3 +3377,111 @@ class TestAutoMeterFallback:
         assert result["meta"]["meter"] == "6/8"
         ts = result["scoreDocument"]["content"]["timeSignature"]
         assert (ts["beatsPerMeasure"], ts["beatUnit"]) == (6, 8)
+
+class TestStemBleedDrop:
+    """#236: accompaniment-stem bleed dropped from the lead track."""
+
+    def _lead(self, events: tuple[RawNoteEvent, ...]) -> CleanedEvents:
+        return CleanedEvents(
+            events=events,
+            dropped_too_short=0,
+            merged=0,
+            clipped_overlaps=0,
+        )
+
+    def _ev(
+        self, midi: float, onset: float, offset: float, i: int = 0
+    ) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-t{i + 1:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.9,
+            velocity=80,
+            source="test",
+        )
+
+    def test_corroborated_low_bleed_dropped(self) -> None:
+        # melodic median ~62; a midi-45 fragment the accompaniment
+        # holds pitch-for-pitch is bleed, not melody.
+        lead = self._lead(
+            make_events([60, 62, 64] * 8)
+            + (self._ev(45.0, 30.0, 30.4, 90),)
+        )
+        accomp = [
+            self._lead((self._ev(45.2, 29.9, 30.6, 91),))
+        ]
+        out = _drop_stem_bleed_lows(lead, accomp)
+        assert len(out.events) == 24
+        assert out.bleed_dropped == 1
+        assert all(e.pitch_midi > 45.5 for e in out.events)
+
+    def test_vocal_only_low_note_kept(self) -> None:
+        # A low note the accompaniment cannot explain survives --
+        # genuine low male vocals sit in this band.
+        lead = self._lead(
+            make_events([60, 62, 64] * 8)
+            + (self._ev(42.0, 30.0, 30.4, 90),)
+        )
+        accomp = [self._lead((self._ev(64.0, 29.9, 30.6, 91),))]
+        out = _drop_stem_bleed_lows(lead, accomp)
+        assert len(out.events) == 25
+        assert out.bleed_dropped == 0
+
+    def test_sub_d2_dropped_without_match(self) -> None:
+        # Below D2 a melodic line is never a usable lead vocal.
+        lead = self._lead(
+            make_events([60, 62, 64] * 8)
+            + (self._ev(33.0, 30.0, 30.4, 90),)
+        )
+        accomp = [self._lead((self._ev(64.0, 29.9, 30.6, 91),))]
+        out = _drop_stem_bleed_lows(lead, accomp)
+        assert len(out.events) == 24
+        assert out.bleed_dropped == 1
+
+    def test_fragment_inside_bleed_span_dropped(self) -> None:
+        # An uncorroborated sub-floor note sandwiched between dropped
+        # bleed notes belongs to the same span.
+        lead = self._lead(
+            make_events([60, 62, 64] * 8)
+            + (
+                self._ev(45.0, 30.0, 30.3, 90),
+                self._ev(44.0, 30.35, 30.5, 91),
+                self._ev(45.0, 30.55, 30.8, 92),
+            )
+        )
+        accomp = [
+            self._lead(
+                (
+                    self._ev(45.1, 29.9, 30.35, 93),
+                    self._ev(45.3, 30.5, 30.9, 94),
+                )
+            )
+        ]
+        out = _drop_stem_bleed_lows(lead, accomp)
+        assert len(out.events) == 24
+        assert out.bleed_dropped == 3
+
+    def test_in_band_unison_kept(self) -> None:
+        # Melody doubling the accompaniment inside the vocal band is
+        # real -- register floor only reaches below median-15st.
+        lead = self._lead(
+            make_events([60, 62, 64] * 8)
+            + (self._ev(55.0, 30.0, 30.4, 90),)
+        )
+        accomp = [self._lead((self._ev(55.0, 29.9, 30.6, 91),))]
+        out = _drop_stem_bleed_lows(lead, accomp)
+        assert len(out.events) == 25
+        assert out.bleed_dropped == 0
+
+    def test_no_accomp_no_drops(self) -> None:
+        lead = self._lead(
+            make_events([60, 62, 64] * 8)
+            + (self._ev(45.0, 30.0, 30.4, 90),)
+        )
+        out = _drop_stem_bleed_lows(lead, [])
+        assert len(out.events) == 25
+        assert out.bleed_dropped == 0
+

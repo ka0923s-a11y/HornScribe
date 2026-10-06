@@ -171,6 +171,11 @@ class CleanedEvents:
     preattack_folded: int = 0
     """Sub-32nd octave stubs folded into their successor's onset —
     attack-transient octave flicker under prefer="top"."""
+    bleed_dropped: int = 0
+    """Sub-register notes dropped as accompaniment-stem bleed (#236) —
+    demucs vocal stems leak stable bass/low f0 that the lead tracker
+    notates as phantom melody; dropped only when the accompaniment
+    part holds the same pitch at the same time."""
 
     def stats(self) -> dict[str, Any]:
         return {
@@ -182,6 +187,7 @@ class CleanedEvents:
             "ghostDropped": self.ghost_dropped,
             "interruptionDropped": self.interruption_dropped,
             "preattackFolded": self.preattack_folded,
+            "bleedDropped": self.bleed_dropped,
             "eventCount": len(self.events),
         }
 
