@@ -368,6 +368,40 @@ def _drop_stem_bleed_lows(
     )
 
 
+# #244: accompaniment-stem detections are flicker-heavy -- Basic
+# Pitch hallucinates harmonic partials on the "other" stem, and the
+# surviving part reads as wall-to-wall 16ths (reference mix: 1186 of
+# 1497 events under 0.5 confidence, median flicker duration 151 ms vs
+# 383 ms for the confident half). Confident detections always stay;
+# mid-confidence notes earn a slot only by sustaining. The floor runs
+# before voice splitting so the dropped flicker never votes for a
+# voice and never gates a lead note as bleed.
+_ACCOMP_CONF_KEEP = 0.50
+_ACCOMP_CONF_SUSTAIN = 0.35
+_ACCOMP_SUSTAIN_MIN_SEC = 0.30
+
+
+def _accomp_confidence_floor(
+    events: tuple[RawNoteEvent, ...],
+) -> tuple[RawNoteEvent, ...]:
+    """Drop short low-confidence flicker from accompaniment events.
+
+    Keep when confident (>= _ACCOMP_CONF_KEEP), or when the note at
+    least reaches the sustain floor AND holds long enough to be a real
+    backing tone rather than a partial flicker.
+    """
+    kept = [
+        e
+        for e in events
+        if float(e.confidence or 0.0) >= _ACCOMP_CONF_KEEP
+        or (
+            float(e.confidence or 0.0) >= _ACCOMP_CONF_SUSTAIN
+            and float(e.offset_sec - e.onset_sec) >= _ACCOMP_SUSTAIN_MIN_SEC
+        )
+    ]
+    return tuple(kept)
+
+
 def _track_beats(samples: Any, sample_rate: int) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Beat times + onset strength sampled at each beat (librosa).
 
@@ -1770,6 +1804,9 @@ def run_transcription_job(
         # they merge into ONE accompaniment staff at build time, where
         # aligned rhythms render as in-part chords.
         accomp_cleaned: list[CleanedEvents] = []
+        # #244: running count of sub-floor flicker dropped from the
+        # accompaniment detections, reported in meta for review.
+        accomp_conf_dropped = 0
         # #233: grab the stem's percussive accent envelope now, while
         # the file still exists -- stage 3 uses it for meter evidence.
         accomp_env, accomp_env_sr = _stem_onset_env(accomp_path)
@@ -1800,6 +1837,12 @@ def run_transcription_job(
                 params.selection_start_sec,
                 params.selection_end_sec,
             )
+            # #244: the "other" stem is Basic-Pitch flicker-heavy --
+            # drop short sub-confidence detections before they vote
+            # for voices or gate lead notes as bleed.
+            pre_floor = len(accomp_ranged)
+            accomp_ranged = _accomp_confidence_floor(accomp_ranged)
+            accomp_conf_dropped += pre_floor - len(accomp_ranged)
             if accomp_ranged:
                 a_split = split_voices(
                     accomp_ranged,
@@ -2790,6 +2833,17 @@ def run_transcription_job(
                     "cleaning": (
                         voice_split.stats() if voice_split is not None else cleaned.stats()
                     ),
+                    # #244: accompaniment-side filtering is separate
+                    # from the lead-cleaning counters above -- the
+                    # drop count tells reviewers how much flicker the
+                    # confidence floor removed.
+                    "accompanimentCleaning": {
+                        "confidenceDropped": accomp_conf_dropped,
+                        "voiceCount": len(accomp_cleaned),
+                        "eventCount": sum(
+                            len(c.events) for c in accomp_cleaned
+                        ),
+                    },
                     "settings": params.settings_dict(),
                 },
             },
