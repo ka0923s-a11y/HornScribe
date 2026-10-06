@@ -211,6 +211,25 @@ _TEMPO_REGION_PAD_SEC = 0.6
 # A gap wider than interval * this between region tracks means the
 # boundary beat was lost -- refill it from the onset envelope.
 _TEMPO_GAP_FILL_RATIO = 1.4
+# A short region whose tempo sits within the plateau band of a
+# small-integer metrical ratio of the dominant tempo is the autocorr
+# reading a triplet/double pulse level, not a real tempo change --
+# it is snapped to the dominant grid. Spans longer than this cap keep
+# their own reading: a real double-time section holds for more than a
+# few seconds.
+_TEMPO_REGION_SNAP_MAX_SEC = 6.0
+_TEMPO_METRICAL_RATIOS = (
+    0.5,
+    2.0 / 3.0,
+    0.75,
+    0.8,
+    5.0 / 6.0,
+    6.0 / 5.0,
+    1.25,
+    4.0 / 3.0,
+    1.5,
+    2.0,
+)
 # The tracker quantizes anchors to whole hop frames (~23 ms at
 # 512/22050). On a regular pulse every anchor rounds to the SAME
 # integer interval, so the measured tempo inherits a systematic
@@ -425,6 +444,9 @@ def _tempo_regions_from_dyn(dyn: Any, frame_sec: float) -> list[tuple[float, flo
     if len(dyn) < 4:
         return []
 
+    # Regions live in FRAME units until the final report: fold weights
+    # need true durations in frames, and the median recompute slices
+    # dyn by index.
     regions: list[list[float]] = []
     run = [float(dyn[0])]
     start = 0
@@ -432,19 +454,27 @@ def _tempo_regions_from_dyn(dyn: Any, frame_sec: float) -> list[tuple[float, flo
         mean = float(np.mean(run))
         v = float(dyn[i])
         if mean > 0 and abs(v - mean) / mean > _TEMPO_PLATEAU_BAND:
-            regions.append([start * frame_sec, i * frame_sec, mean])
+            regions.append([float(start), float(i), mean])
             run = [v]
             start = i
         else:
             run.append(v)
-    regions.append([start * frame_sec, len(dyn) * frame_sec, float(np.mean(run))])
+    regions.append([float(start), float(len(dyn)), float(np.mean(run))])
 
-    # Fold too-short regions into the tempo-nearer neighbour.
+    # Fold too-short regions into the tempo-nearer neighbour, weighting
+    # each side by its duration. The earlier unweighted mean let a
+    # single-frame autocorr blip halve a 100 s plateau's tempo: 152
+    # scattered 95.7 bpm triplet-level flickers dragged 0-101 s of a
+    # steady 143.5 bpm song down to a fictitious 119.6 bpm region, and
+    # the region re-track then locked the wrong pulse for half the
+    # piece (milk-crescendo).
+    min_frames = max(1, int(round(_TEMPO_REGION_MIN_SEC / frame_sec)))
     changed = True
     while changed and len(regions) > 1:
         changed = False
         for i, r in enumerate(regions):
-            if r[1] - r[0] >= _TEMPO_REGION_MIN_SEC:
+            span = r[1] - r[0]
+            if span >= min_frames:
                 continue
             left = regions[i - 1] if i > 0 else None
             right = regions[i + 1] if i + 1 < len(regions) else None
@@ -453,21 +483,60 @@ def _tempo_regions_from_dyn(dyn: Any, frame_sec: float) -> list[tuple[float, flo
             merge_left = left is not None and (
                 right is None or abs(left[2] - r[2]) <= abs(right[2] - r[2])
             )
-            if merge_left and left is not None:
-                left[1] = r[1]
-                left[2] = (left[2] + r[2]) / 2.0
-                regions.pop(i)
-            elif right is not None:
-                right[0] = r[0]
-                right[2] = (right[2] + r[2]) / 2.0
-                regions.pop(i)
-            else:
+            target = left if merge_left else right
+            if target is None:
                 break
+            tn = target[1] - target[0]
+            target[2] = (target[2] * tn + r[2] * span) / (tn + span)
+            if merge_left:
+                target[1] = r[1]
+            else:
+                target[0] = r[0]
+            regions.pop(i)
             changed = True
             break
     if len(regions) < 2:
         return []
-    return [(r[0], r[1], r[2]) for r in regions]
+
+    # A region that absorbed scattered blips still carries the muddled
+    # running mean; the member-frame median is the tempo to prime the
+    # per-region DP with.
+    for r in regions:
+        seg = dyn[int(r[0]) : int(r[1])]
+        if len(seg):
+            r[2] = float(np.median(seg))
+
+    # Snap short metrical-ratio regions to the dominant grid (see the
+    # constants above).
+    dominant = float(np.median(dyn))
+    for r in regions:
+        if (r[1] - r[0]) * frame_sec > _TEMPO_REGION_SNAP_MAX_SEC:
+            continue
+        for ratio in _TEMPO_METRICAL_RATIOS:
+            target = dominant * ratio
+            if (
+                target > 0
+                and abs(r[2] - target) / target <= _TEMPO_PLATEAU_BAND
+            ):
+                r[2] = dominant
+                break
+
+    # Neighbours that landed on the same tempo (post-snap) are one
+    # region; splitting would re-track an identical pulse twice and
+    # risk a seam glitch at the boundary.
+    merged: list[list[float]] = [regions[0]]
+    for r in regions[1:]:
+        last = merged[-1]
+        if abs(r[2] - last[2]) / last[2] <= _TEMPO_PLATEAU_BAND:
+            ln = last[1] - last[0]
+            rn = r[1] - r[0]
+            last[2] = (last[2] * ln + r[2] * rn) / (ln + rn)
+            last[1] = r[1]
+        else:
+            merged.append(r)
+    if len(merged) < 2:
+        return []
+    return [(r[0] * frame_sec, r[1] * frame_sec, r[2]) for r in merged]
 
 
 def _event_accents(
