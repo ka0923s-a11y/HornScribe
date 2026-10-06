@@ -325,6 +325,68 @@ def test_plateau_grouping_folds_short_plateau() -> None:
     assert regions[1][2] > 135.0
 
 
+def test_plateau_fold_weights_blips_by_duration() -> None:
+    """A lone-frame flicker must not halve a long plateau's tempo.
+
+    milk-crescendo: the autocorr curve of a steady ~143.5 bpm song
+    flickered to its triplet level (95.7 = 2/3 x) on ~150 scattered
+    single frames; the unweighted fold mean dragged the host region to
+    a fictitious ~119.6 bpm and the region re-track locked the wrong
+    pulse for 100 s of music. Duration-weighted folding keeps the
+    plateau's tempo and the piece collapses to the global track.
+    """
+    from hornscribe.transcription.pipeline import _tempo_regions_from_dyn
+
+    dyn = [143.55] * 200 + [95.7] + [143.55] * 200
+    assert _tempo_regions_from_dyn(dyn, _DYN_FRAME_SEC) == []
+
+    # Scattered single-frame blips across the whole span: same story.
+    dyn = []
+    for i in range(400):
+        dyn.append(95.7 if i % 17 == 8 else 143.55)
+    assert _tempo_regions_from_dyn(dyn, _DYN_FRAME_SEC) == []
+
+
+def test_metrical_snap_short_region() -> None:
+    """A short span reading the triplet level of the dominant tempo is
+    a metrical-level confusion, not a tempo change: it snaps to the
+    dominant grid and merges, so the caller keeps the global track."""
+    from hornscribe.transcription.pipeline import _tempo_regions_from_dyn
+
+    dyn = [143.55] * 200 + [95.7] * 100 + [143.55] * 200
+    assert _tempo_regions_from_dyn(dyn, _DYN_FRAME_SEC) == []
+
+
+def test_metrical_snap_long_region_kept() -> None:
+    """A tempo plateau LONGER than the snap cap keeps its own reading
+    even at a ratio of the other sections: sustained sections are real
+    tempo structure, not autocorr flicker."""
+    from hornscribe.transcription.pipeline import _tempo_regions_from_dyn
+
+    # 400 frames ~9.3 s > _TEMPO_REGION_SNAP_MAX_SEC, and 110 bpm is
+    # off-ratio vs the dominant 110 bpm mid-section anyway (it is the
+    # majority), so the 143.55 bookends must not be re-labelled.
+    dyn = [143.55] * 100 + [110.0] * 400 + [143.55] * 100
+    regions = _tempo_regions_from_dyn(dyn, _DYN_FRAME_SEC)
+    assert len(regions) == 3
+    assert regions[1][2] == pytest.approx(110.0, abs=0.5)
+
+
+def test_region_bpm_is_member_median_not_polluted_mean() -> None:
+    """A long plateau that absorbed a minority of off-level frames
+    reports the member median -- the tempo the DP should chase."""
+    from hornscribe.transcription.pipeline import _tempo_regions_from_dyn
+
+    # 60-frame (~1.4 s) plateau at 95.7 inside a 143.55 span: too short
+    # to be its own region, folded in; the host must still read ~143.55
+    # if another distinct plateau forces the region path.
+    dyn = [143.55] * 150 + [95.7] * 60 + [143.55] * 150 + [80.0] * 200
+    regions = _tempo_regions_from_dyn(dyn, _DYN_FRAME_SEC)
+    assert len(regions) == 2
+    assert regions[0][2] == pytest.approx(143.55, abs=0.5)
+    assert regions[1][2] == pytest.approx(80.0, abs=0.5)
+
+
 def test_reverting_deviation_episodes_do_not_emit() -> None:
     """#231: a 1-2 measure dip that REVERTS is tracker re-phasing, not
     a tempo change -- real mixes (JPOP loopback) swing +-10 % every
