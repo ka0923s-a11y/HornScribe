@@ -7,6 +7,17 @@
   box-sizing: border-box;
 }
 
+/* #238: Verovio emits SMuFL text (metronome beat-units, text dynamics)
+   as PUA codepoints in font-family Leipzig. The SVG-internal @font-face
+   can be ignored by some WebView2 versions, so we also ship Leipzig as a
+   first-class app asset -- same bytes verovio/wasm already embeds
+   (SIL OFL). Document-level declaration keeps font-src ''self'' tight. */
+@font-face {
+  font-family: "Leipzig";
+  src: url("./assets/fonts/leipzig.woff2") format("woff2");
+  font-display: block;
+}
+
 html,
 body,
 #root {
