@@ -239,16 +239,20 @@ export function markReviewMarkers(
   let n = 0;
   if (typeof document.createElementNS !== "function") return 0;
 
-  // #220: group flagged notes by their containing staff so a dense
-  // run of open issues draws ONE badge per staff (carrying the count)
-  // instead of a badge per note — the dotted underline still marks
-  // every flagged note individually, and the inspector still lists
-  // each issue on click.
+  // #220 + #237: consolidate badges so a dense run of open issues
+  // does not carpet the score. Verovio emits g.staff per measure×part,
+  // so keying on the staff element still produced a badge per measure
+  // (a real score showed dozens). Group by (g.system index, staff
+  // vertical band): notes on the same part-line share the staff's y
+  // position within the system, so one badge per part per system row
+  // carries the count while the dotted underline still marks every
+  // flagged note individually and the inspector lists each issue.
   interface Flagged {
     el: SVGGElement;
     box: DOMRect;
   }
-  const groups = new Map<Element, Flagged[]>();
+  const systems = Array.from(container.querySelectorAll("g.system"));
+  const groups = new Map<unknown, Flagged[]>();
   for (const canonicalId of canonicalIds) {
     // One marker per canonical note, on its first rendered fragment.
     const host = index.byCanonical.get(canonicalId)?.[0];
@@ -256,11 +260,28 @@ export function markReviewMarkers(
     try {
       const box = (host as SVGGElement).getBBox();
       if (box.width <= 0 || box.height <= 0) continue;
-      const group =
-        host.closest("g.staff") ?? measureElementOf(host) ?? host;
-      const list = groups.get(group) ?? [];
+      const system = host.closest("g.system");
+      const staff = host.closest("g.staff");
+      let band = 0;
+      if (
+        system &&
+        staff &&
+        typeof (staff as SVGGElement).getBBox === "function"
+      ) {
+        try {
+          // Staff-line y inside the system — same part, same band;
+          // coarse rounding absorbs per-measure bbox jitter.
+          band = Math.round((staff as SVGGElement).getBBox().y / 40);
+        } catch {
+          /* staff geometry unavailable — merge into band 0 */
+        }
+      }
+      const key: unknown = system
+        ? systems.indexOf(system) + ":" + band
+        : (staff ?? measureElementOf(host) ?? host);
+      const list = groups.get(key) ?? [];
       list.push({ el: host as SVGGElement, box });
-      groups.set(group, list);
+      groups.set(key, list);
     } catch {
       /* getBBox unsupported — skip this marker */
     }
