@@ -2295,9 +2295,21 @@ def run_transcription_job(
             )
         )
         quantizer_issues_count = len(issues)
+        # #249: per-note checks (confidence / horn range / duration)
+        # only make sense on the transposing horn staves -- the
+        # accompaniment part is covered by the single
+        # ACCOMPANIMENT_PART marker (#212), and flagging its notes
+        # floods the review list (a piano bass line reads as hundreds
+        # of "outside horn range" cautions that also crowd real lead
+        # warnings out of the severity cap).
         issues.extend(
             _extra_issues(
-                tuple(n for p in built.payload.parts for n in p.notes),
+                tuple(
+                    n
+                    for p in built.payload.parts
+                    if p.transposing
+                    for n in p.notes
+                ),
                 built.note_confidence,
                 built.note_onset_sec,
                 event_by_id,
