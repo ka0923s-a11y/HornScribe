@@ -872,6 +872,41 @@ def _event_sort_key(e: _ExpectedEvent) -> tuple[Fraction, int, str]:
     )
 
 
+def _coalesce_rest_spans(events: list[_ExpectedEvent]) -> list[_ExpectedEvent]:
+    """Merge contiguous or overlapping rest spans into single spans.
+
+    Rests carry no identity -- only silence coverage -- so canonical
+    rest sequences that tile one gap (e.g. a quarter rest plus a half
+    rest at one measure boundary) are the same rhythm as the single
+    merged span the reloader reports. The union is computed purely in
+    the time domain: a note from another notation layer sitting at the
+    seam between two rests does not keep them apart (#247 -- without
+    this the comparator saw a phantom one-event shift and thousands of
+    cascade mismatches).
+    """
+    merged: list[tuple[Fraction, Fraction]] = []
+    others: list[_ExpectedEvent] = []
+    for e in events:
+        if e.kind != "rest":
+            others.append(e)
+            continue
+        start = e.onset_beats
+        end = e.onset_beats + e.duration_beats
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    others.extend(
+        _ExpectedEvent(
+            kind="rest",
+            onset_beats=start,
+            duration_beats=end - start,
+        )
+        for start, end in merged
+    )
+    return sorted(others, key=_event_sort_key)
+
+
 def verify_rhythm_roundtrip(
     score: ScoreDocument, xml_text: str, part_index: int = 0
 ) -> list[str]:
@@ -924,8 +959,16 @@ def verify_rhythm_roundtrip(
                 f"measure {m.number}: meter {sig} != expected {expected_sig}"
             )
 
-    expected = sorted(_expected_events(payload, part_index), key=_event_sort_key)
-    actual = sorted(_actual_events(measures), key=_event_sort_key)
+    # #247: rests are silence coverage, not identity -- both sides are
+    # normalized to merged spans before comparing, or one canonical
+    # rest pair tiling a single gap reports thousands of cascade
+    # mismatches.
+    expected = _coalesce_rest_spans(
+        sorted(_expected_events(payload, part_index), key=_event_sort_key)
+    )
+    actual = _coalesce_rest_spans(
+        sorted(_actual_events(measures), key=_event_sort_key)
+    )
     if len(actual) != len(expected):
         problems.append(
             f"event count {len(actual)} != expected {len(expected)}"

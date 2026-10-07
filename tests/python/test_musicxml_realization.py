@@ -12,6 +12,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 
@@ -20,13 +21,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import rhythm_fixtures as fx
+from conftest import make_score
 from hornscribe.domain.ids import canonical_note_id_from_musicxml
 from hornscribe.domain.score import (
     KeySignature,
     MeterChange,
     Part,
     QuantizedNote,
+    ScoreAtom,
     ScoreDocument,
+    ScoreRest,
     ScoreRevisionPayload,
     TempoSegment,
     TimeSignature,
@@ -438,3 +442,66 @@ def test_rhythm_package_stays_free_of_music21() -> None:
         "sys.exit(1 if 'music21' in sys.modules else 0)"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+# --- #247: contiguous canonical rests are one silence ------------------------
+
+
+def test_contiguous_canonical_rests_compare_as_merged_span() -> None:
+    """Canonical rests split at a measure boundary tile one gap; the
+    reloader merges them into a single span. The comparator must
+    normalize both sides to merged silence coverage or it reports a
+    phantom event-count shift plus thousands of cascade mismatches."""
+    doc = make_score([(60, 0, 1), (62, 6, 1)])
+    part = doc.payload.parts[0]
+    doc = replace(
+        doc,
+        payload=replace(
+            doc.payload,
+            parts=(
+                replace(
+                    part,
+                    rests=(
+                        # gap [1,4) at the tail of measure 1
+                        ScoreRest(
+                            start_beat=Fraction(1),
+                            atoms=(
+                                ScoreAtom(
+                                    duration_beats=Fraction(2),
+                                    symbol="half",
+                                ),
+                                ScoreAtom(
+                                    duration_beats=Fraction(1),
+                                    symbol="quarter",
+                                ),
+                            ),
+                        ),
+                        # gap [4,6) at the head of measure 2 -- the two
+                        # spans are contiguous across the barline and
+                        # reload as a single [1,6) silence
+                        ScoreRest(
+                            start_beat=Fraction(4),
+                            atoms=(
+                                ScoreAtom(
+                                    duration_beats=Fraction(2),
+                                    symbol="half",
+                                ),
+                            ),
+                        ),
+                        # gap [7,8) inside measure 2
+                        ScoreRest(
+                            start_beat=Fraction(7),
+                            atoms=(
+                                ScoreAtom(
+                                    duration_beats=Fraction(1),
+                                    symbol="quarter",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    xml = export_concert_musicxml(doc)
+    assert verify_rhythm_roundtrip(doc, xml) == []
