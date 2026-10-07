@@ -3189,6 +3189,87 @@ class TestAutoRescueAndAccompaniment:
         assert all(not Path(c).name.endswith(".accomp.wav") for c in calls)
         assert len(calls) == 1
 
+    def test_accompaniment_notes_get_no_per_note_flags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # #249: per-note checks (horn range / model confidence /
+        # very-short detection) are horn-staff business. The
+        # separation-derived accompaniment part is covered by the one
+        # accompaniment_part provenance marker (#212) — flagging its
+        # notes flooded the review list with piano-bass "outside horn
+        # range" cautions.
+        mix = self._mix_events()
+        melody = make_events([72, 74, 76, 74, 72], beat_sec=0.5)
+        backing = [
+            # Deep bass: EXTREME outside the written horn range.
+            RawNoteEvent(
+                id=RawNoteEventId("rne-b000001"),
+                transcription_revision=_REV,
+                pitch_midi=33.0,
+                onset_sec=0.0,
+                offset_sec=0.9,
+                confidence=0.9,
+                velocity=80,
+                source="test",
+            ),
+            # Survives the confidence floor (0.35 + 0.5s sustain) yet
+            # sits below LOW_CONFIDENCE — a pre-fix low_model_confidence
+            # flag waiting to happen.
+            RawNoteEvent(
+                id=RawNoteEventId("rne-b000002"),
+                transcription_revision=_REV,
+                pitch_midi=40.0,
+                onset_sec=1.0,
+                offset_sec=1.5,
+                confidence=0.4,
+                velocity=80,
+                source="test",
+            ),
+            # Confident but 50 ms — pre-fix very_short_detection.
+            RawNoteEvent(
+                id=RawNoteEventId("rne-b000003"),
+                transcription_revision=_REV,
+                pitch_midi=45.0,
+                onset_sec=2.0,
+                offset_sec=2.05,
+                confidence=0.9,
+                velocity=80,
+                source="test",
+            ),
+        ]
+
+        def _predict(path: str, **kw: Any) -> tuple[RawNoteEvent, ...]:
+            return (
+                tuple(backing)
+                if Path(path).name.endswith(".accomp.wav")
+                else mix
+            )
+
+        log = self._run_engine(
+            tmp_path,
+            monkeypatch,
+            _predict,
+            vocal_wav_result=self._stems(tmp_path),
+            rescued=melody,
+        )
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        parts = result["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 2
+        assert parts[1]["transposing"] is False
+        accomp_note_ids = {n["id"] for n in parts[1]["notes"]}
+        assert accomp_note_ids  # the fixture must actually emit notes
+        flagged = {
+            nid
+            for issue in result["reviewIssues"]
+            + result.get("omittedReviewIssues", [])
+            for nid in issue.get("canonicalNoteIds", [])
+        }
+        assert not (accomp_note_ids & flagged)
+        # The single provenance marker still describes the staff.
+        reasons = {i["reason"] for i in result["reviewIssues"]}
+        assert "accompaniment_part" in reasons
+
     def test_mono_texture_never_rescues(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
