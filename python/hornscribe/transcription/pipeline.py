@@ -268,29 +268,32 @@ def _refine_beat_frame(onset_env: Any, frame: int) -> float:
     return float(frame) + max(-1.0, min(1.0, refined - float(frame)))
 
 
-def _stem_onset_env(stem_path: str | None) -> tuple[Any, int]:
-    """Onset-strength envelope of a separation stem, for meter accents.
+def _stem_analysis(stem_path: str | None) -> tuple[Any, int, Any]:
+    """Decode a separation stem once for meter + chord evidence.
 
-    The no_vocals accompaniment stem keeps the drums/bass/guitars that
-    carry the downbeat structure a vocal line lacks (#233). Returns
-    (envelope, sample_rate) or (None, 0) when there is no stem or the
-    audio stack is unavailable -- a silent miss costs the caller only
-    the stem accent pool, never the job.
+    Returns ``(samples, sample_rate, onset_env)``. The no_vocals
+    accompaniment stem keeps the drums/bass/guitars that carry the
+    downbeat structure a vocal line lacks (#233) and the harmony the
+    chord map should read instead of the vocal-heavy full mix (#259);
+    one decode feeds both plus the accompaniment octave evidence the
+    caller already needed. ``(None, 0, None)`` when there is no stem
+    or the audio stack is unavailable -- a silent miss costs the
+    caller only the stem evidence pools, never the job.
     """
     if not stem_path:
-        return None, 0
+        return None, 0, None
     try:
         require_module("librosa")
         import librosa  # noqa: PLC0415 - lazy optional dependency
     except Exception:
-        return None, 0
+        return None, 0, None
     try:
         y, sr = librosa.load(stem_path, sr=22050, mono=True)
     except Exception:
-        return None, 0
+        return None, 0, None
     if y.size == 0:
-        return None, 0
-    return librosa.onset.onset_strength(y=y, sr=sr), sr
+        return None, 0, None
+    return y, sr, librosa.onset.onset_strength(y=y, sr=sr)
 
 
 def _drop_stem_bleed_lows(
@@ -1870,9 +1873,11 @@ def run_transcription_job(
         # #244: running count of sub-floor flicker dropped from the
         # accompaniment detections, reported in meta for review.
         accomp_conf_dropped = 0
-        # #233: grab the stem's percussive accent envelope now, while
-        # the file still exists -- stage 3 uses it for meter evidence.
-        accomp_env, accomp_env_sr = _stem_onset_env(accomp_path)
+        # #233/#260/#259: grab the stem's decoded audio + evidence
+        # curves now, while the file still exists -- stage 3 uses the
+        # onset/flux pools for meter accents, stage 5 reuses the
+        # samples for the chord map.
+        accomp_y, accomp_env_sr, accomp_env = _stem_analysis(accomp_path)
         if accomp_path is not None and params.accompaniment_part:
             # The accomp voices were detected on the accompaniment
             # stem — their octave-flicker arbitration must read THAT
@@ -1880,11 +1885,9 @@ def run_transcription_job(
             # source for unseparated jobs): judging accomp events on
             # the vocal stem vetoes every snap, since the stem's
             # whole point is that the accompaniment is not in it.
-            accomp_evidence: tuple[Any, int] | None = None
-            try:
-                accomp_evidence = load_mono_audio(accomp_path)
-            except Exception:
-                accomp_evidence = None
+            accomp_evidence: tuple[Any, int] | None = (
+                (accomp_y, accomp_env_sr) if accomp_y is not None else None
+            )
             _accomp_octave_ev = _octave_verdict_on(
                 accomp_evidence
                 if accomp_evidence is not None
@@ -2010,22 +2013,42 @@ def run_transcription_job(
                     (
                         t,
                         float(accomp_env[i])
-                        if 0 <= (i := int(round((t - vis_lo) * accomp_env_sr / 512.0))) < len(accomp_env)
+                        if 0
+                        <= (i := int(round((t - vis_lo) * accomp_env_sr / 512.0)))
+                        < len(accomp_env)
                         else 0.0,
                     )
                     for t in beat_times
                 ]
-                if accents and any(a > 0 for _, a in stem_acc):
-                    med_a = sorted(a for _, a in accents)[len(accents) // 2]
-                    med_s = sorted(a for _, a in stem_acc)[len(stem_acc) // 2]
-                    scale = med_a / med_s if med_a > 0 and med_s > 0 else 0.0
-                    if scale > 0:
-                        accents = tuple(
-                            sorted(
-                                (*accents, *((t, a * scale) for t, a in stem_acc)),
-                                key=lambda p: p[0],
-                            )
+                chan_vals = sorted(a for _, a in stem_acc if a > 0)
+                base_vals = sorted(a for _, a in accents if a > 0)
+                # Normalise onto the accent pool's p90 (peak range, not
+                # the noise-floor median): the stem env is then in the
+                # same unit the slot-max comparison runs on. With no
+                # vocal accents at all the raw env still works — the
+                # meter read is scale-free within one pool.
+                base_ref = (
+                    base_vals[min(len(base_vals) - 1, int(len(base_vals) * 0.9))]
+                    if base_vals
+                    else 0.0
+                )
+                chan_ref = (
+                    chan_vals[min(len(chan_vals) - 1, int(len(chan_vals) * 0.9))]
+                    if chan_vals
+                    else 0.0
+                )
+                scale = (
+                    base_ref / chan_ref
+                    if base_ref > 0 and chan_ref > 0
+                    else (1.0 if chan_ref > 0 else 0.0)
+                )
+                if scale > 0:
+                    accents = tuple(
+                        sorted(
+                            (*accents, *((t, a * scale) for t, a in stem_acc)),
+                            key=lambda p: p[0],
                         )
+                    )
             meter_est = estimate_meter(beat_times or (), strengths, event_accents=accents)
             meter_est_label = meter_est.meter
             # #24 contract fix: an uncertain estimate never writes its
@@ -2229,8 +2252,13 @@ def run_transcription_job(
                     end_sec=est.end_sec + selection_offset_sec,
                 )
                 for est in estimate_chords(
-                    samples,
-                    sample_rate,
+                    # #259: the accompaniment stem carries the harmony
+                    # without vocal non-chord tones or the drum mask —
+                    # chroma read off it resolves the maj7/min7 pairs
+                    # the full mix kept collapsing. Falls back to the
+                    # mix when no separation ran.
+                    accomp_y if accomp_y is not None else samples,
+                    accomp_env_sr if accomp_y is not None else sample_rate,
                     tuple(seg_secs),
                     diatonic=diatonic_chords(key.fifths, key.mode),
                     prefer_flats=prefer_flats,

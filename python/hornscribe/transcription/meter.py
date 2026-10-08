@@ -88,14 +88,16 @@ _CENSUS_MIN_ACCENT_SHARE = 0.2
 _COMPOUND_FACTOR_BASE = 0.4
 _COMPOUND_FACTOR_GAIN = 0.9
 _CENSUS_DEFAULT_TERNARY = 0.3
-# A period whose accent ratio adds nothing over a proper divisor's
-# is explaining the same downbeats twice (6/8's alternation also
-# satisfies period 4) -- drop the larger candidate.
-_REDUNDANT_PERIOD_TOLERANCE = 1.05
 # Beat intervals spread wider than this mean a genuine tempo change,
 # not jitter -- switch to index-space slots so a 100->140 step still
-# reads accents on the beat lattice (#93).
-_VARIABLE_PULSE_RATIO = 1.25
+# reads accents on the beat lattice (#93). The test is a SUSTAINED
+# windowed-median deviation, not the raw spread: tracker jitter and
+# dropped beats create huge min/max ratios and even scattered grid
+# misses on a perfectly constant tempo (#260), but their windowed
+# median always lands back on the base interval. A real tempo step
+# moves the windowed median itself.
+_TEMPO_SHIFT_DEVIATION = 0.25
+_TEMPO_SHIFT_WINDOW = 8
 # Score-time value (quarterLength) of one tracked pulse when the
 # tracker sits on eighths regardless of the winning label.
 _EIGHTH_QL = Fraction(1, 2)
@@ -156,7 +158,7 @@ def estimate_meter(
         # mapping exists at that level.
         return _default()
     if event_accents:
-        variable = intervals[-1] > intervals[0] * _VARIABLE_PULSE_RATIO
+        variable = _tempo_shifted(beat_times_sec, median_sec)
         if pulse_bpm >= _EIGHTH_LEVEL_BPM:
             return _estimate_eighth_level(
                 beat_times_sec, event_accents, median_sec, variable
@@ -182,6 +184,33 @@ def _slot_phase(
         for t in beat_times_sec[1:]
     )
     return first + (residuals[len(residuals) // 2] if residuals else 0.0)
+
+
+def _tempo_shifted(
+    beat_times_sec: tuple[float, ...], interval_sec: float,
+) -> bool:
+    """True when a run of beat intervals sits off the global median.
+
+    Single missed/doubled beats jitter around the median; a real
+    tempo change keeps a whole window of consecutive intervals off
+    it. The sliding median therefore separates tracker noise from an
+    actual pulse step (#260 vs the #93 case that needs index-space
+    slots).
+    """
+    intervals = [
+        b - a
+        for a, b in zip(beat_times_sec, beat_times_sec[1:], strict=False)
+        if b - a > 0
+    ]
+    w = _TEMPO_SHIFT_WINDOW
+    if len(intervals) < 2 * w or interval_sec <= 0:
+        return False
+    for i in range(len(intervals) - w + 1):
+        window = sorted(intervals[i : i + w])
+        med = window[w // 2]
+        if abs(med - interval_sec) > _TEMPO_SHIFT_DEVIATION * interval_sec:
+            return True
+    return False
 
 
 def _slot_evidence(
@@ -374,12 +403,20 @@ def _estimate_beat_level(
     # Period 4 that merely restates the period-2 alternation (6/8's
     # strong/weak pattern) explains nothing extra -- drop both labels
     # built on it so 12/8 cannot tie its way into a coin flip. The
-    # symmetric read also applies: when period 4 clearly dominates,
-    # the period-2 labels are the redundant ones.
-    if ratios[4] <= ratios[2] * _REDUNDANT_PERIOD_TOLERANCE:
+    # pop must only fire when period 4 is *not* the stronger read,
+    # though: the old tolerance band fired on near-ties too, so a mix
+    # whose strongest evidence was genuinely 4-periodic still lost
+    # '4/4' and surfaced 2/4 as the best guess (#260). In the weak
+    # lead band the simple-meter pair stays ranked on its own
+    # evidence, but 12/8 still drops -- its whole case is the
+    # restated alternation, and surviving it re-ties 6/8's win.
+    if ratios[4] <= ratios[2]:
         scores.pop("4/4", None)
         scores.pop("12/8", None)
-    elif ratios[4] >= ratios[2] * _MIN_ACCENT_RATIO:
+    elif ratios[4] < ratios[2] * _MIN_ACCENT_RATIO:
+        scores.pop("12/8", None)
+    else:
+        # Period 4 clearly dominates: the period-2 labels restate it.
         scores.pop("2/4", None)
         scores.pop("6/8", None)
     return _finish(scores, eighth_level=False)
