@@ -652,6 +652,7 @@ def _event_accents(
     events: Iterable[RawNoteEvent],
     samples: Any,
     sample_rate: int,
+    time_offset_sec: float = 0.0,
 ) -> tuple[tuple[float, float], ...]:
     """(onset_sec, post-onset RMS) per event -- meter accent evidence.
 
@@ -659,12 +660,16 @@ def _event_accents(
     accents (#87), but the audio energy in a short window after each
     detected onset tracks them closely. Pure-Python RMS keeps this a
     no-op on engines without numpy.
+
+    time_offset_sec maps absolute event times into the analysis
+    buffer — a selection slice or an isolation stem both start at
+    their span's source offset, not at source t=0 (#256).
     """
     window = int(0.12 * sample_rate)
     out: list[tuple[float, float]] = []
     n = len(samples)
     for ev in events:
-        i0 = max(0, int(ev.onset_sec * sample_rate))
+        i0 = max(0, int((ev.onset_sec - time_offset_sec) * sample_rate))
         i1 = min(n, i0 + window)
         if i1 - i0 < 8:
             continue
@@ -1294,6 +1299,13 @@ def run_transcription_job(
         # is in the mix, not in the stem).  Decoded once here — the
         # temp stem may be unlinked before the clean stage reads it.
         stem_evidence: tuple[Any, int] | None = None
+        # #256: the buffer every audio-evidence consumer reads for the
+        # LEAD line — the stem when isolation (opt-in or rescue)
+        # produced it, the source slice otherwise.  Boundary flags,
+        # seam envelopes, octave verdicts and meter event-accents all
+        # describe the detected line; on a separated run the mix
+        # carries accompaniment transients the line never had.
+        lead_evidence: tuple[Any, int] | None = None
         # #203/#204: the isolation span is needed by BOTH the opt-in
         # call below and the auto-rescue in the cleaning stage —
         # hoisted out of the elif so the rescue sees the same bounds.
@@ -1346,6 +1358,7 @@ def run_transcription_job(
                     stem_evidence = load_mono_audio(vocal_path)
                 except Exception:
                     stem_evidence = None
+                lead_evidence = stem_evidence
             transcribe_done += 1
             step(1, transcribe_done, transcribe_total)
         if vocal_path is None and params.range_kind == "selection":
@@ -1556,7 +1569,7 @@ def run_transcription_job(
             return _verdict
 
         _octave_ev = _octave_verdict_on(
-            stem_evidence if stem_evidence is not None else (samples, sample_rate)
+            lead_evidence if lead_evidence is not None else (samples, sample_rate)
         )
 
         voice_split = None
@@ -1597,9 +1610,17 @@ def run_transcription_job(
             # splits articulations itself, hence clean_merge_gap > 0.
             edge_ev = None
             if prefer == "onset" and clean_merge_gap > 0:
+                # #256: seam evidence describes the line being cleaned
+                # — the stem when the events were detected on one;
+                # the mix would invent attacks the vocal never had.
+                _ev_buf, _ev_sr = (
+                    lead_evidence
+                    if lead_evidence is not None
+                    else (samples, sample_rate)
+                )
                 edge_env = compute_envelopes(
-                    samples,
-                    sample_rate,
+                    _ev_buf,
+                    _ev_sr,
                     time_offset_sec=selection_offset_sec,
                 )
 
@@ -1781,6 +1802,10 @@ def run_transcription_job(
                 ranged = rescue_ranged
                 cleaned = rescue_cleaned
                 rescue_applied = True
+                # #256: every downstream audio-evidence read for the
+                # lead now resolves against the rescue stem — the
+                # events were detected on it, not on the mix.
+                lead_evidence = rescue_evidence
                 auto_mix_detected = params.texture == "auto"
                 # Adopting the stem replaces the whole raw-event set —
                 # earlier raw detection output is discarded.
@@ -1967,8 +1992,12 @@ def run_transcription_job(
             # The same track feeds the tempo warp when tempo is auto.
             accents = _event_accents(
                 (e for c in (cleaned, *cleaned_lowers) for e in c.events),
-                samples,
-                sample_rate,
+                *(
+                    lead_evidence
+                    if lead_evidence is not None
+                    else (samples, sample_rate)
+                ),
+                time_offset_sec=selection_offset_sec,
             )
             # #233: on a separated mix the melody line's onsets are the
             # WORST meter evidence (vocal phrases start off-beat); the
@@ -2415,8 +2444,11 @@ def run_transcription_job(
         # fix instead of a silent quantizer artifact.
         issues.extend(
             _boundary_issues(
-                samples,
-                sample_rate,
+                *(
+                    lead_evidence
+                    if lead_evidence is not None
+                    else (samples, sample_rate)
+                ),
                 (cleaned, *cleaned_lowers),
                 built.payload.parts,
                 event_by_id,
