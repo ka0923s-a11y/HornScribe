@@ -5,7 +5,9 @@ import globals from "globals";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "src-tauri", "node_modules"],
+    // "_" prefixes mark throwaway scratch/verification files (never
+    // committed) — linting them is noise and broke the release gate.
+    ignores: ["dist", "src-tauri", "node_modules", "**/_*"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
