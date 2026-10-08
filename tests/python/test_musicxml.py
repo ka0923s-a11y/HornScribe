@@ -14,13 +14,21 @@ from conftest import make_score
 from hornscribe.domain.ids import (
     canonical_note_id_from_musicxml,
     is_musicxml_layout_rest_id,
+    ScoreNoteId,
 )
-from hornscribe.domain.score import KeyChange, KeySignature, PitchSpace
+from hornscribe.domain.score import (
+    KeyChange,
+    KeySignature,
+    Part,
+    PitchSpace,
+    QuantizedNote,
+)
 from hornscribe.export.musicxml import (
     export_concert_musicxml,
     export_horn_in_f_musicxml,
     export_musicxml,
     iter_exported_notes,
+    verify_rhythm_roundtrip,
 )
 from hornscribe.notation.to_music21 import NotationError
 
@@ -537,3 +545,94 @@ def test_compound_meter_tempo_mark_uses_dotted_quarter() -> None:
     sound = root.find(".//sound[@tempo]")
     assert sound is not None
     assert float(sound.get("tempo")) == 90.0
+
+
+# --- #245: accompaniment grand staff -----------------------------------------
+
+
+def _accomp_score(
+    accomp_notes: list[tuple[int, Fraction | int, Fraction | int]],
+) -> object:
+    """Lead part + a non-transposing accompaniment part.
+
+    `accomp_notes` rows are (pitch_midi, start_beat, duration_beats);
+    canonical ids continue after the lead's two notes so no sn-* collides.
+    """
+    score = make_score([(60, 0, 1), (64, 1, 1)])
+    lead = score.payload.parts[0]
+    offset = len(lead.notes)
+    qnotes = tuple(
+        QuantizedNote(
+            id=ScoreNoteId(f"sn-{offset + i + 1:06d}"),
+            source_event_ids=(),
+            pitch_midi=p,
+            start_beat=Fraction(s),
+            duration_beats=Fraction(d),
+            velocity=80,
+        )
+        for i, (p, s, d) in enumerate(accomp_notes)
+    )
+    accomp = Part(id="part-2", name="伴奏", notes=qnotes, transposing=False)
+    return replace(score, payload=replace(score.payload, parts=(lead, accomp)))
+
+
+def test_accompaniment_renders_grand_staff() -> None:
+    """#245: a two-register backing part becomes one part with 2 staves —
+    treble over bass — instead of ledger-line flooding on one staff."""
+    score = _accomp_score([(40, 0, 4), (67, 0, 1), (72, 1, 1), (76, 2, 2)])
+    xml = export_concert_musicxml(score)
+    root = _root(xml)
+    assert "<staves>2</staves>" in xml
+    # Still exactly two score parts: the grand staff is ONE part, not
+    # two sibling parts.
+    assert len(root.findall("part-list/score-part")) == 2
+    parts = root.findall("part")
+    assert len(parts) == 2
+    accomp = parts[1]
+    staff_for = [
+        n.findtext("staff")
+        for n in accomp.iter("note")
+        if n.find("pitch") is not None
+    ]
+    assert "2" in staff_for
+    assert "1" in staff_for
+    # The bass staff declares a bass clef.
+    signs = [c.findtext("sign") for c in accomp.iter("clef")]
+    assert "F" in signs
+
+
+def test_accompaniment_chord_never_splits_across_staves() -> None:
+    """#245: a chord straddling the split stays whole on one staff — its
+    members share (onset, duration), so the mean-pitch rule assigns the
+    group, not the member."""
+    score = _accomp_score([(40, 0, 1), (79, 1, 1), (48, 4, 1), (72, 4, 1)])
+    xml = export_concert_musicxml(score)
+    root = _root(xml)
+    accomp = root.findall("part")[1]
+    # Measure 2 (beats 4+) is the 48+72 chord: both members share one staff.
+    m2 = accomp.findall("measure")[1]
+    staves = [
+        n.findtext("staff")
+        for n in m2.iter("note")
+        if n.find("pitch") is not None
+    ]
+    assert len(staves) >= 2
+    assert len(set(staves)) == 1
+    assert "<staves>2</staves>" in xml
+
+
+def test_accompaniment_single_register_stays_one_staff() -> None:
+    """#245: an all-treble backing line earns no empty bass staff —
+    the grand staff only appears when both registers are used."""
+    score = _accomp_score([(64, 0, 1), (67, 1, 1), (72, 2, 2)])
+    xml = export_concert_musicxml(score)
+    assert "<staves>" not in xml
+
+
+def test_accompaniment_grand_staff_roundtrips_clean() -> None:
+    """#245: the 2-staff part still verifies — rests are per-staff
+    presentational fill and drop out of the comparison."""
+    score = _accomp_score([(36, 0, 2), (67, 0, 1), (72, 1, 1), (41, 2, 1)])
+    xml = export_concert_musicxml(score)
+    assert verify_rhythm_roundtrip(score, xml, part_index=0) == []
+    assert verify_rhythm_roundtrip(score, xml, part_index=1) == []

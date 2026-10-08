@@ -52,6 +52,7 @@ from music21 import (
     instrument,
     interval,
     key,
+    layout,
     metadata,
     meter,
     note,
@@ -677,22 +678,30 @@ def _build_part_measures(
     spans: tuple[MeasureSpan, ...],
     presentation: PitchSpace,
     transposing: bool = True,
+    *,
+    part_cls: type[stream.Part] = stream.Part,
+    fixed_clef: str | None = None,
+    secondary_staff: bool = False,
 ) -> stream.Part:
     beat_ql = beat_ql_of(payload)
     strict = bool(part_rests)
-    part = stream.Part()
-    part.partName = part_name
+    part = part_cls()
+    if not secondary_staff:
+        part.partName = part_name
     if not transposing:
         # #203 accompaniment staves: never project into a written
         # space — the part renders sounding pitches, the concert key
         # signature and no <transpose> declaration whatever view the
         # lead part uses.
         presentation = PitchSpace.CONCERT
-        # The staff carries no transposition but still wants a real
-        # instrument declaration: without one the export's score-part
-        # has no <score-instrument>/<midi-instrument> and readers
-        # play the backing lines on an arbitrary default timbre.
-        part.insert(0, instrument.Piano())
+        if not secondary_staff:
+            # The staff carries no transposition but still wants a real
+            # instrument declaration: without one the export's score-part
+            # has no <score-instrument>/<midi-instrument> and readers
+            # play the backing lines on an arbitrary default timbre.
+            # (#245: only the upper grand-staff member declares it — a
+            # merged part takes the first staff's instruments.)
+            part.insert(0, instrument.Piano())
     spec = transposition.spec_for(presentation)
     if spec is not None:
         # Every written view keeps the Horn instrument identity (the
@@ -706,7 +715,9 @@ def _build_part_measures(
         part.insert(0, horn_inst)
 
     tempo_marks: dict[int, list[tuple[Fraction, tempo.MetronomeMark]]] = {}
-    for seg in payload.tempo_map:
+    # #245: tempo marks print on the top staff only — a lower grand-staff
+    # member repeating them would double every mark on the page.
+    for seg in () if secondary_staff else payload.tempo_map:
         for idx, span in enumerate(spans):
             if span.start_beat <= seg.start_beat < span.end_beat:
                 # #157: tempo_map bpm counts *primary* beats of the
@@ -777,12 +788,17 @@ def _build_part_measures(
         note_layers(tuple(part_notes), part_rests),
     )
 
-    # #268: modern-notation clef policy — a sustained low passage
-    # switches to bass clef (same written->sounding transposition;
-    # only the staff presentation changes). Hysteresis: the switch
-    # needs the same signal on both sides of a boundary, so a lone
-    # low/high measure never flips the clef back and forth.
-    clefs = _clef_plan(part_notes, spans, presentation)
+    if fixed_clef is not None:
+        # #245 grand staff: each PartStaff owns one clef — the
+        # pitch-driven clef plan does not run on a fixed register.
+        clefs = [fixed_clef] * len(spans)
+    else:
+        # #268: modern-notation clef policy — a sustained low passage
+        # switches to bass clef (same written->sounding transposition;
+        # only the staff presentation changes). Hysteresis: the switch
+        # needs the same signal on both sides of a boundary, so a lone
+        # low/high measure never flips the clef back and forth.
+        clefs = _clef_plan(part_notes, spans, presentation)
 
     for idx, span in enumerate(spans):
         measure = stream.Measure(number=span.number)
@@ -844,6 +860,46 @@ def _build_part_measures(
     return part
 
 
+# #245: accompaniment grand-staff split. A same-(onset,duration) note
+# group is one chord in the notation — it can never span staves — so
+# the group lands whole on the staff its mean pitch calls for, split
+# at middle C.
+_ACCOMP_SPLIT_MIDI = 60.0
+
+
+def _accomp_needs_grand_staff(part_notes: list[QuantizedNote]) -> bool:
+    """True when the accompaniment part actually uses both registers.
+
+    An all-high or all-low backing line reads best on a single staff
+    (the #268 clef plan already picks the right one); the grand staff
+    only earns its keep when pitches live on both sides of middle C.
+    """
+    if not part_notes:
+        return False
+    pitches = [n.pitch_midi for n in part_notes]
+    return min(pitches) < _ACCOMP_SPLIT_MIDI <= max(pitches)
+
+
+def _split_accomp_staves(
+    part_notes: list[QuantizedNote],
+) -> tuple[list[QuantizedNote], list[QuantizedNote]]:
+    """Divide accompaniment notes into upper (treble) / lower (bass).
+
+    Group key is (start_beat, duration_beats) — the same key the
+    notation layer uses to recognize chord members, so a chord stays
+    on one staff instead of tearing across the brace.
+    """
+    groups: dict[tuple[Fraction, Fraction], list[QuantizedNote]] = {}
+    for n in part_notes:
+        groups.setdefault((n.start_beat, n.duration_beats), []).append(n)
+    upper: list[QuantizedNote] = []
+    lower: list[QuantizedNote] = []
+    for members in groups.values():
+        mean = sum(n.pitch_midi for n in members) / len(members)
+        (lower if mean < _ACCOMP_SPLIT_MIDI else upper).extend(members)
+    return upper, lower
+
+
 def build_music21_score(
     score: ScoreDocument,
     presentation: PitchSpace = PitchSpace.CONCERT,
@@ -874,6 +930,47 @@ def build_music21_score(
 
     for part in payload.parts:
         ordered = sorted(part.notes, key=lambda n: (n.start_beat, n.pitch_midi, n.id))
+        if not part.transposing and _accomp_needs_grand_staff(ordered):
+            # #245: the separation-derived accompaniment renders as a
+            # piano-style grand staff — one MusicXML part with two
+            # staves (PartStaff + StaffGroup), treble over bass. Each
+            # staff recomputes its own measure rests (strict=False via
+            # empty part_rests): a staff's silence is its own, not the
+            # whole part's.
+            name = transposition.display_part_name(part.name, presentation)
+            upper_notes, lower_notes = _split_accomp_staves(ordered)
+            upper = _build_part_measures(
+                payload,
+                upper_notes,
+                (),
+                name,
+                spans,
+                presentation,
+                transposing=False,
+                part_cls=stream.PartStaff,
+                fixed_clef="treble",
+            )
+            lower = _build_part_measures(
+                payload,
+                lower_notes,
+                (),
+                name,
+                spans,
+                presentation,
+                transposing=False,
+                part_cls=stream.PartStaff,
+                fixed_clef="bass",
+                secondary_staff=True,
+            )
+            m21_score.insert(
+                0,
+                layout.StaffGroup(
+                    [upper, lower], name=name, symbol="brace", barTogether=True
+                ),
+            )
+            m21_score.append(upper)
+            m21_score.append(lower)
+            continue
         m21_score.append(
             _build_part_measures(
                 payload,
