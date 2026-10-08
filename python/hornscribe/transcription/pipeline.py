@@ -1849,6 +1849,22 @@ def run_transcription_job(
         # the file still exists -- stage 3 uses it for meter evidence.
         accomp_env, accomp_env_sr = _stem_onset_env(accomp_path)
         if accomp_path is not None and params.accompaniment_part:
+            # The accomp voices were detected on the accompaniment
+            # stem — their octave-flicker arbitration must read THAT
+            # stem.  _octave_ev is bound to the vocal stem (or the
+            # source for unseparated jobs): judging accomp events on
+            # the vocal stem vetoes every snap, since the stem's
+            # whole point is that the accompaniment is not in it.
+            accomp_evidence: tuple[Any, int] | None = None
+            try:
+                accomp_evidence = load_mono_audio(accomp_path)
+            except Exception:
+                accomp_evidence = None
+            _accomp_octave_ev = _octave_verdict_on(
+                accomp_evidence
+                if accomp_evidence is not None
+                else (samples, sample_rate)
+            )
             try:
                 accomp_events = predict_note_events(
                     accomp_path,
@@ -1890,7 +1906,7 @@ def run_transcription_job(
                     c = clean_monophonic(
                         v,
                         merge_gap_sec=MERGE_GAP_SEC,
-                        octave_verdict=_octave_ev,
+                        octave_verdict=_accomp_octave_ev,
                     )
                     if c.events:
                         accomp_cleaned.append(c)
