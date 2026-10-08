@@ -92,6 +92,12 @@ BLIP_EXTEND_MAX_SEC = 0.3  # cap on the restored tail
 OCTAVE_EXCURSION_MIN_DEV = 7       # semitones off the context median
 OCTAVE_EXCURSION_WINDOW_SEC = 2.5  # one-sided context window
 OCTAVE_EXCURSION_MIN_CONTEXT = 3   # notes needed for a stable median
+# Below ~120 ms the FFT cannot separate octaves (boundary.py's
+# OCTAVE_MIN_SPAN_SEC), so the verdict abstains unconditionally.  A
+# note that short AND >= an octave off its context is tracker flicker
+# almost surely — snap one octave toward the median; pitch class is
+# preserved, so the bounded error is register, not harmony (#254).
+OCTAVE_EXCURSION_SUBSPAN_SEC = 0.12
 # Seam-evidence pollution guard (reverb-4-4): when ANOTHER event
 # attacks inside the seam's flux window, the measured onset peak is
 # that attack's energy — not evidence the same-pitch pair re-
@@ -568,6 +574,22 @@ def clean_monophonic(
                     final[i] = _replace_pitch(ev, float(target))
                     octave_fixed += 1
                     break
+            else:
+                # Sub-span excursion (#254): under ~120 ms the FFT
+                # cannot separate octaves, so the verdict abstained.
+                # A note that short AND >= an octave off its context
+                # is tracker flicker almost surely — snap one octave
+                # toward the median; the pitch class survives, so the
+                # bounded error is register, not harmony.
+                if (
+                    ev.offset_sec - ev.onset_sec
+                    < OCTAVE_EXCURSION_SUBSPAN_SEC
+                    and abs(pitch - median) >= 12
+                ):
+                    target = pitch + sign * 12
+                    if 0 <= target <= 127:
+                        final[i] = _replace_pitch(ev, float(target))
+                        octave_fixed += 1
 
     return CleanedEvents(
         events=tuple(final),

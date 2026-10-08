@@ -410,6 +410,31 @@ class TestClean:
         assert seen == []
         assert out.octave_corrected == 0
 
+    def test_octave_excursion_subspan_snap(self) -> None:
+        # #254: a sub-120 ms note a full octave+ below its context is
+        # tracker flicker — the FFT cannot arbitrate a span that
+        # short, so the pass snaps one octave toward the median
+        # without consulting (or needing) the verdict.
+        base = list(
+            make_events([64, 60, 62, 57, 64, 60], beat_sec=0.5, dur_ratio=0.4)
+        )
+        blip = RawNoteEvent(
+            id=RawNoteEventId("rne-000099"),
+            transcription_revision=_REV,
+            pitch_midi=47.0,  # B2 dropped into an octave-4 passage
+            onset_sec=1.3,    # inside the gap between neighbours
+            offset_sec=1.4,   # 100 ms — below the spectral limit
+            confidence=0.4,
+        )
+        out = clean_monophonic(
+            tuple(base[:3]) + (blip,) + tuple(base[3:]),
+            octave_verdict=lambda ev, tgt: False,
+        )
+        pitches = [int(e.pitch_midi) for e in out.events]
+        assert 59 in pitches  # B2 snapped to B3
+        assert 47 not in pitches
+        assert out.octave_corrected == 1
+
     def test_harmonic_ghost_dropped_not_clipped(self) -> None:
         # A short, weaker octave-up note starting under a sustained
         # note is an overtone artifact: drop the ghost and keep the
