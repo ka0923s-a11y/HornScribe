@@ -67,15 +67,32 @@ LOW_MARGIN = 0.04
 # Viterbi geometry: a same-chord self loop is free, a root change
 # costs proportionally to circle-of-fifths distance, and a quality-
 # only change (same root) costs half - C -> C7 inside one dominant
-# area is a smaller claim than C -> F#m.
-_SWITCH_BASE = 0.09
-_SWITCH_FIFTHS_STEP = 0.045
+# area is a smaller claim than C -> F#m. The costs must stay SMALLER
+# than a real chord's emission advantage (~0.05-0.15 per segment on
+# actual mixes): the original 0.09/0.045 pair roughly equalled a
+# whole chord's margin, so once the smoother landed on a diatonic
+# chord no real progression could ever dislodge it - an entire intro
+# collapsed into one 'A7' while the chroma clearly walked D-F#m-G-A
+# (#259).
+_SWITCH_BASE = 0.03
+_SWITCH_FIFTHS_STEP = 0.015
 _QUALITY_ONLY_FACTOR = 0.5
 # Diatonic-to-the-estimated-key candidates get a gentle emission
 # bonus - a prior, never a veto.
 _DIATONIC_BONUS = 0.03
+# Emission share given to bass-register agreement: the low-octave
+# chroma peak votes for the root directly, which is what separates
+# relative major/minor pairs that share three of four tones
+# (Bm7 vs Dmaj7, F#m7 vs A7) - full-band mean chroma cannot tell
+# them apart (#259).
+_BASS_ROOT_WEIGHT = 0.30
 
 _CHROMA_HOP = 1024
+# Bass register for the root vote: A1 (55 Hz) up three octaves
+# covers bass guitar/synth fundamentals while staying clear of the
+# vocal band.
+_BASS_FMIN_MIDI = 33
+_BASS_N_OCTAVES = 3
 
 @dataclass(frozen=True)
 class ChordEstimate:
@@ -165,31 +182,45 @@ def _fifths_distance(a: int, b: int) -> int:
 
 def _segment_chroma(
     samples: Any, sample_rate: int, segments: tuple[tuple[float, float], ...],
-) -> Any:
-    """Normalized mean CQT chroma per segment, (n, 12).
+) -> tuple[Any, Any]:
+    """Normalized mean CQT chroma per segment: (full, bass) pair.
 
+    The 'bass' matrix restricts the CQT to the low register so the
+    estimator can read the bass note - the decisive evidence between
+    relative-major/minor chord pairs that share most tones (#259).
     librosa lives in this function (analysis-stage dependency).
     """
     import librosa  # noqa: PLC0415 - analysis-stage dependency
     import numpy as np
 
     y = np.asarray(samples, dtype=np.float32)
-    chroma = librosa.feature.chroma_cqt(
+
+    def per_segment(chroma: Any) -> Any:
+        times = librosa.frames_to_time(
+            np.arange(chroma.shape[1]), sr=sample_rate, hop_length=_CHROMA_HOP
+        )
+        out = np.zeros((len(segments), 12))
+        for i, (lo, hi) in enumerate(segments):
+            mask = (times >= lo) & (times < hi)
+            if not mask.any():
+                continue
+            mean = chroma[:, mask].mean(axis=1)
+            norm = float(np.linalg.norm(mean))
+            if norm > 0.0:
+                out[i] = mean / norm
+        return out
+
+    full = librosa.feature.chroma_cqt(
         y=y, sr=sample_rate, hop_length=_CHROMA_HOP
     )
-    times = librosa.frames_to_time(
-        np.arange(chroma.shape[1]), sr=sample_rate, hop_length=_CHROMA_HOP
+    bass = librosa.feature.chroma_cqt(
+        y=y,
+        sr=sample_rate,
+        hop_length=_CHROMA_HOP,
+        fmin=float(librosa.midi_to_hz(_BASS_FMIN_MIDI)),
+        n_octaves=_BASS_N_OCTAVES,
     )
-    out = np.zeros((len(segments), 12))
-    for i, (lo, hi) in enumerate(segments):
-        mask = (times >= lo) & (times < hi)
-        if not mask.any():
-            continue
-        mean = chroma[:, mask].mean(axis=1)
-        norm = float(np.linalg.norm(mean))
-        if norm > 0.0:
-            out[i] = mean / norm
-    return out
+    return per_segment(full), per_segment(bass)
 
 
 def estimate_chords(
@@ -212,9 +243,19 @@ def estimate_chords(
 
     if not segments_sec:
         return ()
-    chroma = _segment_chroma(samples, sample_rate, segments_sec)
+    chroma, bass = _segment_chroma(samples, sample_rate, segments_sec)
     states, vecs = _templates()
     sims = chroma @ vecs.T  # (n_seg, n_states)
+    roots_arr = np.array([s[0] for s in states])
+    # Bass-register root vote: energy at the candidate root's pitch
+    # class, weighted into the emission so relative-major/minor pairs
+    # resolve on the bass instead of the triad overlap (#259).
+    bass = np.asarray(bass, dtype=float)
+    if bass.shape != chroma.shape:
+        # A monkeypatched extractor that predates the pair contract
+        # degrades to no bass vote rather than failing the job.
+        bass = np.zeros_like(chroma)
+    sims = sims + _BASS_ROOT_WEIGHT * bass[:, roots_arr]
     if diatonic:
         bonus = np.array(
             [
@@ -226,7 +267,7 @@ def estimate_chords(
     n_seg, n_states = sims.shape
     # Transition cost: same state free, same-root quality change at
     # half price, root changes scaled by fifths distance.
-    roots = np.array([s[0] for s in states])
+    roots = roots_arr
     quals = np.array([s[1] for s in states])
     fdist = np.zeros((n_states, n_states))
     for i in range(n_states):

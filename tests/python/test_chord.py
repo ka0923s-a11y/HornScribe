@@ -42,7 +42,7 @@ def _template_vec(root: int, quality: str) -> np.ndarray:
 
 def _fake_chroma(rows: list[np.ndarray]):
     def fake(samples, sr, segments):
-        return np.array(rows)
+        return np.array(rows), np.zeros((len(rows), 12))
 
     return fake
 
@@ -244,4 +244,3 @@ class TestChordIssues:
         # The merged confidence keeps the WEAKEST span - a smooth
         # run must not hide its least-certain segment.
         assert merged[0]["confidence"] == 0.7
-
