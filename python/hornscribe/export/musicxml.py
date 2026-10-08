@@ -138,6 +138,7 @@ def _normalize_musicxml(
     if swing_feel is not None:
         _insert_swing_direction(root, swing_feel)
     _insert_harmony_symbols(root, score, presentation)
+    _brace_grand_staffs(root)
 
     spec = transposition.spec_for(presentation)
     if spec is not None:
@@ -158,6 +159,50 @@ def _normalize_musicxml(
     ET.indent(root, space="  ")
     body = ET.tostring(root, encoding="unicode")
     return f"{_XML_DECL}\n{_MUSICXML_DOCTYPE}\n{body}\n"
+
+
+def _brace_grand_staffs(root: ET.Element) -> None:
+    """Wrap each multi-staff <score-part> in a brace part-group (#245).
+
+    music21 merges a StaffGroup's PartStaff members into one
+    <score-part> carrying <staves>2</staves> but deliberately emits no
+    <part-group> for it.  Readers that key the left-side brace off the
+    group declaration (verovio included) would otherwise draw two
+    unbraced staves, so the group is injected here: the part-list entry
+    whose <part> body declares <staves> gets start/stop markers.
+    """
+    part_list = root.find("part-list")
+    if part_list is None:
+        return
+    multi_ids = {
+        p.get("id")
+        for p in root.findall("part")
+        if p.find("measure/attributes/staves") is not None and p.get("id")
+    }
+    if not multi_ids:
+        return
+    group_no = 0
+    idx = 0
+    children = list(part_list)
+    while idx < len(children):
+        child = children[idx]
+        if child.tag == "score-part" and child.get("id") in multi_ids:
+            group_no += 1
+            start = ET.Element("part-group")
+            start.set("number", str(group_no))
+            start.set("type", "start")
+            ET.SubElement(start, "group-symbol").text = "brace"
+            ET.SubElement(start, "group-barline").text = "yes"
+            stop = ET.Element("part-group")
+            stop.set("number", str(group_no))
+            stop.set("type", "stop")
+            pos = list(part_list).index(child)
+            part_list.insert(pos, start)
+            part_list.insert(pos + 2, stop)
+            children = list(part_list)
+            idx = pos + 3
+        else:
+            idx += 1
 
 
 def _insert_swing_direction(root: ET.Element, swing_feel: Fraction) -> None:
@@ -959,16 +1004,33 @@ def verify_rhythm_roundtrip(
                 f"measure {m.number}: meter {sig} != expected {expected_sig}"
             )
 
-    # #247: rests are silence coverage, not identity -- both sides are
-    # normalized to merged spans before comparing, or one canonical
-    # rest pair tiling a single gap reports thousands of cascade
-    # mismatches.
-    expected = _coalesce_rest_spans(
-        sorted(_expected_events(payload, part_index), key=_event_sort_key)
-    )
-    actual = _coalesce_rest_spans(
-        sorted(_actual_events(measures), key=_event_sort_key)
-    )
+    if not payload.parts[part_index].transposing:
+        # #245: a non-transposing (accompaniment) part may render as a
+        # grand staff whose rests are per-staff presentational fill --
+        # two staves split the part's silence differently than the
+        # canonical tiling. Only pitched events are semantic there, so
+        # the comparison drops rests on both sides.
+        expected = [
+            e
+            for e in sorted(_expected_events(payload, part_index), key=_event_sort_key)
+            if e.kind != "rest"
+        ]
+        actual = [
+            e
+            for e in sorted(_actual_events(measures), key=_event_sort_key)
+            if e.kind != "rest"
+        ]
+    else:
+        # #247: rests are silence coverage, not identity -- both sides are
+        # normalized to merged spans before comparing, or one canonical
+        # rest pair tiling a single gap reports thousands of cascade
+        # mismatches.
+        expected = _coalesce_rest_spans(
+            sorted(_expected_events(payload, part_index), key=_event_sort_key)
+        )
+        actual = _coalesce_rest_spans(
+            sorted(_actual_events(measures), key=_event_sort_key)
+        )
     if len(actual) != len(expected):
         problems.append(
             f"event count {len(actual)} != expected {len(expected)}"
