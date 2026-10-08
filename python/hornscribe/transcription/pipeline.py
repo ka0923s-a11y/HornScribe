@@ -1287,6 +1287,13 @@ def run_transcription_job(
         # or texture says no).
         accomp_path: str | None = None
         accomp_managed = False
+        # Octave-repair arbitration must read the audio the events
+        # were detected on — a stem line judged on the full mix lets
+        # accompaniment energy veto real octave snaps and fabricates
+        # support for bleed pitches the vocal never carried (the bass
+        # is in the mix, not in the stem).  Decoded once here — the
+        # temp stem may be unlinked before the clean stage reads it.
+        stem_evidence: tuple[Any, int] | None = None
         # #203/#204: the isolation span is needed by BOTH the opt-in
         # call below and the auto-rescue in the cleaning stage —
         # hoisted out of the elif so the rescue sees the same bounds.
@@ -1335,6 +1342,10 @@ def run_transcription_job(
                 # Isolation produced the backend input — the staging
                 # unit below is no longer part of the plan.
                 transcribe_total -= int(params.range_kind == "selection")
+                try:
+                    stem_evidence = load_mono_audio(vocal_path)
+                except Exception:
+                    stem_evidence = None
             transcribe_done += 1
             step(1, transcribe_done, transcribe_total)
         if vocal_path is None and params.range_kind == "selection":
@@ -1523,16 +1534,30 @@ def run_transcription_job(
         # honest C4->C5->C4 figures were being flattened).  The verdict
         # reads the analysis buffer, so event times map back through
         # selection_offset_sec exactly like the seam envelopes do.
-        def _octave_ev(ev: RawNoteEvent, target: float) -> bool:
-            return octave_prefers(
-                samples,
-                sample_rate,
-                ev.onset_sec,
-                ev.offset_sec,
-                ev.pitch_midi,
-                target,
-                time_offset_sec=selection_offset_sec,
-            )
+        # Stem-detected events are judged on the STEM buffer (decoded
+        # above), never on the full mix — the detected line's evidence
+        # is only honest in the audio it was tracked from.
+        def _octave_verdict_on(
+            buffer: tuple[Any, int],
+        ) -> Callable[[RawNoteEvent, float], bool]:
+            buf, sr = buffer
+
+            def _verdict(ev: RawNoteEvent, target: float) -> bool:
+                return octave_prefers(
+                    buf,
+                    sr,
+                    ev.onset_sec,
+                    ev.offset_sec,
+                    ev.pitch_midi,
+                    target,
+                    time_offset_sec=selection_offset_sec,
+                )
+
+            return _verdict
+
+        _octave_ev = _octave_verdict_on(
+            stem_evidence if stem_evidence is not None else (samples, sample_rate)
+        )
 
         voice_split = None
         if params.texture in ("voices", "chords"):
@@ -1708,6 +1733,15 @@ def run_transcription_job(
                     params.selection_start_sec,
                     params.selection_end_sec,
                 )
+                # Same evidence rule as the opt-in stem: the rescue
+                # stem's own buffer arbitrates its octave repairs —
+                # the mix would veto true snaps with accompaniment
+                # energy that is not in the detected line.
+                rescue_evidence: tuple[Any, int] | None = None
+                try:
+                    rescue_evidence = load_mono_audio(rescue_vocal_path)
+                except Exception:
+                    rescue_evidence = None
                 rescue_cleaned = clean_monophonic(
                     rescue_ranged,
                     # #180: an adopted pYIN track already bridges
@@ -1715,7 +1749,11 @@ def run_transcription_job(
                     # re-articulation splits.
                     merge_gap_sec=0.0 if rescue_adopted_pyin else MERGE_GAP_SEC,
                     prefer="top",
-                    octave_verdict=_octave_ev,
+                    octave_verdict=_octave_verdict_on(
+                        rescue_evidence
+                        if rescue_evidence is not None
+                        else (samples, sample_rate)
+                    ),
                 )
             if rescue_cleaned is not None and rescue_cleaned.events:
                 # Adopt the rescue: provenance re-mints so the tr-* id

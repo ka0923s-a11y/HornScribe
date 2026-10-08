@@ -82,6 +82,16 @@ BLIP_MIN_DEVIATION = 3  # semitones from each neighbour
 BLIP_EXCURSION = 12     # octave-scale deviation needs no conf test
 BLIP_MAX_CONF = 0.5
 BLIP_EXTEND_MAX_SEC = 0.3  # cap on the restored tail
+# Register-excursion octave repair: the same-pitch-class flicker rule
+# only sees notes whose neighbours agree on pitch class, so a tracker
+# octave jump landing inside foreign pitch material escapes it — a
+# D2 latched mid-phrase by bass bleed, or an E6 phantom riding a
+# release tail.  For any event >= a fifth off its local context
+# median the spectrum arbitrates octave-shifted candidates; the
+# verdict's asymmetric-harmonic test keeps real leaps untouched.
+OCTAVE_EXCURSION_MIN_DEV = 7       # semitones off the context median
+OCTAVE_EXCURSION_WINDOW_SEC = 2.5  # one-sided context window
+OCTAVE_EXCURSION_MIN_CONTEXT = 3   # notes needed for a stable median
 # Seam-evidence pollution guard (reverb-4-4): when ANOTHER event
 # attacks inside the seam's flux window, the measured onset peak is
 # that attack's energy — not evidence the same-pitch pair re-
@@ -519,6 +529,45 @@ def clean_monophonic(
             ):
                 final[i] = _replace_pitch(final[i], float(target))
                 octave_fixed += 1
+
+    # Register-excursion octave repair (needs audio): an octave jump
+    # whose neighbours never share a pitch class escapes the flicker
+    # rule above — a D2 latched mid-phrase on bass bleed, or an E6
+    # phantom riding a release tail.  For any event >= a fifth off
+    # its +-2.5 s context median the spectrum arbitrates octave-
+    # shifted candidates toward the median; the verdict's asymmetric
+    # harmonic test still protects real leaps, so only true tracker
+    # octave errors move.
+    if octave_verdict is not None and len(final) > OCTAVE_EXCURSION_MIN_CONTEXT:
+        for i in range(len(final)):
+            ev = final[i]
+            lo = ev.onset_sec - OCTAVE_EXCURSION_WINDOW_SEC
+            hi = ev.onset_sec + OCTAVE_EXCURSION_WINDOW_SEC
+            context = sorted(
+                int(round(other.pitch_midi))
+                for j, other in enumerate(final)
+                if j != i and lo <= other.onset_sec <= hi
+            )
+            if len(context) < OCTAVE_EXCURSION_MIN_CONTEXT:
+                continue
+            half_ctx = len(context) // 2
+            median = (
+                float(context[half_ctx])
+                if len(context) % 2
+                else (context[half_ctx - 1] + context[half_ctx]) / 2.0
+            )
+            pitch = int(round(ev.pitch_midi))
+            if abs(pitch - median) < OCTAVE_EXCURSION_MIN_DEV:
+                continue
+            sign = 1 if pitch < median else -1
+            for size in (12, 24):
+                target = pitch + sign * size
+                if not 0 <= target <= 127:
+                    continue
+                if octave_verdict(ev, float(target)):
+                    final[i] = _replace_pitch(ev, float(target))
+                    octave_fixed += 1
+                    break
 
     return CleanedEvents(
         events=tuple(final),
