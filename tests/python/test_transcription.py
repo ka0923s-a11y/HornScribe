@@ -368,6 +368,48 @@ class TestClean:
         assert [int(e.pitch_midi) for e in out.events] == [60, 60, 60]
         assert seen == [(72.0, 60.0)]
 
+    def test_octave_excursion_snapped_by_spectrum(self) -> None:
+        # E4 C4 D2 A3 D4 — the D2's neighbours share no pitch class,
+        # so the flicker rule never sees it; the excursion pass asks
+        # the spectrum instead, and the +24 fundamental dominates.
+        evs = make_events([64, 60, 38, 57, 62], beat_sec=0.5)
+        out = clean_monophonic(
+            evs, octave_verdict=lambda ev, tgt: tgt >= 60
+        )
+        assert out.octave_corrected == 1
+        assert int(out.events[2].pitch_midi) == 62
+
+    def test_octave_excursion_verdict_vetoes(self) -> None:
+        # Same shape, but the note's own spectrum keeps the detected
+        # octave — a real register jump is never moved on the
+        # context prior alone.
+        evs = make_events([64, 60, 38, 57, 62], beat_sec=0.5)
+        out = clean_monophonic(evs, octave_verdict=lambda ev, tgt: False)
+        assert out.octave_corrected == 0
+        assert int(out.events[2].pitch_midi) == 38
+
+    def test_octave_excursion_skipped_without_verdict(self) -> None:
+        # No audio access -> no spectrum arbitration -> the pass is
+        # inert and the deviant note stays as detected.
+        evs = make_events([64, 60, 38, 57, 62], beat_sec=0.5)
+        out = clean_monophonic(evs)
+        assert out.octave_corrected == 0
+        assert int(out.events[2].pitch_midi) == 38
+
+    def test_octave_excursion_thin_context_skipped(self) -> None:
+        # Notes spaced beyond the context window leave no median to
+        # judge against — the verdict is never consulted.
+        evs = make_events([38, 64, 60, 57], beat_sec=3.0, dur_ratio=0.3)
+        seen: list[float] = []
+
+        def _verdict(ev: RawNoteEvent, target: float) -> bool:
+            seen.append(target)
+            return True
+
+        out = clean_monophonic(evs, octave_verdict=_verdict)
+        assert seen == []
+        assert out.octave_corrected == 0
+
     def test_harmonic_ghost_dropped_not_clipped(self) -> None:
         # A short, weaker octave-up note starting under a sustained
         # note is an overtone artifact: drop the ghost and keep the
