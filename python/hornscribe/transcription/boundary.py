@@ -462,3 +462,129 @@ def octave_prefers(
     e_det = _band_peak(detected_midi)
     e_tgt = _band_peak(target_midi)
     return e_tgt > e_det * OCTAVE_SNAP_ENERGY_RATIO
+
+
+# Low-octave audit (#264): a note the tracker placed an octave too high
+# betrays itself TWO ways in its own waveform:
+#
+# * Spectrally — a real lower fundamental leaves energy at f(P-12),
+#   a slot no harmonic of f(P) explains, and its 3rd harmonic lands at
+#   1.5*f(P), another slot f(P)'s own harmonics (f, 2f, 3f...) never
+#   fill. Both bands must clear the floor: a lone low partial (stem
+#   bleed, a bass note leaking) fails the odd-harmonic test.
+# * Periodically — the killer test. A waveform whose true period is
+#   f(P-12) is NOT periodic at the written pitch's lag: the odd
+#   harmonics decorrelate every half-period. When the signal is
+#   periodic at lag(f(P-12)) but not at lag(f(P)), the written pitch
+#   cannot explain its own waveform — the detection is wrong, not
+#   merely ambiguous.
+#
+# The audit is still flag-only: a sustained second voice an octave
+# below, loud enough to dominate the composite periodicity, produces
+# the same signature — so the score keeps the detected pitch and the
+# review issue offers the -12 fix for the user to apply after
+# listening.
+OCTAVE_LOW_MIN_MIDI = 48  # below this f(P-12) < ~65 Hz: unreliable on stems
+OCTAVE_LOW_FUND_RATIO = 0.45
+OCTAVE_ODD_HARM_RATIO = 0.20
+OCTAVE_LOW_PERIOD_MARGIN = 0.85
+_CMND_LAG_WINDOW = 0.06
+
+
+@dataclass(frozen=True)
+class LowOctaveEvidence:
+    """Evidence bundle for a suspected +12 octave error."""
+
+    low_fund_ratio: float
+    odd_harm_ratio: float
+    low_period_score: float
+    high_period_score: float
+
+
+def _cmnd_min(seg: np.ndarray, lag_lo: int, lag_hi: int) -> float:
+    """Minimum normalized difference over a lag range — lower means
+    the waveform repeats more faithfully at that period."""
+    best = 2.0
+    n = seg.shape[0]
+    for lag in range(max(1, lag_lo), lag_hi + 1):
+        if lag >= n - 1:
+            break
+        a = seg[:-lag]
+        b = seg[lag:]
+        denom = float(np.sum(a * a) + np.sum(b * b))
+        if denom <= 0.0:
+            continue
+        v = 2.0 * float(np.sum((a - b) * (a - b))) / denom
+        if v < best:
+            best = v
+    return best
+
+
+def low_octave_evidence(
+    samples: Any,
+    sample_rate: int,
+    onset_sec: float,
+    offset_sec: float,
+    detected_midi: float,
+    *,
+    time_offset_sec: float = 0.0,
+) -> LowOctaveEvidence | None:
+    """Spectral + periodicity evidence for a suspected +12 octave.
+
+    Measured on the middle 60% of the span, the same window
+    octave_prefers uses. None when the pitch is too low or the span
+    too short to judge — silence is not evidence.
+    """
+    if detected_midi < OCTAVE_LOW_MIN_MIDI:
+        return None
+    i0 = int((onset_sec - time_offset_sec) * sample_rate)
+    i1 = int((offset_sec - time_offset_sec) * sample_rate)
+    seg = np.asarray(samples[max(0, i0) : max(0, i1)], dtype=np.float64)
+    n = int(seg.shape[0])
+    if n < int(OCTAVE_MIN_SPAN_SEC * sample_rate):
+        return None
+    inset = int(n * 0.2)
+    seg = seg[inset : n - inset]
+    win = seg * np.hanning(seg.shape[0])
+    mag = np.abs(np.fft.rfft(win))
+    freqs = np.fft.rfftfreq(seg.shape[0], 1.0 / sample_rate)
+
+    def _band_peak(hz: float) -> float:
+        mask = (freqs >= hz * (1.0 - OCTAVE_BAND_RATIO)) & (
+            freqs <= hz * (1.0 + OCTAVE_BAND_RATIO)
+        )
+        return float(mag[mask].max()) if mask.any() else 0.0
+
+    f_hi = 440.0 * 2.0 ** ((float(detected_midi) - 69.0) / 12.0)
+    e_hi = _band_peak(f_hi)
+    if e_hi <= 0.0:
+        return None
+    low_fund = _band_peak(f_hi * 0.5) / e_hi
+    odd_harm = _band_peak(f_hi * 1.5) / e_hi
+    if low_fund < OCTAVE_LOW_FUND_RATIO or odd_harm < OCTAVE_ODD_HARM_RATIO:
+        # Spectral signature absent — skip the periodicity pass
+        # entirely; the flag needs both anyway.
+        return None
+    centered = seg - float(seg.mean())
+    lag_hi = int(round(sample_rate / f_hi))
+    lag_lo = int(round(sample_rate / (f_hi * 0.5)))
+    w_hi = int(round(lag_hi * _CMND_LAG_WINDOW))
+    w_lo = int(round(lag_lo * _CMND_LAG_WINDOW))
+    return LowOctaveEvidence(
+        low_fund_ratio=low_fund,
+        odd_harm_ratio=odd_harm,
+        low_period_score=_cmnd_min(centered, lag_lo - w_lo, lag_lo + w_lo),
+        high_period_score=_cmnd_min(centered, lag_hi - w_hi, lag_hi + w_hi),
+    )
+
+
+def low_octave_suspected(evidence: LowOctaveEvidence | None) -> bool:
+    """Spectral signature present AND the waveform is periodic at the
+    low octave's lag while NOT at the written pitch's."""
+    return (
+        evidence is not None
+        and evidence.low_fund_ratio >= OCTAVE_LOW_FUND_RATIO
+        and evidence.odd_harm_ratio >= OCTAVE_ODD_HARM_RATIO
+        and evidence.low_period_score
+        < evidence.high_period_score * OCTAVE_LOW_PERIOD_MARGIN
+    )

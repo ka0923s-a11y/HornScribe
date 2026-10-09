@@ -334,6 +334,46 @@ describe("buildReviewAction", () => {
     expect(a).toBeNull();
   });
 
+  it("#264: octave flag transposes by the suggested delta", () => {
+    const applyEdit = vi.fn();
+    const h = handlers({ applyEdit });
+    const a = buildReviewAction(
+      issue({
+        reason: "octave_uncertain",
+        evidence: { pitchMidi: 66, suggestedMidi: 54 },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.octaveDown);
+    expect(a?.tooltip).toBe(ja.review.octaveShiftTip);
+    a?.run();
+    expect(applyEdit.mock.calls[0][0]()).toEqual({
+      kind: "transposeNote",
+      noteId: "sn-000001",
+      semitones: -12,
+    });
+  });
+
+  it("#264: octave flag without a suggestion shows no dead button", () => {
+    expect(
+      buildReviewAction(
+        issue({ reason: "octave_uncertain", evidence: {} }),
+        handlers(),
+      ),
+    ).toBeNull();
+    // Missing edit channel likewise disables the remedy.
+    const h: ReviewActionHandlers = { markFixed: vi.fn() };
+    expect(
+      buildReviewAction(
+        issue({
+          reason: "octave_uncertain",
+          evidence: { pitchMidi: 66, suggestedMidi: 54 },
+        }),
+        h,
+      ),
+    ).toBeNull();
+  });
+
   it("#423: merge flag offers mergeNotes on the first note", () => {
     const applyEdit = vi.fn();
     const h = handlers({ applyEdit });

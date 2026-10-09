@@ -1668,6 +1668,14 @@ export const ja = {
       detail:
         "元の音源に対して主旋律の音量がかなり小さいため、検出されなかった音符が残っている可能性があります。「分離品質：高精度」での再採譜や、要確認リストの確認をおすすめします。",
     },
+    // #264: the note's own spectrum shows the -12 fundamental AND its
+    // odd harmonic — the tracker likely locked onto the 2nd harmonic
+    // and wrote the pitch an octave too high. Remedy: one-click -12.
+    octave_uncertain: {
+      title: "オクターブの高さを確認してください",
+      detail:
+        "この音は実際には1オクターブ低い音である可能性があります（1オクターブ下の基音とその倍音が音源に確認されました）。元音源と聴き比べて、正しければ「オクターブ下げ」で修正してください。",
+    },
     onset_uncertain: {
       title: "音の開始位置を確認してください",
       detail: "音の開始位置が曖昧です。",
@@ -1892,6 +1900,25 @@ export const ja = {
         "この区間の和音は証拠が弱いため、臨時記号やリズムの解釈を耳で確認してください",
       );
       return clauses.join("。") + "。";
+    },
+    // #264: octave-uncertainty evidence — the detected pitch, the
+    // suggested -12 pitch, and how strongly the lower octave's
+    // signature (fundamental + odd harmonic) shows up in the audio.
+    octaveUncertain: (p: {
+      readonly fromMidi: number | null;
+      readonly toMidi: number | null;
+      readonly lowFundPct: number | null;
+      readonly oddHarmPct: number | null;
+    }) => {
+      const pair =
+        p.fromMidi != null && p.toMidi != null
+          ? `検出音高 MIDI ${p.fromMidi} に対し、${p.toMidi}（1オクターブ下）を提案します`
+          : "1オクターブ下の音高を提案します";
+      const ev =
+        p.lowFundPct != null
+          ? `下の基音の強さは検出音の ${p.lowFundPct}% あり`
+          : "下の基音に明確なエネルギーがあり";
+      return `${pair}。${ev}、実際に1オクターブ低い音である可能性が高い箇所です。元音源と聴き比べて確認してください。`;
     },
   },
 

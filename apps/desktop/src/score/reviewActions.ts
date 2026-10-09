@@ -316,5 +316,34 @@ export function buildReviewAction(
     };
   }
 
+  // #264: octave_uncertain — the spectrum says the note sits an
+  // octave too high; the remedy transposes by the suggested delta
+  // (normally -12). Same requirements as the range remedy: a real
+  // note target plus the edit channel.
+  if (
+    issue.reason === "octave_uncertain" &&
+    typeof issue.evidence["suggestedMidi"] === "number" &&
+    typeof issue.evidence["pitchMidi"] === "number" &&
+    issue.canonicalNoteIds.length > 0 &&
+    handlers.applyEdit
+  ) {
+    const semitones =
+      (issue.evidence["suggestedMidi"] as number) -
+      (issue.evidence["pitchMidi"] as number);
+    if (semitones !== 0) {
+      const noteId = issue.canonicalNoteIds[0];
+      return {
+        label: semitones < 0 ? r.octaveDown : r.octaveUp,
+        tooltip: r.octaveShiftTip,
+        run: () =>
+          handlers.applyEdit?.(
+            () => ({ kind: "transposeNote", noteId, semitones }),
+            ja.commandFeedback.octaveShifted,
+            () => handlers.markFixed?.(issue.id),
+          ),
+      };
+    }
+  }
+
   return null;
 }

@@ -28,11 +28,13 @@ from hornscribe.rhythm.timewarp import TimeWarp
 from hornscribe.transcription.boundary import (
     boundary_flags,
     compute_envelopes,
+    low_octave_evidence,
+    low_octave_suspected,
     octave_prefers,
     seam_evidence,
 )
 from hornscribe.transcription.clean import CleanedEvents
-from hornscribe.transcription.pipeline import _boundary_issues
+from hornscribe.transcription.pipeline import _boundary_issues, _octave_issues
 
 _SR = 22050
 _REV = TranscriptionRevisionId("tr-boundary")
@@ -457,4 +459,100 @@ class TestOctavePrefers:
         sig = _tone(0.08, 261.63)
         assert not octave_prefers(
             sig, _SR, 0.0, 0.08, detected_midi=72.0, target_midi=60.0
+        )
+
+
+class TestLowOctaveAudit:
+    """#264: the note's own spectrum flags a tracker octave-up error.
+
+    A real low note carries its fundamental at f(P-12) AND its 3rd
+    harmonic at 1.5*f(P) — two bands the written pitch's own harmonics
+    (f, 2f, 3f...) can never fill. A real high note leaves both empty,
+    and stem bleed that fakes only the low band does not flag.
+    """
+
+    def test_true_low_note_suspected(self) -> None:
+        # Truth is C4: harmonics at 261.6, 523.2, 784.9 Hz. The tracker
+        # wrote C5 — the audit sees the -12 fundamental AND the odd
+        # harmonic the written pitch cannot explain.
+        f_c4 = 261.63
+        sig = (
+            _tone(0.5, f_c4)
+            + _tone(0.5, 2.0 * f_c4, amp=0.6)
+            + _tone(0.5, 3.0 * f_c4, amp=0.5)
+        )
+        ev = low_octave_evidence(sig, _SR, 0.0, 0.5, 72.0)
+        assert ev is not None
+        assert low_octave_suspected(ev)
+
+    def test_real_high_note_clean(self) -> None:
+        # Truth is C5: the -12 band and the 1.5x band stay empty.
+        sig = _tone(0.5, 523.25) + _tone(0.5, 1046.5, amp=0.3)
+        ev = low_octave_evidence(sig, _SR, 0.0, 0.5, 72.0)
+        assert not low_octave_suspected(ev)
+
+    def test_low_band_alone_does_not_flag(self) -> None:
+        # Stem bleed (a real C4 played under a sung C5) can fake the
+        # low band, but only a real low fundamental also fills the
+        # odd-harmonic slot — both are required, so the evidence
+        # abstains before the periodicity pass.
+        sig = _tone(0.5, 261.63, amp=0.6) + _tone(0.5, 523.25)
+        ev = low_octave_evidence(sig, _SR, 0.0, 0.5, 72.0)
+        assert not low_octave_suspected(ev)
+
+    def test_short_span_abstains(self) -> None:
+        sig = _tone(0.08, 261.63) + _tone(0.08, 523.25)
+        assert low_octave_evidence(sig, _SR, 0.0, 0.08, 72.0) is None
+
+    def test_deep_pitch_abstains(self) -> None:
+        # Below the audit floor the -12 slot lands under ~65 Hz —
+        # stems and the FFT window cannot resolve it honestly.
+        sig = _tone(0.5, 98.0) + _tone(0.5, 196.0, amp=0.6)
+        assert low_octave_evidence(sig, _SR, 0.0, 0.5, 47.0) is None
+
+    def test_issue_maps_to_canonical_with_suggestion(self) -> None:
+        # A suspected event whose canonical note survived produces one
+        # octave_uncertain issue carrying the -12 remedy.
+        f_c4 = 261.63
+        sig = (
+            _tone(0.6, f_c4)
+            + _tone(0.6, 2.0 * f_c4, amp=0.6)
+            + _tone(0.6, 3.0 * f_c4, amp=0.5)
+        )
+        ev = _ev(1, 72, 0.0, 0.6)
+        n = _note(1, 72, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        issues = _octave_issues(
+            sig,
+            _SR,
+            (_cleaned(ev),),
+            (part,),
+            ScoreRevisionId("rev-test"),
+            0.0,
+        )
+        assert len(issues) == 1
+        issue = issues[0]
+        assert issue.reason is ReviewReason.OCTAVE_UNCERTAIN
+        assert issue.severity is Severity.CAUTION
+        assert issue.canonical_note_ids == (n.id,)
+        assert issue.evidence["pitchMidi"] == 72
+        assert issue.evidence["suggestedMidi"] == 60
+
+    def test_clean_spectrum_no_issue(self) -> None:
+        # A genuinely C5 note produces no flag — the audit must not
+        # manufacture doubts on clean detections.
+        sig = _tone(0.6, 523.25) + _tone(0.6, 1046.5, amp=0.3)
+        ev = _ev(1, 72, 0.0, 0.6)
+        n = _note(1, 72, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        assert (
+            _octave_issues(
+                sig,
+                _SR,
+                (_cleaned(ev),),
+                (part,),
+                ScoreRevisionId("rev-test"),
+                0.0,
+            )
+            == []
         )

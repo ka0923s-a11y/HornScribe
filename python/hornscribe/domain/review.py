@@ -96,6 +96,15 @@ class ReviewReason(Enum):
     # item rather than per-note flags (which would double review
     # noise). Evidence carries the emitted part names + method.
     ACCOMPANIMENT_PART = "accompaniment_part"
+    # #264: the note's own spectrum suggests it sits an octave too
+    # high — energy at the -12 fundamental AND at its odd harmonic
+    # (1.5x the written pitch) that no harmonic of the written pitch
+    # explains. Flag-only: a real octave doubling is spectrally
+    # identical, so the score keeps the detected pitch and the
+    # one-click remedy is transposeNote -12 after listening.
+    # Evidence carries detected pitchMidi, suggestedMidi, and the
+    # two band ratios.
+    OCTAVE_UNCERTAIN = "octave_uncertain"
 
 
 class Severity(Enum):

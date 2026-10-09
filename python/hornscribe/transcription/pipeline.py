@@ -102,6 +102,8 @@ from .backend import (
 from .boundary import (
     boundary_flags,
     compute_envelopes,
+    low_octave_evidence,
+    low_octave_suspected,
     octave_prefers,
     seam_evidence,
 )
@@ -1021,6 +1023,81 @@ def _boundary_issues(
             )
     _rank = {Severity.CAUTION: 0, Severity.INFO: 1}
     issues.sort(key=lambda i: (_rank.get(i.severity, 2), i.time_range.start_sec))
+    return issues[:MAX_BOUNDARY_ISSUES]
+
+
+def _octave_issues(
+    samples: Any,
+    sample_rate: int,
+    cleaneds: tuple[CleanedEvents, ...],
+    parts: tuple[Any, ...],
+    score_revision: ScoreRevisionId,
+    time_offset_sec: float,
+) -> list[ReviewIssue]:
+    """Low-octave audit (#264) — flag-only second opinion on pitch.
+
+    A tracker that locks onto the 2nd harmonic writes the note an
+    octave too high. Two independent readings must agree before a
+    flag is raised: the spectrum carries energy at f(P-12) AND at
+    1.5*f(P) (slots the written pitch's own harmonics never fill),
+    AND the waveform is periodic at the low octave's lag while NOT
+    at the written pitch's — a true low note's odd harmonics
+    decorrelate every half-period, so the written pitch cannot
+    explain its own waveform.
+
+    Flag-only by design: an octave-doubled backing voice is
+    spectrally indistinguishable from a tracking error, so the score
+    keeps the detected pitch and the issue carries the suggested
+    -12 fix the review bar can apply after the user listens.
+
+    Flags whose events quantized onto a deleted note are dropped —
+    the score no longer carries that pitch.
+    """
+    canon_by_event: dict[RawNoteEventId, QuantizedNote] = {}
+    for part in parts:
+        for n in part.notes:
+            for e in n.source_event_ids:
+                canon_by_event.setdefault(e, n)
+    issues: list[ReviewIssue] = []
+    seen: set[ScoreNoteId] = set()
+    for c in cleaneds:
+        for ev in c.events:
+            evidence = low_octave_evidence(
+                samples,
+                sample_rate,
+                ev.onset_sec,
+                ev.offset_sec,
+                ev.pitch_midi,
+                time_offset_sec=time_offset_sec,
+            )
+            if not low_octave_suspected(evidence):
+                continue
+            n = canon_by_event.get(ev.id)
+            if n is None or n.deleted or n.id in seen:
+                continue
+            seen.add(n.id)
+            detected = int(round(ev.pitch_midi))
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(n.id,),
+                    time_range=TimeRange(
+                        start_sec=ev.onset_sec, end_sec=ev.offset_sec
+                    ),
+                    reason=ReviewReason.OCTAVE_UNCERTAIN,
+                    severity=Severity.CAUTION,
+                    evidence={
+                        "pitchMidi": detected,
+                        "suggestedMidi": detected - 12,
+                        "lowFundRatio": round(evidence.low_fund_ratio, 3),
+                        "oddHarmonicRatio": round(evidence.odd_harm_ratio, 3),
+                        "lowPeriodScore": round(evidence.low_period_score, 3),
+                        "highPeriodScore": round(evidence.high_period_score, 3),
+                    },
+                )
+            )
+    issues.sort(key=lambda i: i.time_range.start_sec)
     return issues[:MAX_BOUNDARY_ISSUES]
 
 
@@ -2482,6 +2559,24 @@ def run_transcription_job(
                 event_by_id,
                 estimate.warp,
                 beat_ql,
+                score_revision,
+                selection_offset_sec,
+            )
+        )
+        # #264: low-octave audit — the same detected-on stem evidence.
+        # A tracker that locked onto the 2nd harmonic left the note an
+        # octave too high; the spectrum proves it (real fundamental +
+        # odd harmonic at -12), but octave doubling is identical so the
+        # score keeps the pitch and the flag carries the -12 remedy.
+        issues.extend(
+            _octave_issues(
+                *(
+                    lead_evidence
+                    if lead_evidence is not None
+                    else (samples, sample_rate)
+                ),
+                (cleaned, *cleaned_lowers),
+                built.payload.parts,
                 score_revision,
                 selection_offset_sec,
             )
