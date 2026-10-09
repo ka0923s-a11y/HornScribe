@@ -74,6 +74,7 @@ from hornscribe.rhythm.triplet import (
     region_evidence,
     simple_meter_regions,
     strict_triplet_regions,
+    triplet_flag_worthy,
 )
 
 #: Coarse alignment-shift search step (design 6.3: ±120 ms band).
@@ -508,20 +509,26 @@ def _region_has_triplet_atoms(path: OnsetPath, region: TripletRegion) -> bool:
 def _triplet_review_reasons(
     paths: tuple[OnsetPath, ...],
     evidence: tuple[TripletRegionEvidence, ...],
+    profile: QuantizationProfile,
 ) -> tuple[str, ...]:
     """``possible_triplet`` when triplet evidence lost to binary (design 40).
 
-    A region with at least one triplet-relevant onset whose rank-1 path
-    committed no triplet notation is flagged — the evidence existed but the
-    gate or the cost model kept binary notation, so a reviewer should look.
-    Onset-only output has no atoms at all, so only the position check can
-    clear an evidenced region.
+    A region with flag-worthy triplet evidence whose rank-1 path
+    committed no triplet notation is flagged — the evidence existed
+    but the gate or the cost model kept binary notation, so a
+    reviewer should look. ``triplet_flag_worthy`` keeps sub-gate
+    near-ties out: a single onset 20 ms closer to 1/3 than to the
+    sixteenth is phrasing noise, not a call a reviewer can make
+    (#262). Onset-only output has no atoms at all, so only the
+    position check can clear an evidenced region.
     """
     if not paths:
         return ()
     best = paths[0]
     for ev in evidence:
-        if ev.relevant_onsets >= 1 and not _region_has_triplet_atoms(best, ev.region):
+        if triplet_flag_worthy(ev, profile) and not _region_has_triplet_atoms(
+            best, ev.region
+        ):
             return ("possible_triplet",)
     return ()
 
@@ -743,7 +750,11 @@ def _quantize(
         # A detected shuffle explains the off-grid evidence better than
         # 'maybe triplets' (#88) — the pipeline's swing_feel issue
         # carries the real reading.
-        + (() if swing_detected else _triplet_review_reasons(paths, evidence))
+        + (
+            ()
+            if swing_detected
+            else _triplet_review_reasons(paths, evidence, profile)
+        )
         + reasons_extra
     )
 
