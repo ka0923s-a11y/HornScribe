@@ -51,6 +51,15 @@ TRIPLET_ATOM_FRACTIONS: tuple[tuple[Fraction, str], ...] = (
 #: clusters apart — a run of 2/3-only hits is a shuffle, not triplets.
 FIRST_THIRD_ZONE_BEAT = 0.12
 
+# A lone triplet-fitting onset flags for review only when the triplet
+# grid beat the binary grid by at least this much score time (ql).
+# Sub-gate near-ties — an onset 20 ms closer to 1/3 than to the
+# sixteenth — are phrasing noise; at #262 scale (a binary-dominant
+# vocal line flagging ~100 regions) they drown the real calls. A lone
+# onset that beat binary by a clear margin is the genuinely ambiguous
+# case design 40 wants surfaced.
+TRIPLET_FLAG_MARGIN_QL = 0.05
+
 
 @dataclass(frozen=True)
 class TripletRegion:
@@ -123,12 +132,23 @@ class TripletRegionEvidence:
     #: shuffle — the swing census owns it, so it must not extend the
     #: triplet gate.
     first_third_relevant: int = 0
+    #: #262: the mirror counter around the *second* third (rel ~ 2/3).
+    #: A triplet figure must show evidence at BOTH thirds — the
+    #: {onset, dragged-16th} pair shape (rel ~ 0.30) otherwise opens
+    #: the gate on pure timing noise.
+    second_third_relevant: int = 0
 
     def gate_open(self, profile: QuantizationProfile) -> bool:
         """Whether AUTO candidacy is justified for this region."""
         return (
             self.relevant_onsets >= profile.triplet_gate_min_relevant_onsets
             and self.triplet_cost < self.binary_cost
+            # #262: and the evidence must cover BOTH third positions
+            # -- a {0, 1/3} pair is the dragged-sixteenth shape vocal
+            # timing produces constantly; a real triplet division
+            # shows onsets near each third somewhere in the region.
+            and self.first_third_relevant >= 1
+            and self.second_third_relevant >= 1
         )
 
 
@@ -201,6 +221,7 @@ def evaluate_region_evidence(
     onset_count = 0
     relevant = 0
     first_third = 0
+    second_third = 0
     binary_cost = 0.0
     triplet_cost = 0.0
     for note in notes:
@@ -217,8 +238,11 @@ def evaluate_region_evidence(
         triplet_cost += triplet_dist
         if triplet_dist + margin < binary_dist:
             relevant += 1
-            if abs(rel - third) <= float(region.beat_unit_ql) * FIRST_THIRD_ZONE_BEAT:
+            zone = float(region.beat_unit_ql) * FIRST_THIRD_ZONE_BEAT
+            if abs(rel - third) <= zone:
                 first_third += 1
+            elif abs(rel - 2 * third) <= zone:
+                second_third += 1
     return TripletRegionEvidence(
         region=region,
         onset_count=onset_count,
@@ -226,6 +250,7 @@ def evaluate_region_evidence(
         binary_cost=binary_cost,
         triplet_cost=triplet_cost,
         first_third_relevant=first_third,
+        second_third_relevant=second_third,
     )
 
 
@@ -241,6 +266,28 @@ def region_evidence(
     hi = max(n.onset_ql for n in notes)
     regions = simple_meter_regions(meter_map, Fraction(lo), Fraction(hi) + Fraction(1))
     return tuple(evaluate_region_evidence(notes, r, profile) for r in regions)
+
+
+def triplet_flag_worthy(
+    ev: TripletRegionEvidence, profile: QuantizationProfile
+) -> bool:
+    """Whether a region whose triplet evidence lost is worth flagging.
+
+    Two cases survive: the region carried enough triplet-fitting
+    onsets to have opened the candidacy gate at all (repeated
+    evidence losing is a real review call), or a lone onset fit the
+    triplet grid clearly better than binary by ``TRIPLET_FLAG_MARGIN_QL``
+    (a hard read, not 20 ms of phrasing noise). Single weak fits
+    without that margin are suppressed — on a laid-back vocal
+    line they produced a hundred flags nobody could act on (#262).
+    """
+    return (
+        ev.relevant_onsets >= profile.triplet_gate_min_relevant_onsets
+        or (
+            ev.relevant_onsets >= 1
+            and ev.binary_cost - ev.triplet_cost >= TRIPLET_FLAG_MARGIN_QL
+        )
+    )
 
 
 def enabled_triplet_regions(
@@ -278,20 +325,42 @@ def _auto_run_members(
     beat-by-beat mix of triplets and sixteenths. A 2/3-only chain is a
     shuffle instead: no first-third onset means the swing census owns
     the passage and the straight notation must survive for it.
+
+    #262: a member must not *reject* the triplet locally, either — a
+    #region whose binary model fit its onsets better was never part of
+    #the passage, and letting it in chains timing noise into coverage
+    #(on a binary-dominant song the old rule enabled triplet candidates
+    #in over half the measures). The small slack keeps jittered true
+    #members, whose costs sit near-tied.
     """
+
+    def memberable(ev: TripletRegionEvidence) -> bool:
+        return (
+            ev.relevant_onsets >= 1
+            and ev.triplet_cost <= ev.binary_cost * 1.05
+        )
+
     members: set[int] = set()
     i = 0
     n = len(evidence)
     while i < n:
-        if evidence[i].relevant_onsets < 1:
+        if not memberable(evidence[i]):
             i += 1
             continue
         j = i
         has_first = False
-        while j < n and evidence[j].relevant_onsets >= 1:
+        has_second = False
+        while j < n and memberable(evidence[j]):
             has_first = has_first or evidence[j].first_third_relevant >= 1
+            has_second = has_second or evidence[j].second_third_relevant >= 1
             j += 1
-        if has_first:
+        # The chain qualifies only when the passage shows both third
+        # positions somewhere — a run of lone first-third hits is
+        # dragged-16th phrasing, not a triplet figure (#262); the
+        # first-third-only test let vocal timing noise anchor whole
+        # runs. A real passage supplies the second third even when
+        # jitter scattered it across neighbouring beats.
+        if has_first and has_second:
             members.update(range(i, j))
         i = j
     return frozenset(members)

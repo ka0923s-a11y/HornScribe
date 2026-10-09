@@ -43,7 +43,11 @@ from hornscribe.rhythm.contracts import (
 from hornscribe.rhythm.meter import MeterMap
 from hornscribe.rhythm.profile import QuantizationProfile
 from hornscribe.rhythm.timewarp import TimeWarp
-from hornscribe.rhythm.triplet import TripletRegion, region_evidence
+from hornscribe.rhythm.triplet import (
+    TripletRegion,
+    region_evidence,
+    triplet_flag_worthy,
+)
 
 _AtomSignature = tuple[Fraction, str, int, str | None, bool, bool]
 
@@ -182,7 +186,7 @@ def generate_review_issues(
 
     if "possible_triplet" in reasons:
         for ev in region_evidence(tuple(notes), meter_map, profile):
-            if ev.relevant_onsets < 1:
+            if not triplet_flag_worthy(ev, profile):
                 continue
             if _alternative_has_triplet_atoms(best, ev.region):
                 continue
