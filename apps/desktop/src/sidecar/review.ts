@@ -36,6 +36,8 @@ export const REVIEW_REASONS = [
   // #191: isolated estimate is only a fraction of the source's
   // energy — the melody was buried and notes may be missing.
   "low_lead_level",
+  // #264: spectral evidence the note sits an octave too high.
+  "octave_uncertain",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
@@ -72,6 +74,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "pitch_uncertain",
   "multiple_candidates",
   "low_lead_level",
+  "octave_uncertain",
   "other",
 ] as const;
 

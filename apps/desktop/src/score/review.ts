@@ -43,6 +43,7 @@ export type ReviewReason =
   | "pitch_uncertain"
   | "multiple_candidates"
   | "low_lead_level"
+  | "octave_uncertain"
   | "other"
   | (string & {});
 

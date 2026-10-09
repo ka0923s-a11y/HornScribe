@@ -354,6 +354,20 @@ function inspectorCopy(): InspectorCopy {
               margin != null ? Math.round(margin * 100) : null,
           });
         }
+        // #264: octave-uncertainty — detected pitch, the suggested
+        // -12 pitch, and the spectral ratios that raised the flag.
+        if (issue.reason === "octave_uncertain") {
+          const fromMidi = numEvidence(issue, "pitchMidi");
+          const toMidi = numEvidence(issue, "suggestedMidi");
+          const loFund = numEvidence(issue, "lowFundRatio");
+          const oddHarm = numEvidence(issue, "oddHarmonicRatio");
+          return ja.reviewEvidence.octaveUncertain({
+            fromMidi,
+            toMidi,
+            lowFundPct: loFund != null ? Math.round(loFund * 100) : null,
+            oddHarmPct: oddHarm != null ? Math.round(oddHarm * 100) : null,
+          });
+        }
         // #227: name the separation method that actually ran — the
         // generic detail describes the center extraction, which is
         // wrong copy under a demucs addon install.

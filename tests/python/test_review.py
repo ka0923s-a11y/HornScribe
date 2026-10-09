@@ -61,6 +61,8 @@ def test_all_master_plan_reasons_exist() -> None:
             "low_lead_level",
             # #212: separation-derived accompaniment staff provenance.
             "accompaniment_part",
+            # #264: spectral + periodicity low-octave audit.
+            "octave_uncertain",
         }
     assert {r.value for r in ReviewReason} == expected
 
