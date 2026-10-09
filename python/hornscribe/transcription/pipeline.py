@@ -104,6 +104,7 @@ from .boundary import (
     compute_envelopes,
     low_octave_evidence,
     low_octave_suspected,
+    OCTAVE_MIN_SPAN_SEC,
     octave_prefers,
     seam_evidence,
 )
@@ -168,6 +169,9 @@ MAX_EXTRA_ISSUES = 60
 MAX_BOUNDARY_ISSUES = 20
 """Cap on boundary re-scoring flags (#423) - one suspicious edge per
 hotspot is enough; a flickery take must not bury the queue."""
+PITCH_DIP_MAX_SEC = 0.28
+"""#264: a chromatic note must be SHORTER than this to count as a
+possible tracker bin-snap — a deliberate semitone is normally held."""
 MAX_CHORD_ISSUES = 10
 """Cap on chord-uncertainty segments (#419) - a harmonically muddy
 piece flags its worst spans, not every bar."""
@@ -1094,6 +1098,109 @@ def _octave_issues(
                         "oddHarmonicRatio": round(evidence.odd_harm_ratio, 3),
                         "lowPeriodScore": round(evidence.low_period_score, 3),
                         "highPeriodScore": round(evidence.high_period_score, 3),
+                    },
+                )
+            )
+    issues.sort(key=lambda i: i.time_range.start_sec)
+    return issues[:MAX_BOUNDARY_ISSUES]
+
+
+def _pitch_dip_issues(
+    samples: Any,
+    sample_rate: int,
+    cleaneds: tuple[CleanedEvents, ...],
+    parts: tuple[Any, ...],
+    head_fifths: int,
+    key_changes: tuple[KeyChange, ...],
+    score_revision: ScoreRevisionId,
+    time_offset_sec: float,
+) -> list[ReviewIssue]:
+    """Isolated semitone dips (#264) — flag-only second opinion.
+
+    A sub-280 ms note exactly one semitone off a diatonic neighbour,
+    chromatic under the local key while the line around it stays
+    diatonic, is far more often a tracker bin-snap than a sung
+    semitone — a deliberate passing tone is normally longer or part
+    of a repeated chromatic figure. The suggestion is the diatonic
+    neighbour it probably belongs to; when the span allows it, the
+    note's own spectrum arbitrates (suggested band dominant = the
+    dip is audio-verified).
+
+    Flag-only: chromatic passing tones do exist, so the score keeps
+    the detected pitch and the issue offers the semitone fix after
+    the user listens.
+    """
+    canon_by_event: dict[RawNoteEventId, QuantizedNote] = {}
+    for part in parts:
+        for n in part.notes:
+            for e in n.source_event_ids:
+                canon_by_event.setdefault(e, n)
+    issues: list[ReviewIssue] = []
+    seen: set[ScoreNoteId] = set()
+    for c in cleaneds:
+        events = c.events
+        for i, ev in enumerate(events):
+            span = ev.offset_sec - ev.onset_sec
+            if span <= 0.0 or span >= PITCH_DIP_MAX_SEC:
+                continue
+            n = canon_by_event.get(ev.id)
+            if n is None or n.deleted or n.id in seen:
+                continue
+            fifths = fifths_at_beat(head_fifths, key_changes, n.start_beat)
+            pitch = int(round(ev.pitch_midi))
+            if is_diatonic(pitch, fifths):
+                continue  # not chromatic — not a dip suspect
+            prev_ev = events[i - 1] if i > 0 else None
+            next_ev = events[i + 1] if i + 1 < len(events) else None
+            prev_midi = (
+                int(round(prev_ev.pitch_midi)) if prev_ev is not None else None
+            )
+            next_midi = (
+                int(round(next_ev.pitch_midi)) if next_ev is not None else None
+            )
+            if prev_midi is not None and not is_diatonic(prev_midi, fifths):
+                continue  # inside a chromatic passage
+            if next_midi is not None and not is_diatonic(next_midi, fifths):
+                continue
+            suggested: int | None = None
+            if prev_midi is not None and abs(pitch - prev_midi) == 1:
+                suggested = prev_midi
+            elif next_midi is not None and abs(pitch - next_midi) == 1:
+                suggested = next_midi
+            if suggested is None:
+                continue  # a chromatic note unrelated to its neighbours
+            spectral: bool | None = None
+            if span >= OCTAVE_MIN_SPAN_SEC:
+                spectral = octave_prefers(
+                    samples,
+                    sample_rate,
+                    ev.onset_sec,
+                    ev.offset_sec,
+                    ev.pitch_midi,
+                    float(suggested),
+                    time_offset_sec=time_offset_sec,
+                )
+            seen.add(n.id)
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(n.id,),
+                    time_range=TimeRange(
+                        start_sec=ev.onset_sec, end_sec=ev.offset_sec
+                    ),
+                    reason=ReviewReason.PITCH_UNCERTAIN,
+                    severity=Severity.CAUTION,
+                    evidence={
+                        "pitchMidi": pitch,
+                        "suggestedMidi": suggested,
+                        "prevMidi": prev_midi,
+                        "nextMidi": next_midi,
+                        **(
+                            {"spectralSupport": spectral}
+                            if spectral is not None
+                            else {}
+                        ),
                     },
                 )
             )
@@ -2577,6 +2684,25 @@ def run_transcription_job(
                 ),
                 (cleaned, *cleaned_lowers),
                 built.payload.parts,
+                score_revision,
+                selection_offset_sec,
+            )
+        )
+        # #264: isolated semitone dips — a short chromatic note one
+        # semitone off a diatonic neighbour, inside a diatonic line,
+        # is a tracker bin-snap until proven sung. Same detected-on
+        # stem buffer arbitrates when the span allows a reading.
+        issues.extend(
+            _pitch_dip_issues(
+                *(
+                    lead_evidence
+                    if lead_evidence is not None
+                    else (samples, sample_rate)
+                ),
+                (cleaned, *cleaned_lowers),
+                built.payload.parts,
+                payload.key_signature.fifths,
+                payload.key_changes,
                 score_revision,
                 selection_offset_sec,
             )

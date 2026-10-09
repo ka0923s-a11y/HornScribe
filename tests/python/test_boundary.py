@@ -34,7 +34,11 @@ from hornscribe.transcription.boundary import (
     seam_evidence,
 )
 from hornscribe.transcription.clean import CleanedEvents
-from hornscribe.transcription.pipeline import _boundary_issues, _octave_issues
+from hornscribe.transcription.pipeline import (
+    _boundary_issues,
+    _octave_issues,
+    _pitch_dip_issues,
+)
 
 _SR = 22050
 _REV = TranscriptionRevisionId("tr-boundary")
@@ -556,3 +560,102 @@ class TestLowOctaveAudit:
             )
             == []
         )
+
+
+class TestPitchDipAudit:
+    """#264: isolated chromatic semitone dips — tracker bin-snaps.
+
+    A short note one semitone off a diatonic neighbour, chromatic
+    under the local key while the line around it stays diatonic, is
+    a tracker artefact until proven sung. Tests run in D major
+    (fifths=2): F natural (53) is chromatic; F# (54) and C# (61) are
+    diatonic.
+    """
+
+    def _issues(
+        self, events: tuple[RawNoteEvent, ...], note
+    ) -> list:
+        part = Part(id="part-1", name="Horn in F", notes=(note,))
+        return _pitch_dip_issues(
+            _held_tone(),
+            _SR,
+            (_cleaned(*events),),
+            (part,),
+            2,
+            (),
+            ScoreRevisionId("rev-test"),
+            0.0,
+        )
+
+    def test_dip_flags_with_diatonic_suggestion(self) -> None:
+        # F#4 -> F4 -> C#5: the 100 ms F natural is a bin-snap suspect;
+        # the suggestion is the F# it most likely belongs to.
+        a, b, c = (
+            _ev(1, 54, 0.0, 0.4),
+            _ev(2, 53, 0.4, 0.5),
+            _ev(3, 61, 0.5, 0.9),
+        )
+        issues = self._issues((a, b, c), _note(1, 53, "1", "1", (b.id,)))
+        assert len(issues) == 1
+        issue = issues[0]
+        assert issue.reason is ReviewReason.PITCH_UNCERTAIN
+        assert issue.severity is Severity.CAUTION
+        assert issue.evidence["pitchMidi"] == 53
+        assert issue.evidence["suggestedMidi"] == 54
+
+    def test_next_neighbour_can_suggest(self) -> None:
+        # When only the NEXT note is the semitone-off diatonic
+        # neighbour, it carries the suggestion.
+        a, b, c = (
+            _ev(1, 66, 0.0, 0.4),
+            _ev(2, 53, 0.4, 0.5),
+            _ev(3, 54, 0.5, 0.9),
+        )
+        issues = self._issues((a, b, c), _note(1, 53, "1", "1", (b.id,)))
+        assert len(issues) == 1
+        assert issues[0].evidence["suggestedMidi"] == 54
+
+    def test_long_chromatic_note_is_deliberate(self) -> None:
+        # A held chromatic note is a musical choice, not a flicker.
+        a, b, c = (
+            _ev(1, 54, 0.0, 0.4),
+            _ev(2, 53, 0.4, 0.9),
+            _ev(3, 54, 0.9, 1.3),
+        )
+        assert self._issues((a, b, c), _note(1, 53, "1", "2", (b.id,))) == []
+
+    def test_chromatic_neighbour_passage_untouched(self) -> None:
+        # Inside a chromatic run (prev D#51 is also chromatic) the dip
+        # is line material, not a snap.
+        a, b, c = (
+            _ev(1, 51, 0.0, 0.4),
+            _ev(2, 53, 0.4, 0.5),
+            _ev(3, 54, 0.5, 0.9),
+        )
+        assert self._issues((a, b, c), _note(1, 53, "1", "1", (b.id,))) == []
+
+    def test_repeated_dips_each_flag(self) -> None:
+        # The same dip figure returning flags every instance — a
+        # systematic tracker dip is exactly the pattern this catches;
+        # only mapped canonical notes produce issues.
+        a, b, c, d = (
+            _ev(1, 54, 0.0, 0.3),
+            _ev(2, 53, 0.3, 0.4),
+            _ev(3, 54, 0.4, 0.7),
+            _ev(4, 53, 0.7, 0.8),
+        )
+        issues = self._issues(
+            (a, b, c, d),
+            _note(1, 53, "1", "1", (b.id, d.id)),
+        )
+        assert [i.evidence["pitchMidi"] for i in issues] == [53]
+
+    def test_diatonic_neighbour_no_flag(self) -> None:
+        # A short DIATONIC note a semitone off a diatonic neighbour is
+        # a real passing tone — nothing chromatic to review.
+        a, b, c = (
+            _ev(1, 55, 0.0, 0.4),
+            _ev(2, 54, 0.4, 0.5),
+            _ev(3, 61, 0.5, 0.9),
+        )
+        assert self._issues((a, b, c), _note(1, 54, "1", "1", (b.id,))) == []

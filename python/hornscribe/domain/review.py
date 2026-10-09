@@ -105,6 +105,13 @@ class ReviewReason(Enum):
     # Evidence carries detected pitchMidi, suggestedMidi, and the
     # two band ratios.
     OCTAVE_UNCERTAIN = "octave_uncertain"
+    # #264: an isolated sub-280ms note one semitone off a diatonic
+    # neighbour, chromatic under the local key while the surrounding
+    # line is diatonic — a tracker bin-snap more often than a sung
+    # semitone. Evidence carries detected pitchMidi, the diatonic
+    # suggestedMidi, and spectral support when the span allowed a
+    # reading. Remedy: transposeNote by the suggested delta.
+    PITCH_UNCERTAIN = "pitch_uncertain"
 
 
 class Severity(Enum):

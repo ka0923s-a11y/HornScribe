@@ -368,6 +368,18 @@ function inspectorCopy(): InspectorCopy {
             oddHarmPct: oddHarm != null ? Math.round(oddHarm * 100) : null,
           });
         }
+        // #264: pitch-dip — detected chromatic pitch, the suggested
+        // diatonic neighbour, and the spectral verdict when measured.
+        if (issue.reason === "pitch_uncertain") {
+          const fromMidi = numEvidence(issue, "pitchMidi");
+          const toMidi = numEvidence(issue, "suggestedMidi");
+          const spec = issue.evidence["spectralSupport"];
+          return ja.reviewEvidence.pitchUncertain({
+            fromMidi,
+            toMidi,
+            spectral: typeof spec === "boolean" ? spec : null,
+          });
+        }
         // #227: name the separation method that actually ran — the
         // generic detail describes the center extraction, which is
         // wrong copy under a demucs addon install.

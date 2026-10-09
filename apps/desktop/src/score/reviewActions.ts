@@ -340,6 +340,34 @@ export function buildReviewAction(
             () => ({ kind: "transposeNote", noteId, semitones }),
             ja.commandFeedback.octaveShifted,
             () => handlers.markFixed?.(issue.id),
+        ),
+      };
+    }
+  }
+
+  // #264: pitch_uncertain — an isolated chromatic semitone dip; the
+  // remedy transposes by the suggested delta (normally ±1, onto the
+  // diatonic neighbour the tracker likely bin-snapped from).
+  if (
+    issue.reason === "pitch_uncertain" &&
+    typeof issue.evidence["suggestedMidi"] === "number" &&
+    typeof issue.evidence["pitchMidi"] === "number" &&
+    issue.canonicalNoteIds.length > 0 &&
+    handlers.applyEdit
+  ) {
+    const semitones =
+      (issue.evidence["suggestedMidi"] as number) -
+      (issue.evidence["pitchMidi"] as number);
+    if (semitones !== 0) {
+      const noteId = issue.canonicalNoteIds[0];
+      return {
+        label: semitones < 0 ? r.pitchDown : r.pitchUp,
+        tooltip: r.pitchShiftTip,
+        run: () =>
+          handlers.applyEdit?.(
+            () => ({ kind: "transposeNote", noteId, semitones }),
+            ja.commandFeedback.pitchShifted,
+            () => handlers.markFixed?.(issue.id),
           ),
       };
     }

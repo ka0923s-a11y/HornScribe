@@ -659,6 +659,7 @@ export const ja = {
     keyChangeRemoved: "転調を削除しました",
     metadataChanged: "譜面情報を更新しました",
     octaveShifted: "実音を1オクターブ変更しました",
+    pitchShifted: "実音を半音変更しました",
     /* #123: 和音/複数声部を単旋律へ畳み込んだ旨。 */
     collapsedToMelody: "単旋律にまとめました（同時発音は最上声部を残しました）",
     requantized: "採譜設定を適用して楽譜を更新しました",
@@ -1682,7 +1683,8 @@ export const ja = {
     },
     pitch_uncertain: {
       title: "音高を確認してください",
-      detail: "検出された音高が曖昧です。",
+      detail:
+        "この短い音は調の音階から外れた半音で、隣の音と半音しか離れていません。検出器が半音ずらして拾った可能性があります。元音源と聴き比べて、必要なら提案された隣の音に修正してください。",
     },
     multiple_candidates: {
       title: "複数の候補があります",
@@ -1920,6 +1922,26 @@ export const ja = {
           : "下の基音に明確なエネルギーがあり";
       return `${pair}。${ev}、実際に1オクターブ低い音である可能性が高い箇所です。元音源と聴き比べて確認してください。`;
     },
+    // #264: pitch-dip evidence — the detected chromatic pitch, the
+    // suggested diatonic neighbour, and whether the note's own
+    // spectrum agrees with the suggestion.
+    pitchUncertain: (p: {
+      readonly fromMidi: number | null;
+      readonly toMidi: number | null;
+      readonly spectral: boolean | null;
+    }) => {
+      const pair =
+        p.fromMidi != null && p.toMidi != null
+          ? `検出音高 MIDI ${p.fromMidi} に対し、隣接する調の音 ${p.toMidi} を提案します`
+          : "隣接する調の音を提案します";
+      const spec =
+        p.spectral === true
+          ? "音源スペクトルでも提案側の音が優勢です"
+          : p.spectral === false
+            ? "音源スペクトルでは判定が付きませんでした"
+            : "音が短いためスペクトル判定は行っていません";
+      return `${pair}。${spec}。元音源と聴き比べて確認してください。`;
+    },
   },
 
   /* #130 (§14): re-quantize dialog — change the quantization settings
@@ -2037,6 +2059,9 @@ export const ja = {
       "この拍を三連符の書き方に修正します",
     octaveShiftTip:
       "実音の高さを1オクターブ移動してホルンの適性音域に収めます",
+    /* #264: pitch_uncertain remedy — transposeNote by the suggested
+       semitone delta (the diatonic neighbour it likely belongs to). */
+    pitchShiftTip: "検出された音高を提案された隣の音に修正します",
     /** Disabled-state explanations for whole-piece issues (buttons stay
      *  visible so the bar's layout is stable; the tooltip says why). */
     noteTargetRequired: "音符に紐づく項目でのみ使えます",
