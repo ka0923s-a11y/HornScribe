@@ -374,6 +374,26 @@ describe("buildReviewAction", () => {
     ).toBeNull();
   });
 
+  it("#264: pitch-dip flag transposes onto the suggested neighbour", () => {
+    const applyEdit = vi.fn();
+    const h = handlers({ applyEdit });
+    const a = buildReviewAction(
+      issue({
+        reason: "pitch_uncertain",
+        evidence: { pitchMidi: 53, suggestedMidi: 54 },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.pitchUp);
+    expect(a?.tooltip).toBe(ja.review.pitchShiftTip);
+    a?.run();
+    expect(applyEdit.mock.calls[0][0]()).toEqual({
+      kind: "transposeNote",
+      noteId: "sn-000001",
+      semitones: 1,
+    });
+  });
+
   it("#423: merge flag offers mergeNotes on the first note", () => {
     const applyEdit = vi.fn();
     const h = handlers({ applyEdit });

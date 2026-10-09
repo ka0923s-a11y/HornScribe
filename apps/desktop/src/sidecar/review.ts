@@ -38,6 +38,9 @@ export const REVIEW_REASONS = [
   "low_lead_level",
   // #264: spectral evidence the note sits an octave too high.
   "octave_uncertain",
+  // #264: isolated chromatic semitone dip — a tracker bin-snap
+  // suspect next to a diatonic neighbour.
+  "pitch_uncertain",
 ] as const;
 
 export type ReviewReason = (typeof REVIEW_REASONS)[number];

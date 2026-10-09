@@ -63,6 +63,8 @@ def test_all_master_plan_reasons_exist() -> None:
             "accompaniment_part",
             # #264: spectral + periodicity low-octave audit.
             "octave_uncertain",
+            # #264: isolated chromatic semitone-dip audit.
+            "pitch_uncertain",
         }
     assert {r.value for r in ReviewReason} == expected
 
