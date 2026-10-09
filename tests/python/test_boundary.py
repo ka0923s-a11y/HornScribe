@@ -519,9 +519,9 @@ class TestLowOctaveAudit:
         # octave_uncertain issue carrying the -12 remedy.
         f_c4 = 261.63
         sig = (
-            _tone(0.6, f_c4)
-            + _tone(0.6, 2.0 * f_c4, amp=0.6)
-            + _tone(0.6, 3.0 * f_c4, amp=0.5)
+            _tone(1.0, f_c4)
+            + _tone(1.0, 2.0 * f_c4, amp=0.6)
+            + _tone(1.0, 3.0 * f_c4, amp=0.5)
         )
         ev = _ev(1, 72, 0.0, 0.6)
         n = _note(1, 72, "0", "1", (ev.id,))
@@ -529,6 +529,8 @@ class TestLowOctaveAudit:
         issues = _octave_issues(
             sig,
             _SR,
+            TimeWarp.fixed_bpm(60.0),
+            Fraction(1),
             (_cleaned(ev),),
             (part,),
             ScoreRevisionId("rev-test"),
@@ -545,7 +547,7 @@ class TestLowOctaveAudit:
     def test_clean_spectrum_no_issue(self) -> None:
         # A genuinely C5 note produces no flag — the audit must not
         # manufacture doubts on clean detections.
-        sig = _tone(0.6, 523.25) + _tone(0.6, 1046.5, amp=0.3)
+        sig = _tone(1.0, 523.25) + _tone(1.0, 1046.5, amp=0.3)
         ev = _ev(1, 72, 0.0, 0.6)
         n = _note(1, 72, "0", "1", (ev.id,))
         part = Part(id="part-1", name="Horn in F", notes=(n,))
@@ -553,7 +555,96 @@ class TestLowOctaveAudit:
             _octave_issues(
                 sig,
                 _SR,
+                TimeWarp.fixed_bpm(60.0),
+                Fraction(1),
                 (_cleaned(ev),),
+                (part,),
+                ScoreRevisionId("rev-test"),
+                0.0,
+            )
+            == []
+        )
+
+    def test_written_span_audited_not_raw_event_span(self) -> None:
+        # The raw events cover only 0-0.36 s (early release, clipped
+        # tail) but the written note is a full beat — the audit reads
+        # the written span pushed through the warp, not the raw
+        # detections that could sit under the FFT floor.
+        f_c4 = 261.63
+        sig = (
+            _tone(1.0, f_c4)
+            + _tone(1.0, 2.0 * f_c4, amp=0.6)
+            + _tone(1.0, 3.0 * f_c4, amp=0.5)
+        )
+        evs = tuple(
+            _ev(i + 1, 72, i * 0.09, (i + 1) * 0.09) for i in range(4)
+        )
+        n = _note(1, 72, "0", "1", tuple(e.id for e in evs))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        issues = _octave_issues(
+            sig,
+            _SR,
+            TimeWarp.fixed_bpm(60.0),
+            Fraction(1),
+            (_cleaned(*evs),),
+            (part,),
+            ScoreRevisionId("rev-test"),
+            0.0,
+        )
+        assert len(issues) == 1
+        assert issues[0].canonical_note_ids == (n.id,)
+        assert issues[0].time_range.start_sec == pytest.approx(0.0)
+        assert issues[0].time_range.end_sec == pytest.approx(1.0)
+
+    def test_written_pitch_audited_not_raw_event(self) -> None:
+        # The raw event tracked the 2nd harmonic (C5) but a repair
+        # already wrote C4 — asking the spectrum about the RAW pitch
+        # would suggest a phantom C3 fix on a correct note. The audit
+        # judges the pitch the score actually carries.
+        f_c4 = 261.63
+        sig = (
+            _tone(1.0, f_c4)
+            + _tone(1.0, 2.0 * f_c4, amp=0.6)
+            + _tone(1.0, 3.0 * f_c4, amp=0.5)
+        )
+        ev = _ev(1, 72, 0.0, 0.5)
+        n = _note(1, 60, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        assert (
+            _octave_issues(
+                sig,
+                _SR,
+                TimeWarp.fixed_bpm(60.0),
+                Fraction(1),
+                (_cleaned(ev),),
+                (part,),
+                ScoreRevisionId("rev-test"),
+                0.0,
+            )
+            == []
+        )
+
+    def test_note_not_detected_on_this_buffer_skipped(self) -> None:
+        # The accompaniment staff's notes were detected on the
+        # accompaniment stem — judging them on the LEAD buffer reads
+        # absent vocal energy as evidence about pitches never
+        # measured there. Source-event membership is the scope guard.
+        f_c4 = 261.63
+        sig = (
+            _tone(1.0, f_c4)
+            + _tone(1.0, 2.0 * f_c4, amp=0.6)
+            + _tone(1.0, 3.0 * f_c4, amp=0.5)
+        )
+        ev = _ev(1, 72, 0.0, 1.0)
+        n = _note(1, 72, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        assert (
+            _octave_issues(
+                sig,
+                _SR,
+                TimeWarp.fixed_bpm(60.0),
+                Fraction(1),
+                (_cleaned(),),  # nothing detected on this buffer
                 (part,),
                 ScoreRevisionId("rev-test"),
                 0.0,

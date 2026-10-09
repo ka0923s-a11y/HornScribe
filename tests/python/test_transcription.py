@@ -3490,6 +3490,7 @@ class TestAutoMeterFallback:
                 confidence=0.0,
                 tracked_eighths=True,
                 uncertain=True,
+                runner_up="3/4",
             ),
         )
         assert log[-1]["phase"] == "completed"
@@ -3504,6 +3505,10 @@ class TestAutoMeterFallback:
         ]
         assert conflicts, "uncertain auto meter must surface meter_conflict"
         assert conflicts[0]["evidence"]["estimatedMeter"] == "6/8"
+        # #264: the runner-up label rides the issue — the ambiguity the
+        # confidence margin describes ('6/8 vs 3/4') is what the user
+        # judges, not a bare 0.0.
+        assert conflicts[0]["evidence"]["runnerUpMeter"] == "3/4"
 
     def test_trusted_compound_meter_still_writes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

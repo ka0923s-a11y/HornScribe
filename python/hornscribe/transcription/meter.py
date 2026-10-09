@@ -121,6 +121,10 @@ class MeterEstimate:
     """Score time (quarterLength) one tracked pulse covers when it is
     not the meter's primary beat -- eighth-level tracking anchors
     Fraction(1,2) for ANY label; None anchors 'meter.beat_unit_ql'."""
+    runner_up: str | None = None
+    """Second-ranked candidate label -- the meter the estimate nearly
+    picked. Surfaced on the meter_conflict review issue so the user
+    sees WHICH ambiguity the confidence margin describes (#264)."""
 
 
 def _default() -> MeterEstimate:
@@ -355,6 +359,7 @@ def _finish(scores: dict[str, float], *, eighth_level: bool) -> MeterEstimate:
         tracked_eighths=eighth_level and best_meter in _COMPOUND_LABELS,
         uncertain=confidence < UNCERTAIN_CONFIDENCE,
         tracked_unit_ql=_EIGHTH_QL if eighth_level else None,
+        runner_up=ranked[1][0] if len(ranked) > 1 else None,
     )
 
 
@@ -548,6 +553,7 @@ def _estimate_from_strengths(
             tracked_eighths=False,
             uncertain=est.uncertain,
             tracked_unit_ql=None,
+            runner_up=est.runner_up,
         )
     denominator = int(est.meter.split("/")[1])
     return MeterEstimate(
@@ -556,4 +562,5 @@ def _estimate_from_strengths(
         tracked_eighths=True,
         uncertain=False,
         tracked_unit_ql=Fraction(4, denominator),
+        runner_up=est.runner_up,
     )

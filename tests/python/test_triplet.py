@@ -17,7 +17,7 @@ import pytest
 
 import rhythm_fixtures as fx
 from hornscribe.domain.ids import RawNoteEventId, ScoreRevisionId
-from hornscribe.domain.review import ReviewReason
+from hornscribe.domain.review import ReviewReason, Severity
 from hornscribe.rhythm import (
     MeterMap,
     MeterSegment,
@@ -339,6 +339,10 @@ def test_possible_triplet_issue_carries_region_and_ids() -> None:
         fixture.warp.ql_to_seconds(Fraction(3))
     )
     assert issue.evidence["relevantOnsets"] == 1
+    # #264: the lone-onset flag stays visible but de-prioritized — a
+    # gate-worthy region (>= gate_min relevant onsets) is CAUTION.
+    assert issue.severity is Severity.INFO
+    assert issue.evidence["onsetCount"] == 2
 
 
 def test_issue_ids_deterministic() -> None:

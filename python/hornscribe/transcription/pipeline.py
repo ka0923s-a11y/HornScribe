@@ -100,11 +100,11 @@ from .backend import (
     require_module,
 )
 from .boundary import (
+    OCTAVE_MIN_SPAN_SEC,
     boundary_flags,
     compute_envelopes,
     low_octave_evidence,
     low_octave_suspected,
-    OCTAVE_MIN_SPAN_SEC,
     octave_prefers,
     seam_evidence,
 )
@@ -1033,6 +1033,8 @@ def _boundary_issues(
 def _octave_issues(
     samples: Any,
     sample_rate: int,
+    warp: Any,
+    beat_ql: Fraction,
     cleaneds: tuple[CleanedEvents, ...],
     parts: tuple[Any, ...],
     score_revision: ScoreRevisionId,
@@ -1049,51 +1051,64 @@ def _octave_issues(
     decorrelate every half-period, so the written pitch cannot
     explain its own waveform.
 
+    The measurement spans the SCORE NOTE's written extent — its beat
+    span pushed back through the warp into audio seconds — not any
+    raw event's span. A detection shorter than the written note
+    (an early release, a clipped tail) can sit under the FFT floor
+    even on a long written note, and a raw-event audit silently
+    skipped those; on the reference mix the atom-level reading
+    flagged one suspect where the note-level one finds eight. The
+    written pitch is what the flag describes, so it is also what
+    the spectrum is asked about — a note whose pitch a repair
+    already corrected is no longer judged on the stale raw pitch.
+
+    Only notes whose source events were detected on THIS buffer are
+    audited: the accompaniment staff's notes would read lead-stem
+    energy (or its absence) as evidence about pitches that were
+    never measured there. Octave truth on the accompaniment stem is
+    a different, polyphonic-instrument question (#264).
+
     Flag-only by design: an octave-doubled backing voice is
     spectrally indistinguishable from a tracking error, so the score
     keeps the detected pitch and the issue carries the suggested
     -12 fix the review bar can apply after the user listens.
 
-    Flags whose events quantized onto a deleted note are dropped —
-    the score no longer carries that pitch.
+    Deleted notes are skipped — the score no longer carries that
+    pitch.
     """
-    canon_by_event: dict[RawNoteEventId, QuantizedNote] = {}
+    audited_events: set[RawNoteEventId] = {
+        ev.id for c in cleaneds for ev in c.events
+    }
+    issues: list[ReviewIssue] = []
     for part in parts:
         for n in part.notes:
-            for e in n.source_event_ids:
-                canon_by_event.setdefault(e, n)
-    issues: list[ReviewIssue] = []
-    seen: set[ScoreNoteId] = set()
-    for c in cleaneds:
-        for ev in c.events:
+            if n.deleted:
+                continue
+            if not any(e in audited_events for e in n.source_event_ids):
+                continue
+            lo_sec = warp.ql_to_seconds(n.start_beat * beat_ql)
+            hi_sec = warp.ql_to_seconds(n.end_beat * beat_ql)
             evidence = low_octave_evidence(
                 samples,
                 sample_rate,
-                ev.onset_sec,
-                ev.offset_sec,
-                ev.pitch_midi,
+                lo_sec,
+                hi_sec,
+                n.pitch_midi,
                 time_offset_sec=time_offset_sec,
             )
             if not low_octave_suspected(evidence):
                 continue
-            n = canon_by_event.get(ev.id)
-            if n is None or n.deleted or n.id in seen:
-                continue
-            seen.add(n.id)
-            detected = int(round(ev.pitch_midi))
             issues.append(
                 ReviewIssue(
                     id="",
                     score_revision=score_revision,
                     canonical_note_ids=(n.id,),
-                    time_range=TimeRange(
-                        start_sec=ev.onset_sec, end_sec=ev.offset_sec
-                    ),
+                    time_range=TimeRange(start_sec=lo_sec, end_sec=hi_sec),
                     reason=ReviewReason.OCTAVE_UNCERTAIN,
                     severity=Severity.CAUTION,
                     evidence={
-                        "pitchMidi": detected,
-                        "suggestedMidi": detected - 12,
+                        "pitchMidi": int(n.pitch_midi),
+                        "suggestedMidi": int(n.pitch_midi) - 12,
                         "lowFundRatio": round(evidence.low_fund_ratio, 3),
                         "oddHarmonicRatio": round(evidence.odd_harm_ratio, 3),
                         "lowPeriodScore": round(evidence.low_period_score, 3),
@@ -2149,6 +2164,7 @@ def run_transcription_job(
         meter_estimated = False
         meter_uncertain = False
         meter_est_label: str | None = None
+        meter_runner_up: str | None = None
         pulse_unit_ql: Fraction | None = None
         # #385: counted sub-steps — beat track (when needed), meter
         # estimate (auto only), tempo estimate.
@@ -2249,6 +2265,7 @@ def run_transcription_job(
             meter_estimated = True
             meter_uncertain = meter_est.uncertain
             meter_confidence = meter_est.confidence
+            meter_runner_up = meter_est.runner_up
             # A non-beat tracked pulse anchors only when the meter read
             # was trusted — an uncertain guess must not re-denominate
             # the tracked beat (that is exactly how a misread 6/8
@@ -2682,6 +2699,8 @@ def run_transcription_job(
                     if lead_evidence is not None
                     else (samples, sample_rate)
                 ),
+                estimate.warp,
+                beat_ql,
                 (cleaned, *cleaned_lowers),
                 built.payload.parts,
                 score_revision,
@@ -2738,6 +2757,10 @@ def run_transcription_job(
                         "estimatedMeter": meter_est_label
                         or f"{meter.numerator}/{meter.denominator}",
                         "meterConfidence": round(meter_confidence, 3),
+                        # The ambiguity the confidence margin describes —
+                        # '4/4 vs 2/4 by a coin flip' is actionable in a
+                        # way 'confidence 0' alone is not (#264).
+                        "runnerUpMeter": meter_runner_up,
                     },
                 )
             )
