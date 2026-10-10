@@ -13,7 +13,11 @@ Covered reasons — the ones QNT-005 makes mappable to the domain enum:
   rank-1/rank-2 notation differs (design 20: close alternatives only flag
   when the written score actually changes);
 * ``possible_triplet`` — one issue per triplet-evidence region where the
-  rank-1 path committed no triplet atoms.
+  rank-1 path committed no triplet atoms. Severity mirrors the evidence:
+  a region that carried enough triplet-fitting onsets to open the
+  adoption gate is CAUTION, while the lone-onset flag (one onset dead on
+  a third, the rest of the beat binary) stays INFO — visible in the
+  review list without competing with structural calls (#264).
 
 Other diagnostics reasons (``beat_alignment_uncertain``,
 ``pickup_ambiguous``, ``overlapping_candidates``, ``offset_ambiguous``)
@@ -147,7 +151,14 @@ def generate_review_issues(
     best = alternatives[0]
     reasons = set(best.diagnostics.review_reasons)
     pending: list[
-        tuple[float, str, tuple[ScoreNoteId, ...], TimeRange, dict[str, Any]]
+        tuple[
+            float,
+            str,
+            tuple[ScoreNoteId, ...],
+            TimeRange,
+            dict[str, Any],
+            Severity,
+        ]
     ] = []
 
     if "quantization_ambiguous" in reasons and len(alternatives) >= 2:
@@ -182,7 +193,7 @@ def generate_review_issues(
                 ],
             }
             pending.append((rng.start_sec, ReviewReason.QUANTIZATION_AMBIGUOUS.value,
-                            ids, rng, evidence))
+                            ids, rng, evidence, Severity.CAUTION))
 
     if "possible_triplet" in reasons:
         for ev in region_evidence(tuple(notes), meter_map, profile):
@@ -201,26 +212,34 @@ def generate_review_issues(
                 start_sec=_seconds(warp, ev.region.start_ql),
                 end_sec=_seconds(warp, ev.region.end_ql),
             )
+            # #264: severity mirrors evidence strength. A region whose
+            # triplet evidence was enough to open the adoption gate but
+            # lost on cost is a CAUTION the reviewer should hear-check.
+            # The lone-onset case — one onset dead on a third while
+            # binary kept the beat — stays visible at INFO instead of
+            # competing with structural calls; on a straight-time vocal
+            # line these are dominated by swung/dragged subdivisions.
+            gate_worthy = (
+                ev.relevant_onsets >= profile.triplet_gate_min_relevant_onsets
+            )
             evidence = {
                 "beatStartQl": str(ev.region.start_ql),
                 # #212: the same position in canonical beats — the
                 # applyTriplet edit consumes it verbatim.
                 "beatStartBeats": str(ev.region.start_ql / beat_ql),
+                "onsetCount": ev.onset_count,
                 "relevantOnsets": ev.relevant_onsets,
                 "binaryCost": ev.binary_cost,
                 "tripletCost": ev.triplet_cost,
             }
             pending.append((rng.start_sec, ReviewReason.POSSIBLE_TRIPLET.value,
-                            ids, rng, evidence))
+                            ids, rng, evidence,
+                            Severity.CAUTION if gate_worthy else Severity.INFO))
 
     pending.sort(key=lambda item: (item[0], item[1]))
     allocator = IssueIdAllocator()
     issues: list[ReviewIssue] = []
-    severity_by_reason = {
-        ReviewReason.QUANTIZATION_AMBIGUOUS.value: Severity.CAUTION,
-        ReviewReason.POSSIBLE_TRIPLET.value: Severity.CAUTION,
-    }
-    for _, reason_value, ids, rng, evidence in pending:
+    for _, reason_value, ids, rng, evidence, severity in pending:
         issues.append(
             ReviewIssue(
                 id=allocator.allocate(),
@@ -228,7 +247,7 @@ def generate_review_issues(
                 canonical_note_ids=ids,
                 time_range=rng,
                 reason=ReviewReason(reason_value),
-                severity=severity_by_reason[reason_value],
+                severity=severity,
                 evidence=evidence,
             )
         )
