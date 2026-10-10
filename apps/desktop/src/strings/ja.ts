@@ -502,7 +502,7 @@ export const ja = {
       markOk: "問題なし",
       playSource: "元音源を再生",
       errorTitle: "PDFを書き出せません",
-      errorBody: "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。",
+      errorBody: "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。アプリ内印刷ならMuseScoreなしでPDFを作成できます。",
       errorAction: "MuseScoreの場所を指定",
       stageDone: "音声を準備しました",
       stageActive: "音を解析しています",
@@ -956,8 +956,9 @@ export const ja = {
       submit: "書き出す",
       running: "書き出しています…",
       museScoreMissingNote:
-        "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。",
-      pdfDisabledTooltip: "MuseScoreが見つからないためPDFを書き出せません",
+        "PDFの書き出しにはMuseScoreが必要です（アプリ内印刷ならPDFを作成できます）。MusicXMLとMIDIはそのまま書き出せます。",
+      pdfDisabledTooltip:
+        "MuseScoreが見つからないためPDF形式は無効です（アプリ内印刷なら作成できます）",
       completeTitle: "書き出しが完了しました",
       revealInExplorer: "エクスプローラーで表示",
       sampleDestination: "C:\\Users\\player\\Documents\\HornScribe",
@@ -1234,7 +1235,7 @@ export const ja = {
        never reach the surface). ---- */
     musescoreMissing: {
       title: "PDFを書き出せません",
-      body: "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。",
+      body: "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。アプリ内印刷ならMuseScoreなしでPDFを作成できます。",
       actions: {
         specifyMusescore: "MuseScoreの場所を指定",
         exportMusicxml: "MusicXMLを書き出す",
@@ -2265,14 +2266,15 @@ export const ja = {
     running: "書き出しています",
     loading: "書き出しの準備をしています",
     museScoreMissingNote:
-      "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。",
+      "PDFの書き出しにはMuseScoreが必要です（アプリ内印刷ならPDFを作成できます）。MusicXMLとMIDIはそのまま書き出せます。",
     /* #390: エンジン不在時のMIDI品質差を事前/事後に明示 —
        silent degraded fallback禁止。 */
     midiDegradedNote:
       "エンジンに接続できないため、再生用MIDIは簡易版になります（ベロシティ・ピッチベンド・スイングは含まれません）。",
     midiDegradedDone:
       "再生用MIDIは簡易版で書き出しました（ベロシティ・ピッチベンド・スイングは含まれません）。",
-    pdfDisabledTooltip: "MuseScoreが見つからないためPDFを書き出せません",
+    pdfDisabledTooltip:
+      "MuseScoreが見つからないためPDF形式は無効です（アプリ内印刷なら作成できます）",
     audioDisabledTooltip: "元の音声がディスク上にないため同梱できません",
     bFlatDisabledTooltip: "この楽譜ではB♭管ホルンを書き出せません",
     specifyMuseScore: "MuseScoreの場所を指定",

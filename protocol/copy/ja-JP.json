@@ -580,7 +580,7 @@
     },
     "musescoreMissing": {
       "title": "PDFを書き出せません",
-      "body": "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。",
+      "body": "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。アプリ内印刷ならMuseScoreなしでPDFを作成できます。",
       "actions": {
         "specifyMusescore": "MuseScoreの場所を指定",
         "exportMusicxml": "MusicXMLを書き出す",
