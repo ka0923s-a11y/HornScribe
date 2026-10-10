@@ -422,3 +422,55 @@ tempoChanges: [],
     expect(doc.revisionId).toBe("rev-base");
   });
 });
+
+describe("#104 batch remedy (same-remedy members, one undo)", () => {
+  it("delete + transpose members share one groupId — one undo restores all", () => {
+    const doc = createFixtureScoreDocument();
+    const session = new ReviewSession(doc);
+    const g = session.newBatchGroup();
+    const del = session.setNoteDeleted("ri-000002", true, g);
+    const tr = session.transposeIssueNote("ri-000001", -12, g);
+    expect(del).not.toBeNull();
+    expect(tr).not.toBeNull();
+    expect(del!.groupId).toBe(g);
+    expect(tr!.groupId).toBe(g);
+    expect(session.statusOf("ri-000002")).toBe("fixed");
+    expect(session.statusOf("ri-000001")).toBe("fixed");
+    expect(session.noteEditOf("sn-000022").deleted).toBe(true);
+    expect(session.noteEditOf("sn-000012").pitchDelta).toBe(-12);
+
+    // One undo pops the whole contiguous group, newest first.
+    const undone = session.undo();
+    expect(undone).not.toBeNull();
+    expect(session.statusOf("ri-000002")).toBe("open");
+    expect(session.statusOf("ri-000001")).toBe("open");
+    expect(session.noteEditOf("sn-000022").deleted).toBe(false);
+    expect(session.noteEditOf("sn-000012").pitchDelta).toBe(0);
+    expect(session.canUndo).toBe(false);
+
+    // And redo brings the whole group back in apply order.
+    expect(session.redo()).not.toBeNull();
+    expect(session.statusOf("ri-000002")).toBe("fixed");
+    expect(session.statusOf("ri-000001")).toBe("fixed");
+    expect(session.noteEditOf("sn-000022").deleted).toBe(true);
+    expect(session.noteEditOf("sn-000012").pitchDelta).toBe(-12);
+  });
+
+  it("transposeIssueNote shifts only the first canonical note and marks fixed", () => {
+    const doc = createFixtureScoreDocument();
+    const session = new ReviewSession(doc);
+    // ri-000003 carries two canonical notes — the batch remedy mirrors
+    // the single remedy's first-target semantics.
+    const edit = session.transposeIssueNote("ri-000003", 1);
+    expect(edit).not.toBeNull();
+    expect(session.noteEditOf("sn-000034").pitchDelta).toBe(1);
+    expect(session.noteEditOf("sn-000035").pitchDelta).toBe(0);
+    expect(session.statusOf("ri-000003")).toBe("fixed");
+  });
+
+  it("transposeIssueNote rejects unknown issues and zero deltas", () => {
+    const session = new ReviewSession(createFixtureScoreDocument());
+    expect(session.transposeIssueNote("ri-999999", -12)).toBeNull();
+    expect(session.transposeIssueNote("ri-000001", 0)).toBeNull();
+  });
+});

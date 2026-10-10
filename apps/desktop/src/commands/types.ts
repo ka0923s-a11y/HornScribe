@@ -162,6 +162,9 @@ export interface CommandContext {
   reviewAcceptSameReason?(): void;
   /** #104: batch-dismiss every open issue sharing the focused reason. */
   reviewDismissSameReason?(): void;
+  /** #104: batch-apply the focused issue's pure-edit remedy to its
+   *  same-reason, same-signature siblings — Shift+E. */
+  reviewApplySameRemedy?(): void;
   reviewPlaySource?(): void;
   reviewPitchUp?(): void;
   reviewPitchDown?(): void;

@@ -177,6 +177,13 @@ export class ReviewSession {
     return applied;
   }
 
+  /** #104: mint a groupId for an external batch — members apply via
+   *  the groupId-taking variants (setNoteDeleted / transposeIssueNote)
+   *  so the whole run reverts in ONE undo, same as decideMany. */
+  newBatchGroup(): number {
+    return ++this.groupCounter;
+  }
+
   /**
    * 音高修正: shift every canonical note of the issue by `delta` semitones
    * and mark the issue 修正済み (a correction IS a resolution).
@@ -209,7 +216,11 @@ export class ReviewSession {
    * Deleting counts as a correction (→ fixed); restoring reopens the issue
    * so the passage is checked again.
    */
-  setNoteDeleted(issueId: string, deleted: boolean): ReviewEdit | null {
+  setNoteDeleted(
+    issueId: string,
+    deleted: boolean,
+    groupId?: number,
+  ): ReviewEdit | null {
     const issue = this.doc.reviewIssues().find((i) => i.id === issueId);
     if (!issue || issue.canonicalNoteIds.length === 0) return null;
     const noteChanges: ReviewNoteChange[] = [];
@@ -226,6 +237,41 @@ export class ReviewSession {
       prevStatus: issue.status,
       nextStatus,
       noteChanges,
+      ...(groupId != null ? { groupId } : {}),
+    });
+  }
+
+  /** #104: transpose the issue's first canonical note and mark it
+   *  fixed — the batchable form of the octave/pitch remedies. The
+   *  single-shot remedy rewrites canonical XML through the engine;
+   *  the batch uses the same pitchDelta overlay the review keyboard
+   *  pitch fix uses, which keeps N members synchronous and lets them
+   *  share one undo group (engine docSwaps could not). */
+  transposeIssueNote(
+    issueId: string,
+    semitones: number,
+    groupId?: number,
+  ): ReviewEdit | null {
+    const issue = this.doc.reviewIssues().find((i) => i.id === issueId);
+    if (
+      !issue ||
+      issue.canonicalNoteIds.length === 0 ||
+      semitones === 0
+    ) {
+      return null;
+    }
+    const canonicalId = issue.canonicalNoteIds[0];
+    const prev = editOf(this.doc, canonicalId);
+    const next: ScoreNoteEdit = {
+      ...prev,
+      pitchDelta: prev.pitchDelta + semitones,
+    };
+    return this.apply({
+      issueId,
+      prevStatus: issue.status,
+      nextStatus: "fixed",
+      noteChanges: [{ canonicalId, prev, next }],
+      ...(groupId != null ? { groupId } : {}),
     });
   }
 

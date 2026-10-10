@@ -545,6 +545,9 @@ export const ja = {
     // #167: batch-accept every open issue of the focused reason (A キー).
     reviewAcceptSameReason: "同じ理由をまとめて問題なし",
     reviewDismissSameReason: "同じ理由をまとめて対応不要にする",
+    /* #104: batch-apply the focused issue's edit remedy to its
+       same-reason, same-signature siblings (Shift+E). */
+    reviewApplySameRemedy: "同じ修正をまとめて適用",
     reviewPitchUp: "半音上げる",
     reviewPitchDown: "半音下げる",
    reviewDeleteOrRestore: "削除 / 復元",
@@ -2041,6 +2044,13 @@ export const ja = {
       `同じ理由をまとめて対応不要にする（${count}件）`,
     dismissSameReasonTip: (count: number) =>
       `同じ理由の未解決 ${count} 件をすべて「対応不要」にします（Ctrl+Z で一括で元に戻せます）`,
+    /** #104: batch-apply the focused issue's pure-edit remedy to the
+     *  open issues sharing reason AND remedy signature — the edit
+     *  twin of the reason batches, one undo group all the same. */
+    applySameRemedy: (count: number) =>
+      `同じ修正をまとめて適用（${count}件）`,
+    applySameRemedyTip: (count: number, remedy: string) =>
+      `同じ理由の未解決 ${count} 件に「${remedy}」を一括適用します（Ctrl+Z で一括で元に戻せます）`,
     /** #148: one-click remedy on the merged-overlap issue when auto
      *  texture detected a mix — re-runs the job with 複数声部. */
     retranscribeVoices: "複数声部として採譜",
@@ -2169,6 +2179,12 @@ export const ja = {
       acceptedMany: (count: number) => `${count} 件を確認済みにしました`,
       // #104: batch-dismiss twin of acceptedMany (Shift+A).
       dismissedMany: (count: number) => `${count} 件を対応不要にしました`,
+      // #104: batch remedy apply — one undo group, same announce.
+      remedyAppliedMany: (count: number) =>
+        `${count} 件に修正を適用しました`,
+      // The batch-remedy command reached a focus with no batchable
+      //  sibling — announce instead of a silent no-op.
+      noBatchRemedy: "まとめて適用できる同じ修正はありません",
       reopened: "未確認に戻しました",
       pitchFixed: "音高を修正しました",
       noteDeleted: "音符を削除しました",
