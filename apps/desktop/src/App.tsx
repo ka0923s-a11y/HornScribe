@@ -2700,7 +2700,20 @@ export default function App() {
     }
     if (!devAutoStarted.current) {
       devAutoStarted.current = true;
+      // #119: a modal (e.g. the autosave restore prompt) can swallow the
+      //  first invoke — retry while the screen still sits at audioReady
+      //  so the dev entry reliably reaches TRANSCRIBING.
       commands.invoke("score.transcribe");
+      let attempts = 0;
+      const timer = window.setInterval(() => {
+        attempts += 1;
+        if (screenRef.current !== "audioReady" || attempts > 20) {
+          window.clearInterval(timer);
+          return;
+        }
+        commands.invoke("score.transcribe");
+      }, 1500);
+      return () => window.clearInterval(timer);
     }
   }, [hash, commands, importer, importState.audio]);
 
