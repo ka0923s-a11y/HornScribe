@@ -282,7 +282,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 9.8,
+      "runtimeSec": 11.9,
       "alignedErrMs": 0.0,
       "expected": 38,
       "detected": 38,
@@ -299,9 +299,9 @@
       "tp": 38,
       "fp": 0,
       "fn": 0,
-      "accompDetected": 19,
-      "accompOnsetF1": 0.2734,
-      "accompTpFpFn": "19/0/101"
+      "accompDetected": 56,
+      "accompOnsetF1": 0.625,
+      "accompTpFpFn": "55/1/65"
     },
     {
       "fixture": "jpop-mix-vocal",
@@ -310,7 +310,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 5.6,
+      "runtimeSec": 5.8,
       "alignedErrMs": 0.0,
       "expected": 38,
       "detected": 38,
@@ -327,9 +327,9 @@
       "tp": 38,
       "fp": 0,
       "fn": 0,
-      "accompDetected": 19,
-      "accompOnsetF1": 0.2734,
-      "accompTpFpFn": "19/0/101"
+      "accompDetected": 56,
+      "accompOnsetF1": 0.625,
+      "accompTpFpFn": "55/1/65"
     },
     {
       "fixture": "jpop-mix-hard-raw",
@@ -338,7 +338,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 8.9,
+      "runtimeSec": 10.2,
       "alignedErrMs": 0.0,
       "expected": 38,
       "detected": 38,
@@ -355,9 +355,9 @@
       "tp": 38,
       "fp": 0,
       "fn": 0,
-      "accompDetected": 76,
-      "accompOnsetF1": 0.5846,
-      "accompTpFpFn": "76/0/108"
+      "accompDetected": 112,
+      "accompOnsetF1": 0.7568,
+      "accompTpFpFn": "112/0/72"
     },
     {
       "fixture": "jpop-mix-hard-vocal",
@@ -366,7 +366,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 5.4,
+      "runtimeSec": 7.2,
       "alignedErrMs": 0.0,
       "expected": 38,
       "detected": 38,
@@ -383,9 +383,9 @@
       "tp": 38,
       "fp": 0,
       "fn": 0,
-      "accompDetected": 76,
-      "accompOnsetF1": 0.5846,
-      "accompTpFpFn": "76/0/108"
+      "accompDetected": 112,
+      "accompOnsetF1": 0.7568,
+      "accompTpFpFn": "112/0/72"
     },
     {
       "fixture": "auto-4-4-96",
@@ -569,7 +569,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 5.5,
+      "runtimeSec": 6.0,
       "alignedErrMs": 0.0,
       "expected": 38,
       "detected": 38,
@@ -586,9 +586,9 @@
       "tp": 38,
       "fp": 0,
       "fn": 0,
-      "accompDetected": 80,
-      "accompOnsetF1": 0.6061,
-      "accompTpFpFn": "80/0/104"
+      "accompDetected": 112,
+      "accompOnsetF1": 0.7568,
+      "accompTpFpFn": "112/0/72"
     },
     {
       "fixture": "boundary-4-4",
@@ -675,7 +675,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 5.6,
+      "runtimeSec": 6.0,
       "alignedErrMs": 468.8,
       "expected": 38,
       "detected": 38,
@@ -692,9 +692,9 @@
       "tp": 34,
       "fp": 4,
       "fn": 4,
-      "accompDetected": 79,
-      "accompOnsetF1": 0.6008,
-      "accompTpFpFn": "79/0/105"
+      "accompDetected": 113,
+      "accompOnsetF1": 0.7609,
+      "accompTpFpFn": "113/0/71"
     },
     {
       "fixture": "detuned-horn-4-4",
