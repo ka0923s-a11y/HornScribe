@@ -231,6 +231,9 @@ def generate_review_issues(
                 "relevantOnsets": ev.relevant_onsets,
                 "binaryCost": ev.binary_cost,
                 "tripletCost": ev.triplet_cost,
+                # #80: the relevant onsets' own triplet-grid distance --
+                # how dead-on the third the surviving evidence sits.
+                "relevantTripletCost": ev.relevant_triplet_cost,
             }
             pending.append((rng.start_sec, ReviewReason.POSSIBLE_TRIPLET.value,
                             ids, rng, evidence,

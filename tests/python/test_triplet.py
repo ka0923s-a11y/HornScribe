@@ -178,8 +178,9 @@ def test_isolated_late_note_does_not_flip_region() -> None:
     best = alts[0]
     assert _onsets(best) == list(fixture.expected_onsets_ql)
     assert _triplet_atoms(best) == []
-    # but the triplet-fitting evidence is real -> surfaced for review
-    assert "possible_triplet" in best.diagnostics.review_reasons
+    # #80: an onset floating between the grids is a dragged binary
+    # eighth, not triplet evidence -- the flag is suppressed now.
+    assert "possible_triplet" not in best.diagnostics.review_reasons
 
 
 def test_evidence_gate_requires_two_relevant_onsets() -> None:
@@ -316,7 +317,7 @@ def test_close_alternatives_with_different_notation_flagged() -> None:
 
 def test_possible_triplet_issue_carries_region_and_ids() -> None:
     """Acceptance: ambiguous range -> canonical note IDs + time range."""
-    fixture = fx.isolated_late_note()
+    fixture = fx.isolated_third_note()
     notes = normalize_to_score_time(fixture.events, fixture.warp)
     alts = quantize_normalized(notes, fixture.meter_map)
     issues = generate_review_issues(
@@ -343,11 +344,31 @@ def test_possible_triplet_issue_carries_region_and_ids() -> None:
     # gate-worthy region (>= gate_min relevant onsets) is CAUTION.
     assert issue.severity is Severity.INFO
     assert issue.evidence["onsetCount"] == 2
+    # #80: the lone onset sits dead on the second third -- the flag
+    # survives on grid membership, not just a won cost comparison.
+    assert issue.evidence["relevantTripletCost"] == pytest.approx(0.001, abs=0.01)
+
+
+def test_possible_triplet_suppressed_for_between_grid_onset() -> None:
+    """#80: a dragged eighth leaning late is not triplet evidence.
+
+    The 2.62 ql onset floats between the binary (2.5/2.75) and triplet
+    (2.667) points -- closer to the triplet than binary but ON neither.
+    Before #80 that bare margin flagged the region for review; at song
+    scale those flags outnumbered every real call combined.
+    """
+    fixture = fx.isolated_late_note()
+    notes = normalize_to_score_time(fixture.events, fixture.warp)
+    alts = quantize_normalized(notes, fixture.meter_map)
+    issues = generate_review_issues(
+        alts, notes, fixture.meter_map, PROFILE, score_revision=REVISION, warp=fixture.warp
+    )
+    assert not [i for i in issues if i.reason is ReviewReason.POSSIBLE_TRIPLET]
 
 
 def test_issue_ids_deterministic() -> None:
     """ri-000001... ids allocated in (start_sec, reason) order — reproducible."""
-    fixture = fx.isolated_late_note()
+    fixture = fx.isolated_third_note()
     notes = normalize_to_score_time(fixture.events, fixture.warp)
     alts = quantize_normalized(notes, fixture.meter_map)
     a = generate_review_issues(

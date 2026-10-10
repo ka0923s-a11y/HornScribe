@@ -60,6 +60,16 @@ FIRST_THIRD_ZONE_BEAT = 0.12
 # case design 40 wants surfaced.
 TRIPLET_FLAG_MARGIN_QL = 0.05
 
+#: #80: the lone-onset escape additionally requires the relevant onset
+#: to sit ON the triplet grid -- TRIPLET_FLAG_MARGIN_QL alone only says
+#: the triplet grid was less wrong than binary, which an onset floating
+#: between the grids (a dragged eighth leaning late) clears while
+#: matching no grid at all. The check runs on the relevant onsets' own
+#: summed triplet distance, so the bound scales per relevant onset.
+#: 0.025 ql is ~10 ms at 144 BPM: inside onset-detection jitter,
+#: outside any musically meaningful third-point placement.
+TRIPLET_LONE_FLAG_GRID_TOL_QL = 0.025
+
 
 @dataclass(frozen=True)
 class TripletRegion:
@@ -137,6 +147,12 @@ class TripletRegionEvidence:
     #: {onset, dragged-16th} pair shape (rel ~ 0.30) otherwise opens
     #: the gate on pure timing noise.
     second_third_relevant: int = 0
+
+    #: #80: summed triplet-grid distance of the *relevant* onsets only.
+    #: triplet_cost mixes in every onset's fit, so the aggregate cannot
+    #: tell a relevant onset dead on a third from one merely less wrong
+    #: than binary -- the lone-flag gate needs the former.
+    relevant_triplet_cost: float = 0.0
 
     def gate_open(self, profile: QuantizationProfile) -> bool:
         """Whether AUTO candidacy is justified for this region."""
@@ -224,6 +240,7 @@ def evaluate_region_evidence(
     second_third = 0
     binary_cost = 0.0
     triplet_cost = 0.0
+    relevant_triplet_cost = 0.0
     for note in notes:
         x = note.onset_ql
         if not region.contains(x):
@@ -238,6 +255,7 @@ def evaluate_region_evidence(
         triplet_cost += triplet_dist
         if triplet_dist + margin < binary_dist:
             relevant += 1
+            relevant_triplet_cost += triplet_dist
             zone = float(region.beat_unit_ql) * FIRST_THIRD_ZONE_BEAT
             if abs(rel - third) <= zone:
                 first_third += 1
@@ -251,6 +269,7 @@ def evaluate_region_evidence(
         triplet_cost=triplet_cost,
         first_third_relevant=first_third,
         second_third_relevant=second_third,
+        relevant_triplet_cost=relevant_triplet_cost,
     )
 
 
@@ -275,10 +294,11 @@ def triplet_flag_worthy(
 
     Two cases survive: the region carried enough triplet-fitting
     onsets to have opened the candidacy gate at all (repeated
-    evidence losing is a real review call), or a lone onset fit the
-    triplet grid clearly better than binary by ``TRIPLET_FLAG_MARGIN_QL``
-    (a hard read, not 20 ms of phrasing noise). Single weak fits
-    without that margin are suppressed — on a laid-back vocal
+    evidence losing is a real review call), or a lone onset sat ON
+    the triplet grid -- within ``TRIPLET_LONE_FLAG_GRID_TOL_QL`` (#80)
+    -- while beating binary by ``TRIPLET_FLAG_MARGIN_QL`` (a hard read,
+    not 20 ms of phrasing noise). Single weak fits and onsets floating
+    between the grids are suppressed — on a laid-back vocal
     line they produced a hundred flags nobody could act on (#262).
     """
     return (
@@ -286,6 +306,8 @@ def triplet_flag_worthy(
         or (
             ev.relevant_onsets >= 1
             and ev.binary_cost - ev.triplet_cost >= TRIPLET_FLAG_MARGIN_QL
+            and ev.relevant_triplet_cost
+            <= TRIPLET_LONE_FLAG_GRID_TOL_QL * ev.relevant_onsets
         )
     )
 
