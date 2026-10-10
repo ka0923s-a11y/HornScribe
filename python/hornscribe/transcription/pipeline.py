@@ -2689,7 +2689,19 @@ def run_transcription_job(
         build_done += 1
         step(5, build_done, build_total)
         tempo_map = tempo_map_from_estimate(
-            estimate, meter, last_onset_sec=cleaned.events[-1].onset_sec
+            estimate,
+            meter,
+            # #133: "the music's end" is the latest onset across ALL
+            # parts — a pad outro ringing past the lead's last note
+            # still defines where measured tempo evidence stops.
+            last_onset_sec=max(
+                [cleaned.events[-1].onset_sec]
+                + [
+                    e.onset_sec
+                    for c in accomp_cleaned
+                    for e in c.events
+                ]
+            ),
         )
         shift = best.diagnostics.alignment_shift_sec
         # #134 swing feel: census the normalized offbeat onsets — a

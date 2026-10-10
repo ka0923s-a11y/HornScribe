@@ -627,9 +627,29 @@ def tempo_map_from_estimate(
             last_m,
             measure_index(estimate.warp.seconds_to_ql(last_onset_sec)),
         )
+    # #133: a measure's printed rate must come from MUSIC, not the
+    # tracker's head/tail extrapolation — bound each measure's rate
+    # span to the measured range.  The head bound is the first anchor;
+    # the tail bound is the last onset when the caller knows it (the
+    # final inter-anchor tick is the tracker's own extrapolation and
+    # used to drag the last mark off the settled level — tempo-step's
+    # closing measure printed ~146 for a true 140).  A measure left
+    # with under half a beat of measured span emits nothing: a mark
+    # there would describe extrapolation, and the previous episode's
+    # rate continuing to the piece's end is the honest read.
+    ql_head = estimate.warp.seconds_to_ql(times[0])
+    ql_tail = estimate.warp.seconds_to_ql(times[-1])
+    if last_onset_sec is not None:
+        ql_tail = min(
+            ql_tail, estimate.warp.seconds_to_ql(last_onset_sec)
+        )
     for index in range(first_m, last_m + 1):
         a_ql, b_ql = measure_bounds_ql(index)
+        a_ql = max(a_ql, ql_head)
+        b_ql = min(b_ql, ql_tail)
         if b_ql <= a_ql:
+            continue
+        if b_ql - a_ql < beat_ql / 2:
             continue
         d_sec = estimate.warp.ql_to_seconds(
             b_ql
