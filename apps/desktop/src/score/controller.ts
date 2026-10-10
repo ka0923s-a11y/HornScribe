@@ -167,6 +167,9 @@ export interface ScoreWorkspaceController {
   /** #104: dismiss every open issue sharing the focused reason —
    *  the Shift+A twin of the batch accept, same one-undo group. */
   reviewDismissSameReason?(): void;
+  /** #104: batch-apply the focused issue's pure-edit remedy to every
+   *  open issue sharing its reason AND remedy signature — Shift+E. */
+  reviewApplySameRemedy?(): void;
   /** #102: print the score through the webview print UI — the PDF
    *  path that needs no MuseScore (OS print dialog's PDF printer). */
   printScore?(): void;

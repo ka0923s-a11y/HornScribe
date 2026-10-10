@@ -3,6 +3,9 @@ import { ja } from "../strings/ja";
 import {
   buildReviewAction,
   buildSecondaryReviewAction,
+  batchRemedyKey,
+  batchRemedyLabel,
+  batchRemedySignature,
   issueHasNoteTargets,
   type ReviewActionHandlers,
 } from "./reviewActions";
@@ -593,4 +596,124 @@ describe("buildReviewAction", () => {
     ).toBeNull();
   });
 
+});
+
+describe("#104 batchRemedySignature / Key / Label", () => {
+  it("phantom-delete reasons classify as delete", () => {
+    expect(
+      batchRemedySignature(issue({ reason: "low_model_confidence" })),
+    ).toEqual({ kind: "delete" });
+    expect(
+      batchRemedySignature(issue({ reason: "very_short_detection" })),
+    ).toEqual({ kind: "delete" });
+    // Range WARNING leads with delete (the phantom-likely case).
+    expect(
+      batchRemedySignature(
+        issue({
+          reason: "outside_preferred_horn_range",
+          severity: "warning",
+        }),
+      ),
+    ).toEqual({ kind: "delete" });
+  });
+
+  it("range CAUTION transposes ±12 by band, matching the remedy builder", () => {
+    expect(
+      batchRemedySignature(
+        issue({
+          reason: "outside_preferred_horn_range",
+          severity: "caution",
+          evidence: { pitchMidi: 84 },
+        }),
+      ),
+    ).toEqual({ kind: "transpose", semitones: -12 });
+    expect(
+      batchRemedySignature(
+        issue({
+          reason: "outside_preferred_horn_range",
+          severity: "caution",
+          evidence: { pitchMidi: 40 },
+        }),
+      ),
+    ).toEqual({ kind: "transpose", semitones: 12 });
+  });
+
+  it("suggested-pitch reasons carry each issue's own delta", () => {
+    expect(
+      batchRemedySignature(
+        issue({
+          reason: "octave_uncertain",
+          evidence: { pitchMidi: 65, suggestedMidi: 53 },
+        }),
+      ),
+    ).toEqual({ kind: "transpose", semitones: -12 });
+    expect(
+      batchRemedySignature(
+        issue({
+          reason: "pitch_uncertain",
+          evidence: { pitchMidi: 65, suggestedMidi: 66 },
+        }),
+      ),
+    ).toEqual({ kind: "transpose", semitones: 1 });
+  });
+
+  it("editor/job remedies and note-less issues are not batchable", () => {
+    expect(
+      batchRemedySignature(issue({ reason: "meter_conflict" })),
+    ).toBeNull();
+    expect(
+      batchRemedySignature(issue({ canonicalNoteIds: [] })),
+    ).toBeNull();
+    expect(
+      batchRemedySignature(
+        issue({ reason: "octave_uncertain", evidence: {} }),
+      ),
+    ).toBeNull();
+    // suggested === current is not a remedy.
+    expect(
+      batchRemedySignature(
+        issue({
+          reason: "pitch_uncertain",
+          evidence: { pitchMidi: 65, suggestedMidi: 65 },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("key splits transpose by direction; label mirrors the remedy wording", () => {
+    expect(batchRemedyKey(issue())).toBe("delete");
+    expect(
+      batchRemedyKey(
+        issue({
+          reason: "octave_uncertain",
+          evidence: { pitchMidi: 65, suggestedMidi: 53 },
+        }),
+      ),
+    ).toBe("transpose:-");
+    expect(
+      batchRemedyKey(
+        issue({
+          reason: "octave_uncertain",
+          evidence: { pitchMidi: 53, suggestedMidi: 65 },
+        }),
+      ),
+    ).toBe("transpose:+");
+    expect(
+      batchRemedyLabel(
+        issue({
+          reason: "octave_uncertain",
+          evidence: { pitchMidi: 65, suggestedMidi: 53 },
+        }),
+      ),
+    ).toBe(ja.review.octaveDown);
+    expect(
+      batchRemedyLabel(
+        issue({
+          reason: "pitch_uncertain",
+          evidence: { pitchMidi: 65, suggestedMidi: 66 },
+        }),
+      ),
+    ).toBe(ja.review.pitchUp);
+    expect(batchRemedyLabel(issue())).toBe(ja.review.deletePhantomNote);
+  });
 });

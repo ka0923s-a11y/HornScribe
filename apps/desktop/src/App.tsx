@@ -2345,6 +2345,8 @@ export default function App() {
         scoreCtlRef.current?.reviewAcceptSameReason?.(),
       reviewDismissSameReason: () =>
         scoreCtlRef.current?.reviewDismissSameReason?.(),
+      reviewApplySameRemedy: () =>
+        scoreCtlRef.current?.reviewApplySameRemedy?.(),
       reviewPlaySource: () => scoreCtlRef.current?.reviewPlaySource(),
       reviewPitchUp: () => scoreCtlRef.current?.reviewPitch(1),
       reviewPitchDown: () => scoreCtlRef.current?.reviewPitch(-1),

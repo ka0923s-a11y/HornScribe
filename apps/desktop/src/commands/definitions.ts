@@ -436,6 +436,19 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.reviewDismissSameReason?.(),
     },
     {
+      id: "review.applySameRemedy",
+      title: ja.commands.reviewApplySameRemedy,
+      section: "review",
+      // #104: Shift+E = the edit twin of the reason batches — apply
+      //  the focused issue's pure-edit remedy (phantom delete /
+      //  suggested transpose) to every open sibling sharing reason
+      //  AND remedy signature. One undo group, same as accept/dismiss.
+      shortcuts: ["Shift+E"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewApplySameRemedy?.(),
+    },
+    {
       id: "review.navigator",
       title: ja.commands.reviewNavigator,
       section: "review",

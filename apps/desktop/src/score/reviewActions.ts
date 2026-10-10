@@ -474,3 +474,86 @@ export function buildSecondaryReviewAction(
     run: () => handlers.deleteNote?.(id),
   };
 }
+
+/** #104: the remedy shapes a same-remedy batch can apply — pure score
+ *  edits only (phantom delete / first-note transpose). Remedies that
+ *  open editors (meter/key/pickup) or re-run jobs (retranscribe) are
+ *  deliberately not batchable: batching them would either stack modal
+ *  surfaces or discard the user's judgment. */
+export type BatchRemedySignature =
+  | { readonly kind: "delete" }
+  | { readonly kind: "transpose"; readonly semitones: number };
+
+/** The edit-only remedy signature for the issue, as DATA — mirrors the
+ *  delete/transpose cases of buildReviewAction so the workspace can
+ *  batch them through the session's groupId path instead of closures.
+ *  null for editor/job remedies and issues with no note targets. */
+export function batchRemedySignature(
+  issue: ScoreReviewIssue,
+): BatchRemedySignature | null {
+  if (issue.canonicalNoteIds.length === 0) return null;
+  // Phantom-delete remedies: matches the primary-slot rule — the
+  // range flag only leads with delete at WARNING severity.
+  if (
+    issue.reason === "very_short_detection" ||
+    issue.reason === "low_model_confidence" ||
+    (issue.reason === "outside_preferred_horn_range" &&
+      issue.severity === "warning")
+  ) {
+    return { kind: "delete" };
+  }
+  // Suggested-pitch remedies: the engine names the target, so the
+  // batch applies each member's own delta.
+  if (
+    issue.reason === "octave_uncertain" ||
+    issue.reason === "pitch_uncertain"
+  ) {
+    const suggested = issue.evidence["suggestedMidi"];
+    const current = issue.evidence["pitchMidi"];
+    if (
+      typeof suggested === "number" &&
+      typeof current === "number" &&
+      suggested !== current
+    ) {
+      return { kind: "transpose", semitones: suggested - current };
+    }
+    return null;
+  }
+  // Range CAUTION: same ±12 band rule buildRangeOctaveAction uses.
+  if (issue.reason === "outside_preferred_horn_range") {
+    const current = issue.evidence["pitchMidi"];
+    if (typeof current !== "number") return null;
+    return { kind: "transpose", semitones: current > 79 ? -12 : 12 };
+  }
+  return null;
+}
+
+/** Batch-grouping key — transposes cluster by direction so a -12
+ *  suggestion never rides along with a +12 one. Same reason is still
+ *  required by the caller, keeping the batch honest about scope. */
+export function batchRemedyKey(issue: ScoreReviewIssue): string | null {
+  const sig = batchRemedySignature(issue);
+  if (!sig) return null;
+  return sig.kind === "delete"
+    ? "delete"
+    : `transpose:${sig.semitones > 0 ? "+" : "-"}`;
+}
+
+/** The remedy label the batch button/tooltip names — the same wording
+ *  buildReviewAction would give the focused issue. */
+export function batchRemedyLabel(
+  issue: ScoreReviewIssue,
+): string | null {
+  const sig = batchRemedySignature(issue);
+  if (!sig) return null;
+  const r = ja.review;
+  if (sig.kind === "delete") return r.deletePhantomNote;
+  const down = sig.semitones < 0;
+  return issue.reason === "pitch_uncertain"
+    ? down
+      ? r.pitchDown
+      : r.pitchUp
+    : down
+      ? r.octaveDown
+      : r.octaveUp;
+}

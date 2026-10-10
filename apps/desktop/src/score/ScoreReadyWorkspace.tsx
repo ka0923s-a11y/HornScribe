@@ -111,6 +111,9 @@ import { ReviewSession, type ReviewEdit } from "./reviewSession";
 import {
   buildReviewAction,
   buildSecondaryReviewAction,
+  batchRemedyKey,
+  batchRemedyLabel,
+  batchRemedySignature,
   issueHasNoteTargets,
 } from "./reviewActions";
 import { ReviewBar } from "./ReviewBar";
@@ -1727,6 +1730,54 @@ export function ScoreReadyWorkspace({
     advanceAfterResolve,
   ]);
 
+  /** #104: batch-apply the focused issue's pure-edit remedy to every
+   *  open issue sharing its reason AND remedy signature (Shift+E) —
+   *  the edit twin of the reason batches. Members ride one groupId so
+   *  a single undo restores the whole batch; editor/job remedies are
+   *  not batchable (batchRemedyKey returns null) and the bar hides
+   *  the button, matching the honest-disabled policy. */
+  const reviewApplySameRemedy = useCallback(() => {
+    const issue = issueAtCursor();
+    if (!issue || issue.status !== "open") return;
+    const key = batchRemedyKey(issue);
+    if (!key) {
+      announce(ja.review.feedback.noBatchRemedy);
+      return;
+    }
+    const members = session
+      .openIssues()
+      .filter(
+        (i) => i.reason === issue.reason && batchRemedyKey(i) === key,
+      );
+    if (members.length === 0) {
+      announce(ja.review.feedback.noBatchRemedy);
+      return;
+    }
+    const groupId = session.newBatchGroup();
+    let applied = 0;
+    for (const member of members) {
+      const sig = batchRemedySignature(member);
+      if (!sig) continue;
+      const edit =
+        sig.kind === "delete"
+          ? session.setNoteDeleted(member.id, true, groupId)
+          : session.transposeIssueNote(member.id, sig.semitones, groupId);
+      if (edit) applied += 1;
+    }
+    if (applied === 0) return;
+    bumpDoc();
+    reportInspector();
+    announce(ja.review.feedback.remedyAppliedMany(applied));
+    advanceAfterResolve();
+  }, [
+    issueAtCursor,
+    session,
+    bumpDoc,
+    reportInspector,
+    announce,
+    advanceAfterResolve,
+  ]);
+
   const reviewPitch = useCallback(
     (delta: number) => {
       const issue = issueAtCursor();
@@ -2523,6 +2574,7 @@ const setKey = useCallback(
       reviewDismiss: () => reviewDismiss(),
       reviewAcceptSameReason: () => reviewAcceptSameReason(),
       reviewDismissSameReason: () => reviewDismissSameReason(),
+      reviewApplySameRemedy: () => reviewApplySameRemedy(),
       reviewPlaySource: () => playSource(),
       reviewPitch: (delta) => reviewPitch(delta),
       reviewDeleteOrRestore: () => reviewDeleteOrRestore(),
@@ -2579,6 +2631,7 @@ const setKey = useCallback(
     reviewDismiss,
     reviewAcceptSameReason,
     reviewDismissSameReason,
+    reviewApplySameRemedy,
     playSource,
     reviewPitch,
     reviewDeleteOrRestore,
@@ -2914,6 +2967,23 @@ const setKey = useCallback(
           }
           onAcceptSameReason={reviewAcceptSameReason}
           onDismissSameReason={reviewDismissSameReason}
+          sameRemedyPending={(() => {
+            const cur = allIssues[reviewIndex];
+            const key = cur ? batchRemedyKey(cur) : null;
+            if (!cur || !key) return 0;
+            return allIssues.filter(
+              (i) =>
+                i.status === "open" &&
+                i.reason === cur.reason &&
+                batchRemedyKey(i) === key,
+            ).length;
+          })()}
+          sameRemedyLabel={
+            allIssues[reviewIndex]
+              ? batchRemedyLabel(allIssues[reviewIndex])
+              : null
+          }
+          onApplySameRemedy={reviewApplySameRemedy}
           onPitch={reviewPitch}
           onDeleteOrRestore={reviewDeleteOrRestore}
           onUndo={reviewUndo}

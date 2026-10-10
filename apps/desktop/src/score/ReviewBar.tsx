@@ -75,6 +75,12 @@ export interface ReviewBarProps {
   readonly sameReasonPending?: number;
   onAcceptSameReason?(): void;
   onDismissSameReason?(): void;
+  /** #104: open issues sharing the focused issue's reason AND batch
+   *  remedy signature. >= 2 plus a named remedy (sameRemedyLabel)
+   *  shows the batch-apply button. */
+  readonly sameRemedyPending?: number;
+  readonly sameRemedyLabel?: string | null;
+  onApplySameRemedy?(): void;
 onPrev(): void;
 onNext(): void;
   /** #361: the ReviewNavigator popover — 一覧 opens/closes it; the
@@ -115,6 +121,9 @@ export function ReviewBar({
   sameReasonPending = 0,
   onAcceptSameReason,
   onDismissSameReason,
+  sameRemedyPending = 0,
+  sameRemedyLabel = null,
+  onApplySameRemedy,
   onPrev,
   onNext,
   navigatorOpen,
@@ -266,6 +275,25 @@ export function ReviewBar({
             >
               <HsButton size="small" onClick={onDismissSameReason}>
                 {r.dismissSameReason(sameReasonPending)}
+              </HsButton>
+            </HsTooltip>
+          )}
+        {/* #104: batch-apply the focused issue's edit remedy to its
+            same-reason, same-signature siblings (Shift+E). The remedy
+            name in the tooltip keeps the blast radius honest. */}
+        {issue != null &&
+          issue.status === "open" &&
+          sameRemedyPending >= 2 &&
+          sameRemedyLabel != null &&
+          onApplySameRemedy != null && (
+            <HsTooltip
+              content={withKey(
+                r.applySameRemedyTip(sameRemedyPending, sameRemedyLabel),
+                "Shift+E",
+              )}
+            >
+              <HsButton size="small" onClick={onApplySameRemedy}>
+                {r.applySameRemedy(sameRemedyPending)}
               </HsButton>
             </HsTooltip>
           )}
