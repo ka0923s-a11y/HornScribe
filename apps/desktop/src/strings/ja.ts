@@ -1943,11 +1943,21 @@ export const ja = {
         );
       }
       if (p.runnerUp != null) {
-        clauses.push(
-          p.marginPct != null
-            ? `次点の${p.runnerUp}との差が${p.marginPct}%しかありません`
-            : `次点は${p.runnerUp}です`,
-        );
+        if (p.marginPct != null && p.marginPct < 0) {
+          // The Viterbi smoother overrode the raw-similarity winner —
+          //  a NEGATIVE margin means the "runner-up" actually scored
+          //  higher per-segment. "次点との差が-5%" is nonsense to a
+          //  reader; name the disagreement honestly instead.
+          clauses.push(
+            `区間単体の類似度では${p.runnerUp}が最も強い候補ですが、前後の流れから${p.suggested ?? "推定コード"}が選ばれました`,
+          );
+        } else {
+          clauses.push(
+            p.marginPct != null
+              ? `次点の${p.runnerUp}との差が${p.marginPct}%しかありません`
+              : `次点は${p.runnerUp}です`,
+          );
+        }
       }
       clauses.push(
         "この区間の和音は証拠が弱いため、臨時記号やリズムの解釈を耳で確認してください",
