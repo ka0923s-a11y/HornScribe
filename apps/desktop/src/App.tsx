@@ -310,6 +310,10 @@ function engineStatusText(engine: EngineStatus): string {
       return ja.status.engineCrashed;
     case "unresponsive":
       return ja.status.engineUnresponsive;
+    case "offline":
+      // #120: the engine spawns lazily on first use — "not started"
+      //  is the normal idle state, so it reads 待機 not 未接続.
+      return ja.status.engineIdle;
     default:
       return ja.status.engineNotConnected;
   }

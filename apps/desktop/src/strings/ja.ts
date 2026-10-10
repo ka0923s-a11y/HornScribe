@@ -194,6 +194,9 @@ export const ja = {
     ready: "準備完了",
     shellInfoLoading: "シェル情報を取得しています…",
     engineNotConnected: "解析エンジン: 未接続",
+    /* #120: lazy-spawned and simply not started yet — a normal
+     *  standby state, not a failure, so the copy stays calm. */
+    engineIdle: "解析エンジン: 待機",
     engineStarting: "解析エンジン: 起動しています",
     engineReady: "解析エンジン: 接続中",
     engineCrashed: "解析エンジン: 停止しました",
