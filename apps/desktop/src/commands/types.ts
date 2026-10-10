@@ -160,6 +160,8 @@ export interface CommandContext {
   reviewDismiss?(): void;
   /** #167: batch-accept every open issue sharing the focused reason. */
   reviewAcceptSameReason?(): void;
+  /** #104: batch-dismiss every open issue sharing the focused reason. */
+  reviewDismissSameReason?(): void;
   reviewPlaySource?(): void;
   reviewPitchUp?(): void;
   reviewPitchDown?(): void;

@@ -209,6 +209,30 @@ describe("ReviewBar capability gating", () => {
       ).toBe(false);
   });
 
+  it("#104: batch-dismiss shows with the count when 2+ share the reason", async () => {
+    const onDismissSameReason = vi.fn();
+    await mount(props({ sameReasonPending: 3, onDismissSameReason }));
+    const b = button(ja.review.dismissSameReason(3));
+    expect(b.getAttribute("aria-label")).toBe(
+      ja.review.dismissSameReasonTip(3) + "（Shift+A）",
+    );
+    await act(async () => {
+      b.click();
+    });
+    expect(onDismissSameReason).toHaveBeenCalledOnce();
+  });
+
+  it("#104: batch-dismiss hides for a lone member", async () => {
+    await mount(
+      props({ sameReasonPending: 1, onDismissSameReason: vi.fn() }),
+    );
+    expect(
+      [...document.querySelectorAll("button")].some((b) =>
+        b.textContent?.includes("まとめて対応不要"),
+      ),
+    ).toBe(false);
+  });
+
   it("#80-3: secondary remedy renders alongside the primary", async () => {
     const runPrimary = vi.fn();
     const runSecondary = vi.fn();

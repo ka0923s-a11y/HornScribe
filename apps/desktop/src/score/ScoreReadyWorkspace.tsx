@@ -1650,6 +1650,36 @@ export function ScoreReadyWorkspace({
     advanceAfterResolve,
   ]);
 
+  /** #104: batch-dismiss every open issue sharing the cursor issue's
+   *  reason — the Shift+A twin of reviewAcceptSameReason. The batch
+   *  rides the same decideMany group, so one undo reverts it all. */
+  const reviewDismissSameReason = useCallback(() => {
+    const issue = issueAtCursor();
+    if (!issue || issue.status !== "open") return;
+    const ids = session
+      .openIssues()
+      .filter((i) => i.reason === issue.reason)
+      .map((i) => i.id);
+    if (ids.length < 2) {
+      reviewDismiss();
+      return;
+    }
+    const applied = session.decideMany(ids, "dismissed");
+    if (applied.length === 0) return;
+    bumpDoc();
+    reportInspector();
+    announce(ja.review.feedback.dismissedMany(applied.length));
+    advanceAfterResolve();
+  }, [
+    issueAtCursor,
+    session,
+    bumpDoc,
+    reportInspector,
+    announce,
+    reviewDismiss,
+    advanceAfterResolve,
+  ]);
+
   const reviewPitch = useCallback(
     (delta: number) => {
       const issue = issueAtCursor();
@@ -2444,6 +2474,7 @@ const setKey = useCallback(
       reviewAccept: () => reviewAccept(),
       reviewDismiss: () => reviewDismiss(),
       reviewAcceptSameReason: () => reviewAcceptSameReason(),
+      reviewDismissSameReason: () => reviewDismissSameReason(),
       reviewPlaySource: () => playSource(),
       reviewPitch: (delta) => reviewPitch(delta),
       reviewDeleteOrRestore: () => reviewDeleteOrRestore(),
@@ -2498,6 +2529,7 @@ const setKey = useCallback(
     reviewAccept,
     reviewDismiss,
     reviewAcceptSameReason,
+    reviewDismissSameReason,
     playSource,
     reviewPitch,
     reviewDeleteOrRestore,
@@ -2832,6 +2864,7 @@ const setKey = useCallback(
             ).length
           }
           onAcceptSameReason={reviewAcceptSameReason}
+          onDismissSameReason={reviewDismissSameReason}
           onPitch={reviewPitch}
           onDeleteOrRestore={reviewDeleteOrRestore}
           onUndo={reviewUndo}

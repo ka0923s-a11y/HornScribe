@@ -2343,6 +2343,8 @@ export default function App() {
       reviewDismiss: () => scoreCtlRef.current?.reviewDismiss(),
       reviewAcceptSameReason: () =>
         scoreCtlRef.current?.reviewAcceptSameReason?.(),
+      reviewDismissSameReason: () =>
+        scoreCtlRef.current?.reviewDismissSameReason?.(),
       reviewPlaySource: () => scoreCtlRef.current?.reviewPlaySource(),
       reviewPitchUp: () => scoreCtlRef.current?.reviewPitch(1),
       reviewPitchDown: () => scoreCtlRef.current?.reviewPitch(-1),
