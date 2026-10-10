@@ -167,6 +167,9 @@ export interface ScoreWorkspaceController {
   /** #104: dismiss every open issue sharing the focused reason —
    *  the Shift+A twin of the batch accept, same one-undo group. */
   reviewDismissSameReason?(): void;
+  /** #102: print the score through the webview print UI — the PDF
+   *  path that needs no MuseScore (OS print dialog's PDF printer). */
+  printScore?(): void;
   /** 元音源を再生 — loop-play the issue's source range. */
   reviewPlaySource(): void;
   /** 音高修正: shift the issue's note(s) by ±1 semitone. */

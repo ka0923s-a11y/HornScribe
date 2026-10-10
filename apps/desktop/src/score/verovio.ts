@@ -159,6 +159,21 @@ export class ScoreRenderer {
     return pages;
   }
 
+  /** #102: render the whole document paginated for print at the
+   *  canonical 100% scale — a self-contained pass: the user's view
+   *  mode and zoom are restored afterwards, so the on-screen render
+   *  never observes the print options and a screen zoom cannot
+   *  inflate the printed page count. */
+  renderForPrint(): RenderedPage[] {
+    const tk = this.tk();
+    tk.setOptions({ ...PAGE_OPTIONS, scale: 40 });
+    try {
+      return this.renderAllPages();
+    } finally {
+      tk.setOptions(this.options());
+    }
+  }
+
   /** Parsed timemap; must be (re)built after each `load`.
    *  verovio >= 4.x returns an already-parsed array (the ESM wrapper
    *  JSON.parses internally); older builds returned a raw string — accept both. */

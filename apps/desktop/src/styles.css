@@ -2647,3 +2647,43 @@ body {
   flex-wrap: wrap;
   gap: var(--hs-space-sm);
 }
+
+/* ---- #102: print / Save-as-PDF surface ----
+ * The portal container renders nothing on screen; @media print hides
+ * the whole app (#root) and shows only the paged score, so the OS
+ * print dialog (Save-as-PDF or a real printer) sees clean A4 pages. */
+.hs-print-pages {
+  display: none;
+}
+
+@page {
+  size: A4;
+  margin: 10mm;
+}
+
+@media print {
+  body.hs-printing > #root {
+    display: none !important;
+  }
+  body.hs-printing > .hs-print-pages {
+    display: block;
+  }
+  .hs-print-page {
+    break-after: page;
+    display: flex;
+    justify-content: center;
+  }
+  .hs-print-page:last-child {
+    break-after: auto;
+  }
+  /* Verovio's outer svg carries only px width/height — the nested
+     svg.definition-scale owns the viewBox — so pin the A4 aspect
+     ratio; otherwise the forced mm width could not preserve the
+     page's height (no intrinsic ratio on the outer element). */
+  .hs-print-page > svg {
+    display: block;
+    width: 190mm;
+    height: auto;
+    aspect-ratio: 210 / 297;
+  }
+}

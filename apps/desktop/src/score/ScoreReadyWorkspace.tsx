@@ -23,6 +23,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { ja } from "../strings/ja";
 import type { PitchViewSetting } from "../commands/types";
 import type { ScoreDocumentPort } from "./document";
@@ -484,6 +485,12 @@ export function ScoreReadyWorkspace({
   const tableRef = useRef<PlaybackTable | null>(null);
 
   const [pages, setPages] = useState<RenderedPage[]>([]);
+  // #102: the print render — a full A4-paged pass kept outside the
+  //  app root (portal) so print CSS can hide the chrome and keep
+  //  only the score. Non-null only for the print()'s lifetime.
+  const [printPages, setPrintPages] = useState<RenderedPage[] | null>(
+    null,
+  );
   /** #247: total page count for the current render config — kept
    *  separate from `pages`, which in page mode only ever holds the
    *  lazily rendered visible page. */
@@ -918,6 +925,46 @@ export function ScoreReadyWorkspace({
     },
     [scoreDoc, schedulePagePrefetch],
   );
+
+  /** #102: print the score through the webview's print UI — PDF
+   *  without MuseScore (the OS print dialog's Save-as-PDF printer).
+   *  renderForPrint paginates at the canonical scale in a
+   *  self-contained pass — the user's view mode and zoom stay
+   *  untouched, so no screen re-render is needed afterwards. */
+  const printScore = useCallback(() => {
+    const r = rendererRef.current;
+    if (!r) return;
+    try {
+      const all = r.renderForPrint();
+      if (all.length > 0) setPrintPages(all);
+    } catch {
+      announce(ja.scoreView.printFailed);
+    }
+  }, [announce]);
+
+  // #102: once the print pages mount (portal, outside #root so the
+  //  chrome-hiding print CSS can't hide them too), mark the body,
+  //  call print(), and clean up on afterprint — with a long timeout
+  //  fallback for environments that never fire it (tests/jsdom).
+  useEffect(() => {
+    if (!printPages?.length) return;
+    document.body.classList.add("hs-printing");
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.print());
+    });
+    const done = () => {
+      document.body.classList.remove("hs-printing");
+      setPrintPages(null);
+    };
+    window.addEventListener("afterprint", done);
+    const timer = window.setTimeout(done, 5 * 60_000);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("afterprint", done);
+      clearTimeout(timer);
+      document.body.classList.remove("hs-printing");
+    };
+  }, [printPages]);
 
   /** After every (re)render of the SVG: rebuild the element index and
    *  reapply selection/active/loop/caret marks — this is how all context
@@ -2466,6 +2513,7 @@ const setKey = useCallback(
           renderScore(pitchRef.current, { keepScroll: true });
         }
       },
+      printScore: () => printScore(),
       openReview: () => openReview(),
       openReviewAt: (i) => openReviewAt(i),
       reviewNext: () => stepReviewOpen(1),
@@ -2526,6 +2574,7 @@ const setKey = useCallback(
     gotoIssue,
     stepReviewOpen,
     toggleNavigator,
+    printScore,
     reviewAccept,
     reviewDismiss,
     reviewAcceptSameReason,
@@ -2922,6 +2971,23 @@ const setKey = useCallback(
           </HsButton>
         </div>
       )}
+      {printPages &&
+        // #102: the print surface lives outside #root — print CSS
+        //  hides the whole app tree and shows only these A4 pages,
+        //  so a #root descendant would be hidden along with the
+        //  chrome it is supposed to replace.
+        createPortal(
+          <div className="hs-print-pages" aria-hidden="true">
+            {printPages.map((p) => (
+              <div
+                key={p.page}
+                className="hs-print-page"
+                dangerouslySetInnerHTML={{ __html: p.svg }}
+              />
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

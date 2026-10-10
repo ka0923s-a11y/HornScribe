@@ -2380,6 +2380,10 @@ export default function App() {
             ),
           );
       },
+      // #102: webview print -> Save-as-PDF — no MuseScore needed;
+      //  the workspace renders an A4-paged print surface and the OS
+      //  dialog doubles as the real-printer path.
+      printScore: () => scoreCtlRef.current?.printScore?.(),
       // #100: プロジェクトを保存 — pick a path (Tauri) then hand the
       // schema-v1 document to the engine's project.save. In a plain
       // browser there is no save picker, so the command announces the
@@ -3675,6 +3679,12 @@ export default function App() {
             }
             toolOverrides={toolOverrides}
             bFlatAvailable={snapshot.bFlatAvailable}
+            // #102: the no-MuseScore PDF path — close the dialog and
+            // let the workspace print the paged score surface.
+            onPrintScore={() => {
+              setExportOpen(false);
+              scoreCtlRef.current?.printScore?.();
+            }}
             onOpenSettings={(category) => {
               setSettingsFocus(category);
               setView("settings");
