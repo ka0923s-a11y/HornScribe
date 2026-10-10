@@ -653,6 +653,161 @@ class TestLowOctaveAudit:
         )
 
 
+class TestOctaveArbitration:
+    """#80: the lead gate's losing track arbitrates octave calls.
+
+    Two engines an octave apart on the same span means one tracked
+    wrong — the note's own spectrum decides which. A confirmed
+    disagreement flags octave_uncertain toward the OTHER pitch
+    (both directions, not only the spectral audit's -12); a bare
+    disagreement the spectrum cannot back stays silent.
+    """
+
+    def test_plus12_disagreement_spectrum_confirmed(self) -> None:
+        # Truth E5 (659.26 Hz): pYIN wrote E4, the arbiter read E5 —
+        # the +12 flag wins the span.
+        sig = _tone(1.0, 659.26) + _tone(1.0, 1318.5, amp=0.3)
+        ev = _ev(1, 64, 0.0, 1.0)
+        n = _note(1, 64, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        arbiter = (_ev(9, 76, 0.0, 1.0),)
+        issues = _octave_issues(
+            sig,
+            _SR,
+            TimeWarp.fixed_bpm(60.0),
+            Fraction(1),
+            (_cleaned(ev),),
+            (part,),
+            ScoreRevisionId("rev-test"),
+            0.0,
+            arbiter_events=arbiter,
+            arbiter_backend="basicPitch",
+        )
+        assert len(issues) == 1
+        issue = issues[0]
+        assert issue.reason is ReviewReason.OCTAVE_UNCERTAIN
+        assert issue.evidence["pitchMidi"] == 64
+        assert issue.evidence["suggestedMidi"] == 76
+        assert issue.evidence["arbiterMidi"] == 76.0
+        assert issue.evidence["arbiterBackend"] == "basicPitch"
+
+    def test_disagreement_spectrum_rejects_no_flag(self) -> None:
+        # Written F#4 is real (the spectrum carries it); the arbiter's
+        # F#3 is ITS octave error — no flag manufactured.
+        sig = _tone(1.0, 369.99) + _tone(1.0, 739.99, amp=0.3)
+        ev = _ev(1, 66, 0.0, 1.0)
+        n = _note(1, 66, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        arbiter = (_ev(9, 54, 0.0, 1.0),)
+        assert (
+            _octave_issues(
+                sig,
+                _SR,
+                TimeWarp.fixed_bpm(60.0),
+                Fraction(1),
+                (_cleaned(ev),),
+                (part,),
+                ScoreRevisionId("rev-test"),
+                0.0,
+                arbiter_events=arbiter,
+            )
+            == []
+        )
+
+    def test_chord_tone_gap_is_not_an_octave_call(self) -> None:
+        # 7st apart is a voicing disagreement, not an octave call —
+        # the arbiter window only covers ~±12.
+        sig = _tone(1.0, 329.63)
+        ev = _ev(1, 64, 0.0, 1.0)
+        n = _note(1, 64, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        arbiter = (_ev(9, 71, 0.0, 1.0),)
+        assert (
+            _octave_issues(
+                sig,
+                _SR,
+                TimeWarp.fixed_bpm(60.0),
+                Fraction(1),
+                (_cleaned(ev),),
+                (part,),
+                ScoreRevisionId("rev-test"),
+                0.0,
+                arbiter_events=arbiter,
+            )
+            == []
+        )
+
+    def test_no_arbiter_no_arbitration(self) -> None:
+        # Mono backends have no second track — the audit is unchanged.
+        sig = _tone(1.0, 659.26)
+        ev = _ev(1, 64, 0.0, 1.0)
+        n = _note(1, 64, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        assert (
+            _octave_issues(
+                sig,
+                _SR,
+                TimeWarp.fixed_bpm(60.0),
+                Fraction(1),
+                (_cleaned(ev),),
+                (part,),
+                ScoreRevisionId("rev-test"),
+                0.0,
+            )
+            == []
+        )
+
+    def test_spectral_flag_not_double_counted(self) -> None:
+        # Truth C4: the periodicity audit already flags the written
+        # C5 toward C4; the arbiter agreeing adds no second issue.
+        f_c4 = 261.63
+        sig = (
+            _tone(1.0, f_c4)
+            + _tone(1.0, 2.0 * f_c4, amp=0.6)
+            + _tone(1.0, 3.0 * f_c4, amp=0.5)
+        )
+        ev = _ev(1, 72, 0.0, 1.0)
+        n = _note(1, 72, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        arbiter = (_ev(9, 60, 0.0, 1.0),)
+        issues = _octave_issues(
+            sig,
+            _SR,
+            TimeWarp.fixed_bpm(60.0),
+            Fraction(1),
+            (_cleaned(ev),),
+            (part,),
+            ScoreRevisionId("rev-test"),
+            0.0,
+            arbiter_events=arbiter,
+        )
+        assert len(issues) == 1
+        assert issues[0].evidence["suggestedMidi"] == 60
+
+    def test_uncovered_span_no_flag(self) -> None:
+        # The arbiter has no opinion where it heard nothing — a median
+        # over an empty span must not manufacture a disagreement.
+        sig = _tone(1.0, 659.26)
+        ev = _ev(1, 64, 0.0, 1.0)
+        n = _note(1, 64, "0", "1", (ev.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        arbiter = (_ev(9, 76, 5.0, 6.0),)  # far outside the note's span
+        assert (
+            _octave_issues(
+                sig,
+                _SR,
+                TimeWarp.fixed_bpm(60.0),
+                Fraction(1),
+                (_cleaned(ev),),
+                (part,),
+                ScoreRevisionId("rev-test"),
+                0.0,
+                arbiter_events=arbiter,
+            )
+            == []
+        )
+
+
 class TestPitchDipAudit:
     """#264: isolated chromatic semitone dips — tracker bin-snaps.
 
