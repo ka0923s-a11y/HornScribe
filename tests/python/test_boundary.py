@@ -808,6 +808,127 @@ class TestOctaveArbitration:
         )
 
 
+class TestContextArbitration:
+    """#103: melodic-context arbitration — the phrase median is a
+    second opinion that needs no second engine, so it also covers
+    the non-isolated path the lead gate never reaches.
+    
+    A note ~±12st off its local median is the phrase-boundary octave
+    signature; the note's own spectrum decides whether the leap is
+    real."""
+
+    def _run(self, sig, notes, events):
+        part = Part(id="part-1", name="Horn in F", notes=tuple(notes))
+        return _octave_issues(
+            sig,
+            _SR,
+            TimeWarp.fixed_bpm(60.0),
+            Fraction(1),
+            (_cleaned(*events),),
+            (part,),
+            ScoreRevisionId("rev-test"),
+            0.0,
+        )
+
+    def test_context_outlier_spectrum_confirmed(self) -> None:
+        # 60 bpm -> beat k spans seconds [k, k+1). The phrase sits at
+        # E4 (64); one note is written E3 (52), a full octave below
+        # the context median — and its span carries E4 energy, so the
+        # spectrum sides with the context.
+        sig = np.concatenate(
+            [
+                _silence(3.0),
+                _tone(1.0, 329.63) + _tone(1.0, 659.26, amp=0.3),
+                _silence(1.0),
+            ]
+        )
+        ctx_evs = tuple(_ev(i + 1, 64, float(i), float(i) + 1.0) for i in (0, 1, 2, 4))
+        sus = _ev(9, 52, 3.0, 4.0)
+        notes = [
+            _note(1, 64, "0", "1", (ctx_evs[0].id,)),
+            _note(2, 64, "1", "1", (ctx_evs[1].id,)),
+            _note(3, 64, "2", "1", (ctx_evs[2].id,)),
+            _note(4, 52, "3", "1", (sus.id,)),
+            _note(5, 64, "4", "1", (ctx_evs[3].id,)),
+        ]
+        issues = self._run(sig, notes, ctx_evs + (sus,))
+        assert len(issues) == 1
+        issue = issues[0]
+        assert issue.reason is ReviewReason.OCTAVE_UNCERTAIN
+        assert issue.evidence["pitchMidi"] == 52
+        assert issue.evidence["suggestedMidi"] == 64
+        assert issue.evidence["contextMedian"] == 64.0
+
+    def test_real_leap_stays_silent(self) -> None:
+        # Same contour, but the span holds a REAL E3 fundamental —
+        # the spectrum stands by the written pitch; a bare context
+        # disagreement with no spectral support must not flag.
+        sig = np.concatenate(
+            [
+                _silence(3.0),
+                _tone(1.0, 164.81) + _tone(1.0, 329.63, amp=0.3),
+                _silence(1.0),
+            ]
+        )
+        ctx_evs = tuple(_ev(i + 1, 64, float(i), float(i) + 1.0) for i in (0, 1, 2, 4))
+        sus = _ev(9, 52, 3.0, 4.0)
+        notes = [
+            _note(1, 64, "0", "1", (ctx_evs[0].id,)),
+            _note(2, 64, "1", "1", (ctx_evs[1].id,)),
+            _note(3, 64, "2", "1", (ctx_evs[2].id,)),
+            _note(4, 52, "3", "1", (sus.id,)),
+            _note(5, 64, "4", "1", (ctx_evs[3].id,)),
+        ]
+        assert self._run(sig, notes, ctx_evs + (sus,)) == []
+
+    def test_small_interval_not_an_octave_call(self) -> None:
+        # A 6-st dip below the median is an ordinary leap — the
+        # arbiter window only covers ~±12, like the engine path.
+        sig = np.concatenate(
+            [
+                _silence(3.0),
+                _tone(1.0, 329.63),
+                _silence(1.0),
+            ]
+        )
+        ctx_evs = tuple(_ev(i + 1, 64, float(i), float(i) + 1.0) for i in (0, 1, 2, 4))
+        sus = _ev(9, 58, 3.0, 4.0)
+        notes = [
+            _note(1, 64, "0", "1", (ctx_evs[0].id,)),
+            _note(2, 64, "1", "1", (ctx_evs[1].id,)),
+            _note(3, 64, "2", "1", (ctx_evs[2].id,)),
+            _note(4, 58, "3", "1", (sus.id,)),
+            _note(5, 64, "4", "1", (ctx_evs[3].id,)),
+        ]
+        assert self._run(sig, notes, ctx_evs + (sus,)) == []
+
+    def test_flagged_neighbour_cannot_anchor(self) -> None:
+        # Two adjacent context outliers: once the first flags, it is
+        # excluded from the second's context — one tracking error
+        # cannot corroborate the next.
+        sig = np.concatenate(
+            [
+                _silence(2.0),
+                _tone(1.0, 329.63),  # beat 2: E4 under written E3
+                _tone(1.0, 329.63, t0=3.0),  # beat 3: same
+                _silence(1.0),
+            ]
+        )
+        ctx_evs = tuple(_ev(i + 1, 64, float(i), float(i) + 1.0) for i in (0, 1, 4))
+        s1 = _ev(8, 52, 2.0, 3.0)
+        s2 = _ev(9, 52, 3.0, 4.0)
+        notes = [
+            _note(1, 64, "0", "1", (ctx_evs[0].id,)),
+            _note(2, 64, "1", "1", (ctx_evs[1].id,)),
+            _note(3, 52, "2", "1", (s1.id,)),
+            _note(4, 52, "3", "1", (s2.id,)),
+            _note(5, 64, "4", "1", (ctx_evs[2].id,)),
+        ]
+        issues = self._run(sig, notes, ctx_evs + (s1, s2))
+        assert len(issues) == 2
+        assert all(i.evidence["suggestedMidi"] == 64 for i in issues)
+
+
 class TestPitchDipAudit:
     """#264: isolated chromatic semitone dips — tracker bin-snaps.
 
