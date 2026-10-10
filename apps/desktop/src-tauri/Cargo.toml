@@ -54,6 +54,10 @@ windows = { version = "0.61", features = [
 # #100: #[implement] の展開が ::windows_core を参照するため直接依存にする
 # (windows からの再エクスポートでは extern 名が解決できない)。
 windows-core = "0.61"
+# #113: CoreWebView2.PrintToPdf — already in the lockfile as a wry
+# transitive dep (0.38.2, windows 0.61); direct dep for the print
+# command's COM calls, no new downloads.
+webview2-com = "0.38"
 
 [profile.release]
 # Spike defaults: keep symbols for profiling startup/memory.

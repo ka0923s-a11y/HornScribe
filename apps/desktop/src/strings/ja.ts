@@ -1427,6 +1427,12 @@ export const ja = {
     printScopeCurrent: (label: string) => "現在の投影（" + label + "）",
     printScopeAll: "すべての投影を連続して印刷",
     printRun: "印刷",
+    /* #113: WebView2 PrintToPdf — direct save, no OS dialog. */
+    printPdfSave: "PDFとして保存…",
+    printPdfSaved: "PDFを保存しました",
+    printPdfFailed: "PDFを保存できませんでした",
+    printPdfUnsupported:
+      "PDFの直接保存はデスクトップアプリでのみ利用できます",
     reviewPosition: (index: number, total: number) =>
       `要確認 ${index} / ${total}`,
     reviewExit: "要確認を終了",

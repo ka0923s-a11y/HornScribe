@@ -18,6 +18,7 @@ mod capture;
 mod diagnostics;
 mod engine;
 mod export;
+mod print;
 mod tools;
 
 /// Audio containers the import UX advertises (GUI_UX_SPEC §3 formats line).
@@ -255,7 +256,10 @@ pub fn run() {
             export::probe_tool_path,
             export::reveal_in_explorer,
             export::project_save_path,
+            export::score_pdf_path,
             export::project_write,
+            // #113: one-click PDF via CoreWebView2.PrintToPdf.
+            print::print_to_pdf,
             export::project_autosave_write,
             export::project_autosave_status,
             export::project_autosave_clear,
