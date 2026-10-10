@@ -424,6 +424,18 @@ export function createCommandDefinitions(): readonly Command[] {
       run: (ctx) => ctx.reviewAcceptSameReason?.(),
     },
     {
+      id: "review.dismissSameReason",
+      title: ja.commands.reviewDismissSameReason,
+      section: "review",
+      // #104: Shift+A = the batch twin of Shift+O — dismiss every open
+      //  issue carrying the focused reason, one undo group like the
+      //  accept path.
+      shortcuts: ["Shift+A"],
+      isEnabled: (s) => s.reviewOpen,
+      isVisible: (s) => s.reviewOpen,
+      run: (ctx) => ctx.reviewDismissSameReason?.(),
+    },
+    {
       id: "review.navigator",
       title: ja.commands.reviewNavigator,
       section: "review",

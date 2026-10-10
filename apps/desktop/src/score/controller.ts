@@ -164,6 +164,9 @@ export interface ScoreWorkspaceController {
   /** #167: accept every open issue sharing the focused reason —
    *  one click, one undo group. Optional so test controllers stay lean. */
   reviewAcceptSameReason?(): void;
+  /** #104: dismiss every open issue sharing the focused reason —
+   *  the Shift+A twin of the batch accept, same one-undo group. */
+  reviewDismissSameReason?(): void;
   /** 元音源を再生 — loop-play the issue's source range. */
   reviewPlaySource(): void;
   /** 音高修正: shift the issue's note(s) by ±1 semitone. */

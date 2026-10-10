@@ -74,6 +74,7 @@ export interface ReviewBarProps {
    *  member the plain 問題なし button already does the job. */
   readonly sameReasonPending?: number;
   onAcceptSameReason?(): void;
+  onDismissSameReason?(): void;
 onPrev(): void;
 onNext(): void;
   /** #361: the ReviewNavigator popover — 一覧 opens/closes it; the
@@ -113,6 +114,7 @@ export function ReviewBar({
   secondaryAction = null,
   sameReasonPending = 0,
   onAcceptSameReason,
+  onDismissSameReason,
   onPrev,
   onNext,
   navigatorOpen,
@@ -249,6 +251,21 @@ export function ReviewBar({
             >
               <HsButton size="small" onClick={onAcceptSameReason}>
                 {r.acceptSameReason(sameReasonPending)}
+              </HsButton>
+            </HsTooltip>
+          )}
+        {issue != null &&
+          issue.status === "open" &&
+          sameReasonPending >= 2 &&
+          onDismissSameReason != null && (
+            <HsTooltip
+              content={withKey(
+                r.dismissSameReasonTip(sameReasonPending),
+                "Shift+A",
+              )}
+            >
+              <HsButton size="small" onClick={onDismissSameReason}>
+                {r.dismissSameReason(sameReasonPending)}
               </HsButton>
             </HsTooltip>
           )}
