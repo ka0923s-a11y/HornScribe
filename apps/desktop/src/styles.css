@@ -2658,7 +2658,10 @@ body {
 
 @page {
   size: A4;
-  margin: 10mm;
+  /* margin: 0 — the browser's date/URL header-footer text lives in
+     the page margin, so a zero margin is what keeps the printed
+     score clean; inner padding on .hs-print-page owns the margin. */
+  margin: 0;
 }
 
 @media print {
@@ -2669,9 +2672,17 @@ body {
     display: block;
   }
   .hs-print-page {
+    /* Exactly one A4 sheet per page; the 12/10mm padding is the
+       score's real print margin (page margin must stay 0 above). */
+    box-sizing: border-box;
+    width: 210mm;
+    height: 297mm;
+    padding: 12mm 10mm;
     break-after: page;
     display: flex;
     justify-content: center;
+    align-items: flex-start;
+    overflow: hidden;
   }
   .hs-print-page:last-child {
     break-after: auto;
@@ -2682,7 +2693,7 @@ body {
      page's height (no intrinsic ratio on the outer element). */
   .hs-print-page > svg {
     display: block;
-    width: 190mm;
+    width: 100%;
     height: auto;
     aspect-ratio: 210 / 297;
   }
