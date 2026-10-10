@@ -263,6 +263,23 @@ function inspectorCopy(): InspectorCopy {
             return ja.reviewEvidence.swingFeel(offbeats, swing);
           }
         }
+        /* #80-4: meter_conflict — distinguish "推定不能" (the
+         *  estimator's margin bottomed at 0) from "推定したが確度低",
+         *  naming the estimate + runner-up instead of the generic
+         *  note-values copy (the evidence is what makes the flag
+         *  actionable: '4/4 vs 2/4 by a coin flip'). */
+        if (issue.reason === "meter_conflict") {
+          const est = issue.evidence["estimatedMeter"];
+          if (typeof est === "string" && est.length > 0) {
+            const runner = issue.evidence["runnerUpMeter"];
+            const conf = numEvidence(issue, "meterConfidence");
+            return ja.reviewEvidence.meterConflict({
+              estimated: est,
+              runnerUp: typeof runner === "string" ? runner : null,
+              confidencePct: conf != null ? Math.round(conf * 100) : null,
+            });
+          }
+        }
         // #352: name the estimated key plus every reason it is
         // unsure — the engine's `details` flags decide which clauses
         // the copy shows (few notes / low confidence / a close
@@ -438,6 +455,8 @@ function inspectorCopy(): InspectorCopy {
     // #358: anacrusis label for the score summary row.
     pickup: (label) =>
       label == null ? ja.inspector.pickupNone : ja.inspector.pickupLabel(label),
+    // #80-4: meter-provenance hint under the meter row.
+    meterEstimate: (uncertain) => ja.inspector.meterEstimate(uncertain),
   };
 }
 

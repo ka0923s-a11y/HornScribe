@@ -437,6 +437,13 @@ function ScoreBody({
         ) : (
           model.meterLabel && <Row label={f.meter} value={model.meterLabel} />
         )}
+        {/* #80-4: the auto-meter's provenance — an estimated signature
+            never reads as confirmed; a low-margin estimate says so. */}
+        {model.meterEstimateLabel && (
+          <p className="hs-properties__edithint">
+            {model.meterEstimateLabel}
+          </p>
+        )}
         {/* #358: the anacrusis select — engine-backed docs only
             (pickupBeatsRaw is null for fixture/foreign XML, so the
             field degrades to the summary row instead of guessing). */}

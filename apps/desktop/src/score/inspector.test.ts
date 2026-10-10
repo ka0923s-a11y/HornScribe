@@ -30,6 +30,8 @@ const copy: InspectorCopy = {
   openIssues: (n) => `${n} 件`,
   key: (fifths, mode) => keyLabelJa(fifths, mode),
   pickup: (l) => (l == null ? "弱起なし" : `弱起${l}拍`),
+  meterEstimate: (uncertain) =>
+    uncertain ? "自動推定（要確認）" : "自動推定",
 };
 
 const note = (over: Partial<ParsedNote>): ParsedNote => ({
@@ -72,6 +74,53 @@ tempoChanges: [],
     expect(model.measureLabel).toBe("12 小節");
     expect(model.noteLabel).toBe("40 音");
     expect(model.openIssueLabel).toBe("3 件");
+  });
+
+  it("#80-4: marks the meter row by estimation provenance", () => {
+    const base = {
+      title: "T",
+      composer: null,
+      arranger: null,
+      tempoBpm: 100,
+      meter: "4/4",
+      pickupBeats: null,
+      keyFifths: 0,
+      keyChanges: [],
+      tempoChanges: [],
+      keyMode: null,
+      swingFeel: false,
+      omittedIssueCount: 0,
+      measureCount: 8,
+      noteCount: 10,
+    };
+    // No provenance (fixture / foreign doc / pinned meter): no marker.
+    expect(
+      buildScoreInspector(base, 0, copy).meterEstimateLabel,
+    ).toBeNull();
+    // Confident auto-estimate: 自動推定.
+    expect(
+      buildScoreInspector(
+        { ...base, meterEstimated: true, meterConfidence: 0.7 },
+        0,
+        copy,
+      ).meterEstimateLabel,
+    ).toBe("自動推定");
+    // Below the engine's uncertain threshold (0.2): 要確認 marker.
+    expect(
+      buildScoreInspector(
+        { ...base, meterEstimated: true, meterConfidence: 0.0 },
+        0,
+        copy,
+      ).meterEstimateLabel,
+    ).toBe("自動推定（要確認）");
+    // Pinned meter (estimated=false): no marker even with a number.
+    expect(
+      buildScoreInspector(
+        { ...base, meterEstimated: false, meterConfidence: 0.0 },
+        0,
+        copy,
+      ).meterEstimateLabel,
+    ).toBeNull();
   });
 
   it("shows key transitions when the piece modulates (#146)", () => {

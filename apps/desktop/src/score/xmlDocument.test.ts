@@ -6,7 +6,10 @@
  * startBeat degrades to display-only by design.
  */
 import { describe, expect, it } from "vitest";
-import { XmlScoreDocument } from "./xmlDocument";
+import {
+  XmlScoreDocument,
+  engineDocumentFromResult,
+} from "./xmlDocument";
 import type { ScoreReviewIssue } from "./review";
 
 const XML = `<?xml version="1.0" encoding="utf-8"?>
@@ -563,5 +566,60 @@ describe("XmlScoreDocument omitted-issue expansion (#360)", () => {
       canonicalDocument: CANONICAL,
     });
     expect(doc.meta.omittedIssueCount).toBe(7);
+  });
+
+  it("#80-4: meter estimation provenance survives only while the signature stays", () => {
+    const doc = new XmlScoreDocument({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-test",
+      issues: [],
+      canonicalDocument: CANONICAL,
+      meterEstimated: true,
+      meterConfidence: 0.6,
+    });
+    expect(doc.meta.meterEstimated).toBe(true);
+    expect(doc.meta.meterConfidence).toBe(0.6);
+    // A same-meter swap (a rhythm/tempo edit) keeps the marker.
+    doc.replaceContent({
+      concertXml: XML,
+      hornXml: XML,
+      revisionId: "sr-next",
+      canonicalDocument: CANONICAL,
+    });
+    expect(doc.meta.meterEstimated).toBe(true);
+    expect(doc.meta.meterConfidence).toBe(0.6);
+    // A deliberate meter change drops it — a user-set signature is not
+    // an estimate and must not read as one.
+    const xml34 = XML.replace(
+      "<beats>4</beats><beat-type>4</beat-type>",
+      "<beats>3</beats><beat-type>4</beat-type>",
+    );
+    doc.replaceContent({
+      concertXml: xml34,
+      hornXml: xml34,
+      revisionId: "sr-third",
+      canonicalDocument: CANONICAL,
+    });
+    expect(doc.meta.meter).toBe("3/4");
+    expect(doc.meta.meterEstimated).toBeUndefined();
+  });
+
+  it("#80-4: engineDocumentFromResult lifts meta.meter provenance", () => {
+    const input = engineDocumentFromResult({
+      musicXmlConcert: XML,
+      musicXmlHornF: XML,
+      scoreRevision: "sr-x",
+      meta: { meterEstimated: true, meterConfidence: 0.0 },
+    });
+    expect(input?.meterEstimated).toBe(true);
+    expect(input?.meterConfidence).toBe(0.0);
+    // Older results lack the keys — undefined, never guessed.
+    const legacy = engineDocumentFromResult({
+      musicXmlConcert: XML,
+      musicXmlHornF: XML,
+    });
+    expect(legacy?.meterEstimated).toBeUndefined();
+    expect(legacy?.meterConfidence).toBeUndefined();
   });
 });
