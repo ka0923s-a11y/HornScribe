@@ -389,6 +389,17 @@ _ACCOMP_CONF_KEEP = 0.50
 _ACCOMP_CONF_SUSTAIN = 0.35
 _ACCOMP_SUSTAIN_MIN_SEC = 0.30
 
+# #132: accompaniment re-articulates the same pitch constantly — bass
+# quarters, repeated chord stabs — and the lead-line 30 ms merge gap
+# swallowed those onsets wholesale (58 floored detections collapsed to
+# 19 on the JPOP-mix stem; the recall collapse behind a near-empty
+# 伴奏 staff).  Zero keeps true overlaps merging — a split
+# detection's fragments still overlap — while every real re-attack
+# survives.  Applied at BOTH merge gates on the accomp path
+# (split_voices and the per-voice clean) so neither re-fuses what the
+# other released.
+_ACCOMP_MERGE_GAP_SEC = 0.0
+
 
 def _accomp_confidence_floor(
     events: tuple[RawNoteEvent, ...],
@@ -2322,11 +2333,12 @@ def run_transcription_job(
                 a_split = split_voices(
                     accomp_ranged,
                     max_voices=min(4, params.max_voices),
+                    merge_gap_sec=_ACCOMP_MERGE_GAP_SEC,
                 )
                 for v in a_split.voices:
                     c = clean_monophonic(
                         v,
-                        merge_gap_sec=MERGE_GAP_SEC,
+                        merge_gap_sec=_ACCOMP_MERGE_GAP_SEC,
                         octave_verdict=_accomp_octave_ev,
                     )
                     if c.events:

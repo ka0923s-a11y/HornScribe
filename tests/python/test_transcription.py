@@ -3219,6 +3219,50 @@ class TestAutoRescueAndAccompaniment:
         evidence = result["scoreDocument"]["rawEvidence"]
         assert len(evidence["parts"]) == len(parts)
 
+    def test_accompaniment_same_pitch_reattacks_survive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # #132: a backing line re-articulating one pitch on every beat
+        # with sub-30 ms gaps must keep every onset on the 伴奏 staff —
+        # the lead-line merge gap used to fuse the whole run into one
+        # long note, which is why real accompaniment staves read nearly
+        # empty (bass quarters / repeated stabs are the norm there).
+        mix = self._mix_events()
+        melody = make_events([72, 74, 76, 74, 72], beat_sec=0.5)
+        backing = tuple(
+            RawNoteEvent(
+                id=RawNoteEventId(f"rne-b{i:06d}"),
+                transcription_revision=_REV,
+                pitch_midi=45.0,
+                onset_sec=float(i),
+                offset_sec=float(i) + 0.98,
+                confidence=0.9,
+                velocity=80,
+                source="test",
+            )
+            for i in range(4)
+        )
+
+        def _predict(path: str, **kw: Any) -> tuple[RawNoteEvent, ...]:
+            return (
+                backing
+                if Path(path).name.endswith(".accomp.wav")
+                else mix
+            )
+
+        log = self._run_engine(
+            tmp_path,
+            monkeypatch,
+            _predict,
+            vocal_wav_result=self._stems(tmp_path),
+            rescued=melody,
+        )
+        assert log[-1]["phase"] == "completed"
+        parts = log[-1]["result"]["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 2
+        assert len(parts[1]["notes"]) == 4
+        assert {n["pitchMidi"] for n in parts[1]["notes"]} == {45}
+
     def test_accompaniment_part_opt_out(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
