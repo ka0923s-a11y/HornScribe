@@ -708,6 +708,17 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: hasScore,
       run: (ctx) => ctx.openInMuseScore?.(),
     },
+    {
+      id: "score.print",
+      title: ja.commands.printScore,
+      section: "export",
+      // #102: Ctrl+P — the PDF path that needs no MuseScore. The
+      //  webview print dialog's Save-as-PDF printer doubles as the
+      //  paper path, so printing to a real printer comes free.
+      shortcuts: ["Ctrl+P"],
+      isEnabled: hasScore,
+      run: (ctx) => ctx.printScore?.(),
+    },
 
     // ---- project save (#100) ----
     {

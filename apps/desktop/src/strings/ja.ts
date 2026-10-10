@@ -555,6 +555,8 @@ export const ja = {
     redo: "やり直し",
     export: "書き出し",
     openInMuseScore: "MuseScoreで開く",
+    /* #102: webview print -> Save-as-PDF; no external tool needed. */
+    printScore: "印刷 / PDFに保存",
     zoomScoreIn: "楽譜を拡大",
     zoomScoreOut: "楽譜を縮小",
     zoomScoreFit: "楽譜を幅に合わせる",
@@ -1412,6 +1414,9 @@ export const ja = {
     resumeFollow: "追従を再開",
     follow: "再生位置を追従",
     deselected: "選択を解除しました",
+    /* #102: the print surface failed to build — the score and the
+       on-screen render are untouched; nothing reached the printer. */
+    printFailed: "印刷用の楽譜を準備できませんでした",
     reviewPosition: (index: number, total: number) =>
       `要確認 ${index} / ${total}`,
     reviewExit: "要確認を終了",
@@ -1834,6 +1839,14 @@ export const ja = {
       readonly runnerUp: string | null;
       readonly confidencePct: number | null;
     }) => {
+      /* Malformed evidence must never leak "undefined" into UI copy —
+       *  fall back to the indeterminate-meter wording. */
+      if (typeof p?.estimated !== "string" || p.estimated.length === 0) {
+        return (
+          "拍子を確定できませんでした。記譜は 4/4 になっています。" +
+          "元音源を聴き比べて正しい拍子を選んでください。"
+        );
+      }
       const candidates = p.runnerUp
         ? p.estimated + " / " + p.runnerUp
         : p.estimated;
@@ -2221,6 +2234,9 @@ export const ja = {
     audioDisabledTooltip: "元の音声がディスク上にないため同梱できません",
     bFlatDisabledTooltip: "この楽譜ではB♭管ホルンを書き出せません",
     specifyMuseScore: "MuseScoreの場所を指定",
+    /* #102: in-app print path — the webview print dialog's
+       Save-as-PDF works without MuseScore. */
+    printInApp: "アプリで印刷 / PDFに保存",
     completeTitle: "書き出しが完了しました",
     completeCount: "{count}件のファイルを書き出しました",
     revealInExplorer: "エクスプローラーで表示",

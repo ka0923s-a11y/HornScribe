@@ -167,6 +167,7 @@ export function ExportDialog({
   onSelectionChange,
   suggestedBasename,
   bFlatAvailable = true,
+  onPrintScore,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -189,6 +190,9 @@ export function ExportDialog({
   /** #156: the loaded document has a B♭ projection (engine ≥0.2.4 /
    *  backfilled on open). Absent/false disables the B♭ rows. */
   bFlatAvailable?: boolean;
+  /** #102: prints the score through the webview — the PDF path that
+   *  survives a missing MuseScore (OS print dialog -> Save-as-PDF). */
+  onPrintScore?(): void;
 }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [caps, setCaps] = useState<ExportCapabilities | null>(null);
@@ -598,6 +602,19 @@ export function ExportDialog({
               >
                 {e.specifyMuseScore}
               </HsButton>
+              {/* #102: PDF without MuseScore — the webview print
+                  dialog's Save-as-PDF printer renders the same A4
+                  score; offered beside the settings link so the
+                  blocked state still has a working path. */}
+              {onPrintScore ? (
+                <HsButton
+                  variant="subtle"
+                  size="small"
+                  onClick={onPrintScore}
+                >
+                  {e.printInApp}
+                </HsButton>
+              ) : null}
             </p>
           ) : null}
 

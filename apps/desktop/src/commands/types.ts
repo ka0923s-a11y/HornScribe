@@ -167,6 +167,9 @@ export interface CommandContext {
   reviewPitchDown?(): void;
   reviewDeleteOrRestore?(): void;
   exitReview?(): void;
+  /** #102: print the score via the webview print UI (PDF without
+   *  MuseScore). */
+  printScore?(): void;
   /** #361: toggle the 要確認一覧 navigator popover (I key). */
   reviewToggleNavigator?(): void;
   undo(): void;
