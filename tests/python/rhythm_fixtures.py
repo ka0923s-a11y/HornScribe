@@ -653,8 +653,9 @@ def isolated_late_note() -> RhythmFixture:
 
     Region [2, 3) holds only one triplet-relevant onset — below the region
     evidence gate — so the note snaps to the binary grid (2.5) and the
-    region stays binary; the evidence still surfaces ``possible_triplet``
-    for review.
+    region stays binary. The onset floats between the grids rather than
+    sitting on a third, so #80 suppresses the ``possible_triplet`` flag:
+    a dragged binary eighth is not triplet evidence a reviewer can act on.
     """
     return straight_fixture(
         "isolated_late_note",
@@ -675,6 +676,45 @@ def isolated_late_note() -> RhythmFixture:
             Fraction(3, 2),
             Fraction(2),
             Fraction(5, 2),
+            Fraction(3),
+            Fraction(7, 2),
+        ],
+        duration_ql=Fraction(2, 5),
+        expected_durations_ql=[Fraction(1, 2)] * 8,
+        expected_rest_spans_ql=(),
+        expected_tuplet_groups=0,
+        layer="triplet",
+    )
+
+
+def isolated_third_note() -> RhythmFixture:
+    """Like isolated_late_note, but the off-grid note lands dead on the
+    beat's second third (2.668 ql) instead of floating between grids.
+
+    Region [2, 3) still cannot open the evidence gate alone (one
+    relevant onset), so the note snaps to the nearest binary point
+    (2.75) -- but the onset sits ON the triplet grid, so #80 keeps the
+    ``possible_triplet`` flag: this is the genuinely reviewable case.
+    """
+    return straight_fixture(
+        "isolated_third_note",
+        [
+            Fraction(0),
+            Fraction(1, 2),
+            Fraction(1),
+            Fraction(3, 2),
+            Fraction(2),
+            Fraction(667, 250),  # 2.668 -- ~1 ms off the 2/3 third at 2.667
+            Fraction(3),
+            Fraction(7, 2),
+        ],
+        expected_ql=[
+            Fraction(0),
+            Fraction(1, 2),
+            Fraction(1),
+            Fraction(3, 2),
+            Fraction(2),
+            Fraction(11, 4),  # nearest sixteenth point is 2.75, not 2.5
             Fraction(3),
             Fraction(7, 2),
         ],
@@ -939,6 +979,7 @@ ALL_FIXTURES: tuple[Callable[[], RhythmFixture], ...] = (
     triplet_eighths_jitter,
     eighths_jitter_straight,
     isolated_late_note,
+    isolated_third_note,
     binary_triplet_binary,
     horn_repeated_tongued,
     horn_sustained_whole,
