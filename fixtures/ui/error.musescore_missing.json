@@ -13,7 +13,7 @@
       "id": "errorBody",
       "component": "ErrorSurface",
       "copyKey": "errors.musescoreMissing.body",
-      "text": "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。"
+      "text": "MuseScoreが見つかりません。MusicXMLとMIDIは書き出せます。アプリ内印刷ならMuseScoreなしでPDFを作成できます。"
     },
     {
       "id": "actionSpecify",

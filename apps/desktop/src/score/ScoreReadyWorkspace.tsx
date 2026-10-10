@@ -25,7 +25,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { Radio, RadioGroup } from "@fluentui/react-components";
+import { Checkbox, Radio, RadioGroup } from "@fluentui/react-components";
 import { ja } from "../strings/ja";
 import type { PitchViewSetting, PrintScope } from "../commands/types";
 import { isTauriRuntime } from "../tauri/bridge";
@@ -512,6 +512,10 @@ export function ScoreReadyWorkspace({
   const [printJob, setPrintJob] = useState<{
     pages: PrintPage[];
     pdfPath: string | null;
+    /* #124: queued follow-up PDF jobs (split per-projection saves) —
+     *  drained one at a time by the same effect so each file gets its
+     *  own two-frame layout settle + PrintToPdf call. */
+    remaining?: { pages: PrintPage[]; pdfPath: string }[];
   } | null>(null);
   /* #112: print-projection chooser — score.printWithOptions opens it;
    *  Ctrl+P stays the single-step current-view path. */
@@ -519,6 +523,9 @@ export function ScoreReadyWorkspace({
   const [printScopeSel, setPrintScopeSel] = useState<PrintScope>(
     "current",
   );
+  /* #124: "all" PDF saves may split into one file per projection
+   *  (export-shaped <stem>_<projection>.pdf). */
+  const [printPdfSplit, setPrintPdfSplit] = useState(false);
   /** #247: total page count for the current render config — kept
    *  separate from `pages`, which in page mode only ever holds the
    *  lazily rendered visible page. */
@@ -1030,15 +1037,53 @@ export function ScoreReadyWorkspace({
   );
 
   /** #113: save-as-PDF without the OS dialog — pick a path, mount the
-   *  same print surface, and let CoreWebView2.PrintToPdf write it. */
+   *  same print surface, and let CoreWebView2.PrintToPdf write it.
+   *  #124: with scope "all" + splitPdf the user picks a folder once
+   *  and each projection writes its own <stem>_<projection>.pdf —
+   *  the same shape the export dialog's PDF formats produce. */
   const savePrintPdf = useCallback(
-    async (scope: PrintScope) => {
+    async (scope: PrintScope, splitPdf = false) => {
       if (!isTauriRuntime()) {
         announce(ja.scoreView.printPdfUnsupported);
         return;
       }
       const stem =
         scoreDoc.meta.title?.trim() || "score";
+      if (scope === "all" && splitPdf) {
+        const views: PitchViewSetting[] = scoreDoc.supportsPitchView?.(
+          "bFlat",
+        )
+          ? ["concert", "hornF", "bFlat"]
+          : ["concert", "hornF"];
+        const dir = await invoke<string | null>("export_pick_dir", {
+          current: null,
+        }).catch(() => null);
+        if (!dir) return; // picker cancelled
+        // Export-artifact names: <stem>_concert.pdf / _horn_in_f.pdf /
+        // _b_flat.pdf — matching the export dialog's PDF group shape.
+        const suffixOf: Record<PitchViewSetting, string> = {
+          concert: "concert",
+          hornF: "horn_in_f",
+          bFlat: "b_flat",
+        };
+        const safe = stem.replace(/[<>:"/\\|?*]+/g, "_") || "score";
+        const jobs: { pages: PrintPage[]; pdfPath: string }[] = [];
+        for (const v of views) {
+          const pages = collectPrintPages(v);
+          if (!pages) return; // collectPrintPages already announced
+          jobs.push({
+            pages,
+            pdfPath: dir + "\\" + safe + "_" + suffixOf[v] + ".pdf",
+          });
+        }
+        const [first, ...rest] = jobs;
+        setPrintJob({
+          pages: first.pages,
+          pdfPath: first.pdfPath,
+          remaining: rest,
+        });
+        return;
+      }
       const path = await invoke<string | null>("score_pdf_path", {
         suggestedName: stem + ".pdf",
       }).catch(() => null);
@@ -1054,6 +1099,7 @@ export function ScoreReadyWorkspace({
   /** #112: score.printWithOptions — open the projection chooser. */
   const openPrintOptions = useCallback(() => {
     setPrintScopeSel("current");
+    setPrintPdfSplit(false);
     setPrintDialogOpen(true);
   }, []);
 
@@ -1073,12 +1119,27 @@ export function ScoreReadyWorkspace({
     //  webview write the file itself (no OS dialog involved).
     if (printJob.pdfPath) {
       const pdfPath = printJob.pdfPath;
+      /* #124: a split queue drains one file at a time — success
+       *  announces only after the last write; a failure drops the
+       *  rest of the queue and cleans up immediately (files already
+       *  written stay on disk). */
+      let advanced = false;
       const raf = requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           void invoke("print_to_pdf", { path: pdfPath })
-            .then(() => announce(ja.scoreView.printPdfSaved))
+            .then(() => {
+              const [next, ...rest] = printJob.remaining ?? [];
+              if (next) {
+                advanced = true;
+                setPrintJob({ pages: next.pages, pdfPath: next.pdfPath, remaining: rest });
+              } else {
+                announce(ja.scoreView.printPdfSaved);
+              }
+            })
             .catch(() => announce(ja.scoreView.printPdfFailed))
-            .finally(done);
+            .finally(() => {
+              if (!advanced) done();
+            });
         });
       });
       const timer = window.setTimeout(done, 5 * 60_000);
@@ -3221,7 +3282,7 @@ const setKey = useCallback(
                   return;
                 }
                 setPrintDialogOpen(false);
-                void savePrintPdf(printScopeSel);
+                void savePrintPdf(printScopeSel, printPdfSplit);
               }}
             >
               {s.printPdfSave}
@@ -3266,6 +3327,13 @@ const setKey = useCallback(
           />
           <Radio value="all" label={s.printScopeAll} />
         </RadioGroup>
+        {printScopeSel === "all" && (
+          <Checkbox
+            label={s.printPdfSplitAll}
+            checked={printPdfSplit}
+            onChange={(_, d) => setPrintPdfSplit(d.checked === true)}
+          />
+        )}
       </HsDialog>
     </div>
   );

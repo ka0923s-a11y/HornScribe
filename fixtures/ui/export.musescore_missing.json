@@ -66,14 +66,14 @@
       "id": "pdfDisabledTooltip",
       "component": "DependencyWarning",
       "copyKey": "exportSheet.pdfDisabledTooltip",
-      "text": "MuseScoreが見つからないためPDFを書き出せません",
+      "text": "MuseScoreが見つからないためPDF形式は無効です（アプリ内印刷なら作成できます）",
       "role": "tooltip"
     },
     {
       "id": "museScoreNote",
       "component": "DependencyWarning",
       "copyKey": "exportSheet.museScoreMissingNote",
-      "text": "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。"
+      "text": "PDFの書き出しにはMuseScoreが必要です（アプリ内印刷ならPDFを作成できます）。MusicXMLとMIDIはそのまま書き出せます。"
     },
     {
       "id": "destination",

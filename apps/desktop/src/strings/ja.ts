@@ -1433,6 +1433,8 @@ export const ja = {
     printRun: "印刷",
     /* #113: WebView2 PrintToPdf — direct save, no OS dialog. */
     printPdfSave: "PDFとして保存…",
+    /* #124: split per-projection PDFs (export-shaped <stem>_<proj>.pdf) */
+    printPdfSplitAll: "投影ごとに別々のPDFで保存",
     printPdfSaved: "PDFを保存しました",
     printPdfFailed: "PDFを保存できませんでした",
     printPdfUnsupported:
