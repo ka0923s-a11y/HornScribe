@@ -2134,6 +2134,12 @@ export const ja = {
         `${total}件中 ${shown}件を表示`,
       notes: (count: number) => `${count}音`,
       empty: "条件に合う要確認箇所はありません",
+      /* #80-6: triage order — severity-first is the default so a long
+       *  list surfaces suspicious notes before the INFO tail; 位置順
+       *  restores the score-order walk. */
+      sortLabel: "並び順",
+      sortSeverity: "重要度順",
+      sortPosition: "位置順",
     },
     feedback: {
       accepted: "確認済みにしました",

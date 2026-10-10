@@ -7,6 +7,11 @@
  * row jumps the review cursor straight to it (score scroll + source seek
  * come along via the existing gotoIssue path).
  *
+ * #80-6: the list is a triage queue first — the default order is
+ * severity (warning → caution → info, stable by score position) so a
+ * 50+ flag list surfaces the suspicious notes before the honest-noise
+ * INFO tail; 位置順 keeps the passage-walk order for users who want it.
+ *
  * Keyboard: the list is a real role="listbox" — ↑↓/Home/End roam the
  * options, Enter jumps, Esc closes. The panel is a non-modal
  * role="dialog" so the global dispatcher leaves the keys to us while
@@ -53,6 +58,13 @@ function timeLabel(issue: ScoreReviewIssue): string | null {
 
 const SEVERITIES: readonly ReviewSeverity[] = ["warning", "caution", "info"];
 
+/** #80-6: lower rank = earlier in the 重要度順 list. */
+const SEVERITY_RANK: Record<ReviewSeverity, number> = {
+  warning: 0,
+  caution: 1,
+  info: 2,
+};
+
 export function ReviewNavigator({
   issues,
   activeIndex,
@@ -70,6 +82,7 @@ export function ReviewNavigator({
   );
   const [severity, setSeverity] = useState("all");
   const [reason, setReason] = useState("all");
+  const [sort, setSort] = useState<"severity" | "position">("severity");
 
   // Reason options follow first-appearance order in the issue list —
   // chronological beats alphabetical for spotting problem passages.
@@ -86,8 +99,16 @@ export function ReviewNavigator({
       if (reason !== "all" && issue.reason !== reason) return;
       out.push({ issue, index });
     });
+    // #80-6: severity order is stable — same-severity rows keep their
+    //  score-position order (Array.sort is stable per spec).
+    if (sort === "severity") {
+      out.sort(
+        (a, b) =>
+          SEVERITY_RANK[a.issue.severity] - SEVERITY_RANK[b.issue.severity],
+      );
+    }
     return out;
-  }, [issues, openOnly, severity, reason]);
+  }, [issues, openOnly, severity, reason, sort]);
 
   // The roaming listbox focus (aria-activedescendant — real DOM focus
   // stays on the <ul> so ↑↓ never leaves the list). Initialize on the
@@ -196,6 +217,21 @@ export function ReviewNavigator({
                 {copy.reasonTitle(r)}
               </option>
             ))}
+          </Select>
+        </label>
+        <label className="hs-reviewnav__filter">
+          <span>{t.sortLabel}</span>
+          <Select
+            size="small"
+            value={sort}
+            aria-label={t.sortLabel}
+            onChange={(_, d) => {
+              setSort(d.value === "position" ? "position" : "severity");
+              resetFocus();
+            }}
+          >
+            <option value="severity">{t.sortSeverity}</option>
+            <option value="position">{t.sortPosition}</option>
           </Select>
         </label>
         <span className="hs-reviewnav__count" aria-live="polite">

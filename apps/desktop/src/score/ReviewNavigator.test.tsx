@@ -114,8 +114,10 @@ describe("ReviewNavigator (#361)", () => {
     await mount(props());
     const list = options();
     expect(list).toHaveLength(2); // ri-000003 is accepted
-    expect(list[0].textContent).toContain("音低");
-    expect(list[1].textContent).toContain("拍子");
+    // #80-6: default order is severity — the warning (拍子) precedes
+    //  the caution (音低) even though it sits later in score order.
+    expect(list[0].textContent).toContain("拍子");
+    expect(list[1].textContent).toContain("音低");
 
     const checkbox = document.querySelector<HTMLInputElement>(
       '.hs-reviewnav input[type="checkbox"]',
@@ -165,9 +167,29 @@ describe("ReviewNavigator (#361)", () => {
     const onJump = vi.fn();
     await mount(props({ onJump }));
     await act(async () => {
-      options()[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      // #80-6: severity order puts the warning first — row 0 is
+      //  absolute issue index 1, so this still proves the jump uses
+      //  the absolute index rather than the row position.
+      options()[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(onJump).toHaveBeenCalledWith(1); // absolute index, not row pos
+  });
+
+  it("#80-6: 位置順 restores the score-order walk", async () => {
+    await mount(props());
+    const selects = document.querySelectorAll("select");
+    const sort = selects[2] as HTMLSelectElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(sort, "position");
+      sort.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const list = options();
+    expect(list[0].textContent).toContain("音低");
+    expect(list[1].textContent).toContain("拍子");
   });
 
   it("listbox keyboard: ↑↓ moves, Enter jumps, Esc closes", async () => {
@@ -193,7 +215,9 @@ describe("ReviewNavigator (#361)", () => {
 
   it("rows expose reason / severity / status / position to screen readers", async () => {
     await mount(props());
-    const row = options()[1];
+    // #80-6: severity order puts the warning (拍子, absolute index 1)
+    //  on the first row — position still reports its real ordinal.
+    const row = options()[0];
     expect(row.textContent).toContain("2"); // absolute issue position
     expect(row.textContent).toContain("拍子");
     expect(row.textContent).toContain(ja.reviewSeverity.warning);
