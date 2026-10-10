@@ -4,6 +4,8 @@
  * transport keys, review navigation) call these; the workspace implements
  * them — components never grow parallel key handling (GUI_UX_SPEC §23).
  */
+import type { PrintScope } from "../commands/types";
+
 export interface ScoreWorkspaceController {
   // ---- zoom (§15) ----
   zoomIn(): void;
@@ -171,8 +173,12 @@ export interface ScoreWorkspaceController {
    *  open issue sharing its reason AND remedy signature — Shift+E. */
   reviewApplySameRemedy?(): void;
   /** #102: print the score through the webview print UI — the PDF
-   *  path that needs no MuseScore (OS print dialog's PDF printer). */
-  printScore?(): void;
+   *  path that needs no MuseScore (OS print dialog's PDF printer).
+   *  #112: scope picks which projection(s) print — default is the
+   *  on-screen presentation (WYSIWYG). */
+  printScore?(scope?: PrintScope): void;
+  /** #112: open the print-projection chooser dialog. */
+  openPrintOptions?(): void;
   /** 元音源を再生 — loop-play the issue's source range. */
   reviewPlaySource(): void;
   /** 音高修正: shift the issue's note(s) by ±1 semitone. */

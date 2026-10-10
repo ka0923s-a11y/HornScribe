@@ -560,6 +560,8 @@ export const ja = {
     openInMuseScore: "MuseScoreで開く",
     /* #102: webview print -> Save-as-PDF; no external tool needed. */
     printScore: "印刷 / PDFに保存",
+    /* #112: chooser variant — pick which projection(s) print. */
+    printWithOptions: "印刷（投影を選択）…",
     zoomScoreIn: "楽譜を拡大",
     zoomScoreOut: "楽譜を縮小",
     zoomScoreFit: "楽譜を幅に合わせる",
@@ -1420,6 +1422,11 @@ export const ja = {
     /* #102: the print surface failed to build — the score and the
        on-screen render are untouched; nothing reached the printer. */
     printFailed: "印刷用の楽譜を準備できませんでした",
+    /* #112: print-projection chooser (score.printWithOptions). */
+    printDialogTitle: "印刷する投影",
+    printScopeCurrent: (label: string) => "現在の投影（" + label + "）",
+    printScopeAll: "すべての投影を連続して印刷",
+    printRun: "印刷",
     reviewPosition: (index: number, total: number) =>
       `要確認 ${index} / ${total}`,
     reviewExit: "要確認を終了",

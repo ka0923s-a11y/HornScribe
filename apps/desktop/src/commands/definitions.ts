@@ -732,6 +732,17 @@ export function createCommandDefinitions(): readonly Command[] {
       isEnabled: hasScore,
       run: (ctx) => ctx.printScore?.(),
     },
+    {
+      id: "score.printWithOptions",
+      title: ja.commands.printWithOptions,
+      section: "export",
+      // #112: menu/palette entry — opens the projection chooser so a
+      //  F管 view can still print the concert or B♭ presentation, or
+      //  every projection in one job. No shortcut: the plain Ctrl+P
+      //  stays the single-step path.
+      isEnabled: hasScore,
+      run: (ctx) => ctx.openPrintOptions?.(),
+    },
 
     // ---- project save (#100) ----
     {
