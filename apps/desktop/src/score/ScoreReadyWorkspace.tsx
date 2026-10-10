@@ -24,9 +24,11 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
 import { Radio, RadioGroup } from "@fluentui/react-components";
 import { ja } from "../strings/ja";
 import type { PitchViewSetting, PrintScope } from "../commands/types";
+import { isTauriRuntime } from "../tauri/bridge";
 import type { ScoreDocumentPort } from "./document";
 import { ScoreView } from "./ScoreView";
 import {
@@ -505,9 +507,12 @@ export function ScoreReadyWorkspace({
   // #102: the print render — a full A4-paged pass kept outside the
   //  app root (portal) so print CSS can hide the chrome and keep
   //  only the score. Non-null only for the print()'s lifetime.
-  const [printPages, setPrintPages] = useState<PrintPage[] | null>(
-    null,
-  );
+  /* #113: pdfPath set → the effect drives CoreWebView2.PrintToPdf
+   *  instead of window.print — one job shape covers both surfaces. */
+  const [printJob, setPrintJob] = useState<{
+    pages: PrintPage[];
+    pdfPath: string | null;
+  } | null>(null);
   /* #112: print-projection chooser — score.printWithOptions opens it;
    *  Ctrl+P stays the single-step current-view path. */
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -949,15 +954,13 @@ export function ScoreReadyWorkspace({
     [scoreDoc, schedulePagePrefetch],
   );
 
-  /** #102: print the score through the webview's print UI — PDF
-   *  without MuseScore (the OS print dialog's Save-as-PDF printer).
-   *  renderForPrint paginates at the canonical scale in a
-   *  self-contained pass — the user's view mode and zoom stay
-   *  untouched, so no screen re-render is needed afterwards. */
-  const printScore = useCallback(
-    (scope: PrintScope = "current") => {
+  /** Shared page collection for both print sinks. Loads each scoped
+   *  presentation, renderForPrint it, and restores the on-screen
+   *  document afterwards; returns null when nothing renderable. */
+  const collectPrintPages = useCallback(
+    (scope: PrintScope): PrintPage[] | null => {
       const r = rendererRef.current;
-      if (!r) return;
+      if (!r) return null;
       const visible = partMixRef.current.map((m) => m.visible);
       const currentXml = () =>
         filterScorePartsXml(scoreDoc.musicXml(pitchRef.current), visible);
@@ -979,8 +982,7 @@ export function ScoreReadyWorkspace({
       try {
         if (!offView) {
           const all = r.renderForPrint();
-          if (all.length > 0) setPrintPages(all);
-          return;
+          return all.length > 0 ? all : null;
         }
         const collected: PrintPage[] = [];
         for (const v of views) {
@@ -995,9 +997,10 @@ export function ScoreReadyWorkspace({
             ),
           );
         }
-        if (collected.length > 0) setPrintPages(collected);
+        return collected.length > 0 ? collected : null;
       } catch {
         announce(ja.scoreView.printFailed);
+        return null;
       } finally {
         if (offView) {
           try {
@@ -1011,6 +1014,43 @@ export function ScoreReadyWorkspace({
     [announce, scoreDoc],
   );
 
+  /** #102: print the score through the webview's print UI — PDF
+   *  without MuseScore (the OS print dialog's Save-as-PDF printer).
+   *  renderForPrint paginates at the canonical scale in a
+   *  self-contained pass — the user's view mode and zoom stay
+   *  untouched, so no screen re-render is needed afterwards. */
+  const printScore = useCallback(
+    (scope: PrintScope = "current") => {
+      const pages = collectPrintPages(scope);
+      if (pages) {
+        setPrintJob({ pages, pdfPath: null });
+      }
+    },
+    [collectPrintPages],
+  );
+
+  /** #113: save-as-PDF without the OS dialog — pick a path, mount the
+   *  same print surface, and let CoreWebView2.PrintToPdf write it. */
+  const savePrintPdf = useCallback(
+    async (scope: PrintScope) => {
+      if (!isTauriRuntime()) {
+        announce(ja.scoreView.printPdfUnsupported);
+        return;
+      }
+      const stem =
+        scoreDoc.meta.title?.trim() || "score";
+      const path = await invoke<string | null>("score_pdf_path", {
+        suggestedName: stem + ".pdf",
+      }).catch(() => null);
+      if (!path) return; // picker cancelled
+      const pages = collectPrintPages(scope);
+      if (pages) {
+        setPrintJob({ pages, pdfPath: path });
+      }
+    },
+    [announce, collectPrintPages, scoreDoc],
+  );
+
   /** #112: score.printWithOptions — open the projection chooser. */
   const openPrintOptions = useCallback(() => {
     setPrintScopeSel("current");
@@ -1022,15 +1062,35 @@ export function ScoreReadyWorkspace({
   //  call print(), and clean up on afterprint — with a long timeout
   //  fallback for environments that never fire it (tests/jsdom).
   useEffect(() => {
-    if (!printPages?.length) return;
+    if (!printJob?.pages.length) return;
     document.body.classList.add("hs-printing");
+    const done = () => {
+      document.body.classList.remove("hs-printing");
+      setPrintJob(null);
+    };
+    // #113: the same surface feeds CoreWebView2.PrintToPdf — wait the
+    //  same two frames so the print layout is real, then let the
+    //  webview write the file itself (no OS dialog involved).
+    if (printJob.pdfPath) {
+      const pdfPath = printJob.pdfPath;
+      const raf = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void invoke("print_to_pdf", { path: pdfPath })
+            .then(() => announce(ja.scoreView.printPdfSaved))
+            .catch(() => announce(ja.scoreView.printPdfFailed))
+            .finally(done);
+        });
+      });
+      const timer = window.setTimeout(done, 5 * 60_000);
+      return () => {
+        cancelAnimationFrame(raf);
+        clearTimeout(timer);
+        document.body.classList.remove("hs-printing");
+      };
+    }
     const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => window.print());
     });
-    const done = () => {
-      document.body.classList.remove("hs-printing");
-      setPrintPages(null);
-    };
     window.addEventListener("afterprint", done);
     const timer = window.setTimeout(done, 5 * 60_000);
     return () => {
@@ -1039,7 +1099,7 @@ export function ScoreReadyWorkspace({
       clearTimeout(timer);
       document.body.classList.remove("hs-printing");
     };
-  }, [printPages]);
+  }, [printJob, announce]);
 
   /** After every (re)render of the SVG: rebuild the element index and
    *  reapply selection/active/loop/caret marks — this is how all context
@@ -3120,14 +3180,14 @@ const setKey = useCallback(
           </HsButton>
         </div>
       )}
-      {printPages &&
+      {printJob &&
         // #102: the print surface lives outside #root — print CSS
         //  hides the whole app tree and shows only these A4 pages,
         //  so a #root descendant would be hidden along with the
         //  chrome it is supposed to replace.
         createPortal(
           <div className="hs-print-pages" aria-hidden="true">
-            {printPages.map((p) => (
+            {printJob.pages.map((p) => (
               <div
                 key={(p.heading ?? "") + "-" + p.page}
                 className="hs-print-page"
@@ -3153,6 +3213,19 @@ const setKey = useCallback(
         title={s.printDialogTitle}
         actions={
           <>
+            <HsButton
+              variant="secondary"
+              onClick={() => {
+                if (!isTauriRuntime()) {
+                  announce(ja.scoreView.printPdfUnsupported);
+                  return;
+                }
+                setPrintDialogOpen(false);
+                void savePrintPdf(printScopeSel);
+              }}
+            >
+              {s.printPdfSave}
+            </HsButton>
             <HsButton
               variant="secondary"
               onClick={() => setPrintDialogOpen(false)}

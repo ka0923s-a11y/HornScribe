@@ -124,7 +124,7 @@ pub fn export_default_dir(app: tauri::AppHandle) -> Result<String, String> {
 
 /// Whether `dir` is a legal export destination: picked this session or
 /// under the OS Documents directory.
-fn dir_allowed(app: &tauri::AppHandle, dir: &Path) -> bool {
+pub(crate) fn dir_allowed(app: &tauri::AppHandle, dir: &Path) -> bool {
     if let Ok(guard) = GRANTED_DIRS.lock() {
         if let Some(set) = guard.as_ref() {
             if set.contains(dir) {
@@ -332,6 +332,43 @@ pub fn project_save_path(
             }
         }
         file.with_file_name(format!("{name}.hornscribe.json"))
+    };
+    Ok(Some(file.to_string_lossy().into_owned()))
+}
+
+/// `score_pdf_path`: native save-file picker for `.pdf` (#113 —
+/// CoreWebView2.PrintToPdf writes directly, no OS print dialog). The
+/// picked file's parent directory is granted write access, same model
+/// as `project_save_path`; returns null on cancel.
+#[tauri::command(async)]
+pub fn score_pdf_path(
+    app: tauri::AppHandle,
+    suggested_name: Option<String>,
+) -> Result<Option<String>, String> {
+    let mut dlg = app.dialog().file().add_filter("PDF", &["pdf"]);
+    if let Some(name) = suggested_name {
+        if !name.is_empty() {
+            dlg = dlg.set_file_name(&name);
+        }
+    }
+    let Some(path) = dlg.blocking_save_file() else {
+        return Ok(None);
+    };
+    let file = path
+        .as_path()
+        .map(|p| p.to_path_buf())
+        .ok_or("picked path is not a filesystem path")?;
+    if let Some(parent) = file.parent() {
+        grant_dir(parent.to_path_buf());
+    }
+    let file = if file
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("pdf"))
+        == Some(true)
+    {
+        file
+    } else {
+        file.with_extension("pdf")
     };
     Ok(Some(file.to_string_lossy().into_owned()))
 }
