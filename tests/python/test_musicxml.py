@@ -629,6 +629,21 @@ def test_accompaniment_single_register_stays_one_staff() -> None:
     assert "<staves>" not in xml
 
 
+def test_tempo_mark_prints_on_first_part_only() -> None:
+    """#101: tempo marks are system-level — they print once above the
+    top staff. A second part repeating the same mark just doubles it
+    on the page (the reference score showed ♩=144 twice)."""
+    score = _accomp_score([(40, 0, 4), (67, 0, 1), (72, 1, 1), (76, 2, 2)])
+    xml = export_concert_musicxml(score)
+    root = _root(xml)
+    parts = root.findall("part")
+    assert len(parts) == 2
+    lead_marks = parts[0].findall(".//metronome")
+    accomp_marks = parts[1].findall(".//metronome")
+    assert len(lead_marks) == 1
+    assert accomp_marks == []
+
+
 def test_accompaniment_grand_staff_roundtrips_clean() -> None:
     """#245: the 2-staff part still verifies — rests are per-staff
     presentational fill and drop out of the comparison."""

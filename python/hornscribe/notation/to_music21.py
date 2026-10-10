@@ -682,6 +682,7 @@ def _build_part_measures(
     part_cls: type[stream.Part] = stream.Part,
     fixed_clef: str | None = None,
     secondary_staff: bool = False,
+    emit_tempo_marks: bool = True,
 ) -> stream.Part:
     beat_ql = beat_ql_of(payload)
     strict = bool(part_rests)
@@ -715,9 +716,10 @@ def _build_part_measures(
         part.insert(0, horn_inst)
 
     tempo_marks: dict[int, list[tuple[Fraction, tempo.MetronomeMark]]] = {}
-    # #245: tempo marks print on the top staff only — a lower grand-staff
-    # member repeating them would double every mark on the page.
-    for seg in () if secondary_staff else payload.tempo_map:
+    # #245 + #101: tempo marks print once per system, above the top
+    # staff — a lower grand-staff member OR a second part repeating
+    # them would double every mark on the page.
+    for seg in () if (secondary_staff or not emit_tempo_marks) else payload.tempo_map:
         for idx, span in enumerate(spans):
             if span.start_beat <= seg.start_beat < span.end_beat:
                 # #157: tempo_map bpm counts *primary* beats of the
@@ -928,7 +930,10 @@ def build_music21_score(
             md.add("arranger", score.arranger)
         m21_score.insert(0, md)
 
-    for part in payload.parts:
+    for part_index, part in enumerate(payload.parts):
+        # #101: only the score's first (top) part carries tempo marks;
+        # later parts print them once per system already via part 1.
+        first_part = part_index == 0
         ordered = sorted(part.notes, key=lambda n: (n.start_beat, n.pitch_midi, n.id))
         if not part.transposing and _accomp_needs_grand_staff(ordered):
             # #245: the separation-derived accompaniment renders as a
@@ -949,6 +954,7 @@ def build_music21_score(
                 transposing=False,
                 part_cls=stream.PartStaff,
                 fixed_clef="treble",
+                emit_tempo_marks=first_part,
             )
             lower = _build_part_measures(
                 payload,
@@ -983,6 +989,7 @@ def build_music21_score(
                 spans,
                 presentation,
                 transposing=part.transposing,
+                emit_tempo_marks=first_part,
             )
         )
     return m21_score
