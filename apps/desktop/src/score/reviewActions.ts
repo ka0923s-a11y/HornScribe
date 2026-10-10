@@ -26,6 +26,10 @@ import type { ScoreReviewIssue } from "./review";
 export interface ReviewPrimaryAction {
   readonly label: string;
   readonly tooltip: string;
+  /** Delete remedies are meaningless once the note is already deleted
+   *  (the issue is then resolved, but it stays browsable) - the bar
+   *  hides the button instead of offering a dead click. */
+  readonly hideWhenNoteDeleted?: boolean;
   run(): void;
 }
 
@@ -46,6 +50,10 @@ export interface ReviewActionHandlers {
     feedback: string,
     onApplied?: () => void,
   ): void;
+  /** #80-3: delete the issue's note as a phantom detection - rides the
+   *  same setNoteDeleted path as the bar's generic 削除 button (marks
+   *  the issue fixed and auto-advances). */
+  deleteNote?(issueId: string): void;
   /** Mark the issue resolved after a successful remedy. */
   markFixed?(issueId: string): void;
 }
@@ -291,28 +299,57 @@ export function buildReviewAction(
     };
   }
 
-  // #261: outside the preferred horn range -> one canonical
-  // transposeNote, direction from the pitch evidence. Requires a note
-  // target AND the edit channel - a whole-piece range issue no longer
-  // shows a dead button.
+  // #261/#80-3: outside the preferred horn range -> the remedy depends
+  // on severity. CAUTION (just past the band) is usually a real melody
+  // note tracked an octave off -> the octave shift stays primary and
+  // deletion rides as the secondary remedy. WARNING (EXTREME - hopelessly
+  // above/below playable range, e.g. a hi-hat mistracked at E6) is far
+  // more likely a phantom -> delete becomes primary and the octave
+  // shift is the secondary option.
   if (
     issue.reason === "outside_preferred_horn_range" &&
-    typeof issue.evidence["pitchMidi"] === "number" &&
-    issue.canonicalNoteIds.length > 0 &&
-    handlers.applyEdit
+    issue.canonicalNoteIds.length > 0
   ) {
-    const noteId = issue.canonicalNoteIds[0];
-    const high = (issue.evidence["pitchMidi"] as number) > 79;
-    const semitones = high ? -12 : 12;
+    if (issue.severity === "warning" && handlers.deleteNote) {
+      const id = issue.id;
+      return {
+        label: r.deletePhantomNote,
+        tooltip: r.deletePhantomNoteTip,
+        hideWhenNoteDeleted: true,
+        run: () => handlers.deleteNote?.(id),
+      };
+    }
+    const octave = buildRangeOctaveAction(issue, handlers);
+    if (octave) return octave;
+    // No edit channel (fixture/dev doc): delete is still a real remedy.
+    if (handlers.deleteNote) {
+      const id = issue.id;
+      return {
+        label: r.deletePhantomNote,
+        tooltip: r.deletePhantomNoteTip,
+        hideWhenNoteDeleted: true,
+        run: () => handlers.deleteNote?.(id),
+      };
+    }
+  }
+
+  // #80-3: phantom-plausible detections with no better automated fix.
+  // A very short blip or a low-confidence note is usually percussion /
+  // noise mistracked as pitch — the honest remedy is deleting it (the
+  // reviewer can still 元音源を再生 to check first). Rides the same
+  // setNoteDeleted path as the generic 削除 button, so undo works.
+  if (
+    (issue.reason === "very_short_detection" ||
+      issue.reason === "low_model_confidence") &&
+    issue.canonicalNoteIds.length > 0 &&
+    handlers.deleteNote
+  ) {
+    const id = issue.id;
     return {
-      label: high ? r.octaveDown : r.octaveUp,
-      tooltip: r.octaveShiftTip,
-      run: () =>
-        handlers.applyEdit?.(
-          () => ({ kind: "transposeNote", noteId, semitones }),
-          ja.commandFeedback.octaveShifted,
-          () => handlers.markFixed?.(issue.id),
-        ),
+      label: r.deletePhantomNote,
+      tooltip: r.deletePhantomNoteTip,
+      hideWhenNoteDeleted: true,
+      run: () => handlers.deleteNote?.(id),
     };
   }
 
@@ -374,4 +411,66 @@ export function buildReviewAction(
   }
 
   return null;
+}
+
+/** #261: the range issue's octave fix — one canonical transposeNote,
+ *  direction from the pitch evidence. Shared by the primary slot
+ *  (CAUTION) and the secondary slot (EXTREME, where delete leads). */
+function buildRangeOctaveAction(
+  issue: ScoreReviewIssue,
+  handlers: ReviewActionHandlers,
+): ReviewPrimaryAction | null {
+  const r = ja.review;
+  if (
+    typeof issue.evidence["pitchMidi"] !== "number" ||
+    issue.canonicalNoteIds.length === 0 ||
+    !handlers.applyEdit
+  ) {
+    return null;
+  }
+  const noteId = issue.canonicalNoteIds[0];
+  const high = (issue.evidence["pitchMidi"] as number) > 79;
+  const semitones = high ? -12 : 12;
+  return {
+    label: high ? r.octaveDown : r.octaveUp,
+    tooltip: r.octaveShiftTip,
+    run: () =>
+      handlers.applyEdit?.(
+        () => ({ kind: "transposeNote", noteId, semitones }),
+        ja.commandFeedback.octaveShifted,
+        () => handlers.markFixed?.(issue.id),
+      ),
+  };
+}
+
+/** #80-3: the second remedy slot for outside_preferred_horn_range —
+ *  the bar shows BOTH plausible fixes for a range flag. CAUTION keeps
+ *  the octave shift primary and offers delete; WARNING (EXTREME, the
+ *  phantom-likely case) inverts them. Null when the alternate remedy
+ *  is unavailable. */
+export function buildSecondaryReviewAction(
+  issue: ScoreReviewIssue | null,
+  handlers: ReviewActionHandlers,
+): ReviewPrimaryAction | null {
+  if (!issue || issue.reason !== "outside_preferred_horn_range") {
+    return null;
+  }
+  if (issue.canonicalNoteIds.length === 0) return null;
+  if (issue.severity === "warning") {
+    // Delete leads; the octave shift is the alternative — but only
+    // when the primary actually took the delete slot (no deleteNote
+    // handler means octave already owns the primary slot).
+    if (!handlers.deleteNote) return null;
+    return buildRangeOctaveAction(issue, handlers);
+  }
+  // CAUTION: octave leads; deletion is the alternative. When no edit
+  // channel exists delete already took the primary slot.
+  if (!handlers.applyEdit || !handlers.deleteNote) return null;
+  const id = issue.id;
+  return {
+    label: ja.review.deletePhantomNote,
+    tooltip: ja.review.deletePhantomNoteTip,
+    hideWhenNoteDeleted: true,
+    run: () => handlers.deleteNote?.(id),
+  };
 }

@@ -2062,6 +2062,15 @@ export const ja = {
     /* #264: pitch_uncertain remedy — transposeNote by the suggested
        semitone delta (the diatonic neighbour it likely belongs to). */
     pitchShiftTip: "検出された音高を提案された隣の音に修正します",
+    /* #80-3: phantom-note remedy — very short, low-confidence or
+       hopelessly out-of-range detections are usually percussion/noise
+       mistracked as pitched notes; the fix is deleting, not editing.
+       Same effect as the generic 削除 button (issue → fixed), but
+       labelled as the reason-specific remedy so the reviewer sees it
+       next to the flag. */
+    deletePhantomNote: "この音符を削除",
+    deletePhantomNoteTip:
+      "誤検出の音符（実際には鳴っていない音）を削除してこの項目を解決します",
     /** Disabled-state explanations for whole-piece issues (buttons stay
      *  visible so the bar's layout is stable; the tooltip says why). */
     noteTargetRequired: "音符に紐づく項目でのみ使えます",

@@ -57,6 +57,16 @@ export interface ReviewBarProps {
   readonly action?: {
     readonly label: string;
     readonly tooltip: string;
+    readonly hideWhenNoteDeleted?: boolean;
+    run(): void;
+  } | null;
+  /** #80-3: a second remedy for issues with two plausible fixes —
+   *  outside_preferred_horn_range offers BOTH the octave shift and the
+   *  phantom delete (built by buildSecondaryReviewAction). */
+  readonly secondaryAction?: {
+    readonly label: string;
+    readonly tooltip: string;
+    readonly hideWhenNoteDeleted?: boolean;
     run(): void;
   } | null;
   /** #167: open issues sharing the focused issue's reason (itself
@@ -100,6 +110,7 @@ export function ReviewBar({
   canEditNotes,
   canPlaySource,
   action = null,
+  secondaryAction = null,
   sameReasonPending = 0,
   onAcceptSameReason,
   onPrev,
@@ -196,10 +207,18 @@ export function ReviewBar({
             {r.playSource}
           </HsButton>
         </HsTooltip>
-        {action ? (
+        {action && !(action.hideWhenNoteDeleted && noteDeleted) ? (
           <HsTooltip content={action.tooltip}>
             <HsButton size="small" onClick={() => action.run()}>
               {action.label}
+            </HsButton>
+          </HsTooltip>
+        ) : null}
+        {secondaryAction &&
+        !(secondaryAction.hideWhenNoteDeleted && noteDeleted) ? (
+          <HsTooltip content={secondaryAction.tooltip}>
+            <HsButton size="small" onClick={() => secondaryAction.run()}>
+              {secondaryAction.label}
             </HsButton>
           </HsTooltip>
         ) : null}

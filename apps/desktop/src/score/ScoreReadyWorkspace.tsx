@@ -109,6 +109,7 @@ import {
 import { ReviewSession, type ReviewEdit } from "./reviewSession";
 import {
   buildReviewAction,
+  buildSecondaryReviewAction,
   issueHasNoteTargets,
 } from "./reviewActions";
 import { ReviewBar } from "./ReviewBar";
@@ -1663,6 +1664,21 @@ export function ScoreReadyWorkspace({
     if (applied) advanceAfterResolve();
   }, [issueAtCursor, session, runReviewEdit, advanceAfterResolve]);
 
+  /* #80-3: the phantom-note remedy — identical to the delete branch
+   *  of reviewDeleteOrRestore but callable by issue id from the
+   *  reason-specific remedy slot (buildReviewAction handlers). */
+  const reviewDeleteNote = useCallback(
+    (issueId: string) => {
+      const applied = runReviewEdit(
+        session.setNoteDeleted(issueId, true),
+        ja.review.feedback.noteDeleted,
+        { reload: true },
+      );
+      if (applied) advanceAfterResolve();
+    },
+    [session, runReviewEdit, advanceAfterResolve],
+  );
+
   /* #114 (spec 10/13): score-workspace note navigation + direct edits.
    *  Arrow keys walk canonical notes in document order; Alt+arrows /
    *  Delete / E edit the selection through the shared undo stack. */
@@ -2755,6 +2771,7 @@ const setKey = useCallback(
             retranscribeBasicPitch: onRetranscribeBasicPitch,
             openProperties: onOpenProperties,
             toggleEnharmonic: toggleSelectedEnharmonic,
+            deleteNote: reviewDeleteNote,
             // Engine-backed remedies need the edit channel - without it
             // (fixture/dev documents) the action hides rather than
             // announcing "unavailable" after the click.
@@ -2765,6 +2782,18 @@ const setKey = useCallback(
                 : undefined,
             markFixed: markIssueFixed,
           })}
+          secondaryAction={buildSecondaryReviewAction(
+            allIssues[reviewIndex] ?? null,
+            {
+              deleteNote: reviewDeleteNote,
+              applyEdit:
+                onRhythmEdit && scoreDoc.replaceContent
+                  ? (op, feedback, onApplied) =>
+                      applyRhythmEdit(op, feedback, onApplied)
+                  : undefined,
+              markFixed: markIssueFixed,
+            },
+          )}
           onPrev={() => stepReviewOpen(-1)}
           onNext={() => stepReviewOpen(1)}
           navigatorOpen={navOpen}

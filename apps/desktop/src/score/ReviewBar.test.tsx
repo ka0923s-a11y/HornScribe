@@ -206,6 +206,63 @@ describe("ReviewBar capability gating", () => {
       [...document.querySelectorAll("button")].some((b) =>
         b.textContent?.includes("まとめて問題なし"),
       ),
+      ).toBe(false);
+  });
+
+  it("#80-3: secondary remedy renders alongside the primary", async () => {
+    const runPrimary = vi.fn();
+    const runSecondary = vi.fn();
+    await mount(
+      props({
+        action: {
+          label: ja.review.deletePhantomNote,
+          tooltip: ja.review.deletePhantomNoteTip,
+          hideWhenNoteDeleted: true,
+          run: runPrimary,
+        },
+        secondaryAction: {
+          label: ja.review.octaveDown,
+          tooltip: ja.review.octaveShiftTip,
+          run: runSecondary,
+        },
+      }),
+    );
+    const p = button(ja.review.deletePhantomNote);
+    const s = button(ja.review.octaveDown);
+    expect(s.getAttribute("aria-label")).toBe(ja.review.octaveShiftTip);
+    await act(async () => {
+      p.click();
+      s.click();
+    });
+    expect(runPrimary).toHaveBeenCalledOnce();
+    expect(runSecondary).toHaveBeenCalledOnce();
+  });
+
+  it("#80-3: delete remedies hide once the note is already deleted", async () => {
+    await mount(
+      props({
+        noteDeleted: true,
+        action: {
+          label: ja.review.deletePhantomNote,
+          tooltip: ja.review.deletePhantomNoteTip,
+          hideWhenNoteDeleted: true,
+          run: vi.fn(),
+        },
+        secondaryAction: {
+          label: ja.review.octaveDown,
+          tooltip: ja.review.octaveShiftTip,
+          run: vi.fn(),
+        },
+      }),
+    );
+    expect(
+      [...document.querySelectorAll("button")].some(
+        (b) => b.textContent === ja.review.deletePhantomNote,
+      ),
     ).toBe(false);
+    // The octave alternative still shows — only the dead delete hid.
+    expect(button(ja.review.octaveDown)).toBeTruthy();
+    // The generic note-edit button correctly reads 復元.
+    expect(button(ja.review.restoreNote)).toBeTruthy();
   });
 });

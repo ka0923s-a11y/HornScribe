@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ja } from "../strings/ja";
 import {
   buildReviewAction,
+  buildSecondaryReviewAction,
   issueHasNoteTargets,
   type ReviewActionHandlers,
 } from "./reviewActions";
@@ -494,6 +495,100 @@ describe("buildReviewAction", () => {
           evidence: { suggestPrecisionIsolation: true },
         }),
         handlers({ retranscribeVocalIsolation: undefined }),
+      ),
+    ).toBeNull();
+  });
+
+  it("#80-3: low-confidence / very-short flags lead with delete", () => {
+    const h = handlers({ deleteNote: vi.fn() });
+    for (const reason of [
+      "low_model_confidence",
+      "very_short_detection",
+    ] as const) {
+      const a = buildReviewAction(issue({ reason }), h);
+      expect(a?.label).toBe(ja.review.deletePhantomNote);
+      expect(a?.tooltip).toBe(ja.review.deletePhantomNoteTip);
+      expect(a?.hideWhenNoteDeleted).toBe(true);
+      a?.run();
+    }
+    expect(h.deleteNote).toHaveBeenCalledTimes(2);
+    expect(h.deleteNote).toHaveBeenCalledWith("ri-000001");
+  });
+
+  it("#80-3: phantom flags hide the remedy without the delete handler", () => {
+    expect(
+      buildReviewAction(
+        issue({ reason: "very_short_detection" }),
+        handlers(),
+      ),
+    ).toBeNull();
+  });
+
+  it("#80-3: EXTREME range flag leads with delete, octave rides second", () => {
+    const applyEdit = vi.fn();
+    const h = handlers({ applyEdit, deleteNote: vi.fn() });
+    const iss = issue({
+      reason: "outside_preferred_horn_range",
+      severity: "warning",
+      evidence: { pitchMidi: 88 },
+    });
+    const primary = buildReviewAction(iss, h);
+    expect(primary?.label).toBe(ja.review.deletePhantomNote);
+    primary?.run();
+    expect(h.deleteNote).toHaveBeenCalledWith("ri-000001");
+
+    const secondary = buildSecondaryReviewAction(iss, h);
+    expect(secondary?.label).toBe(ja.review.octaveDown);
+    secondary?.run();
+    expect(applyEdit.mock.calls[0][0]()).toEqual({
+      kind: "transposeNote",
+      noteId: "sn-000001",
+      semitones: -12,
+    });
+  });
+
+  it("#80-3: CAUTION range flag keeps octave primary, delete second", () => {
+    const h = handlers({ deleteNote: vi.fn() });
+    const iss = issue({
+      reason: "outside_preferred_horn_range",
+      severity: "caution",
+      evidence: { pitchMidi: 84 },
+    });
+    const primary = buildReviewAction(iss, h);
+    expect(primary?.label).toBe(ja.review.octaveDown);
+
+    const secondary = buildSecondaryReviewAction(iss, h);
+    expect(secondary?.label).toBe(ja.review.deletePhantomNote);
+    secondary?.run();
+    expect(h.deleteNote).toHaveBeenCalledWith("ri-000001");
+  });
+
+  it("#80-3: secondary slot empties when the alternate remedy is gone", () => {
+    const iss = issue({
+      reason: "outside_preferred_horn_range",
+      severity: "warning",
+      evidence: { pitchMidi: 88 },
+    });
+    // No deleteNote handler -> octave already owns the primary slot.
+    expect(
+      buildSecondaryReviewAction(iss, handlers()),
+    ).toBeNull();
+    // No edit channel -> delete owns the primary slot, nothing remains.
+    expect(
+      buildSecondaryReviewAction(
+        issue({
+          reason: "outside_preferred_horn_range",
+          severity: "caution",
+          evidence: { pitchMidi: 84 },
+        }),
+        { deleteNote: vi.fn() },
+      ),
+    ).toBeNull();
+    // Other reasons never get a second slot.
+    expect(
+      buildSecondaryReviewAction(
+        issue({ reason: "octave_uncertain" }),
+        handlers({ deleteNote: vi.fn() }),
       ),
     ).toBeNull();
   });
