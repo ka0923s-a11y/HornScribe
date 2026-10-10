@@ -62,6 +62,17 @@ export interface ScoreDocumentMeta {
    *  surfacing cap — the review bar shows them so a truncated list
    *  is never silent. */
   readonly omittedIssueCount: number;
+  /* #80-4: head-meter provenance. true = the engine's auto-estimator
+   *  produced the written signature; false = user-pinned or
+   *  deliberately changed since; undefined = foreign/fixture document
+   *  (no provenance to report). The inspector marks the meter row so
+   *  an estimated signature never reads as confirmed. */
+  readonly meterEstimated?: boolean;
+  /* #80-4: the estimator's margin 0..1 (best-vs-runner-up accent
+   *  scores). Below the engine's uncertain threshold (0.2) the written
+   *  meter is a 4/4 fallback the review list also flags — the UI reads
+   *  "確定不能" (0) vs "推定したが確度低" apart only through this. */
+  readonly meterConfidence?: number;
 }
 
 export interface ScoreDocumentPort {

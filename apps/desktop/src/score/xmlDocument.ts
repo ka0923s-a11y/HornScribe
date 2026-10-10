@@ -41,6 +41,10 @@ export interface XmlScoreDocumentSources {
    *  expansion into the review list (ids are stable, allocated at
    *  detection time inside the engine). */
   readonly omittedIssues?: readonly ScoreReviewIssue[];
+  /** #80-4: head-meter provenance from the job result's meta —
+   *  meta.meterEstimated / meta.meterConfidence. */
+  readonly meterEstimated?: boolean;
+  readonly meterConfidence?: number;
 }
 
 export class XmlScoreDocument implements ScoreDocumentPort {
@@ -114,6 +118,11 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       ),
       pickupBeats: pickupBeatsOf(this.canonicalDoc),
       omittedIssueCount: this._omittedIssueCount,
+      // #80-4: meter-estimation provenance rides the document meta so
+      //  the inspector can label an estimated signature (undefined =
+      //  no provenance — fixture/foreign docs say nothing).
+      meterEstimated: src.meterEstimated,
+      meterConfidence: src.meterConfidence,
     };
   }
 
@@ -394,6 +403,13 @@ export class XmlScoreDocument implements ScoreDocumentPort {
         this.edits.set(id, edit);
       }
     }
+    /* #80-4: the estimation provenance only describes the signature it
+     *  named — a deliberate meter change (user edit or a runner-up
+     *  remedy) drops the marker rather than mislabeling a meter the
+     *  user chose. Capture BEFORE computeMeta overwrites _meta. */
+    const prevMeter = this._meta.meter;
+    const prevEstimated = this._meta.meterEstimated;
+    const prevConfidence = this._meta.meterConfidence;
     this._meta = XmlScoreDocument.computeMeta(next.concertXml);
     this._meta = {
       ...this._meta,
@@ -403,6 +419,10 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       ),
       pickupBeats: pickupBeatsOf(this.canonicalDoc),
       omittedIssueCount: this._omittedIssueCount,
+      meterEstimated:
+        this._meta.meter === prevMeter ? prevEstimated : undefined,
+      meterConfidence:
+        this._meta.meter === prevMeter ? prevConfidence : undefined,
     };
     this.editCounter += 1;
   }
@@ -535,6 +555,10 @@ export interface EngineScoreDocumentInput {
   // #360: the omitted issues themselves, verbatim from the result /
   //  project extras — lazily expandable into the review list.
   readonly omittedIssues?: readonly ScoreReviewIssue[];
+  // #80-4: head-meter provenance from result.meta — the auto-meter
+  //  flag plus the estimator's margin.
+  readonly meterEstimated?: boolean;
+  readonly meterConfidence?: number;
 }
 
 /**
@@ -556,6 +580,8 @@ export function createEngineScoreDocument(
       canonicalDocument: input.canonicalDocument,
       omittedIssueCount: input.omittedIssueCount,
       omittedIssues: input.omittedIssues,
+      meterEstimated: input.meterEstimated,
+      meterConfidence: input.meterConfidence,
     });
   } catch {
     // parseScoreDoc throws on malformed MusicXML — a corrupt engine
@@ -600,6 +626,21 @@ export function engineDocumentFromResult(
         Record<string, unknown> | undefined;
       const n = summary?.omitted;
       return typeof n === "number" && n > 0 ? n : 0;
+    })(),
+    // #80-4: meta.meterEstimated + meta.meterConfidence — the auto
+    //  meter's provenance. Older results lack the keys (undefined
+    //  stays undefined; the inspector shows no marker, never guesses).
+    meterEstimated: (() => {
+      const meta = r.meta as Record<string, unknown> | undefined;
+      return typeof meta?.meterEstimated === "boolean"
+        ? meta.meterEstimated
+        : undefined;
+    })(),
+    meterConfidence: (() => {
+      const meta = r.meta as Record<string, unknown> | undefined;
+      return typeof meta?.meterConfidence === "number"
+        ? meta.meterConfidence
+        : undefined;
     })(),
   };
 }

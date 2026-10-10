@@ -34,6 +34,7 @@ const MODEL: ScoreInspectorModel = {
   meterLabel: "4/4",
   meterBeats: 4,
   meterUnit: 4,
+  meterEstimateLabel: null,
   pickupBeats: 1,
   pickupBeatsRaw: "1/1",
   pickupLabel: "弱起1拍",

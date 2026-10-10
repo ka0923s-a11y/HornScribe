@@ -1479,6 +1479,12 @@ export const ja = {
       major: "長調",
       minor: "短調",
     },
+    /* #80-4: head-meter provenance — the auto-estimator's name, plus
+     *  the 要確認 marker when its margin sat below the engine's own
+     *  uncertain threshold (a meter_conflict issue flags the same
+     *  span, so the two signals agree). */
+    meterEstimate: (uncertain: boolean) =>
+      uncertain ? "自動推定（確度が低いため要確認）" : "自動推定",
     /** #145: key-map editor — one row per detected boundary plus an
      *  "add" row; the head row edits the piece key without collapsing
      *  the map (keyChangeAt at beat 0). */
@@ -1816,6 +1822,34 @@ export const ja = {
         clauses.push("元音源と聴き比べて確認してください");
       }
       return clauses.join("。") + "。";
+    },
+    /* #80-4: meter_conflict evidence — distinguishes "推定不能" (the
+     *  estimator could not justify any pick, confidence 0) from
+     *  "推定したが確度低" (a pick exists but the margin is thin), and
+     *  names the runner-up when one exists. The engine always falls
+     *  back to 4/4 when uncertain, so the written meter is named. */
+    meterConflict: (p: {
+      readonly estimated: string;
+      readonly runnerUp: string | null;
+      readonly confidencePct: number | null;
+    }) => {
+      const candidates = p.runnerUp
+        ? p.estimated + " / " + p.runnerUp
+        : p.estimated;
+      if (p.confidencePct === 0) {
+        return (
+          "拍子を確定できませんでした（候補: " +
+          candidates +
+          "）。記譜は 4/4 になっています。元音源を聴き比べて正しい拍子を選んでください。"
+        );
+      }
+      return (
+        "自動推定は " +
+        p.estimated +
+        " ですが確度が低いため、記譜は 4/4 になっています" +
+        (p.runnerUp ? "（次点: " + p.runnerUp + "）" : "") +
+        "。元音源を聴き比べて正しい拍子を選んでください。"
+      );
     },
     // #358: pickup-uncertainty evidence — names the inferred
     // anacrusis, each flag that makes it unsure (accent phase /

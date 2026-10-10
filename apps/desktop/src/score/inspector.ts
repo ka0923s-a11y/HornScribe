@@ -64,6 +64,10 @@ export interface ScoreInspectorModel {
    *  "n/m" label — null when the score carries no usable signature. */
   readonly meterBeats: number | null;
   readonly meterUnit: number | null;
+  /** #80-4: estimation provenance for the head meter — "自動推定"
+   *  (confident) or "自動推定・要確認" (below the engine's uncertain
+   *  threshold); null for pinned meters and foreign/fixture docs. */
+  readonly meterEstimateLabel: string | null;
   /** #358: anacrusis in head-signature beats (may be fractional, e.g.
    *  0.5 for an eighth pickup) — null for payload-less documents. */
   readonly pickupBeats: number | null;
@@ -151,6 +155,10 @@ export interface InspectorCopy {
   key(fifths: number, mode?: KeyMode | null): string;
   /** #358: anacrusis label — beatsLabel null means 弱起なし. */
   pickup(beatsLabel: string | null): string;
+  /** #80-4: meter-provenance hint — uncertain=true when the
+   *  estimator's margin sat below its own threshold (a meter_conflict
+   *  issue flags the same). */
+  meterEstimate(uncertain: boolean): string;
 }
 
 const FIFTHS_JA: Record<string, string> = {
@@ -260,6 +268,13 @@ export function buildScoreInspector(
   view: PitchViewSetting = "concert",
 ): ScoreInspectorModel {
   const meter = parseMeterLabel(meta.meter);
+  /* #80-4: the engine's uncertain threshold is 0.2
+   *  (transcription/meter.py UNCERTAIN_CONFIDENCE) — below it the
+   *  written signature is a 4/4 fallback the review list also flags.
+   *  The inspector distinguishes that from a confident estimate so a
+   *  guessed meter never reads as confirmed. */
+  const meterUncertain =
+    meta.meterConfidence != null && meta.meterConfidence < 0.2;
   // #270: the inspector mirrors the document the user is looking at —
   // in the written Horn in F view every signature is projected +1
   // fifth (folded), matching the score's own key display.
@@ -275,6 +290,8 @@ export function buildScoreInspector(
     meterLabel: meta.meter,
     meterBeats: meter?.beats ?? null,
     meterUnit: meter?.unit ?? null,
+    meterEstimateLabel:
+      meta.meterEstimated === true ? copy.meterEstimate(meterUncertain) : null,
     // #358: canonical pickup — "0/1" still shows 弱起なし so the
     // user can tell an explicit no-pickup apart from an unknown one
     // (payload-less docs leave null and hide the row).
