@@ -26,6 +26,7 @@ import {
   ArrowSwap24Regular,
   Save24Regular,
   SaveEdit24Regular,
+  Print24Regular,
   DocumentBulletList24Regular,
   DocumentQueue24Regular,
   Search24Regular,
@@ -224,6 +225,14 @@ export function CommandBar({
             label: commands.title("export.openInMuseScore"),
             icon: <Open24Regular />,
             disabled: !commands.isEnabled("export.openInMuseScore"),
+          } satisfies HsMenuItem,
+          // #112: print with a projection chooser — Ctrl+P stays the
+          //  single-step current-view path.
+          {
+            key: "print-options",
+            label: commands.title("score.printWithOptions"),
+            icon: <Print24Regular />,
+            disabled: !commands.isEnabled("score.printWithOptions"),
           } satisfies HsMenuItem,
         ]
       : []),
@@ -745,6 +754,8 @@ export function CommandBar({
           else if (key === "save-as") commands.invoke("project.saveAs");
           else if (key === "musescore")
             commands.invoke("export.openInMuseScore");
+          else if (key === "print-options")
+            commands.invoke("score.printWithOptions");
           else if (key === "note-longer") commands.invoke("score.noteLonger");
           else if (key === "note-shorter") commands.invoke("score.noteShorter");
           else if (key === "note-shift-left")

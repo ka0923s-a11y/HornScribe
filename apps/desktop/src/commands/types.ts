@@ -10,6 +10,16 @@
  *  layer does not depend on a component file. */
 export type PitchViewSetting = "concert" | "hornF" | "bFlat";
 
+/** #112: which projection(s) the print/PDF-via-webview path renders.
+ *  "current" keeps the WYSIWYG default; "all" renders every available
+ *  presentation consecutively. */
+export type PrintScope =
+  | "current"
+  | "concert"
+  | "hornF"
+  | "bFlat"
+  | "all";
+
 /** Top-level screens that gate command availability. */
 export type AppView = "workspace" | "settings";
 
@@ -171,8 +181,11 @@ export interface CommandContext {
   reviewDeleteOrRestore?(): void;
   exitReview?(): void;
   /** #102: print the score via the webview print UI (PDF without
-   *  MuseScore). */
-  printScore?(): void;
+   *  MuseScore). #112: scope selects the projection(s); default is
+   *  the on-screen presentation. */
+  printScore?(scope?: PrintScope): void;
+  /** #112: open the print-projection chooser dialog. */
+  openPrintOptions?(): void;
   /** #361: toggle the 要確認一覧 navigator popover (I key). */
   reviewToggleNavigator?(): void;
   undo(): void;

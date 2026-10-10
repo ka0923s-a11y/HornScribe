@@ -2680,18 +2680,37 @@ body {
     padding: 12mm 10mm;
     break-after: page;
     display: flex;
-    justify-content: center;
-    align-items: flex-start;
+    /* #112: column flow so a projection heading can sit above the
+       score on the first page of each group. */
+    flex-direction: column;
+    align-items: stretch;
     overflow: hidden;
   }
   .hs-print-page:last-child {
     break-after: auto;
   }
+  /* #112: projection label at the top of a group's first page
+     (コンサートピッチ / F管ホルン / B♭管ホルン). */
+  .hs-print-heading {
+    margin: 0 0 4mm;
+    font-size: 10pt;
+    text-align: center;
+    /* explicit ink — the app theme can be dark, and inherited text
+       color would print (and preview) near-white on the paper. */
+    color: #000;
+  }
+  .hs-print-score {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
   /* Verovio's outer svg carries only px width/height — the nested
      svg.definition-scale owns the viewBox — so pin the A4 aspect
      ratio; otherwise the forced mm width could not preserve the
      page's height (no intrinsic ratio on the outer element). */
-  .hs-print-page > svg {
+  .hs-print-score > svg {
     display: block;
     width: 100%;
     height: auto;

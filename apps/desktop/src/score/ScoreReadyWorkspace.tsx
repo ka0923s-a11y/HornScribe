@@ -24,8 +24,9 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { Radio, RadioGroup } from "@fluentui/react-components";
 import { ja } from "../strings/ja";
-import type { PitchViewSetting } from "../commands/types";
+import type { PitchViewSetting, PrintScope } from "../commands/types";
 import type { ScoreDocumentPort } from "./document";
 import { ScoreView } from "./ScoreView";
 import {
@@ -151,6 +152,19 @@ interface Selection {
   exportId: string;
   canonicalId: string | null;
 }
+
+/** #112: a print page that opens a new projection group carries the
+ *  group's heading — printed above that group's first page so a
+ *  3-projection job stays readable on paper. */
+type PrintPage = RenderedPage & { heading?: string };
+
+/** Projection label shared by the chooser dialog and page headings. */
+const pitchLabel = (v: PitchViewSetting): string =>
+  v === "concert"
+    ? ja.pitch.concert
+    : v === "hornF"
+      ? ja.pitch.hornF
+      : ja.pitch.bFlat;
 
 interface Props {
   document: ScoreDocumentPort;
@@ -491,8 +505,14 @@ export function ScoreReadyWorkspace({
   // #102: the print render — a full A4-paged pass kept outside the
   //  app root (portal) so print CSS can hide the chrome and keep
   //  only the score. Non-null only for the print()'s lifetime.
-  const [printPages, setPrintPages] = useState<RenderedPage[] | null>(
+  const [printPages, setPrintPages] = useState<PrintPage[] | null>(
     null,
+  );
+  /* #112: print-projection chooser — score.printWithOptions opens it;
+   *  Ctrl+P stays the single-step current-view path. */
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [printScopeSel, setPrintScopeSel] = useState<PrintScope>(
+    "current",
   );
   /** #247: total page count for the current render config — kept
    *  separate from `pages`, which in page mode only ever holds the
@@ -934,16 +954,68 @@ export function ScoreReadyWorkspace({
    *  renderForPrint paginates at the canonical scale in a
    *  self-contained pass — the user's view mode and zoom stay
    *  untouched, so no screen re-render is needed afterwards. */
-  const printScore = useCallback(() => {
-    const r = rendererRef.current;
-    if (!r) return;
-    try {
-      const all = r.renderForPrint();
-      if (all.length > 0) setPrintPages(all);
-    } catch {
-      announce(ja.scoreView.printFailed);
-    }
-  }, [announce]);
+  const printScore = useCallback(
+    (scope: PrintScope = "current") => {
+      const r = rendererRef.current;
+      if (!r) return;
+      const visible = partMixRef.current.map((m) => m.visible);
+      const currentXml = () =>
+        filterScorePartsXml(scoreDoc.musicXml(pitchRef.current), visible);
+      const views: PitchViewSetting[] =
+        scope === "current"
+          ? [pitchRef.current]
+          : scope === "all"
+            ? scoreDoc.supportsPitchView?.("bFlat")
+              ? ["concert", "hornF", "bFlat"]
+              : ["concert", "hornF"]
+            : [scope];
+      /* #112: non-current scopes load each presentation in turn and
+       *  renderForPrint it, then reload the on-screen document so the
+       *  renderer always holds the view the screen shows (page-mode
+       *  prefetch and the playback timemap both read the loaded doc).
+       *  The DOM pages state is never touched — the screen keeps the
+       *  already-rendered SVGs throughout. */
+      const offView = views.length !== 1 || views[0] !== pitchRef.current;
+      try {
+        if (!offView) {
+          const all = r.renderForPrint();
+          if (all.length > 0) setPrintPages(all);
+          return;
+        }
+        const collected: PrintPage[] = [];
+        for (const v of views) {
+          const ok = r.load(
+            filterScorePartsXml(scoreDoc.musicXml(v), visible),
+          );
+          if (!ok) throw new Error("score load failed");
+          const pages = r.renderForPrint();
+          pages.forEach((p, i) =>
+            collected.push(
+              i === 0 ? { ...p, heading: pitchLabel(v) } : p,
+            ),
+          );
+        }
+        if (collected.length > 0) setPrintPages(collected);
+      } catch {
+        announce(ja.scoreView.printFailed);
+      } finally {
+        if (offView) {
+          try {
+            r.load(currentXml());
+          } catch {
+            /* the next renderScore surfaces the real error */
+          }
+        }
+      }
+    },
+    [announce, scoreDoc],
+  );
+
+  /** #112: score.printWithOptions — open the projection chooser. */
+  const openPrintOptions = useCallback(() => {
+    setPrintScopeSel("current");
+    setPrintDialogOpen(true);
+  }, []);
 
   // #102: once the print pages mount (portal, outside #root so the
   //  chrome-hiding print CSS can't hide them too), mark the body,
@@ -2569,7 +2641,8 @@ const setKey = useCallback(
           renderScore(pitchRef.current, { keepScroll: true });
         }
       },
-      printScore: () => printScore(),
+      printScore: (scope) => printScore(scope),
+      openPrintOptions: () => openPrintOptions(),
       openReview: () => openReview(),
       openReviewAt: (i) => openReviewAt(i),
       reviewNext: () => stepReviewOpen(1),
@@ -2632,6 +2705,7 @@ const setKey = useCallback(
     stepReviewOpen,
     toggleNavigator,
     printScore,
+    openPrintOptions,
     reviewAccept,
     reviewDismiss,
     reviewAcceptSameReason,
@@ -3055,14 +3129,71 @@ const setKey = useCallback(
           <div className="hs-print-pages" aria-hidden="true">
             {printPages.map((p) => (
               <div
-                key={p.page}
+                key={(p.heading ?? "") + "-" + p.page}
                 className="hs-print-page"
-                dangerouslySetInnerHTML={{ __html: p.svg }}
-              />
+              >
+                {p.heading ? (
+                  <p className="hs-print-heading">{p.heading}</p>
+                ) : null}
+                <div
+                  className="hs-print-score"
+                  dangerouslySetInnerHTML={{ __html: p.svg }}
+                />
+              </div>
             ))}
           </div>,
           document.body,
         )}
+      {/* #112: print-projection chooser — the score.printWithOptions
+          command (menu / palette) opens it; Ctrl+P stays the
+          single-step current-view path. */}
+      <HsDialog
+        open={printDialogOpen}
+        onOpenChange={setPrintDialogOpen}
+        title={s.printDialogTitle}
+        actions={
+          <>
+            <HsButton
+              variant="secondary"
+              onClick={() => setPrintDialogOpen(false)}
+            >
+              {ja.common.cancel}
+            </HsButton>
+            <HsButton
+              variant="primary"
+              onClick={() => {
+                setPrintDialogOpen(false);
+                printScore(printScopeSel);
+              }}
+            >
+              {s.printRun}
+            </HsButton>
+          </>
+        }
+      >
+        <RadioGroup
+          aria-label={s.printDialogTitle}
+          value={printScopeSel}
+          onChange={(_, d) => setPrintScopeSel(d.value as PrintScope)}
+        >
+          <Radio
+            value="current"
+            label={s.printScopeCurrent(pitchLabel(pitch))}
+          />
+          <Radio value="concert" label={ja.pitch.concert} />
+          <Radio value="hornF" label={ja.pitch.hornF} />
+          <Radio
+            value="bFlat"
+            label={
+              scoreDoc.supportsPitchView?.("bFlat")
+                ? ja.pitch.bFlat
+                : ja.pitch.bFlatUnavailable
+            }
+            disabled={!scoreDoc.supportsPitchView?.("bFlat")}
+          />
+          <Radio value="all" label={s.printScopeAll} />
+        </RadioGroup>
+      </HsDialog>
     </div>
   );
 }
