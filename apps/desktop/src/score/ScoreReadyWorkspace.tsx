@@ -1764,7 +1764,12 @@ export function ScoreReadyWorkspace({
           : session.transposeIssueNote(member.id, sig.semitones, groupId);
       if (edit) applied += 1;
     }
-    if (applied === 0) return;
+    if (applied === 0) {
+      // Every member was already in the target state — say so
+      //  instead of a silent no-op.
+      announce(ja.review.feedback.noBatchRemedy);
+      return;
+    }
     bumpDoc();
     reportInspector();
     announce(ja.review.feedback.remedyAppliedMany(applied));
