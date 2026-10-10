@@ -293,7 +293,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 9.3,
+      "runtimeSec": 9.9,
       "alignedErrMs": 0.0,
       "axisWarn": false,
       "expected": 38,
@@ -313,7 +313,10 @@
       "fn": 0,
       "accompDetected": 56,
       "accompOnsetF1": 0.625,
-      "accompTpFpFn": "55/1/65"
+      "accompTpFpFn": "55/1/65",
+      "accompPitchAcc": 0.583,
+      "accompPitchMatched": 36,
+      "accompPitchExact": 21
     },
     {
       "fixture": "jpop-mix-vocal",
@@ -322,7 +325,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 6.8,
+      "runtimeSec": 6.4,
       "alignedErrMs": 0.0,
       "axisWarn": false,
       "expected": 38,
@@ -342,7 +345,10 @@
       "fn": 0,
       "accompDetected": 56,
       "accompOnsetF1": 0.625,
-      "accompTpFpFn": "55/1/65"
+      "accompTpFpFn": "55/1/65",
+      "accompPitchAcc": 0.583,
+      "accompPitchMatched": 36,
+      "accompPitchExact": 21
     },
     {
       "fixture": "jpop-mix-hard-raw",
@@ -351,7 +357,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 9.3,
+      "runtimeSec": 9.7,
       "alignedErrMs": 0.0,
       "axisWarn": false,
       "expected": 38,
@@ -371,7 +377,10 @@
       "fn": 0,
       "accompDetected": 112,
       "accompOnsetF1": 0.7568,
-      "accompTpFpFn": "112/0/72"
+      "accompTpFpFn": "112/0/72",
+      "accompPitchAcc": 0.327,
+      "accompPitchMatched": 98,
+      "accompPitchExact": 32
     },
     {
       "fixture": "jpop-mix-hard-vocal",
@@ -380,7 +389,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 5.9,
+      "runtimeSec": 6.1,
       "alignedErrMs": 0.0,
       "axisWarn": false,
       "expected": 38,
@@ -400,7 +409,10 @@
       "fn": 0,
       "accompDetected": 112,
       "accompOnsetF1": 0.7568,
-      "accompTpFpFn": "112/0/72"
+      "accompTpFpFn": "112/0/72",
+      "accompPitchAcc": 0.327,
+      "accompPitchMatched": 98,
+      "accompPitchExact": 32
     },
     {
       "fixture": "auto-4-4-96",
@@ -611,7 +623,10 @@
       "fn": 0,
       "accompDetected": 112,
       "accompOnsetF1": 0.7568,
-      "accompTpFpFn": "112/0/72"
+      "accompTpFpFn": "112/0/72",
+      "accompPitchAcc": 0.33,
+      "accompPitchMatched": 100,
+      "accompPitchExact": 33
     },
     {
       "fixture": "boundary-4-4",
@@ -646,7 +661,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 5.0,
+      "runtimeSec": 5.1,
       "alignedErrMs": 0.0,
       "axisWarn": false,
       "expected": 16,
@@ -666,7 +681,10 @@
       "fn": 0,
       "accompDetected": 0,
       "accompOnsetF1": 0.0,
-      "accompTpFpFn": "0/0/1"
+      "accompTpFpFn": "0/0/1",
+      "accompPitchAcc": null,
+      "accompPitchMatched": 0,
+      "accompPitchExact": 0
     },
     {
       "fixture": "octave-leaps-4-4",
@@ -701,7 +719,7 @@
       "meterDetected": "4/4",
       "meterOk": true,
       "tempoRatio": 1.0,
-      "runtimeSec": 5.9,
+      "runtimeSec": 6.8,
       "alignedErrMs": 468.8,
       "axisWarn": true,
       "expected": 38,
@@ -721,7 +739,10 @@
       "fn": 4,
       "accompDetected": 113,
       "accompOnsetF1": 0.7609,
-      "accompTpFpFn": "113/0/71"
+      "accompTpFpFn": "113/0/71",
+      "accompPitchAcc": 0.303,
+      "accompPitchMatched": 99,
+      "accompPitchExact": 30
     },
     {
       "fixture": "detuned-horn-4-4",

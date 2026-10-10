@@ -1219,6 +1219,44 @@ def _onset_f1(expected: list[float], got: list[float]) -> dict:
     }
 
 
+def _accomp_pitch_acc(
+    truth: tuple[Note, ...], detected: list[tuple[float, float]]
+) -> dict:
+    """#136: onset F1 never looks at pitch — and on the accomp staff the
+    detector loves placing notes on harmonic partials (+12/+19/+31).
+    Score the onset-matched pairs on semitone-exact pitch.  Matching
+    mirrors _onset_f1 (greedy nearest in the 150 ms window, 1:1) but
+    only against PITCHED truth — a drum-hit 'note' has no fair pitch
+    to be wrong about.
+    """
+    pitched = [n for n in truth if n.timbre != "noise"]
+    used = [False] * len(detected)
+    matched = 0
+    exact = 0
+    for n in pitched:
+        best = None
+        best_d = ONSET_TOL_S
+        for k, (o, _m) in enumerate(detected):
+            if used[k]:
+                continue
+            d = abs(o - n.onset)
+            if d <= best_d:
+                best, best_d = k, d
+        if best is None:
+            continue
+        used[best] = True
+        matched += 1
+        if int(round(detected[best][1])) == n.midi:
+            exact += 1
+    return {
+        "accompPitchAcc": (
+            round(exact / matched, 3) if matched else None
+        ),
+        "accompPitchMatched": matched,
+        "accompPitchExact": exact,
+    }
+
+
 # ----------------------------------------------------------------- main
 
 
@@ -1316,6 +1354,7 @@ def main() -> int:
                     "accompDetected": len(accomp),
                     "accompOnsetF1": a_ons["onsetF1@150ms"],
                     "accompTpFpFn": f"{a_ons['tp']}/{a_ons['fp']}/{a_ons['fn']}",
+                    **_accomp_pitch_acc(fx.backing, accomp),
                 }
             meta = result.get("meta") or {}
             row = {
@@ -1372,9 +1411,10 @@ def main() -> int:
     md = ["# E2E transcription accuracy benchmark", ""]
     md.append(
         "| fixture | pitch acc | octaveOff | miss/extra | onset F1@150ms"
-        " | med err ms | axis err ms | accomp F1 (tp/fp/fn) | tempo (ratio) | meter (ok) | s | note |"
+        " | med err ms | axis err ms | accomp F1 (tp/fp/fn) | accomp pAcc"
+        " | tempo (ratio) | meter (ok) | s | note |"
     )
-    md.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    md.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in rows:
         accomp_cell = (
             f"{r['accompOnsetF1']} ({r['accompTpFpFn']})"
@@ -1384,18 +1424,23 @@ def main() -> int:
         axis_cell = r.get("alignedErrMs", "-")
         if r.get("axisWarn"):
             axis_cell = f"{axis_cell} !"
+        pacc_cell = (
+            f"{r['accompPitchAcc']} ({r['accompPitchExact']}/{r['accompPitchMatched']})"
+            if r.get("accompPitchAcc") is not None
+            else "-"
+        )
         md.append(
             (
                 f"| {r['fixture']} | {r['pitchAccuracy']} | {r['octaveOff']} "
                 f"| {r['missing']}/{r['extra']} | {r['onsetF1@150ms']} | {r['medianOnsetErrMs']} "
-                f"| {axis_cell} | {accomp_cell} "
+                f"| {axis_cell} | {accomp_cell} | {pacc_cell} "
                 f"| {r['tempoBpmDetected']} ({r['tempoRatio']}) "
                 f"| {r['meterDetected']} ({r['meterOk']}) "
                 f"| {r['runtimeSec']} | {r['note']} |"
             )
             if "error" not in r
             else (
-                f"| {r['fixture']} | - | - | - | - | - | - | - | - | - "
+                f"| {r['fixture']} | - | - | - | - | - | - | - | - | - | - "
                 f"| {r['runtimeSec']} | **job failed**: {r['error']} |"
             )
         )
