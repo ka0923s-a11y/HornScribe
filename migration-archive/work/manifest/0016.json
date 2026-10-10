@@ -1,1 +1,0 @@
-{"idx": 16, "sha": "bd01f344dcad9e585a59ff6cfc3efcadeb52a0b5", "message": "docs: remove duplicate ADR-0001 variant\n", "entries": [{"path": "docs/adr/ADR-0001-desktop-gui-architecture.md", "action": "delete"}]}
