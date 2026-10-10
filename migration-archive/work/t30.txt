@@ -1,0 +1,2 @@
+    proc.stdin.write(line + "\n")
+    proc.stdin.flush()

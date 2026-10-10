@@ -1,0 +1,214 @@
+CREATE 2 -> #1 docs: GitHub Actions を使わないローカルリリース手順/runbook の整備
+  close rc=0
+  comment .work/issue2_close.md rc=0
+CREATE 21 -> #2 [orig #351] 録音・再生機能の残件整理（device/pause/保護）
+  close rc=0
+  comment .work/new-issue-1.md rc=0
+  comment .work/new-issue-2.md rc=0
+  comment .work/new-issue-3.md rc=0
+  comment .work/issue21_close.md rc=0
+CREATE 42 -> #3 録音開始前の入力モニター(プリレコ・レベルメーター)
+  close rc=0
+CREATE 44 -> #4 export: MusicXML コードシンボル (<harmony>) エクスポート
+  close rc=0
+  comment .work/issue44_close.md rc=0
+CREATE 63 -> #5 録音中もコマンド未経由の採譜・キュー追加経路が発火できる
+  close rc=0
+CREATE 69 -> #6 録音開始待ちの間 UI が実体のない「録音中」になる (phantom recording state)
+  close rc=0
+CREATE 97 -> #7 fix: 録音開始時に元音源の再生が止まらず録音に混入する
+  close rc=0
+CREATE 99 -> #8 feat: 録音開始カウントイン(ループバック切替・楽器準備の猶予)
+  close rc=0
+CREATE 100 -> #9 feat: ループバック録音は全ミックス対象 — 対象アプリ限定キャプチャの検討 + 注意喚起
+SKIP 2 -> 1
+SKIP 21 -> 2
+SKIP 42 -> 3
+SKIP 44 -> 4
+SKIP 63 -> 5
+SKIP 69 -> 6
+SKIP 97 -> 7
+SKIP 99 -> 8
+SKIP 100 -> 9
+CREATE 102 -> #10 ux: ほぼ無音の録音も確認なく音源として取り込まれる
+  close rc=0
+CREATE 104 -> #11 feat: 参照音源を聴きながら録音するプレイアロングモード(マイク)
+  close rc=0
+CREATE 105 -> #12 feat: 録音中のライブ波形表示
+  close rc=0
+CREATE 118 -> #13 feat: 録音開始のキーボードショートカット(Ctrl+R — 前回と同じソース)
+  close rc=0
+CREATE 120 -> #14 fix: ダークテーマでスコア紙面上のUIテキストが不可視 — 空/採譜中/エラー状態が読めない
+  close rc=0
+CREATE 123 -> #15 feat: スコア編集 単旋律にまとめる (voices/chords → ソロF管パート)
+  close rc=0
+CREATE 125 -> #16 fix: ScoreReadyWorkspace の状態ミラー effect が無限再レンダー (onStateChan
+  close rc=0
+CREATE 127 -> #17 fix: melody テクスチャで持続音の分割断片を同ピッチマージで修復 (JPOP ミックス)
+  close rc=0
+CREATE 129 -> #18 review候補: mono テクスチャでも持続音の分割断片が起こり得るか (実録音で要観測)
+  close rc=0
+CREATE 130 -> #19 精度: 同音域ピッチド伴奏が旋律枠を掠める (jpop-mix-hard 実測 pitch 89-92%)
+  close rc=0
+  comment _issue130_comment.md rc=0
+CREATE 131 -> #20 bench: swing-4-4 の onset F1 は straight 記譜と swung 真値の計測モデル不整合
+  close rc=0
+CREATE 137 -> #21 リリース手順が存在しない GitHub Actions ワークフロー前提 — ローカル完結の正式リリース経路が必要
+  close rc=0
+  comment _issue137_close.md rc=0
+CREATE 138 -> #22 fix: process loopback crashes on activation (0xC0000374) + G
+  close rc=0
+  comment _issue138_close.md rc=0
+CREATE 141 -> #23 release: v0.2.0 が起動不能 — WebView2Loader.dll 未同梱 (インストーラ/ポータブル
+  close rc=0
+CREATE 143 -> #24 engine: prefer=top が伴奏ストラムの高音を旋律として採用する (jpop-mix-hard pitch
+  close rc=0
+CREATE 147 -> #25 release: v0.2.0 の起動不能バイナリがダウンロード可能なまま残っている (v0.2.1 アセットは実機検証
+  close rc=0
+  comment _issue147_close.md rc=0
+CREATE 148 -> #26 dev: #/dev/state/* と #/dev/transcribing で採譜が動かない — dev state
+  close rc=0
+CREATE 149 -> #27 fix(audio): sha256_file の 1MiB スタックバッファで録音/取り込み時に 0xC00000FD
+  close rc=0
+  comment _issue149_close.md rc=0
+CREATE 153 -> #28 ux(errors): NO_PITCHED_CONTENT に専用コピーと回復導線を出す
+  close rc=0
+CREATE 155 -> #29 fix(engine): job.start がウォームアップ import で 10s タイムアウトし初回採譜が必ず失
+  close rc=0
+CREATE 156 -> #30 feat(instruments): B♭ 管（トランペット/クラリネット等）対応
+  close rc=0
+CREATE 163 -> #31 白抜きUI: ダークテーマで楽譜紙面上のテキスト・ボタンが不可視
+  close rc=0
+CREATE 165 -> #32 採譜精度の限界: -9.5dB 級の埋もれた主旋律で残り約10%が取れない（SNR下限）
+  close rc=0
+  comment _issue165_update.md rc=0
+  comment _issue165_verify.md rc=0
+  comment _issue165_other.md rc=0
+  comment _issue165_close.md rc=0
+CREATE 166 -> #33 録音停止後すぐ採譜へ進める導線（record → transcribe のワンクリック化）
+  close rc=0
+CREATE 167 -> #34 レビュー改善: 同じ要確認理由が連続する場合のまとめ処理
+  close rc=0
+CREATE 169 -> #35 demucs が非ボーカル入力で無音 stem を返し vocalIsolation が壊滅する
+  close rc=0
+CREATE 172 -> #36 copyDrift: noPitchedContent がコピーデッキ未登録で main が赤い
+  close rc=0
+CREATE 177 -> #37 パッケージ版でアプリを閉じれない(X・Alt+F4・終了確認が全て無反応) — allow-destroy 未付与
+  close rc=0
+  comment _issue_177_resolve.md rc=0
+CREATE 179 -> #38 エンジン系コマンドのブロッキング I/O が UI(メインスレッド)を凍らせ得る — writer スレッド化と終了時の
+  close rc=0
+CREATE 181 -> #39 ボーカル分離の品質ティア — htdemucs_ft + shift 平均の「高精度」オプションを追加
+  close rc=0
+CREATE 184 -> #40 エンジン起動: onefile 解凍 (~40-50s) が handshake タイムアウト (30s) を超え、正常
+  close rc=0
+CREATE 185 -> #41 engine kill が PyInstaller 孫プロセスを孤児化 — ハング採譜が裏で走り続ける
+  close rc=0
+CREATE 186 -> #42 frozen engine を onefile → onedir 化してコールドスタートを大幅短縮
+  close rc=0
+CREATE 189 -> #43 分離品質セレクトが demucs 未導入環境で無効なのに有効に見える — capabilities で制御
+  close rc=0
+CREATE 190 -> #44 demucs のオンデマンド導入経路 — 任意DLのアドオン zip で無料分離強化を実現
+  close rc=0
+  comment .work/issue_new_3.md rc=0
+CREATE 191 -> #45 低 SNR 音源で採譜抜けの可能性をユーザーに伝える表示
+  close rc=0
+CREATE 192 -> #46 アプリを閉じられない — JS ハングとメインスレッドブロックの2経路で X が完全に無反応になる
+  close rc=0
+CREATE 193 -> #47 v0.2.8 NSIS インストーラーにエンジン未同梱（63MB・採譜不可）— onedir 化で resources 
+  close rc=0
+CREATE 199 -> #48 採譜実行中に「エンジンを再起動」を押せるとジョブが黙って中断される
+  close rc=0
+CREATE 201 -> #49 テンポ記号の音符グリフが☒化する（CSP font-src が Verovio 埋め込みフォントをブロック）
+  close rc=0
+CREATE 202 -> #50 定速曲でも小節ごとにテンポマークが乱立し ±15% ばらつく（ビートトラッカージッターの増幅）
+  close rc=0
+CREATE 203 -> #51 主旋律と伴奏を自動で別パートに分けて採譜する（分離ステムの 2 段譜化）
+  close rc=0
+CREATE 204 -> #52 texture=auto でミックス検出時にボーカル分離を自動適用する（JPOP の既定精度を上げる）
+  close rc=0
+CREATE 210 -> #53 パート単位の表示切替と抜粋エクスポート（Horn in F 単体譜）
+  close rc=0
+CREATE 211 -> #54 伴奏パートの再生音色を主旋律と区別する
+  close rc=0
+CREATE 212 -> #55 伴奏パートの出典バッジ（自動分離由来である旨の表示）
+  close rc=0
+CREATE 213 -> #56 伴奏パートの和声保持採譜（コードボイシング/ピアノ型/コードトラック）
+  close rc=0
+CREATE 218 -> #57 requantize がマージされたポリフォニックパート（chords/伴奏）の和音を単旋律化する
+  close rc=0
+CREATE 220 -> #58 レビューマーカーの密度が高すぎて譜面が読めない（同一理由の集約表示が欲しい）
+  close rc=0
+CREATE 222 -> #59 low_lead_level の案内が到達不能な「高精度再採譲」を勧める（demucs未導入時/既に高精度実行時）
+  close rc=0
+CREATE 227 -> #60 レビュー案内の画面名・方式名が実装とずれている箇所の修正（accompaniment_part / vocal_isol
+  close rc=0
+CREATE 229 -> #61 demucs 初回モデルダウンロード中、採譜画面が無言で数分間停止して見える
+  close rc=0
+CREATE 230 -> #62 perf: path-backed source が WebView IPC に全バイト転送する (probe/hash
+  close rc=0
+  comment .work/issue230_close.md rc=0
+CREATE 231 -> #63 実音源で auto テンポが小節単位 ±15% で揺れテンポ記号が乱立する（持続偏差フィルタ）
+  close rc=0
+CREATE 233 -> #64 実ミックスで meter 推定の confidence が実質ゼロになる（meter_conflict 乱発）
+  close rc=0
+CREATE 234 -> #65 主旋律パートの重なり解消が機械的すぎる（和音/ハモリ混入）
+  close rc=0
+CREATE 236 -> #66 主旋律トラックに伴奏ステム由来のサブベース音が混入する（音域外・低音部記号化）
+  close rc=0
+CREATE 237 -> #67 要確認バッジが小節単位で散る — システム単位に集約して譜面の視認性を改善
+  close rc=0
+CREATE 238 -> #68 Leipzig SMuFL フォントをアプリアセットとして同梱する（テンポ記号豆腐化の恒久対策）
+  close rc=0
+CREATE 242 -> #69 fix(tempo): autocorr の散在ブリップがテンポリージョン折り畳みを破壊し、定テンポ曲が誤った拍格子で採
+  close rc=0
+CREATE 244 -> #70 feat(score): 伴奏パートの低信頼度イベントをフィルタして過密譜面を解消する
+  close rc=0
+CREATE 245 -> #71 feat(score): 伴奏パートを大譜表（ト音+ヘ音）でレンダリングし低音域の加線氾濫を解消する
+  close rc=0
+CREATE 247 -> #72 fix(export): 往復検証で連続休符スパンを併合し structural_measure_conflict の誤
+  close rc=0
+CREATE 249 -> #73 伴奏パート由来の per-note レビュー issue が lead の指摘を埋没させている (音域チェック等は tr
+  close rc=0
+CREATE 252 -> #74 リード旋律のオクターブ外れ値（register excursion）が残存 — スペクトル仲裁の修復と verdict 
+  close rc=0
+CREATE 254 -> #75 極短イベント（<120ms）のオクターブ外れ値はスペクトル仲裁不能で残存する
+  close rc=0
+CREATE 256 -> #76 音声証拠（boundary/seam/event accents）が検出元ステムではなくソースミックスを読んでいる
+  close rc=0
+CREATE 259 -> #77 chord: Viterbi smoother is too sticky — real progressions co
+  close rc=0
+CREATE 260 -> #78 meter: 'variable' detection misfires on outlier beat interva
+  close rc=0
+CREATE 262 -> #79 quantizer: triplet run-membership ignores local cost — noise
+  close rc=0
+CREATE 264 -> #80 採譜精度の残存課題（実曲リファレンス検証 v0.2.14 時点）
+  comment _issue264_comment.md rc=0
+CREATE 305 -> #81 fix(score): kind:file ドロップのスコアタイトルが staged 一時ファイル名になる
+  close rc=0
+CREATE 308 -> #82 docs(protocol): transcription params 表が実装と乖離 (vocalIsolation
+  close rc=0
+CREATE 314 -> #83 feat(review): ミックス検出時の remedy にボーカル分離での再採譲提案がない
+  close rc=0
+CREATE 316 -> #84 feat(backend): vocalIsolation 済みの単音入力を pYIN バックエンドへ解決する
+  close rc=0
+CREATE 318 -> #85 feat(ui): キーボードショートカット一覧ヘルプオーバーレイ (F1)
+  close rc=0
+CREATE w0 -> #86 パッケージ版アプリでエンジン(Python)ランタイムを同梱する
+  close rc=0
+CREATE w1 -> #87 拍子(meter)の自動推定 — 現状はauto=4/4固定
+  close rc=0
+CREATE w2 -> #88 複音(polyphonic)音源のトランスクリプション対応
+  close rc=0
+CREATE w3 -> #89 ブラウザdev環境で kind:file の音源を実エンジンに渡せない
+  close rc=0
+CREATE w4 -> #90 録音の自動削除ポリシーとアプリ同梱(エクスポート連携)
+  close rc=0
+CREATE w5 -> #91 波形/時間範囲を選択して部分トランスクリプション
+  close rc=0
+CREATE new_vocal_cache -> #92 vocal 分離ステムキャッシュ (%TEMP%\hornscribe-vocal-cache) に保持ポリシーがなく無
+CREATE new_dirty_indicator -> #93 未保存状態の表示が TitleBar の * のみで気づかれにくい
+  165 body-edit rc=0
+  165 comment rc=0
+  165 comment rc=0
+ALL-DONE

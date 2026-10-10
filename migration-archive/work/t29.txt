@@ -1,0 +1,16 @@
+"""Smoke-test a frozen HornScribe engine binary (#244).
+
+Speaks the worker NDJSON protocol directly: handshake, then one real
+offline transcription job over a generated sine-wave fixture.  The
+release workflow runs this against hornscribe-engine.exe so a broken
+bundle (missing ONNX model, missing librosa, protocol drift) fails CI
+instead of shipping.
+
+    python scripts/smoke_engine.py path/to/hornscribe-engine.exe
+
+Exit 0 on success; prints the failing phase and exits 1 otherwise.
+"""
+
+from __future__ import annotations
+
+import json

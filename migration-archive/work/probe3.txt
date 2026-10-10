@@ -1,0 +1,3 @@
+## Summary
+
+* New 採譜オプション (texture): mono / melody / auto.

@@ -1,0 +1,1 @@
+実装しました (PR #61, commit ffc84b98)。\n\n- SharedBuf にパケットピークを保持し、capture_status ポーリング毎に減衰(×0.7)する簡易メーターを追加\n- 波形領域の録音中表示にレベルバーを追加(hs-waveform__level)\n- ブラウザ dev ポートは AnalyserNode で同等のレベルを供給

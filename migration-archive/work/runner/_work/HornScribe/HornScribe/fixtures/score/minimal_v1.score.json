@@ -1,0 +1,52 @@
+{
+  "content": {
+    "keySignature": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "parts": [
+      {
+        "id": "part-1",
+        "name": "Horn in F",
+        "notes": [
+          {
+            "durationBeats": "1/1",
+            "id": "sn-000001",
+            "pitchMidi": 60,
+            "sourceEventIds": [
+              "rne-000001"
+            ],
+            "startBeat": "0/1",
+            "tieStart": false,
+            "tieStop": false,
+            "velocity": 80
+          }
+        ]
+      }
+    ],
+    "pickupBeats": "0/1",
+    "quantizationSettings": {
+      "grid": "1/16",
+      "triplets": false
+    },
+    "tempoMap": [
+      {
+        "bpm": 120.0,
+        "startBeat": "0/1"
+      }
+    ],
+    "timeSignature": {
+      "beatUnit": 4,
+      "beatsPerMeasure": 4
+    }
+  },
+  "pitchSpace": "concert",
+  "projectId": "prj-0355f65f8d9170de",
+  "revision": "rev-77eb4a23d731b531",
+  "sourceAudioHash": null,
+  "sourceAudioPath": null,
+  "title": "Fixture",
+  "transcriptionBackend": null,
+  "transcriptionBackendVersion": null,
+  "transcriptionSettings": {}
+}

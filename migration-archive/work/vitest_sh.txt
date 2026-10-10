@@ -1,0 +1,9 @@
+
+ RUN  v5.0.1 C:/Users/ka092/Desktop/HornScribe/apps/desktop
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  06:54:56
+   Duration  5.09s (import 68%, environment 22%, tests 7%, transform 3%)
+

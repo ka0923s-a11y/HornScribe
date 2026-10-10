@@ -1,0 +1,4 @@
+RESP KEYS: ['jobId', 'jobKind', 'state']
+  jobId: job-0001
+  jobKind: transcription
+  state: accepted

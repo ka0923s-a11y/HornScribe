@@ -1,0 +1,2 @@
+* `melody`: overlap resolution keeps the top voice — a lower
+  accompaniment hypothesis is dropped

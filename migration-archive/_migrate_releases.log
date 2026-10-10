@@ -1,0 +1,33 @@
+2026-10-10T09:15:41.6995725+09:00 CREATE v0.2.14 assets=dist\HornScribe-0.2.14-portable-win-x64.zip,dist\HornScribe-demucs-addon-4.1.0-win64.zip
+2026-10-10T09:16:31.1512052+09:00 OK v0.2.14
+2026-10-10T09:16:31.1547890+09:00 CREATE v0.2.13 assets=dist\HornScribe-0.2.13-portable-win-x64.zip,dist\HornScribe-demucs-addon-4.1.0-win64.zip
+2026-10-10T09:17:00.9513689+09:00 OK v0.2.13
+2026-10-10T09:17:00.9537173+09:00 CREATE v0.2.12 assets=dist\HornScribe-0.2.12-portable-win-x64.zip,dist\HornScribe-demucs-addon-4.1.0-win64.zip
+2026-10-10T09:17:29.9153868+09:00 OK v0.2.12
+2026-10-10T09:17:29.9192656+09:00 CREATE v0.2.11 assets=dist\HornScribe-0.2.11-portable-win-x64.zip,dist\HornScribe-demucs-addon-4.1.0-win64.zip
+2026-10-10T09:17:56.8473309+09:00 OK v0.2.11
+2026-10-10T09:17:56.8504771+09:00 CREATE v0.2.10 assets=dist\HornScribe-0.2.10-portable-win-x64.zip
+2026-10-10T09:18:27.5235354+09:00 OK v0.2.10
+2026-10-10T09:18:27.5255547+09:00 CREATE v0.2.9 assets=dist\HornScribe-0.2.9-portable-win-x64.zip
+2026-10-10T09:18:53.6725189+09:00 OK v0.2.9
+2026-10-10T09:18:53.6747886+09:00 CREATE v0.2.8 assets=dist\HornScribe-0.2.8-portable-win-x64.zip
+2026-10-10T09:19:20.3508755+09:00 OK v0.2.8
+2026-10-10T09:19:20.3536694+09:00 CREATE v0.2.7 assets=dist\HornScribe-0.2.7-portable-win-x64.zip
+2026-10-10T09:19:45.0753820+09:00 OK v0.2.7
+2026-10-10T09:19:45.0753820+09:00 CREATE v0.2.6 assets=dist\HornScribe-0.2.6-portable-win-x64.zip
+2026-10-10T09:20:14.0633616+09:00 OK v0.2.6
+2026-10-10T09:20:14.0790762+09:00 CREATE v0.2.5 assets=dist\HornScribe-0.2.5-portable-win-x64.zip
+2026-10-10T09:20:42.0825293+09:00 OK v0.2.5
+2026-10-10T09:20:42.0845895+09:00 CREATE v0.2.4 assets=dist\HornScribe-0.2.4-portable-win-x64.zip
+2026-10-10T09:21:01.8345216+09:00 OK v0.2.4
+2026-10-10T09:21:01.8369579+09:00 CREATE v0.2.3 assets=dist\HornScribe-0.2.3-portable-win-x64.zip
+2026-10-10T09:21:19.4621475+09:00 OK v0.2.3
+2026-10-10T09:21:19.4763765+09:00 CREATE v0.2.2 assets=dist\HornScribe-0.2.2-portable-win-x64.zip
+2026-10-10T09:21:36.0660405+09:00 OK v0.2.2
+2026-10-10T09:21:36.0675250+09:00 CREATE v0.2.1 assets=dist\HornScribe-0.2.1-portable-win-x64.zip
+2026-10-10T09:21:57.4663011+09:00 OK v0.2.1
+2026-10-10T09:21:57.4705554+09:00 CREATE v0.2.0 assets=dist\HornScribe-0.2.0-portable-win-x64.zip
+2026-10-10T09:22:14.4298962+09:00 OK v0.2.0
+2026-10-10T09:22:14.4324715+09:00 CREATE v0.1.0 assets=dist\HornScribe-0.1.0-portable-win-x64.zip
+2026-10-10T09:22:33.2685664+09:00 OK v0.1.0
+2026-10-10T09:22:33.2685664+09:00 DONE

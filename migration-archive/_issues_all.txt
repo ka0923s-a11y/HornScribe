@@ -1,0 +1,60 @@
+249	CLOSED	伴奏パート由来の per-note レビュー issue が lead の指摘を埋没させている (音域チェック等は transposing パートのみに適用すべき)	bug	2026-10-07T13:01:11Z
+247	CLOSED	fix(export): 往復検証で連続休符スパンを併合し structural_measure_conflict の誤報連鎖を解消する		2026-10-07T08:14:15Z
+245	CLOSED	feat(score): 伴奏パートを大譜表（ト音+ヘ音）でレンダリングし低音域の加線氾濫を解消する		2026-10-08T09:56:37Z
+244	CLOSED	feat(score): 伴奏パートの低信頼度イベントをフィルタして過密譜面を解消する		2026-10-06T18:04:07Z
+242	CLOSED	fix(tempo): autocorr の散在ブリップがテンポリージョン折り畳みを破壊し、定テンポ曲が誤った拍格子で採譜される		2026-10-06T17:05:03Z
+238	CLOSED	Leipzig SMuFL フォントをアプリアセットとして同梱する（テンポ記号豆腐化の恒久対策）		2026-10-06T03:02:19Z
+237	CLOSED	要確認バッジが小節単位で散る — システム単位に集約して譜面の視認性を改善		2026-10-06T07:02:22Z
+236	CLOSED	主旋律トラックに伴奏ステム由来のサブベース音が混入する（音域外・低音部記号化）		2026-10-06T13:03:14Z
+234	CLOSED	主旋律パートの重なり解消が機械的すぎる（和音/ハモリ混入）		2026-10-05T19:08:04Z
+233	CLOSED	実ミックスで meter 推定の confidence が実質ゼロになる（meter_conflict 乱発）		2026-10-05T19:08:55Z
+231	CLOSED	実音源で auto テンポが小節単位 ±15% で揺れテンポ記号が乱立する（持続偏差フィルタ）		2026-10-05T07:00:48Z
+229	CLOSED	demucs 初回モデルダウンロード中、採譜画面が無言で数分間停止して見える		2026-10-05T06:17:33Z
+227	CLOSED	レビュー案内の画面名・方式名が実装とずれている箇所の修正（accompaniment_part / vocal_isolation_applied）		2026-10-05T02:00:46Z
+222	CLOSED	low_lead_level の案内が到達不能な「高精度再採譲」を勧める（demucs未導入時/既に高精度実行時）		2026-10-04T18:28:52Z
+220	CLOSED	レビューマーカーの密度が高すぎて譜面が読めない（同一理由の集約表示が欲しい）		2026-10-04T18:08:40Z
+218	CLOSED	requantize がマージされたポリフォニックパート（chords/伴奏）の和音を単旋律化する		2026-10-04T16:00:37Z
+213	CLOSED	伴奏パートの和声保持採譜（コードボイシング/ピアノ型/コードトラック）	enhancement	2026-10-04T15:39:00Z
+212	CLOSED	伴奏パートの出典バッジ（自動分離由来である旨の表示）	enhancement	2026-10-04T10:17:23Z
+211	CLOSED	伴奏パートの再生音色を主旋律と区別する	enhancement	2026-10-04T11:28:16Z
+210	CLOSED	パート単位の表示切替と抜粋エクスポート（Horn in F 単体譜）	enhancement	2026-10-04T10:13:36Z
+204	CLOSED	texture=auto でミックス検出時にボーカル分離を自動適用する（JPOP の既定精度を上げる）		2026-10-04T07:07:02Z
+203	CLOSED	主旋律と伴奏を自動で別パートに分けて採譜する（分離ステムの 2 段譜化）		2026-10-04T07:07:01Z
+202	CLOSED	定速曲でも小節ごとにテンポマークが乱立し ±15% ばらつく（ビートトラッカージッターの増幅）		2026-10-04T01:27:33Z
+201	CLOSED	テンポ記号の音符グリフが☒化する（CSP font-src が Verovio 埋め込みフォントをブロック）		2026-10-04T01:22:27Z
+199	CLOSED	採譜実行中に「エンジンを再起動」を押せるとジョブが黙って中断される	bug	2026-10-04T01:10:17Z
+193	CLOSED	v0.2.8 NSIS インストーラーにエンジン未同梱（63MB・採譜不可）— onedir 化で resources glob がディレクトリをスキップ		2026-10-03T15:48:35Z
+192	CLOSED	アプリを閉じられない — JS ハングとメインスレッドブロックの2経路で X が完全に無反応になる		2026-10-03T15:48:32Z
+191	CLOSED	低 SNR 音源で採譜抜けの可能性をユーザーに伝える表示		2026-10-03T17:21:51Z
+190	CLOSED	demucs のオンデマンド導入経路 — 任意DLのアドオン zip で無料分離強化を実現		2026-10-03T19:02:27Z
+189	CLOSED	分離品質セレクトが demucs 未導入環境で無効なのに有効に見える — capabilities で制御		2026-10-03T14:51:00Z
+186	CLOSED	frozen engine を onefile → onedir 化してコールドスタートを大幅短縮		2026-10-03T14:10:43Z
+185	CLOSED	engine kill が PyInstaller 孫プロセスを孤児化 — ハング採譜が裏で走り続ける		2026-10-03T14:10:42Z
+184	CLOSED	エンジン起動: onefile 解凍 (~40-50s) が handshake タイムアウト (30s) を超え、正常起動中を誤「応答していません」にする		2026-10-03T14:10:42Z
+181	CLOSED	ボーカル分離の品質ティア — htdemucs_ft + shift 平均の「高精度」オプションを追加		2026-10-03T09:37:43Z
+179	CLOSED	エンジン系コマンドのブロッキング I/O が UI(メインスレッド)を凍らせ得る — writer スレッド化と終了時の上限付き待機		2026-10-03T10:16:43Z
+177	CLOSED	パッケージ版でアプリを閉じれない(X・Alt+F4・終了確認が全て無反応) — allow-destroy 未付与		2026-10-03T09:01:34Z
+172	CLOSED	copyDrift: noPitchedContent がコピーデッキ未登録で main が赤い	bug	2026-10-03T05:59:49Z
+169	CLOSED	demucs が非ボーカル入力で無音 stem を返し vocalIsolation が壊滅する		2026-10-03T05:44:07Z
+167	CLOSED	レビュー改善: 同じ要確認理由が連続する場合のまとめ処理		2026-10-03T05:59:08Z
+166	CLOSED	録音停止後すぐ採譜へ進める導線（record → transcribe のワンクリック化）		2026-10-03T05:45:34Z
+165	CLOSED	採譜精度の限界: -9.5dB 級の埋もれた主旋律で残り約10%が取れない（SNR下限）		2026-10-04T18:34:31Z
+163	CLOSED	白抜きUI: ダークテーマで楽譜紙面上のテキスト・ボタンが不可視		2026-10-03T04:37:35Z
+156	CLOSED	feat(instruments): B♭ 管（トランペット/クラリネット等）対応	enhancement	2026-10-02T04:05:17Z
+155	CLOSED	fix(engine): job.start がウォームアップ import で 10s タイムアウトし初回採譜が必ず失敗する	bug	2026-10-01T12:08:25Z
+153	CLOSED	ux(errors): NO_PITCHED_CONTENT に専用コピーと回復導線を出す	enhancement	2026-10-01T11:16:09Z
+149	CLOSED	fix(audio): sha256_file の 1MiB スタックバッファで録音/取り込み時に 0xC00000FD クラッシュ	bug	2026-10-01T07:05:17Z
+148	CLOSED	dev: #/dev/state/* と #/dev/transcribing で採譜が動かない — dev state が音源スロットを seed しない (#219 ゲート以降)		2026-10-01T07:00:57Z
+147	CLOSED	release: v0.2.0 の起動不能バイナリがダウンロード可能なまま残っている (v0.2.1 アセットは実機検証で正常)		2026-10-01T08:05:04Z
+143	CLOSED	engine: prefer=top が伴奏ストラムの高音を旋律として採用する (jpop-mix-hard pitch 0.9474)		2026-10-01T01:31:32Z
+141	CLOSED	release: v0.2.0 が起動不能 — WebView2Loader.dll 未同梱 (インストーラ/ポータブル両方)		2026-09-30T22:25:05Z
+138	CLOSED	fix: process loopback crashes on activation (0xC0000374) + GetMixFormat E_NOTIMPL + session list always empty		2026-09-30T10:06:54Z
+137	CLOSED	リリース手順が存在しない GitHub Actions ワークフロー前提 — ローカル完結の正式リリース経路が必要		2026-09-30T11:15:36Z
+131	CLOSED	bench: swing-4-4 の onset F1 は straight 記譜と swung 真値の計測モデル不整合		2026-09-29T09:56:51Z
+130	CLOSED	精度: 同音域ピッチド伴奏が旋律枠を掠める (jpop-mix-hard 実測 pitch 89-92%)		2026-09-29T09:52:07Z
+129	CLOSED	review候補: mono テクスチャでも持続音の分割断片が起こり得るか (実録音で要観測)		2026-09-29T22:28:56Z
+127	CLOSED	fix: melody テクスチャで持続音の分割断片を同ピッチマージで修復 (JPOP ミックス)		2026-09-29T05:06:40Z
+125	CLOSED	fix: ScoreReadyWorkspace の状態ミラー effect が無限再レンダー (onStateChange 不安定 dep)		2026-09-29T03:33:25Z
+123	CLOSED	feat: スコア編集 単旋律にまとめる (voices/chords → ソロF管パート)		2026-09-29T03:11:09Z
+120	CLOSED	fix: ダークテーマでスコア紙面上のUIテキストが不可視 — 空/採譜中/エラー状態が読めない		2026-09-28T19:26:51Z
+118	CLOSED	feat: 録音開始のキーボードショートカット(Ctrl+R — 前回と同じソース)		2026-09-28T19:18:40Z

@@ -1,0 +1,15 @@
+262	CLOSED	quantizer: triplet run-membership ignores local cost — noise-chained regions mass-enable triplets (26% atoms on a binary-dominant song)		2026-10-09T11:02:03Z
+260	CLOSED	meter: 'variable' detection misfires on outlier beat intervals; redundant-period rule can pop the true 4/4		2026-10-08T23:07:06Z
+259	CLOSED	chord: Viterbi smoother is too sticky — real progressions collapse into a single chord (e.g. whole intro reads A7)		2026-10-08T23:07:05Z
+256	CLOSED	音声証拠（boundary/seam/event accents）が検出元ステムではなくソースミックスを読んでいる		2026-10-08T16:10:33Z
+254	CLOSED	極短イベント（<120ms）のオクターブ外れ値はスペクトル仲裁不能で残存する		2026-10-08T11:06:55Z
+252	CLOSED	リード旋律のオクターブ外れ値（register excursion）が残存 — スペクトル仲裁の修復と verdict 対象バッファの修正	bug	2026-10-08T10:52:23Z
+249	CLOSED	伴奏パート由来の per-note レビュー issue が lead の指摘を埋没させている (音域チェック等は transposing パートのみに適用すべき)	bug	2026-10-07T13:01:11Z
+247	CLOSED	fix(export): 往復検証で連続休符スパンを併合し structural_measure_conflict の誤報連鎖を解消する		2026-10-07T08:14:15Z
+245	CLOSED	feat(score): 伴奏パートを大譜表（ト音+ヘ音）でレンダリングし低音域の加線氾濫を解消する		2026-10-08T09:56:37Z
+244	CLOSED	feat(score): 伴奏パートの低信頼度イベントをフィルタして過密譜面を解消する		2026-10-06T18:04:07Z
+242	CLOSED	fix(tempo): autocorr の散在ブリップがテンポリージョン折り畳みを破壊し、定テンポ曲が誤った拍格子で採譜される		2026-10-06T17:05:03Z
+238	CLOSED	Leipzig SMuFL フォントをアプリアセットとして同梱する（テンポ記号豆腐化の恒久対策）		2026-10-06T03:02:19Z
+237	CLOSED	要確認バッジが小節単位で散る — システム単位に集約して譜面の視認性を改善		2026-10-06T07:02:22Z
+236	CLOSED	主旋律トラックに伴奏ステム由来のサブベース音が混入する（音域外・低音部記号化）		2026-10-06T13:03:14Z
+234	CLOSED	主旋律パートの重なり解消が機械的すぎる（和音/ハモリ混入）		2026-10-05T19:08:04Z

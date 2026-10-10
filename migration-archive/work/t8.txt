@@ -1,0 +1,2 @@
+        {"v": 1, "kind": "request", "id": method, "method": method,
+         "payload": payload},

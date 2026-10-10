@@ -1,0 +1,3 @@
+    except queue.Empty:
+        raise TimeoutError(f"no frame within {timeout_s:.0f}s") from None
+    if not line:

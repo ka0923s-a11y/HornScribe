@@ -1,0 +1,7 @@
+2026-09-25 06:17:11,690 INFO hornscribe.worker: sidecar started pid=37192 protocol=v1 hornscribe=0.1.0
+2026-09-25 06:17:17,410 WARNING root: Coremltools is not installed. If you plan to use a CoreML Saved Model, reinstall basic-pitch with `pip install 'basic-pitch[coreml]'`
+2026-09-25 06:17:17,410 WARNING root: tflite-runtime is not installed. If you plan to use a TFLite Model, reinstall basic-pitch with `pip install 'basic-pitch tflite-runtime'` or `pip install 'basic-pitch[tf]'
+2026-09-25 06:17:17,501 WARNING root: Tensorflow is not installed. If you plan to use a TF Saved Model, reinstall basic-pitch with `pip install 'basic-pitch[tf]'`
+C:\Users\ka092\Desktop\HornScribe\.venv-bp312\Lib\site-packages\resampy\filters.py:50: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+2026-09-25 06:17:18,071 INFO hornscribe.transcription.backend: basic_pitch: Predicting MIDI for C:\Users\ka092\Desktop\HornScribe\.work\runtime-fixture.wav...

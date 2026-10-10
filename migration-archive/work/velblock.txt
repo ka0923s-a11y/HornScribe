@@ -1,0 +1,59 @@
+export function velocityByCanonicalId(
+  canonicalDocument: unknown,
+): Map<string, number> {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  const parts = content?.["parts"];
+  const map = new Map<string, number>();
+  if (!Array.isArray(parts)) return map;
+  for (const rawPart of parts) {
+    const notes = (rawPart as Record<string, unknown>)["notes"];
+    if (!Array.isArray(notes)) continue;
+    for (const rawNote of notes) {
+      const n = rawNote as Record<string, unknown>;
+      const id = n["id"];
+      const v = n["velocity"];
+      if (typeof id === "string" && typeof v === "number") {
+        map.set(id, v);
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * canonicalId -> normalized bend curve, read off the canonical payload's
+ * content.parts[].notes[].pitchBends (#174). Each point's timeSec is the
+ * fractional position inside the note (0..1), bendSemitones the offset.
+ */
+export function bendsByCanonicalId(
+  canonicalDocument: unknown,
+): Map<string, readonly { pos: number; semis: number }[]> {
+  const doc = canonicalDocument as Record<string, unknown> | null;
+  const content = doc?.["content"] as Record<string, unknown> | undefined;
+  const parts = content?.["parts"];
+  const map = new Map<string, readonly { pos: number; semis: number }[]>();
+  if (!Array.isArray(parts)) return map;
+  for (const rawPart of parts) {
+    const notes = (rawPart as Record<string, unknown>)["notes"];
+    if (!Array.isArray(notes)) continue;
+    for (const rawNote of notes) {
+      const n = rawNote as Record<string, unknown>;
+      const id = n["id"];
+      const bends = n["pitchBends"];
+      if (typeof id !== "string" || !Array.isArray(bends)) continue;
+      const curve = bends
+        .map((b) => {
+          const p = (b as Record<string, unknown>)["timeSec"];
+          const s = (b as Record<string, unknown>)["bendSemitones"];
+          return typeof p === "number" && typeof s === "number"
+            ? { pos: p, semis: s }
+            : null;
+        })
+        .filter((x): x is { pos: number; semis: number } => x !== null);
+      if (curve.length > 0) map.set(id, curve);
+    }
+  }
+  return map;
+}
+

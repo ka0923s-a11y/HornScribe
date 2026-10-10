@@ -1,0 +1,26 @@
+[
+  {
+    "title": "パッケージ版アプリでエンジン(Python)ランタイムを同梱する",
+    "body": "## 背景\nPR #82 で実トランスクリプションパイプラインが繋がったが、エンジンのPython解決は HORNSCRIBE_PYTHON → リポジトリ内 .venv* → PATH の順であり、開発マシンでのみ動作する。NSISインストーラ/ポータブルzipで配布したアプリにはPythonもbasic-pitchも同梱されていないため、エンドユーザー環境では ENGINE_UNAVAILABLE になる。\n\n## やりたいこと\n- PyInstaller/pyoxidizer等で hornscribe.worker をfrozen化し、Tauriバンドルのリソースに同梱\n- または embeddable Python + 必要wheelの同梱\n- basic-pitch(onnxruntime)・librosa・music21等の重い依存のサイズ影響を計測\n- engine_spawn が同梱ランタイムを優先解決するよう拡張\n\n## 制約\n- 完全無料運用: 外部サービス/API課金は不可。ローカル推論の同梱が前提。\n- インストーラサイズとのトレードオフをissue上で記録する。"
+  },
+  {
+    "title": "拍子(meter)の自動推定 — 現状はauto=4/4固定",
+    "body": "## 背景\nENG-002 のテンポ推定は auto 時に librosa beat_track でBPMを求めるが、拍子は常に 4/4 として扱われ、結果 meta.meterEstimated: true で報告されるのみ。3/4や6/8の演奏をautoで処理すると拍子が誤った楽譜になる（仕様の不整合）。\n\n## やりたいこと\n- onset強度・ビート間隔の周期性から拍子候補(2/4,3/4,4/4,6/8等)を推定\n- 信頼度が低い場合はreviewIssueで「拍子推定が不確か」として通知し、ユーザーが手動選択できる導線\n- UI: auto時に推定された拍子を結果表示に反映（現状はmetaのみ）\n\n## 関連\nPR #82, docs/ENG-002-transcription-pipeline.md"
+  },
+  {
+    "title": "複音(polyphonic)音源のトランスクリプション対応",
+    "body": "## 背景\n現在のパイプラインは単音(monophonic)前提: clean_monophonic が重なりをマージ/クリップし、和音・重奏は1旋律に潰れる。basic_pitch自体は多音検出できるため、バックエンドの情報を捨てている状態。\n\n## やりたいこと\n- 多声部の検出結果をパート/和音として保持するスコアモデル拡張\n- UIの複音対応（コードとして表示 or パート分離）\n- ホルン単体旋律が主用途のため優先度は要検討。まずは「多音検出時にreviewIssueで警告」だけでも価値あり（現状は暗黙に潰れる）\n\n## 関連\nPR #82"
+  },
+  {
+    "title": "ブラウザdev環境で kind:file の音源を実エンジンに渡せない",
+    "body": "## 背景\nTauri版は録音ファイルパスをそのまま audioPath に渡せるが、ブラウザdevモードではドロップしたFileオブジェクト(kind:file)をエンジンに渡す手段がない。現状はfixtureフォールバックになる想定。\n\n## やりたいこと\n- devサーバー側に一時ファイルステージング(POST→tmp path返却)を追加するか、File System Access APIでパス取得\n- またはブラウザdevはモック継続と明記し、E2EはTauri経由のみとする方針をドキュメント化"
+  },
+  {
+    "title": "録音の自動削除ポリシーとアプリ同梱(エクスポート連携)",
+    "body": "## 背景\n#78 でrecordings/の一覧・サイズ表示・フォルダを開く・全削除は実装済み(PR #82)。残件:\n- 一定期間/容量超過で古い録音を自動削除するポリシー設定\n- 録音→トランスクリプション→楽譜の一連の成果物をプロジェクトとして束ねる/同梱エクスポート\n- 録音ファイル名のリネーム・個別削除（現状は全削除のみ）"
+  },
+  {
+    "title": "波形/時間範囲を選択して部分トランスクリプション",
+    "body": "## 背景\n録音や取り込んだ音源の一部分だけを楽譜化したいケース(ソロ部分のみ等)に、現状は範囲指定パラメータがUIから渡せない。TranscriptionParams側でstartSec/endSecを受ける拡張と、波形UIでの範囲選択が必要。\n\n## やりたいこと\n- paramsに startSec/endSec を追加しdecode後にスライス\n- 録音完了画面/取り込み画面の波形で範囲選択UI\n- 範囲指定時はテンポ推定・キー推定もその区間のみで行う"
+  }
+]

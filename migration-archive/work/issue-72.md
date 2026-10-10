@@ -1,0 +1,1 @@
+実装しました (PR #61, commit ffc84b98)。\n\n- MediaPort.setMuted / TransportSnapshot.muted を追加し、トランスポートに元音源ミュートボタン(Speaker アイコン)を配置\n- ミュートはメディア要素の属性なので、ループバック録音中に切っても録音対象の音は止まらないことをドキュメントに明記\n- 録音中は 	ransport.toggleAudition を無効化し、録音開始時に audition が鳴っていれば自動で OFF にして演奏音の混入を防止

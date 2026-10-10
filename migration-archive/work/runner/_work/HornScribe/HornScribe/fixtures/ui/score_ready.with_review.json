@@ -1,0 +1,79 @@
+{
+  "id": "score_ready.with_review",
+  "screenState": "SCORE_READY",
+  "scenario": "採譜完了直後。楽譜が表示され、要確認が12件ある状態。",
+  "elements": [
+    {
+      "id": "commandRetranscribe",
+      "component": "CommandBar",
+      "copyKey": "commandBar.retranscribe.label",
+      "text": "採譜し直す"
+    },
+    {
+      "id": "commandExport",
+      "component": "CommandBar",
+      "copyKey": "commandBar.export.label",
+      "text": "書き出し"
+    },
+    {
+      "id": "commandReview",
+      "component": "CommandBar",
+      "copyKey": "commandBar.review.withCount",
+      "params": {"count": 12},
+      "text": "要確認（12）"
+    },
+    {
+      "id": "viewConcert",
+      "component": "SegmentedControl",
+      "copyKey": "segments.scoreView.concertPitch",
+      "text": "コンサートピッチ"
+    },
+    {
+      "id": "viewHorn",
+      "component": "SegmentedControl",
+      "copyKey": "segments.scoreView.hornInF",
+      "text": "F管ホルン"
+    },
+    {
+      "id": "reviewBanner",
+      "component": "ReviewBar",
+      "copyKey": "review.banner",
+      "params": {"count": 12},
+      "text": "12か所を確認すると、より確かな楽譜になります"
+    },
+    {
+      "id": "reviewBannerCta",
+      "component": "ReviewBar",
+      "copyKey": "review.bannerCta",
+      "text": "要確認箇所を見る"
+    },
+    {
+      "id": "scoreRegion",
+      "component": "ScoreViewport",
+      "copyKey": "score.regionAria",
+      "text": "楽譜",
+      "role": "accessible name"
+    },
+    {
+      "id": "follow",
+      "component": "FollowToggle",
+      "copyKey": "transport.followFull",
+      "text": "再生位置を追従"
+    },
+    {
+      "id": "playPauseTooltip",
+      "component": "IconButton",
+      "copyKey": "tooltips.playPause",
+      "text": "再生 / 一時停止（Space）",
+      "role": "tooltip"
+    }
+  ],
+  "sampleData": {
+    "projectTitle": "ホルン独奏_朝練_2026-09-21",
+    "activeView": "concert",
+    "reviewIssueCount": 12,
+    "positionLabel": "01:17.3",
+    "durationLabel": "03:17.8",
+    "rateOptions": ["0.75×", "1.0×", "1.25×"]
+  }
+}

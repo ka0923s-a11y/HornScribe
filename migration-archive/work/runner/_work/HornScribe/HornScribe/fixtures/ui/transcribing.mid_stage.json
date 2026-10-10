@@ -1,0 +1,80 @@
+{
+  "id": "transcribing.mid_stage",
+  "screenState": "TRANSCRIBING",
+  "scenario": "採譜中。音声準備が完了し、音の解析ステージを実行中。進捗率が正確に出せないためパーセント表示なし。",
+  "elements": [
+    {
+      "id": "progressTitle",
+      "component": "JobProgress",
+      "copyKey": "transcription.running",
+      "text": "採譜中"
+    },
+    {
+      "id": "progressRegion",
+      "component": "JobProgress",
+      "copyKey": "transcription.progressAria",
+      "text": "採譜の進捗",
+      "role": "accessible name"
+    },
+    {
+      "id": "stagePreparing",
+      "component": "StageList",
+      "copyKey": "transcription.stages.preparing_audio.done",
+      "text": "音声を準備しました",
+      "status": "done"
+    },
+    {
+      "id": "stageTranscribing",
+      "component": "StageList",
+      "copyKey": "transcription.stages.transcribing.active",
+      "text": "音を解析しています",
+      "status": "active"
+    },
+    {
+      "id": "stageCleaning",
+      "component": "StageList",
+      "copyKey": "transcription.stages.cleaning.pending",
+      "text": "検出結果を整理",
+      "status": "pending"
+    },
+    {
+      "id": "stageRhythm",
+      "component": "StageList",
+      "copyKey": "transcription.stages.analyzing_rhythm.pending",
+      "text": "リズムを解析",
+      "status": "pending"
+    },
+    {
+      "id": "stageQuantizing",
+      "component": "StageList",
+      "copyKey": "transcription.stages.quantizing.pending",
+      "text": "音符の長さと位置を整える",
+      "status": "pending"
+    },
+    {
+      "id": "stageBuilding",
+      "component": "StageList",
+      "copyKey": "transcription.stages.building_score.pending",
+      "text": "楽譜を作成",
+      "status": "pending"
+    },
+    {
+      "id": "stageRendering",
+      "component": "StageList",
+      "copyKey": "transcription.stages.rendering.pending",
+      "text": "表示を準備",
+      "status": "pending"
+    },
+    {
+      "id": "cancel",
+      "component": "CancelAction",
+      "copyKey": "transcription.cancel",
+      "text": "キャンセル"
+    }
+  ],
+  "sampleData": {
+    "fileName": "ホルン独奏_朝練_2026-09-21.wav",
+    "progressPercent": null,
+    "eta": null
+  }
+}

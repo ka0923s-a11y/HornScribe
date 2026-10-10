@@ -1,0 +1,11 @@
+  ev started preparing_audio 0.0
+RESP state= accepted
+  ev progress transcribing 0.15
+  ev progress cleaning 0.55
+  ev progress analyzing_rhythm 0.65
+  ev progress quantizing 0.75
+  ev progress building_score 0.9
+  ev progress rendering 0.96
+FINAL phase= completed keys= ['jobId', 'jobKind', 'phase', 'stage', 'progress', 'result']
+  score keys: ['scoreRevision', 'scoreDocument', 'reviewIssues', 'musicXmlConcert', 'musicXmlHornF', 'meta']
+  notes: 0 measures: 0

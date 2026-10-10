@@ -1,0 +1,42 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling zmij v1.0.23
+   Compiling thiserror v2.0.20
+   Compiling parking_lot_core v0.9.12
+   Compiling serde v1.0.229
+   Compiling typeid v1.0.3
+   Compiling thiserror v1.0.69
+   Compiling erased-serde v0.4.10
+   Compiling getrandom v0.4.3
+   Compiling serde_json v1.0.151
+   Compiling anyhow v1.0.104
+error: linker `link.exe` not found
+  |
+  = note: program not found
+
+note: the msvc targets depend on the msvc linker but `link.exe` was not found
+
+note: please ensure that Visual Studio 2017 or later, or Build Tools for Visual Studio were installed with the Visual C++ option
+
+note: VS Code is a different product, and is not sufficient
+
+error: could not compile `icu_normalizer_data` (build script) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `quote` (build script) due to 1 previous error
+error: could not compile `icu_properties_data` (build script) due to 1 previous error
+error: could not compile `proc-macro2` (build script) due to 1 previous error
+error: could not compile `zmij` (build script) due to 1 previous error
+error: could not compile `serde_core` (build script) due to 1 previous error
+error: could not compile `typeid` (build script) due to 1 previous error
+error: could not compile `parking_lot_core` (build script) due to 1 previous error
+error: could not compile `getrandom` (build script) due to 1 previous error
+error: could not compile `serde_json` (build script) due to 1 previous error
+error: could not compile `serde_core` (build script) due to 1 previous error
+error: could not compile `thiserror` (build script) due to 1 previous error
+error: could not compile `erased-serde` (build script) due to 1 previous error
+error: could not compile `thiserror` (build script) due to 1 previous error
+error: could not compile `serde` (build script) due to 1 previous error
+error: could not compile `anyhow` (build script) due to 1 previous error

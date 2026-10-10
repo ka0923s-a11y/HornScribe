@@ -1,0 +1,59 @@
+採譜精度の限界: -9.5dB 級の埋もれた主旋律で残り約10%が取れない（SNR下限）
+
+## 背景
+
+E2Eベンチ very-quiet-lead(主旋律 -9.5dB under backing, vocal_isolation 有効)は pitch accuracy 0.8947 — 完全に伴奏にマスクされる音符は無料スタック(center抽出 + Basic Pitch)では聴こえない。-3.5dB の quiet-lead-mix までは 1.0 を維持しているため、ここが正直な能力境界として測定・記録されている。
+
+## 改善候補(いずれも完全無料・オフライン維持)
+
+1. **demucs 本格分離の同梱経路** — #302 で engine-vocal extra に実装済みだが ~200MB のため配布物には未同梱。モデル同梱 or 初回DL導線(ローカルDLは無料枠内)を検討
+2. **分離後入力での閾値適応** — vocal isolation 適用済み入力は伴奏由来の偽陽性が減るため、onset/frame threshold を絞り込んでマスク音を拾う余地があるか実験(_dbg_thresh.py 雛形あり)
+3. **HPSS 前処理** — librosa の harmonic-percussive 分離を center 抽出の前段に挟み、打楽器成分を先に落とす
+
+## 現状の UX
+
+overlapping_candidates issue で voices/melody テクスチャ再実行 + ボーカル分離の提案は既に出る。埋もれて取れない部分は検出自体が無いためレビュー導線に乗らない — 低 SNR であること自体をユーザーへ伝える表示も検討価値あり。
+
+=== COMMENTS: 2
+
+--- ka0923s-a11y 2026-10-03T05:45:54Z
+## 進捗記録（lead-track ゲート + rescue パス、#169 派生修正）
+
+### 今回マージした変更（#170, #171）
+
+1. **lead-track 同意ゲート**（#171）: 分離後推定を pYIN に無条件解決していた #316 の設計が、bleed-heavy な stem で壊滅的であることを実測（very-quiet-lead で pYIN 0/38 vs BP 仲裁 35/38）。分離推定は単音とは限らない — ベース/パッドが残ると pYIN がそのラインを追従する。auto + vocalIsolation 時に BP-rescue と pYIN を並走させ、`clean_monophonic` 後の BP ラインとの**同セミトーン・時間重み**同意度 >= 0.6 でのみ pYIN を採用。同意度はオクターブを加点しない（伴奏ベースは主旋律とピッチクラスを共有するため）。
+   - 実測: very-quiet-lead 同意度 0.0 → BP 採用、jpop-mix-hard-vocal 0.188 → BP 採用。
+2. **rescue パス**（#171）: 製品閾値（onset 0.4 / frame 0.3）に加え、感度閾値（0.25 / 0.18）の第2パスを分離推定に実行。**base イベントと >30ms 重複する候補はどのピッチでも拒否**する厳密加法ルール — 誤仲裁の第2推測を防ぎ、検出ホールのみを埋める。一律低閾値化は jpop-mix-vocal で回帰することを実測済みのため、空きスパン限定で採用（4フィクスチャ全て 1.0 維持）。
+3. **demucs 無音 stem ガード**（#170, #169 として分離）: demucs が非ボーカル入力に残渣のみの stem を返す致命的回帰（0.8947 → 0.3421）を検出・修正。
+
+### ベンチ結果（全29件）
+
+- **28件 pitchAcc 1.0**（vocalIsolation 系 jpop-mix-vocal / jpop-mix-hard-vocal / quiet-lead-mix を含む）
+- very-quiet-lead: **0.8947**（3 miss / 3 extra / 1 octave、変わらず）
+
+### 残存限界の正直な評価
+
+very-quiet-lead の残り3音は「検出なし」ではなく、**誤ピッチ検出がクリーニング段階で誤仲裁**されるケース — raw には正しいピッチが遅発音・断片で存在する。以下を測定の上いずれも棄却済み:
+
+- BP 一律低閾値（0.25/0.18 以下）: 他フィクスチャで誤検出増の回帰
+- HPSS 前処理 / repet+center / mask 変種: 改善なし
+- ハイパス（180–300Hz）: fundamental 消失でオクターブ誤り増
+- スペクトル再検証: 伴奏帯域が攪乱
+
+**結論**: −9.5dB SNR では「どちらのピッチが正か」自体が音声上曖昧で、無料スタックの単独推定ではこれ以上の改善は仲裁の信頼度ではなく**分離品質**に依存する。本物のボーカル素材では demucs 経路（#169 で健全化済み）が最有力。合成フィクスチャの "vox" 音色では demucs が非声判定するため評価不能 — 実素材での追加検証が次の一手。
+
+
+--- ka0923s-a11y 2026-10-03T06:02:26Z
+追試（demucs `--two-stems=other` 経路の検討）:
+
+「vocalIsolation を声でない主旋律に使う」ケースでは `--two-stems=vocals` が空 stem を返す（#169 でフォールバック済み）が、`--two-stems=other` なら楽器主旋律が残る可能性があるため実測した（very-quiet-lead, 本番 auto+iso 経路に other stem を注入）:
+
+| stem | pitchAcc | miss | xtra | F1 | det |
+|---|---|---|---|---|---|
+| center extraction | **0.8947** | 3 | 3 | 0.8947 | 38 |
+| demucs other | 0.8684 | 1 | 6 | 0.9383 | 43 |
+
+other stem は drums+bass を除去する一方、pad は主旋律と同じクラス側に残るため誤検出が増え、仲裁問題は解消しない（pitchAcc は低下）。**demucs 第2パス導入は見送り** — 分離コスト2倍に対し合成ベンチ上の利益なし。実ボーカル素材での vocals stem の優位も引き続き選択済み（demucs 優先 → 無音なら center）。
+
+残る改善余地は「分離品質」ではなく -9.5dB での誤ピッチ仲裁そのものであり、現行の free スタックでは LOW_MODEL_CONFIDENCE 系の要確認提示でユーザーに委ねる設計が妥当。
+

@@ -1,0 +1,1 @@
+* New 採譜オプション「音源の種類」(texture): `mono` / `melody` / `auto`.

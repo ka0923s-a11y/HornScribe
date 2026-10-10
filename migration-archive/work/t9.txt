@@ -1,0 +1,1 @@
+Exit 0 on success; prints the failing phase and exits 1 otherwise.

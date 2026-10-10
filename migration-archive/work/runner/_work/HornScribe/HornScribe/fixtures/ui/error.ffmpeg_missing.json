@@ -1,0 +1,42 @@
+{
+  "id": "error.ffmpeg_missing",
+  "screenState": "ERROR",
+  "scenario": "音声を開こうとしたがFFmpegが見つからない。長いエラー本文のレイアウト検証も兼ねる。",
+  "elements": [
+    {
+      "id": "errorTitle",
+      "component": "ErrorSurface",
+      "copyKey": "errors.ffmpegMissing.title",
+      "text": "音声を準備できません"
+    },
+    {
+      "id": "errorBody",
+      "component": "ErrorSurface",
+      "copyKey": "errors.ffmpegMissing.body",
+      "text": "FFmpegが見つかりません。音声ファイルの変換に必要です。プロジェクトと元音源は失われていません。FFmpegをインストールするか、場所を指定してからもう一度試してください。"
+    },
+    {
+      "id": "actionSpecify",
+      "component": "Button",
+      "copyKey": "errors.ffmpegMissing.actions.specifyFfmpeg",
+      "text": "FFmpegの場所を指定"
+    },
+    {
+      "id": "actionClose",
+      "component": "Button",
+      "copyKey": "errors.ffmpegMissing.actions.close",
+      "text": "閉じる"
+    },
+    {
+      "id": "closeDialog",
+      "component": "IconButton",
+      "copyKey": "a11y.closeDialog",
+      "text": "ダイアログを閉じる",
+      "role": "accessible name"
+    }
+  ],
+  "sampleData": {
+    "attemptedFile": "ホルン独奏_朝練_2026-09-21.wav",
+    "expectedLocation": "C:\\ffmpeg\\bin\\ffmpeg.exe"
+  }
+}

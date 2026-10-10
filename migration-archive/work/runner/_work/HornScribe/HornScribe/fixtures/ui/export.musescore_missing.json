@@ -1,0 +1,107 @@
+{
+  "id": "export.musescore_missing",
+  "screenState": "EXPORTING",
+  "scenario": "書き出しシート。MuseScore未検出のためPDFオプションのみ無効。MusicXMLとMIDIは書き出せる。",
+  "elements": [
+    {
+      "id": "title",
+      "component": "ExportSheet",
+      "copyKey": "exportSheet.title",
+      "text": "書き出し"
+    },
+    {
+      "id": "scoreSection",
+      "component": "ExportSheet",
+      "copyKey": "exportSheet.scoreSection",
+      "text": "楽譜"
+    },
+    {
+      "id": "pdfSection",
+      "component": "ExportSheet",
+      "copyKey": "exportSheet.pdfSection",
+      "text": "PDF"
+    },
+    {
+      "id": "midiSection",
+      "component": "ExportSheet",
+      "copyKey": "exportSheet.midiSection",
+      "text": "MIDI"
+    },
+    {
+      "id": "optConcertXml",
+      "component": "ExportFormatRow",
+      "copyKey": "exportSheet.options.concertMusicxml",
+      "text": "コンサートピッチ MusicXML",
+      "enabled": true
+    },
+    {
+      "id": "optHornXml",
+      "component": "ExportFormatRow",
+      "copyKey": "exportSheet.options.hornMusicxml",
+      "text": "F管ホルン MusicXML",
+      "enabled": true
+    },
+    {
+      "id": "optConcertPdf",
+      "component": "ExportFormatRow",
+      "copyKey": "exportSheet.options.concertPdf",
+      "text": "コンサートピッチ PDF",
+      "enabled": false
+    },
+    {
+      "id": "optHornPdf",
+      "component": "ExportFormatRow",
+      "copyKey": "exportSheet.options.hornPdf",
+      "text": "F管ホルン PDF",
+      "enabled": false
+    },
+    {
+      "id": "optPlaybackMidi",
+      "component": "ExportFormatRow",
+      "copyKey": "exportSheet.options.playbackMidi",
+      "text": "再生用MIDI（実音）",
+      "enabled": true
+    },
+    {
+      "id": "pdfDisabledTooltip",
+      "component": "DependencyWarning",
+      "copyKey": "exportSheet.pdfDisabledTooltip",
+      "text": "MuseScoreが見つからないためPDFを書き出せません",
+      "role": "tooltip"
+    },
+    {
+      "id": "museScoreNote",
+      "component": "DependencyWarning",
+      "copyKey": "exportSheet.museScoreMissingNote",
+      "text": "PDFを書き出すにはMuseScoreが必要です。MusicXMLとMIDIはそのまま書き出せます。"
+    },
+    {
+      "id": "destination",
+      "component": "ExportSheet",
+      "copyKey": "exportSheet.destination",
+      "text": "保存先"
+    },
+    {
+      "id": "chooseDestination",
+      "component": "Button",
+      "copyKey": "exportSheet.chooseDestination",
+      "text": "保存先を選ぶ"
+    },
+    {
+      "id": "submit",
+      "component": "Button",
+      "copyKey": "exportSheet.submit",
+      "text": "書き出す"
+    },
+    {
+      "id": "cancel",
+      "component": "Button",
+      "copyKey": "common.cancel",
+      "text": "キャンセル"
+    }
+  ],
+  "sampleData": {
+    "destination": "C:\\Users\\player\\Documents\\HornScribe",
+    "museScoreDetected": false
+  }
+}

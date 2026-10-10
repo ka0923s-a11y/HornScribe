@@ -1,0 +1,560 @@
+{
+ "2": {
+  "new": 1,
+  "title": "docs: GitHub Actions を使わないローカルリリース手順/runbook の整備",
+  "state": "CLOSED",
+  "old": 2
+ },
+ "21": {
+  "new": 2,
+  "title": "[orig #351] 録音・再生機能の残件整理（device/pause/保護）",
+  "state": "CLOSED",
+  "old": 21
+ },
+ "42": {
+  "new": 3,
+  "title": "録音開始前の入力モニター(プリレコ・レベルメーター)",
+  "state": "CLOSED",
+  "old": 42
+ },
+ "44": {
+  "new": 4,
+  "title": "export: MusicXML コードシンボル (<harmony>) エクスポート",
+  "state": "CLOSED",
+  "old": 44
+ },
+ "63": {
+  "new": 5,
+  "title": "録音中もコマンド未経由の採譜・キュー追加経路が発火できる",
+  "state": "CLOSED",
+  "old": 63
+ },
+ "69": {
+  "new": 6,
+  "title": "録音開始待ちの間 UI が実体のない「録音中」になる (phantom recording state)",
+  "state": "CLOSED",
+  "old": 69
+ },
+ "97": {
+  "new": 7,
+  "title": "fix: 録音開始時に元音源の再生が止まらず録音に混入する",
+  "state": "CLOSED",
+  "old": 97
+ },
+ "99": {
+  "new": 8,
+  "title": "feat: 録音開始カウントイン(ループバック切替・楽器準備の猶予)",
+  "state": "CLOSED",
+  "old": 99
+ },
+ "100": {
+  "new": 9,
+  "title": "feat: ループバック録音は全ミックス対象 — 対象アプリ限定キャプチャの検討 + 注意喚起",
+  "state": "CLOSED",
+  "old": 100
+ },
+ "102": {
+  "new": 10,
+  "title": "ux: ほぼ無音の録音も確認なく音源として取り込まれる",
+  "state": "CLOSED",
+  "old": 102
+ },
+ "104": {
+  "new": 11,
+  "title": "feat: 参照音源を聴きながら録音するプレイアロングモード(マイク)",
+  "state": "CLOSED",
+  "old": 104
+ },
+ "105": {
+  "new": 12,
+  "title": "feat: 録音中のライブ波形表示",
+  "state": "CLOSED",
+  "old": 105
+ },
+ "118": {
+  "new": 13,
+  "title": "feat: 録音開始のキーボードショートカット(Ctrl+R — 前回と同じソース)",
+  "state": "CLOSED",
+  "old": 118
+ },
+ "120": {
+  "new": 14,
+  "title": "fix: ダークテーマでスコア紙面上のUIテキストが不可視 — 空/採譜中/エラー状態が読めない",
+  "state": "CLOSED",
+  "old": 120
+ },
+ "123": {
+  "new": 15,
+  "title": "feat: スコア編集 単旋律にまとめる (voices/chords → ソロF管パート)",
+  "state": "CLOSED",
+  "old": 123
+ },
+ "125": {
+  "new": 16,
+  "title": "fix: ScoreReadyWorkspace の状態ミラー effect が無限再レンダー (onStateChange 不安定 dep)",
+  "state": "CLOSED",
+  "old": 125
+ },
+ "127": {
+  "new": 17,
+  "title": "fix: melody テクスチャで持続音の分割断片を同ピッチマージで修復 (JPOP ミックス)",
+  "state": "CLOSED",
+  "old": 127
+ },
+ "129": {
+  "new": 18,
+  "title": "review候補: mono テクスチャでも持続音の分割断片が起こり得るか (実録音で要観測)",
+  "state": "CLOSED",
+  "old": 129
+ },
+ "130": {
+  "new": 19,
+  "title": "精度: 同音域ピッチド伴奏が旋律枠を掠める (jpop-mix-hard 実測 pitch 89-92%)",
+  "state": "CLOSED",
+  "old": 130
+ },
+ "131": {
+  "new": 20,
+  "title": "bench: swing-4-4 の onset F1 は straight 記譜と swung 真値の計測モデル不整合",
+  "state": "CLOSED",
+  "old": 131
+ },
+ "137": {
+  "new": 21,
+  "title": "リリース手順が存在しない GitHub Actions ワークフロー前提 — ローカル完結の正式リリース経路が必要",
+  "state": "CLOSED",
+  "old": 137
+ },
+ "138": {
+  "new": 22,
+  "title": "fix: process loopback crashes on activation (0xC0000374) + GetMixFormat E_NOTIMPL + session list always empty",
+  "state": "CLOSED",
+  "old": 138
+ },
+ "141": {
+  "new": 23,
+  "title": "release: v0.2.0 が起動不能 — WebView2Loader.dll 未同梱 (インストーラ/ポータブル両方)",
+  "state": "CLOSED",
+  "old": 141
+ },
+ "143": {
+  "new": 24,
+  "title": "engine: prefer=top が伴奏ストラムの高音を旋律として採用する (jpop-mix-hard pitch 0.9474)",
+  "state": "CLOSED",
+  "old": 143
+ },
+ "147": {
+  "new": 25,
+  "title": "release: v0.2.0 の起動不能バイナリがダウンロード可能なまま残っている (v0.2.1 アセットは実機検証で正常)",
+  "state": "CLOSED",
+  "old": 147
+ },
+ "148": {
+  "new": 26,
+  "title": "dev: #/dev/state/* と #/dev/transcribing で採譜が動かない — dev state が音源スロットを seed しない (#219 ゲート以降)",
+  "state": "CLOSED",
+  "old": 148
+ },
+ "149": {
+  "new": 27,
+  "title": "fix(audio): sha256_file の 1MiB スタックバッファで録音/取り込み時に 0xC00000FD クラッシュ",
+  "state": "CLOSED",
+  "old": 149
+ },
+ "153": {
+  "new": 28,
+  "title": "ux(errors): NO_PITCHED_CONTENT に専用コピーと回復導線を出す",
+  "state": "CLOSED",
+  "old": 153
+ },
+ "155": {
+  "new": 29,
+  "title": "fix(engine): job.start がウォームアップ import で 10s タイムアウトし初回採譜が必ず失敗する",
+  "state": "CLOSED",
+  "old": 155
+ },
+ "156": {
+  "new": 30,
+  "title": "feat(instruments): B♭ 管（トランペット/クラリネット等）対応",
+  "state": "CLOSED",
+  "old": 156
+ },
+ "163": {
+  "new": 31,
+  "title": "白抜きUI: ダークテーマで楽譜紙面上のテキスト・ボタンが不可視",
+  "state": "CLOSED",
+  "old": 163
+ },
+ "165": {
+  "new": 32,
+  "title": "採譜精度の限界: -9.5dB 級の埋もれた主旋律で残り約10%が取れない（SNR下限）",
+  "state": "CLOSED",
+  "old": 165
+ },
+ "166": {
+  "new": 33,
+  "title": "録音停止後すぐ採譜へ進める導線（record → transcribe のワンクリック化）",
+  "state": "CLOSED",
+  "old": 166
+ },
+ "167": {
+  "new": 34,
+  "title": "レビュー改善: 同じ要確認理由が連続する場合のまとめ処理",
+  "state": "CLOSED",
+  "old": 167
+ },
+ "169": {
+  "new": 35,
+  "title": "demucs が非ボーカル入力で無音 stem を返し vocalIsolation が壊滅する",
+  "state": "CLOSED",
+  "old": 169
+ },
+ "172": {
+  "new": 36,
+  "title": "copyDrift: noPitchedContent がコピーデッキ未登録で main が赤い",
+  "state": "CLOSED",
+  "old": 172
+ },
+ "177": {
+  "new": 37,
+  "title": "パッケージ版でアプリを閉じれない(X・Alt+F4・終了確認が全て無反応) — allow-destroy 未付与",
+  "state": "CLOSED",
+  "old": 177
+ },
+ "179": {
+  "new": 38,
+  "title": "エンジン系コマンドのブロッキング I/O が UI(メインスレッド)を凍らせ得る — writer スレッド化と終了時の上限付き待機",
+  "state": "CLOSED",
+  "old": 179
+ },
+ "181": {
+  "new": 39,
+  "title": "ボーカル分離の品質ティア — htdemucs_ft + shift 平均の「高精度」オプションを追加",
+  "state": "CLOSED",
+  "old": 181
+ },
+ "184": {
+  "new": 40,
+  "title": "エンジン起動: onefile 解凍 (~40-50s) が handshake タイムアウト (30s) を超え、正常起動中を誤「応答していません」にする",
+  "state": "CLOSED",
+  "old": 184
+ },
+ "185": {
+  "new": 41,
+  "title": "engine kill が PyInstaller 孫プロセスを孤児化 — ハング採譜が裏で走り続ける",
+  "state": "CLOSED",
+  "old": 185
+ },
+ "186": {
+  "new": 42,
+  "title": "frozen engine を onefile → onedir 化してコールドスタートを大幅短縮",
+  "state": "CLOSED",
+  "old": 186
+ },
+ "189": {
+  "new": 43,
+  "title": "分離品質セレクトが demucs 未導入環境で無効なのに有効に見える — capabilities で制御",
+  "state": "CLOSED",
+  "old": 189
+ },
+ "190": {
+  "new": 44,
+  "title": "demucs のオンデマンド導入経路 — 任意DLのアドオン zip で無料分離強化を実現",
+  "state": "CLOSED",
+  "old": 190
+ },
+ "191": {
+  "new": 45,
+  "title": "低 SNR 音源で採譜抜けの可能性をユーザーに伝える表示",
+  "state": "CLOSED",
+  "old": 191
+ },
+ "192": {
+  "new": 46,
+  "title": "アプリを閉じられない — JS ハングとメインスレッドブロックの2経路で X が完全に無反応になる",
+  "state": "CLOSED",
+  "old": 192
+ },
+ "193": {
+  "new": 47,
+  "title": "v0.2.8 NSIS インストーラーにエンジン未同梱（63MB・採譜不可）— onedir 化で resources glob がディレクトリをスキップ",
+  "state": "CLOSED",
+  "old": 193
+ },
+ "199": {
+  "new": 48,
+  "title": "採譜実行中に「エンジンを再起動」を押せるとジョブが黙って中断される",
+  "state": "CLOSED",
+  "old": 199
+ },
+ "201": {
+  "new": 49,
+  "title": "テンポ記号の音符グリフが☒化する（CSP font-src が Verovio 埋め込みフォントをブロック）",
+  "state": "CLOSED",
+  "old": 201
+ },
+ "202": {
+  "new": 50,
+  "title": "定速曲でも小節ごとにテンポマークが乱立し ±15% ばらつく（ビートトラッカージッターの増幅）",
+  "state": "CLOSED",
+  "old": 202
+ },
+ "203": {
+  "new": 51,
+  "title": "主旋律と伴奏を自動で別パートに分けて採譜する（分離ステムの 2 段譜化）",
+  "state": "CLOSED",
+  "old": 203
+ },
+ "204": {
+  "new": 52,
+  "title": "texture=auto でミックス検出時にボーカル分離を自動適用する（JPOP の既定精度を上げる）",
+  "state": "CLOSED",
+  "old": 204
+ },
+ "210": {
+  "new": 53,
+  "title": "パート単位の表示切替と抜粋エクスポート（Horn in F 単体譜）",
+  "state": "CLOSED",
+  "old": 210
+ },
+ "211": {
+  "new": 54,
+  "title": "伴奏パートの再生音色を主旋律と区別する",
+  "state": "CLOSED",
+  "old": 211
+ },
+ "212": {
+  "new": 55,
+  "title": "伴奏パートの出典バッジ（自動分離由来である旨の表示）",
+  "state": "CLOSED",
+  "old": 212
+ },
+ "213": {
+  "new": 56,
+  "title": "伴奏パートの和声保持採譜（コードボイシング/ピアノ型/コードトラック）",
+  "state": "CLOSED",
+  "old": 213
+ },
+ "218": {
+  "new": 57,
+  "title": "requantize がマージされたポリフォニックパート（chords/伴奏）の和音を単旋律化する",
+  "state": "CLOSED",
+  "old": 218
+ },
+ "220": {
+  "new": 58,
+  "title": "レビューマーカーの密度が高すぎて譜面が読めない（同一理由の集約表示が欲しい）",
+  "state": "CLOSED",
+  "old": 220
+ },
+ "222": {
+  "new": 59,
+  "title": "low_lead_level の案内が到達不能な「高精度再採譲」を勧める（demucs未導入時/既に高精度実行時）",
+  "state": "CLOSED",
+  "old": 222
+ },
+ "227": {
+  "new": 60,
+  "title": "レビュー案内の画面名・方式名が実装とずれている箇所の修正（accompaniment_part / vocal_isolation_applied）",
+  "state": "CLOSED",
+  "old": 227
+ },
+ "229": {
+  "new": 61,
+  "title": "demucs 初回モデルダウンロード中、採譜画面が無言で数分間停止して見える",
+  "state": "CLOSED",
+  "old": 229
+ },
+ "230": {
+  "new": 62,
+  "title": "perf: path-backed source が WebView IPC に全バイト転送する (probe/hash/peaks の native 化)",
+  "state": "CLOSED",
+  "old": 230
+ },
+ "231": {
+  "new": 63,
+  "title": "実音源で auto テンポが小節単位 ±15% で揺れテンポ記号が乱立する（持続偏差フィルタ）",
+  "state": "CLOSED",
+  "old": 231
+ },
+ "233": {
+  "new": 64,
+  "title": "実ミックスで meter 推定の confidence が実質ゼロになる（meter_conflict 乱発）",
+  "state": "CLOSED",
+  "old": 233
+ },
+ "234": {
+  "new": 65,
+  "title": "主旋律パートの重なり解消が機械的すぎる（和音/ハモリ混入）",
+  "state": "CLOSED",
+  "old": 234
+ },
+ "236": {
+  "new": 66,
+  "title": "主旋律トラックに伴奏ステム由来のサブベース音が混入する（音域外・低音部記号化）",
+  "state": "CLOSED",
+  "old": 236
+ },
+ "237": {
+  "new": 67,
+  "title": "要確認バッジが小節単位で散る — システム単位に集約して譜面の視認性を改善",
+  "state": "CLOSED",
+  "old": 237
+ },
+ "238": {
+  "new": 68,
+  "title": "Leipzig SMuFL フォントをアプリアセットとして同梱する（テンポ記号豆腐化の恒久対策）",
+  "state": "CLOSED",
+  "old": 238
+ },
+ "242": {
+  "new": 69,
+  "title": "fix(tempo): autocorr の散在ブリップがテンポリージョン折り畳みを破壊し、定テンポ曲が誤った拍格子で採譜される",
+  "state": "CLOSED",
+  "old": 242
+ },
+ "244": {
+  "new": 70,
+  "title": "feat(score): 伴奏パートの低信頼度イベントをフィルタして過密譜面を解消する",
+  "state": "CLOSED",
+  "old": 244
+ },
+ "245": {
+  "new": 71,
+  "title": "feat(score): 伴奏パートを大譜表（ト音+ヘ音）でレンダリングし低音域の加線氾濫を解消する",
+  "state": "CLOSED",
+  "old": 245
+ },
+ "247": {
+  "new": 72,
+  "title": "fix(export): 往復検証で連続休符スパンを併合し structural_measure_conflict の誤報連鎖を解消する",
+  "state": "CLOSED",
+  "old": 247
+ },
+ "249": {
+  "new": 73,
+  "title": "伴奏パート由来の per-note レビュー issue が lead の指摘を埋没させている (音域チェック等は transposing パートのみに適用すべき)",
+  "state": "CLOSED",
+  "old": 249
+ },
+ "252": {
+  "new": 74,
+  "title": "リード旋律のオクターブ外れ値（register excursion）が残存 — スペクトル仲裁の修復と verdict 対象バッファの修正",
+  "state": "CLOSED",
+  "old": 252
+ },
+ "254": {
+  "new": 75,
+  "title": "極短イベント（<120ms）のオクターブ外れ値はスペクトル仲裁不能で残存する",
+  "state": "CLOSED",
+  "old": 254
+ },
+ "256": {
+  "new": 76,
+  "title": "音声証拠（boundary/seam/event accents）が検出元ステムではなくソースミックスを読んでいる",
+  "state": "CLOSED",
+  "old": 256
+ },
+ "259": {
+  "new": 77,
+  "title": "chord: Viterbi smoother is too sticky — real progressions collapse into a single chord (e.g. whole intro reads A7)",
+  "state": "CLOSED",
+  "old": 259
+ },
+ "260": {
+  "new": 78,
+  "title": "meter: 'variable' detection misfires on outlier beat intervals; redundant-period rule can pop the true 4/4",
+  "state": "CLOSED",
+  "old": 260
+ },
+ "262": {
+  "new": 79,
+  "title": "quantizer: triplet run-membership ignores local cost — noise-chained regions mass-enable triplets (26% atoms on a binary-dominant song)",
+  "state": "CLOSED",
+  "old": 262
+ },
+ "264": {
+  "new": 80,
+  "title": "採譜精度の残存課題（実曲リファレンス検証 v0.2.14 時点）",
+  "state": "OPEN",
+  "old": 264
+ },
+ "305": {
+  "new": 81,
+  "title": "fix(score): kind:file ドロップのスコアタイトルが staged 一時ファイル名になる",
+  "state": "CLOSED",
+  "old": 305
+ },
+ "308": {
+  "new": 82,
+  "title": "docs(protocol): transcription params 表が実装と乖離 (vocalIsolation/displayName/texture:chords 欠落)",
+  "state": "CLOSED",
+  "old": 308
+ },
+ "314": {
+  "new": 83,
+  "title": "feat(review): ミックス検出時の remedy にボーカル分離での再採譲提案がない",
+  "state": "CLOSED",
+  "old": 314
+ },
+ "316": {
+  "new": 84,
+  "title": "feat(backend): vocalIsolation 済みの単音入力を pYIN バックエンドへ解決する",
+  "state": "CLOSED",
+  "old": 316
+ },
+ "318": {
+  "new": 85,
+  "title": "feat(ui): キーボードショートカット一覧ヘルプオーバーレイ (F1)",
+  "state": "CLOSED",
+  "old": 318
+ },
+ "w0": {
+  "new": 86,
+  "title": "パッケージ版アプリでエンジン(Python)ランタイムを同梱する",
+  "state": "CLOSED",
+  "old": null
+ },
+ "w1": {
+  "new": 87,
+  "title": "拍子(meter)の自動推定 — 現状はauto=4/4固定",
+  "state": "CLOSED",
+  "old": null
+ },
+ "w2": {
+  "new": 88,
+  "title": "複音(polyphonic)音源のトランスクリプション対応",
+  "state": "CLOSED",
+  "old": null
+ },
+ "w3": {
+  "new": 89,
+  "title": "ブラウザdev環境で kind:file の音源を実エンジンに渡せない",
+  "state": "CLOSED",
+  "old": null
+ },
+ "w4": {
+  "new": 90,
+  "title": "録音の自動削除ポリシーとアプリ同梱(エクスポート連携)",
+  "state": "CLOSED",
+  "old": null
+ },
+ "w5": {
+  "new": 91,
+  "title": "波形/時間範囲を選択して部分トランスクリプション",
+  "state": "CLOSED",
+  "old": null
+ },
+ "new_vocal_cache": {
+  "new": 92,
+  "title": "vocal 分離ステムキャッシュ (%TEMP%\\hornscribe-vocal-cache) に保持ポリシーがなく無制限に増える",
+  "state": "OPEN",
+  "old": null
+ },
+ "new_dirty_indicator": {
+  "new": 93,
+  "title": "未保存状態の表示が TitleBar の * のみで気づかれにくい",
+  "state": "OPEN",
+  "old": null
+ }
+}

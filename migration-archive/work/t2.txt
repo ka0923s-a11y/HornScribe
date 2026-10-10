@@ -1,0 +1,1 @@
+    canonical rests do not tile measure 2: gap/overlap at beat 2 (next element at 3/2)

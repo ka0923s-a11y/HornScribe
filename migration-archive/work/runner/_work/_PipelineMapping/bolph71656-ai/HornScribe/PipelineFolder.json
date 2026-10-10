@@ -1,0 +1,12 @@
+﻿{
+  "repositoryName": "bolph71656-ai/HornScribe",
+  "pipelineDirectory": "HornScribe",
+  "workspaceDirectory": "HornScribe\\HornScribe",
+  "repositories": {
+    "bolph71656-ai/HornScribe": {
+      "repositoryPath": "HornScribe\\HornScribe",
+      "lastRunOn": "09/22/2026 01:43:45 +09:00"
+    }
+  },
+  "lastRunOn": "09/22/2026 01:54:02 +09:00"
+}

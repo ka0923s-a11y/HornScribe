@@ -1,0 +1,1 @@
+実装しました (PR #61, commit ffc84b98)。\n\n- capture_stop が録音を ppDataDir/recordings/ に WAV で保存し、パスを返すように変更\n- RecordedAudioRef に path/contentHash を追加し、importRecording が ead_audio_bytes + SHA-256 で sourceAudio 契約に載るようにした\n- プロジェクト保存・SOURCE_MISSING リリンクの対象になった\n- capture_take_wav (raw IPC) は不要になったため削除

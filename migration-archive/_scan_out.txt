@@ -1,0 +1,175 @@
+issue-70.md	refs=[61]	実装しました (PR #61, commit ffc84b98)。\n\n- capture_stop が録音を ppDataDir/recordings/ に WAV で保存し、パスを返すように変更\n- RecordedAudioRef に path/contentHash を追加し、importRecordin
+issue-71.md	refs=[61]	実装しました (PR #61, commit ffc84b98)。\n\n- SharedBuf にパケットピークを保持し、capture_status ポーリング毎に減衰(×0.7)する簡易メーターを追加\n- 波形領域の録音中表示にレベルバーを追加(hs-waveform__level)\n- ブラウザ dev ポ
+issue-72.md	refs=[61]	実装しました (PR #61, commit ffc84b98)。\n\n- MediaPort.setMuted / TransportSnapshot.muted を追加し、トランスポートに元音源ミュートボタン(Speaker アイコン)を配置\n- ミュートはメディア要素の属性なので、ループバック録音中に切っても
+issue-73.md	refs=[61]	実装しました (PR #61, commit ffc84b98)。\n\n- capture_devices コマンドで ACTIVE 状態のレンダー/キャプチャエンドポイントを列挙\n- 取り込みメニューに「出力先(PCの音)」「マイク」のデバイス選択セクションを追加(✓ で選択中表示)\n- 選択は localSt
+issue-76.md	refs=[61]	実装しました (PR #61, commit ffc84b98)。\n\n- 音源またはスコアが存在する状態で録音を開始しようとすると、alert ダイアログ「現在の音源を置き換えますか?」を表示\n- スコア有無で本文を分岐(楽譜も置き換わる旨を明示)\n- EMPTY 状態のボタンとコマンドバーの両経路で同一の確認
+issue-backend.md	refs=[]	## 背景 設定 → 詳細設定 に「採譜エンジン」(auto / Basic Pitch) の select があり、`AppSettings.backend` として永続化される。 ## 不整合 この設定値はどこにも配線されていない:
+issue-export-empty.md	refs=[]	## Export dialog can submit an empty format list The 書き出し button is gated on anyChecked
+issue-feat001.md	refs=[]	## Goal 音声ファイルを開くだけでなく、PC上の再生音源(システム音声)とマイク録音から直接採譜ワークフローに入れるようにし、生成した楽譜を自動演奏(スコア同期再生)できるようにする。 ## Dependencies なし(新規機能)。UI-020 インポートフロー、UI-004 トランスポート契約、UI-030
+issue-insert.md	refs=[]	## 音符の追加（休符→音符変換）ができない — 検出漏れの修正手段がない ### 背景 score.edit の語彙は既存ノートの編集（setDuration/shiftOnset/ toggleTie/splitNote/mergeNotes/ピッチ・削除・異名同音）と譜面全体の 操作（setTempo/setMe
+issue-midi.md	refs=[]	## playback.mid drops mid-piece tempo/meter changes (and can merge ties across parts) The desktop MusicXML ->
+issue-portal.md	refs=[402]	## 症状（実機検証で観測） 波形ストリップ上のツールチップ付きボタン（#402 ノートオーバーレイ切替、選択アクション等）で、ツールチップが開いている間に同じ場所を素早く再クリックすると**クリックがボタンに届かない**。puppeteer の CDP クリックで再現: 1回目はトグルでき、2回目は無反応。 ## 原
+issue-projrestore.md	refs=[100, 102]	## 背景 #100 (PR #102) で `.hornscribe.json` への保存を実装した際、楽譜復元に必要な extras (`scoreDocument`, `musicXmlConcert`, `musicXmlHornF`, `reviewIssues`, `meta`) を「将来の project
+issue-storm.md	refs=[]	## 症状 dev で App を開いただけでコンソールが Maximum update depth exceeded で毎秒数百件溢れ、WaveformView の view state が {0,0}
+issue-tempo.md	refs=[3, 4, 5, 6, 8]	## 症状（実機検証で観測） 5秒の C 長調スケール WAV（等間隔8音、実際は約96bpm相当）を採譜したところ、エンジンは bpm 37.45 / meter 6/8 と推定した。実値から大きく外れており、テンポ半減・倍増の誤判定と拍子推定の弱点が実データで確認された。 ## 再現 .work/e2e_scale
+issue-viewstuck.md	refs=[402]	## 症状（実機検証で観測） audio ドロップ後も WaveformView の view が {0,0} のまま固定され、波形・選択・ズーム・再生ヘッド・ノートオーバーレイ（#402）が一切描画されない。`data-view-end=0` のまま `data-audio-duration=5` が表示される矛盾状
+issue-zombie.md	refs=[]	## 症状 ブラウザが採譜ジョブ実行中に閉じられると、dev エンジンブリッジ (apps/desktop/scripts/devEngineBridge.mjs) の /__engine/health が running:true を返し続けるが、実際の worker は既に死んでいる（ゾンビ）。この状態で新しい採譜
+issue10_status.md	refs=[10, 50]	PR #50 で実装済みの部分: - ffmpeg 解決順を一本化(`tools.rs::resolve_ffmpeg`): 設定オーバーライド → `HORNSCRIBE_FFMPEG` → 同梱 `tools/ffmpeg.exe` → PATH。`audio_probe`(取り込み)・`detect_tools`
+issue11_status.md	refs=[50]	PR #50 で実装済みの部分: - 書き込み状態の配置を `tools.rs::data_dir` に集約: `HORNSCRIBE_DATA_DIR` → exe 隣 `data/`(ポータブル印)→ OS app-data。録音・sources・source-refs・cache・autosave・logs がす
+issue156.md	refs=[134]	## 背景 #134 で検出スウィングを MusicXML の <sound><swing> + Swing 表示として出力するようになった。しかしアプリ内の自動演奏（FEAT-001 audition）とカーソル追従は Verovio の renderToTimemap 由来で、Verovio 6.3
+issue15_comment.md	refs=[3, 43]	PR #43 で検証基盤を入れました。状況メモ: ## 完了した部分 - **自動ティア**: `tests/python/test_musicxml_roundtrip.py`(11件) — 検証ホストに MuseScore が無いため、同じ partwise 4.0 文法を読む music21
+issue165.md	refs=[]	## 調に沿った音名スペリング(異名同音)が未実装 ### 現状 notation/to_music21.py は各音符を music21.pitch.Pitch(midi=...) で 生成しており、music21 のデフォルト綴り(固定の半音表記)に任せている。 その結果、**調性を考慮しない綴り**が出力される:
+issue166.md	refs=[165]	## pitch_spelling_ambiguous が定義済みだが一度も発行されない(デッド仕様) ### 現状 - domain/review.py に ReviewReason.PITCH_SPELLING_AMBIGUOUS が定義済み。 - clean.py の docstring も「pitch spel
+issue167.md	refs=[163]	## 「休符を音符に変換」コマンドがコマンドパレットにしかなく発見しにくい ### 現状 #163 で追加した score.restToNote(休符を音符に変換)はコマンド登録済みで、 休符選択時に有効化される。しかし: - CommandBar の編集(オーバーフロー)メニューに項目がない (音符の「分割」「結合」
+issue168.md	refs=[169]	## 自動演奏(オーディション)がノート velocity を無視して一定音量で鳴らす ### 現状 score/playbackSynth.ts は各音符を固定のエンベロープ (linearRampToValueAtTime(0.9, ...))で鳴らしており、canonical ノートや raw event が持つ
+issue169.md	refs=[]	## Basic Pitch の pitch bend(ビブラート/ポルタメント)を backend が捨てている ### 現状 domain/events.py の RawNoteEvent は pitch_bends: tuple[PitchBendPoint]
+issue170.md	refs=[]	## スコア編集後も自動演奏(オーディション)とスコアクロックが古い音符/長さのまま ### 現状 ScoreReadyWorkspace.tsx のマウント時に ScorePlaybackSynth を作り synth.load(table, notesByCanonical) で音符を読み込み、 ScoreCurs
+issue174.md	refs=[169]	## pitch bend を canonical → MIDI export / オーディションへ伝播して表現力を出す ### 背景 #169 で Basic Pitch
+issue175.md	refs=[169]	## 単音ソース向けに librosa pyin バックエンドを追加して JPOP ボーカル精度を上げる ### 背景 現在の唯一のバックエンドは Basic Pitch(ポリフォニック汎用モデル)。 単音メロディ(ホルン独奏・JPOP ボーカル)に対しては、専用の単音 ピッチトラッカー librosa
+issue176.md	refs=[166]	## pitch_spelling_ambiguous レビューで「異名同音を切替」アクションを出す ### 現状 #166 で調外音に pitch_spelling_ambiguous issue が出るようになった。 しかしレビューバーのアクション導線は suggestVoicesTexture 専用で、 表記の曖
+issue180.md	refs=[175]	## 問題 #175 で導入した pYIN バックエンドは連続 f0 トラッカーのため、**同じピッチで再度発音された音符（同音連打・リタンギング）を1つの長い音符に接着してしまう**。 Basic Pitch は onset 検出で分離するが、librosa.pyin の出力はフレーム毎の f0 のみで
+issue181.md	refs=[148, 175]	## 問題 pYIN バックエンド（#175）は単音トラッカーだが、テクスチャ設定（mono / melody / voices / auto）との組み合わせが検証されていない。 texture=voices で backend=pyin を選ぶと、警告なく単音の結果だけが返る。ユーザーは3声部の分割を期待しているのに
+issue185.md	refs=[175]	## 問題 ScoreDocument.transcriptionBackend / transcriptionBackendVersion が scorebuild.py 内で "basic_pitch" / "0.4.0" にハードコードされている。pYIN バックエンド（#175）で採譜しても、プロジェクトファイ
+issue187.md	refs=[]	## 背景 JPOPのフルミックス音源から主旋律（ボーカル）だけを正確に採譜するのが本製品の中核的な価値。現状は texture=melody で Basic Pitch の上位仮説を優先するか、backend=pyin で支配的な f0 を追うが、伴奏がボーカルより強い区間では別の旋律を拾ってしまう。 ## 提案 ソ
+issue188.md	refs=[150]	## 問題 librosa.beat.beat_track ベースの自動テンポ推定は、倍・半のオクターブ誤り（実際は 140bpm なのに 70bpm や 280bpm と推定）が典型的な失敗モード。推定に自信がない場合でも、現状ユーザーが直す手段は「採譜し直して手動テンポを指定」だけで、スコア上で即座に直せない。 #
+issue189.md	refs=[]	## 問題 採譜エンジン（Basic Pitch / pYIN）の選択はグローバル設定（詳細設定）にしかなく、音源ごとの最適解が違うのに毎回設定画面を往復する必要がある。テクスチャ選択はインポート画面の採譜オプションにあるのに、エンジン選択だけが離れているのは一貫性に欠ける。 ## 提案 - Transcription
+issue190.md	refs=[155]	## 問題 製品境界が暗黙のままの領域がいくつかある。明示的にドキュメント化して、将来の実装判断の基準にする。 - 歌詞: 採譜対象外（音声からの歌詞推定は範囲外） - 反復記号（リピート・ダルセーニョ等）: 現在は展開済み記譜のみ - 多楽器・総譜: F管ホルン単一パートのみ - コードネーム: 単旋律採譜では未対応
+issue192.md	refs=[169, 174]	## 問題 #169 で RawNoteEvent.pitch_bends に保持した演奏ベンド（ビブラート等）が、clean.py のイベント再構築で全て失われる。 - clip_to_range: 選択範囲クリップ時に pitch_bends を引き継がない - _extend: 同音マージ時にベンドを結合しない 
+issue195.md	refs=[]	## 問題 ENGINE_DEPENDENCY_MISSING（basic_pitch / librosa 等が import 不可）の失敗が、汎用の「採譜に失敗しました + 再試行」面に落ちる。再試行しても環境が変わらない限り必ず再失敗するのに、主アクションが誤誘導になっている。 実際の原因（どのパッケージが足りない
+issue198.md	refs=[188]	## 問題 #188 で導入した「テンポ倍/半分誤検出」のワンクリック修正（review の tempo_uncertain アクションと、プロパティパネルの ÷2/×2 ボタン）は、どちらも内部的に `setTempo` を呼んでいる。 しかし `setTempo`（`scoreedit._apply_set_tem
+issue200.md	refs=[148]	## 問題 `texture=auto` でミックスを検出したとき、OVERLAPPING_CANDIDATES の issue に `suggestVoicesTexture: true` が付き、UI は「voices で採譜し直す」ワンクリックを出す（#148）。 しかし `texture=mono` をユーザー
+issue202.md	refs=[85, 175, 181, 188, 189, 198]	## 問題 `docs/ENG-002-transcription-pipeline.md` が実装と乖離している: - 「audio file -> Basic Pitch note events」とあるが、#175/#189 で pYIN バックエンドと texture-aware
+issue204.md	refs=[]	## 問題 レビューワークスペースのアクションボタン（issue 固有のワンクリック修正）を実行しても、対象の issue が open のまま残る: - `tempo_uncertain`: scaleTempo を適用しても issue は未解決のまま - `pitch_spelling_ambiguous`:
+issue206.md	refs=[134, 156]	## 問題 `swing_feel` 検出時の挙動が出力先で不一致: - アプリ内自動演奏: `buildSwingWarp` で裏拍を遅らせて再生（#156） - MusicXML: `<sound><swing>` ヒントを出力（#134） - **MIDI エクポート: 何もしない
+issue208.md	refs=[]	## 機能候補 `quantize_events` は k-best の代替解釈を返し、rank-1/rank-2 で記譜が異なる区間は `quantization_ambiguous` の review issue になる。しかし UI 側に「代替解釈を適用する」手段がない — issue
+issue209.md	refs=[]	## 問題 `meter_conflict`（自動拍子推定が根拠を持てなかった）の issue にはアクションボタンがない。拍子の修正はプロパティパネルの meter セレクトで既に可能（setMeter edit）だが、レビュー中のユーザーはその存在に気づけず、issue を accept/dismiss するだけで
+issue212.md	refs=[]	## 問題 `possible_triplet` issue は「この区間は三連符らしいが二分割で書いた」と検出するが、レビュー UI に「三連符に直す」アクションがない。requantize は全曲対象で、区間を指定して三連符を強制する手段は存在しない。 ## 方針 新しい score.edit 種別 `applyT
+issue214.md	refs=[]	## 問題 pYIN バックエンド (predict_note_events_pyin) は frames_to_note_events が返す voiced_prob 平均をそのまま振幅として _to_raw_event に渡しており、 MIDI velocity が voiced_prob
+issue21_close.md	refs=[42, 70, 71, 73, 79, 80, 87, 301, 450]	録音まわりの未消化件を棚卸しした結果、列挙された項目はすべて出荷済みでした。該当実装: | 項目 | 状態 | 実装箇所 | | --- | --- | --- | |
+issue230_close.md	refs=[294, 297]	すべての受け入れ条件を実装しました。 - path-backed sourceはWebViewへ全bytesをIPC転送しない → `probeAudio` port + native `audio_probe` (PR #294) - hashをstreaming/native側で計算 → `sha256_file`
+issue2_close.md	refs=[45]	PR #45 で残タスクをすべて消化しました。 - [x] リリース runbook 化: `docs/RELEASE.md` を新規作成。前提ツール確認 -> 検証ゲート (tsc / eslint /
+issue44_close.md	refs=[46]	PR #46 で実装・マージしました。 **配線**: 和音マップは `ScoreDocument.chord_symbols`(beat座標・コンサート空間の `ChordSymbol`)としてドキュメントに載る。`raw_evidence` と同じくドキュメント直下の解析メタデータなので payload 外 = s
+issue85-comment.md	refs=[121]	PR #121 でメロディ抽出(texture=melody/auto)を実装しました。重なり検出時に上声(メロディ)を残す prefer="top" クリーニングと、検出帯域の 880→1400 Hz 拡大により、ミックス音源(JPOP等)の主旋律が伴奏に潰されず残ります。完全な和音・多声部対応(スコアモデルの複数声
+issue_auto_meter.md	refs=[]	## 種別: 精度（自動推定、製品デフォルト経路） meter=auto（製品デフォルト）で 3拍子・複合拍子の推定が外れる。 bench 実測（`scripts/bench_transcription_e2e.py`）: fixture truth detected onset F1@150ms auto-3-4-1
+issue_bench_hard.md	refs=[]	## 種別: 計測基盤の拡張（精度向上の前提） `scripts/bench_transcription_e2e.py` の4フィクスチャは全て1.0で飽和した。 「一般JPOPを完璧な楽譜にする」には弱点を可視化する難フィクスチャが必要。 現状のギャップ: - 全フィクスチャが tempoBpm/meter をピン留
+issue_body_305.md	refs=[]	実機検証(ブラウザ dev + dev engine bridge)で発見。 kind:"file" のドロップ(ブラウザ dev / File ref)は staging.ts が %TEMP%/hornscribe-dev/staged-<ts>-<name> に書き出して
+issue_body_308.md	refs=[155, 187, 251, 305]	実装レビューで発見: `protocol/PROTOCOL.md` の `transcription` job.start params 表が実装と食い違っている。 欠けているもの: - `vocalIsolation` (bool, #187) — 実装済み・options.py でパース済みだが文書にない -
+issue_body_314.md	refs=[187]	実装レビューで発見した機能候補（JPOP 精度・ユーザビリティ）。 ミックス検出時（overlapping_candidates / auto_mix_detected）の remedy は現在 `複数声部として採譜`(voices) のみ。しかし JPOP の典型的ケースは「伴奏+リードボーカル」で、欲しいのは複数声
+issue_body_316.md	refs=[175, 187]	実装レビューで発見した仕様の不整合（JPOP 精度に直結）。 vocalIsolation(#187) が成功すると、バックエンドへの入力はモノフォニックのボーカル推定になる。しかしバックエンド解決は `resolved_pyin = backend=="pyin" or (auto and texture=="mon
+issue_body_318.md	refs=[]	実装レビューで発見したユーザビリティ改善候補。 HornScribe は豊富なキーボードショートカットを持つ（Ctrl+O, Space/K, J/L, Ctrl+E, Ctrl+1/2, F6, レビュー系 Alt+↑↓ 等、commands/definitions.ts で ~40 件）が、それらを一覧するヘルプ 
+issue_bp_bends.md	refs=[427]	basic_pitch の `pitch_bends` を MIDI ワイヤー形式(8192 中心 / 4096=1半音)としてデコードしているが、実際には **contour-bin 単位(1/3 半音刻み、0 中心)** が返ってくる。 結果として basic_pitch
+issue_chords_crash.md	refs=[155, 355]	## 種別: バグ（採譜ジョブ全体が失敗） `texture=chords` で採譜するとジョブが JOB_FAILED で落ちる: canonical rests do not tile measure 2: gap/overlap at
+issue_copy_deck.md	refs=[]	## 概要 レビューで、ユーザーに見える文言(アナウンス/ラベル)が copy deck (`strings/ja.ts`, 正準: `protocol/copy/ja-JP.json`) を通さずコード内に直書きされている箇所を検出。`docs/UI_COPY_CONTRACT.md` の「全ユーザー向け文言はデッキ
+issue_doc63.md	refs=[79]	## 種別: 仕様不整合（ドキュメント） PR #79 でアライメント推定が「記譜可能ラティス残留 + 拍節強度タイブレーク」方式に変わったが、以下の設計文書が旧契約のまま残っている: - docs/QUANTIZER_DESIGN.md §6.3: 「複数peakの場合は自動適用せずReviewIssue」とだけ書か
+issue_export.md	refs=[]	## 背景\n書き出しダイアログ(UI-060, §17)はモックportで完成しているが、Tauri実環境では createDefaultExportPort() が UnsupportedExportPort を返すため、あらゆる操作が ENGINE_UNAVAILABLE で失敗する。実質「書き出し機能が製品版で
+issue_harmony.md	refs=[3, 15]	MusicXML コードシンボル(`<harmony>`)エクスポート ## 背景 #3 で `meta.chordProgression`(小節セグメント化された和音マップ)がエンジン出力に入ったが、MusicXML への出力は未接続。MuseScore 等で開いた時にコード記号が譜面上に出れば、採譜結果の確認・演奏
+issue_keyhint.md	refs=[]	## 背景 採譜オプションは tempo/拍子/texture/backend 等を揃えているが、**調(key signature)の指定**がない。自動調判定 `analyze_key` は弱い証拠のとき `key_uncertain` レビューを出すだけで、ユーザーが調を知っていてもそれを渡せない。 調が確定すれ
+issue_label_edit.md	refs=[12, 49]	## 背景 #12(PR #49)で区間ラベルの追加・選択復元・区間再採譜・削除を実装したが、作成済みラベルを編集する手段がない。 ## 不整合/ユースケース - 名前を typo した場合、削除 → 範囲を選び直し → 再入力 → 追加、の4操作が必要
+issue_manual_tempo.md	refs=[346]	## 概要 採譜オプションでテンポ「手動」を選んでも BPM を入力しないまま採譜を 開始できる。その場合 buildTranscriptionParams は tempoBpm を emit せず、エンジンは自動判定に戻る — ユーザーの明示した「手動」という 意図が黙って無視される。#346(空・逆順の選択範囲をエ
+issue_monitor.md	refs=[21, 71]	録音開始前の入力モニター(プリレコ・レベルメーター) ## 背景 録音中のライブレベル表示(#71)は実装済みだが、**録音を始める前**に入力レベルを確認する手段がない。マイク録音では「ゲインが小さすぎて無音」「大きすぎてクリップ」に開始後まで気づけず、取り直しになる。WSAPIのデバイスを選んだ段階でモニターできれ
+issue_new_0.md	refs=[187]	## 背景 #187 で追加した `vocal_wav` のキャッシュ（`$TMP/hornscribe-vocal-cache/`）は contentHash+選択範囲キーで蓄積されるが、削除ポリシーがない。長時間音源の分離WAVは数十MB級になり、繰り返し利用で無制限に増える。 ## 提案 - 録音保持日数（`re
+issue_new_1.md	refs=[221]	## 背景 #221 で dirty トラッキングを実装したが、ユーザーへの表示は TitleBar の末尾 `*` のみ。小さく、気づかれにくい。 ## 提案 - ステータスバーに「未保存の変更」インジケータを出す - または
+issue_new_2.md	refs=[81, 221]	## 背景 #221/#81 の終了ガードは `beforeunload` の preventDefault に依存しているが、Tauri 2 ではウィンドウの閉じるボタンで `beforeunload` が発火しないケースがある。確実なのは `getCurrentWindow().onCloseRequested` 
+issue_new_3.md	refs=[187]	## 背景 #187 は完全無料・既定インストール維持のため center extraction（中間策）で実装した。JPOP の完全なボーカル分離には demucs (MIT) が有力だが torch+モデルで ~200MB 級。 ## 提案 NaN
+issue_optssheet.md	refs=[]	## 背景 採譜オプション(テンポ/拍子/調/音価/texture/backend/範囲 等 11項目)は audioReady 画面のポップオーバーにしか存在しない。スコア表示後に結果を改善したいとき、変更できるのはレビューのクイック再採譜(texture・vocalIsolation・backend の3種)だけで
+issue_project.md	refs=[87]	## 背景\n.hornscribe.json プロジェクトスキーマ v1（FND-001）と「最近使ったプロジェクト」/relink UX は実装済みだが、採譜結果をプロジェクトとして保存する経路がない。python/hornscribe/project/store.py に保存ロジックはあるが worker が公開
+issue_proto_gate.md	refs=[]	## 概要 `main.tsx` の `PrototypeApp` 遅延ルート(`#/prototype/*`)は DEV ゲートがなく、本番ビルドにもプロトタイプの JS チャンクが同梱される。実害は「配布物に spike 資産が乗る」(サイズ・表面積)で、仕様上も「prototype は実験資産」の境界に反する。 
+issue_queue_params.md	refs=[]	## 概要 採譜キューのエントリが「どの採譜オプションで登録されたか」を表示しない。 params は enqueue 時点で焼き付く不変条件だが、ユーザーは確認する術が ない — 複数ファイル・複数区間を連続で回す用途(発案の動機そのもの)で 最も必要な情報が欠けている。 ## 問題 - `queue.enqueue
+issue_range_retranscribe.md	refs=[55, 343, 345, 353]	## 概要 スコア画面で波形をドラッグして選んだ区間を、そのまま「この区間を再採譜」 できるようにする。コード上の #345 フックとして残っている未実装機能。 ## 背景 - 波形の選択バンドは #353 で「再生/ナビゲーション用の状態」に分離された。 スコア画面でドラッグしても transcriptionOpti
+issue_recording_gates.md	refs=[]	## 概要 録音中の採譜系アクションがコマンド登録(isEnabled: !isRecording)では 一貫して無効化されているが、コマンドを経由しない導線が残っている。 ## 問題 - `score.transcribe` / `media.enqueueAudio` などは録音中 disabled (録音先の音源
+issue_stale_engine.md	refs=[]	## 概要 同梱用フリーズエンジン `resources/engine/hornscribe-engine.exe` が、 worker に追加されたメソッド・caps を含まない古いビルドだった。 実機で `engine.handshake` を叩いたところ、`project.save` / `project.ope
+issue_starting.md	refs=[]	## 概要 録音開始時、`port.start()`(getUserMedia / WASAPI セッション確立)が 解決する前から UI が「録音中」位相に入る。デバイス応答が遅い・ 権限プロンプトが解決しない間、**実体のない録音中**が表示される。 ## 再現(実機確認済み / vite dev +
+issue_surface_shift.md	refs=[78, 79]	## 種別: ユーザビリティ向上（小） 採譜時にグローバルな時差補正（alignment shift）が適用されても、ユーザーには一切見えない。検出側の系統バイアスを直せるようになった今（#78）、「何ms補正したか／メーター根拠で解消したか」は結果の信頼性を左右する診断情報であり、少なくともパワーユーザーが追えるべき
+issue_title_lh.md	refs=[]	## 概要 `.hs-empty__title` で修正したのと同じ問題が、`--hs-font-size-title`(20px)を使う他の見出しにも残っている。body 継承の line-height は `--hs-line-height-body`(20px)のため、20pxフォントに20px行ボックス=比率1
+issue_triplet_grid.md	refs=[]	## 種別: 精度（リズム量子化） triplets=AUTO（デフォルト）で、純粋な8分3連列が16分グリッドに 量子化される。bench 実測: `triplets-4-4` で全24音検出だが medianOnsetErrMs=41.7（166.7msの3連位置が125msの16分位置に記譜）。 `swing-4
+issueN.md	refs=[]	## 問題 workflow_dispatch で tag に `0.1.0` (v 無し) を入力すると、checkout が `refs/tags/0.1.0` を fetch しようとして失敗する (run
+issues.json	refs=[78, 82]	[ { "title": "パッケージ版アプリでエンジン(Python)ランタイムを同梱する", "body": "## 背景\nPR #82 で実トランスクリプションパイプラインが繋がったが、エンジンのPython解決は HORNSCRIBE_PYTHON → リポジトリ内 .venv* → PATH の順であり、開
+new-issue-0.md	refs=[60, 61, 70]	## 背景\n\n#70 で録音は ppDataDir/recordings/ に実ファイルとして永続化されるようになったが、現在は**書きっぱなし**で以下が未定義:\n\n- 容量上限・古い録音の自動削除ポリシーが無い(30分録音は ~660MB)\n- 録音ファイルの一覧・削除・名前変更の UI が無い\n- 
+new-issue-1.md	refs=[60, 61, 73]	## 背景\n\n録音開始の失敗は CaptureIssue で分類され EMPTY 状態ではインライン表示されるようになったが、以下の経路が弱い:\n\n- **マイク権限の拒否**(OS のプライバシー設定やブラウザの権限プロンプトで拒否)が汎用の「録音に失敗しました」に落ち、OS 設定への誘導が無い\n- **録
+new-issue-2.md	refs=[60, 61]	## 背景\n\n録音は開始→停止(=取り込み)の2状態のみ。30分上限内で一時停止したいケースがある:\n\n- 長い演奏動画の途中に広告/休憩が入る → その区間だけ録音を止めたい\n- マイク録音で吹き直しの間、無音区間を入れたくない\n\n現状は「やめる(=破棄)」しかなく、一時停止のたびに最初から取り直しにな
+new-issue-3.md	refs=[60, 61, 70]	## 背景\n\n録音セッションはプロセス内のメモリバッファに保持され、capture_stop 時に初めてディスクへ書かれる。録音中にウィンドウを閉じる/アプリを終了すると、確認もなく録音が失われる。\n\n30分録音の途中で誤って閉じた場合の損失が大きい。\n\n## 提案\n\n- 録音中のウィンドウクローズに確
+_issue100_comment.md	refs=[111]	## 段階2 実装メモ (2026-09-29 調査) capture.rs は `windows` crate 直叩きの WASAPI COM 実装(`enum_devices`/`eRender` で render エンドポイント列挙済み)。プロセス単位キャプチャはこの延長でいける:
+_issue130_comment.md	refs=[92]	prefer="top" (melody texture) での実測ダンプを取ったところ、主旋律が伴奏に食われる主因は2段のゴースト抑制でした: 1. **concurrent ghost**: 旋律片 `76@2.114 conf0.33 0.105s` がパッド `57@2.103 conf0.50 0.383s`
+_issue137_close.md	refs=[140]	PR #140 で scripts/release.py を実装・マージし、実際に v0.2.0 を本番 リリースして経路の正常動作を実機で証明しました。 実施したリリース: https://github.com/ka0923s-a11y/HornScribe/releases/tag/v0.2.0 パイプライン実績(
+_issue138_close.md	refs=[139]	PR #139 で修正・マージ済み。 実機検証(検証ハーネス = 本番コード同一の WASAPI 呼出し): - セッション列挙: 3件(修正前0件 — S_FALSE を除外扱いしていたのを S_OK 明示比較に修正)
+_issue147_close.md	refs=[149]	解決済み。v0.2.0 の setup.exe / portable.zip 両アセットを削除し、リリースノートを「破損・削除済み → v0.2.1 以降を使用」に更新しました。 補足: その後判明した #149（audio_probe のスタックオーバーフロー）は v0.2.1 / v0.2.2
+_issue149_close.md	refs=[150]	## 根本原因の特定（検証済み） WER のクラッシュ記録: hornscribe-desktop.exe 0.2.1.0 / 例外 0xC00000FD (STATUS_STACK_OVERFLOW) / 録音 WAV 書き込み直後。 - audio_probe
+_issue165_close.md	refs=[190, 191, 222, 223]	## 完了記録（改善候補の全件決着） ### 改善候補1: demucs 本格分離の同梱経路 — **完了** - `HornScribe-demucs-addon-4.1.0-win64.zip`（約164MB）を **v0.2.11 リリース資産として公開**。設定→ツール「アドオンの場所」への展開＋エンジン再起動
+_issue165_other.md	refs=[169]	追試（demucs `--two-stems=other` 経路の検討）: 「vocalIsolation を声でない主旋律に使う」ケースでは `--two-stems=vocals` が空 stem を返す（#169 でフォールバック済み）が、`--two-stems=other` なら楽器主旋律が残る可能性があるた
+_issue165_read.txt	refs=[169, 170, 171, 302, 316]	採譜精度の限界: -9.5dB 級の埋もれた主旋律で残り約10%が取れない（SNR下限） ## 背景 E2Eベンチ very-quiet-lead(主旋律 -9.5dB under backing, vocal_isolation 有効)は pitch accuracy 0.8947 —
+_issue165_update.md	refs=[169, 170, 171, 316]	## 進捗記録（lead-track ゲート + rescue パス、#169 派生修正） ### 今回マージした変更（#170, #171） 1. **lead-track 同意ゲート**（#171）: 分離後推定を pYIN に無条件解決していた
+_issue165_verify.md	refs=[]	## 実機検証記録 v0.2.11 リリース資産 `HornScribe-demucs-addon-4.1.0-win64.zip` を検証： - ビルド時 smoke: `--help` / `--list-models` / 1秒トーンの htdemucs 実分離
+_issue165_view.json	refs=[169, 170, 171, 302, 316]	{"body":"## 背景\n\nE2Eベンチ very-quiet-lead(主旋律 -9.5dB under backing, vocal_isolation 有効)は pitch accuracy 0.8947 — 完全に伴奏にマスクされる音符は無料スタック(center抽出 + Basic Pitch)では聴
+_issue1_comment.md	refs=[3, 21, 22]	## 移行完了記録 (2026-09-29) - [x] 未完了 Issue の再作成: 旧未完了 Issue は #3-#21 として再作成済み(タイトル `[orig #NNN]` /
+_issue264_comment.md	refs=[267]	## 進捗記録 (PR #267 まで) ### 実施済み - **オクターブ監査の計測窓を修正**: 生アトム区間→**書かれた音符の拍スパンをwarpで音声秒に逆投影**。FFTフロア(120ms)未満の検出イベントに由来する音符が監査対象から漏れていた問題を解消。リファレンス曲で捕捉 1→4 件(94秒付近 + 
+_issue_177_resolve.md	refs=[178]	## 解決 PR #178 で修正し、v0.2.6 としてリリース済み。 - 根本原因: `capabilities/default.json` に `core:window:allow-destroy` が無く、`onCloseRequested` リスナー経由の全ての close 経路(API 内部の暗黙
+_issue_a.txt	refs=[203, 398]	## 概要 #203 で伴奏パートが追加され、スコアは常に全段（Horn in F + 伴奏 1/2）で表示・エクスポートされる。ホルン奏者の主要ユースケースは「自分のパート譜だけを見る・印刷する」なので、パート単位の表示切替とパート抜粋エクスポートが欲しい。 ## 現状 - 画面表示: Verovio が全パートを1
+_issue_autorescue.md	refs=[]	## 要望 texture=auto のままミックス音源を放り込むと、現状は「ミックスを検出 → 上部声部だけ残すクリーン」までで、主旋律が伴奏に埋もれたままの精度になる。ボーカル分離は**ユーザーがチェックボックスで明示的にオンにしないと**走らない。 実際のユーザー（JPOP をそのまま録音して採譜）は分離の存在を
+_issue_b.txt	refs=[203, 208, 209, 398]	## 概要 自動演奏（#398 ミキサー対応）では全パートが同一のシンセ音色で鳴る。#203 の伴奏パートが主旋律と同じ音色なので、試聴時にリードと伴奏の聴き分けが難しい。 ## 提案 - 非移調パート（伴奏）に別音色を割り当てる。ピアノ系か、せめて柔らかい音色（低い倍音成分）が望ましい - 実装面では playbac
+_issue_bleed.md	refs=[]	## 現象 実機 JPOP キャプチャ（113s、demucs 分離済み）の主旋律パートで 183 音中 36 音が MIDI <52 の低域に落ちる。最低は MIDI 33（A1）— ボーカル旋律としてはほぼ不可能な帯域で、B
+_issue_body.md	refs=[479, 424242, 616161]	## 背景(GUIデザイン/仕様の不整合) DESIGN_SYSTEM §13 option A「ダーククローム + 明るい楽譜ペーパー」の設計上、`--hs-surface-score` は両テーマで明色(#ffffff/#fafafa)で、コントラストゲート(contrast.ts)には「text tokens n
+_issue_body_222.md	refs=[165, 181, 191, 314]	## 問題 `low_lead_level`（主旋律埋没の注意喚起、#191）の案内文が常に「分離品質：高精度での再採譲」を勧めるが、実際にはその選択肢にたどり着けないケースがある： 1. **demucs 未導入**（アドオンなし = 既定の配布構成）: 「分離品質」セレクト自体が無効化される（`vocalIsola
+_issue_body_accconf.md	refs=[]	﻿## 症状 伴奏パート（demucs other ステムを basic-pitch 多音採譜）のイベント 1497 件のうち **1186 件（79%）が confidence < 0.5**（median 0.403, p10
+_issue_body_accomp_flags.md	refs=[212, 272]	## 問題 採譜リザルトのレビュー issue の約 9 割が伴奏パート由来のノイズになっている。 リファレンス曲 (定テンポ JPOP 230s) の実測で: | reason | lead
+_issue_body_accuracy.md	refs=[254, 262]	## 背景 M!LK「クレッシェンド」（YouTube 参照音源、230s / D major / 143.5 BPM / 4/4）を正解リファレンスとした採譜検証で、v0.2.14 時点の残存課題を整理。全体精度は大幅改善済み（テンポ・調・拍子ラベル・和声追従・tuplet 率 4%）だが、以下が残っている。 ##
+_issue_body_bb.md	refs=[]	## 概要 現在の移調表示は コンサートピッチ / F管ホルン の2択。B♭ 管楽器（トランペット・クラリネット・テナーサックス等、written = sounding + 長二度）ユーザーのために B♭ 表記を追加する。 ## スコープ（既存アーキテクチャのミラー）
+_issue_body_close.md	refs=[177, 185, 221]	## 症状 ウィンドウの X ボタンを押してもアプリが終了しない状況があり得る（ユーザー報告）。 ## 調査結果 — 2系統の「閉じられない」経路が存在する ### 1. JS リスナー登録後は JS 以外で絶対に閉じられない（Tauri 2
+_issue_body_close_bug.md	refs=[301, 400]	## 症状 パッケージ版(installer / portable 両方)で、アプリを終了できない。 - タイトルバーの X / Alt+F4 / タスクバーの「閉じる」のいずれも一切反応しない(確認ダイアログすら出ない) - 未保存・録音中・採譜中に出る終了確認ダイアログで「保存して閉じる」「破棄して閉じる」「採譜を
+_issue_body_collapse.md	refs=[]	## 背景 PRODUCT_BOUNDARY.md に明記された未実装候補:「和音から1本の演奏可能な旋律へ reduce する機能は、必要になれば別 feature として設計する(chord 記譜とは別問題)」。 現状のギャップ: `voices`(複数声部)/`chords`(和音)テクスチャで採譜すると、複数パ
+_issue_body_copy.md	refs=[187, 212, 222]	## 問題 レビュー issue の案内文が実際の UI 画面・実行方式とずれている箇所がある： 1. **`accompaniment_part`**: 「不要なら**設定**の「伴奏も別パートで採譜する」を外せます」と案内するが、そのチェックボックスは採譜オプション（`TranscriptionOptionsDia
+_issue_body_deck.md	refs=[116, 153, 154]	## 症状 `apps/desktop/src/quality/copyDrift.test.ts` > "every implemented error id exists in the deck with matching copy" が
+_issue_body_demucs_addon.md	refs=[165, 186]	## 概要 #165 の候補1「demucs 本格分離の同梱経路」: demucs+torch は ~2GB 級で既定バンドルには重すぎるが、**任意ダウンロードのアドオン zip** として GitHub Releases で配布すれば無料・オフライン・オプトインを維持できる。 ## 前提（既に実装済み）
+_issue_body_devseed.md	refs=[219, 222, 234]	﻿## 概要 `npm run ui070:dogfood` が Task A (audioReady → 採譜 → scoreReady) で 120 s
+_issue_body_eng1.md	refs=[]	## 実機検証で確認（v0.2.7 ポータブル版） コールドスタートでエンジン handshake が **53秒** かかり、クライアント側の handshake タイムアウト（30s, `handshakeTimeoutMs`）を超過 → 正常起動中のエンジンを「採譜エンジンが応答していません」と誤判定した。 ##
+_issue_body_eng2.md	refs=[]	## 実機検証で確認（v0.2.7 ポータブル版） `child.kill()` は PyInstaller onefile の **ブートローダー親** のみを終了し、実体の Python ワーカー（孫プロセス）を孤児化する。 ### 検証 ``` Stop-Process
+_issue_body_eng3.md	refs=[]	## 提案 frozen engine を PyInstaller `--onefile` → `--onedir` に変更する。 ### 背景 onefile は毎起動時に ~290MB を
+_issue_body_engine_freeze.md	refs=[177]	## 概要 #177 調査中に発見した耐久性の問題。エンジン系コマンドが Tauri の同期コマンドとして実装されており、ブロッキング I/O がメインスレッド(UI)を凍らせ得る構造になっている。 ## 問題 1. `engine_write` が `ENGINE` ミューテックスを保持したまま stdin
+_issue_body_grand.md	refs=[]	﻿## 症状 伴奏パート（Pno）が MIDI 33〜88 の広音域を単一ト音譜表に詰め込んでおり、低音域の音符が大量の加線で譜面外にはみ出し読みにくい。ピアノ伴奏としては大譜表（ト音＋ヘ音の 2 段）が自然。 ## 改善案 - accompanimentPart ON 時、伴奏パートを大譜表（treble + bas
+_issue_body_hard.md	refs=[127]	## 概要 `jpop-mix-hard-*` ベンチ行（ビブラート付きリード + 同音域ストラムアルペジオ競合）の実測で見えた残課題。合成4レイヤーミックス行は #127 で満点になったが、同音域にピッチド伴奏が乗ると旋律の一部が掠る。 ## 実測 | 行 | pitch acc |
+_issue_body_jobstart.md	refs=[]	## 症状（v0.2.3 実機再現・ユーザー報告） 採譜実行で確定的に失敗: failure: transcriptionFailed (no response to 'job.start' within 10000ms)。直後に response for unknown id
+_issue_body_jpop.md	refs=[]	## 概要 JPOP 風マルチレイヤーミックス（主旋律 + コードパッド + ベース + ドラム系ノイズ、ステレオ）のベンチフィクスチャを新設し、実測で判明した精度問題を修正する。 ### 発見した問題（実測） `texture="melody"` で、ミックス中の主旋律の持続音が Basic Pitch
+_issue_body_lowsnr.md	refs=[165]	## 概要 #165 の結論より: 低 SNR（埋もれた主旋律）では「どちらのピッチが正か」自体が曖昧で検出されない音符が残るが、検出なしはレビュー導線に乗らないため、**低 SNR であること自体をユーザーに伝える要確認表示**を追加したい。 ## 提案 - 採譜後に入力 SNR/分離後 RMS の診断から「低 SN
+_issue_body_mdl.md	refs=[]	## 問題 demucs 分離の初回実行時、モデル重み（標準約80MB / 高精度約300MB）が torch hub キャッシュへダウンロードされるが、`isolate_demucs_vocals` は `subprocess.run(capture_output=True, timeout=3600)` で完全ブロ
+_issue_body_mono_frag.md	refs=[127]	## 背景 #127 で `prefer="top"`（melody テクスチャ）に「同ピッチの最終 kept イベントへのマージ」を導入し、ミックス中の持続音分割を修復した。同じ断片化は **mono ソロ録音でも起こり得る**（ブレス音・キー打音・部屋鳴りが持続中に低音仮説を立て、`prefer="onset"` 
+_issue_body_nopitch.md	refs=[]	## 問題 無音・非音楽の音源を採譜するとエンジンは NO_PITCHED_CONTENT（「音程のある音が検出されなかった」— クラッシュではなくコンテンツ由来の正常な失敗）を返すが、エラー画面は汎用の「採譜を完了できませんでした」のみを表示し、理由は診断情報ダイアログの奥にある。 録音ボタンを誤操作した・再生中でな
+_issue_body_nsis.md	refs=[186]	## 症状 v0.2.8 の `HornScribe_0.2.8_x64-setup.exe` (NSIS) が約 63MB で、エンジンが同梱されていない（正常時は ~370MB）。インストールすると採譜エンジンが起動できず採譜不可。 portable zip (394MB) は正常。 ## 原因
+_issue_body_overlay.md	refs=[]	﻿## 概要 melody テクスチャ (prefer= top) が「常に最高音を採る」ため、伴奏ストラムの高音が主旋律の上に乗った区間で旋律を落とす。ベンチ jpop-mix-hard-{raw,vocal} で pitch 0.9474 / onsetF1 0.9737 に留まる唯一の残件。 ##
+_issue_body_plfix.md	refs=[100, 135]	## 背景 #100(PR #135)で対象アプリ単位のループバック録音を実装したが、実機検証 (本番コードをそのまま移した WASAPI 検証ハーネスで実セッションに対して実行) で4つの実働不具合を確認した。いずれも PR 時点では未検出で、出荷状態では 「対象アプリを選ぶと壊れる」。 ## 問題(実機で再現確認済
+_issue_body_release.md	refs=[]	## 背景 docs/RELEASING.md は「GitHub → Actions → Release → Run workflow」起点の リリース手順を記述しているが、このリポジトリには .github/workflows/ 自体が存在しない(ワークフローファイル未同梱)。さらに運用制約として GitHub Ac
+_issue_body_renderloop.md	refs=[123]	## 概要 `ScoreReadyWorkspace` のスコア状態ミラー effect が親から届く `onStateChange` コールバックを依存配列に含んでおり、App 側の inline ラッパが毎レンダー新規生成されるため、**無限の再レンダーループ**が発生していた。 ### 再現 dev サーバーで 
+_issue_body_retire020.md	refs=[141, 142]	﻿## 概要 ユーザー実機報告: 「インストール、ポータブル版両方」で起動時に `WebView2Loader.dll が見つからないため、コードの実行を続行できません` (hornscribe-desktop.exe - システムエラー) が出る。 #141/#142 で v0.2.1 に修正済みのはずだが、報告が継
+_issue_body_rtrest.md	refs=[]	﻿## 症状 伴奏パートを含むスコアの reviewIssues に structural_measure_conflict (warning) が出る。証拠の hythmRoundtripProblems は先頭で event count 1734 != expected 1735
+_issue_body_stackovf.md	refs=[294]	## 症状 v0.2.1 で録音（PC の音 / マイク）→ 解析を実行すると hornscribe-desktop.exe が即座にクラッシュする。WER から: - 例外コード 0xC00000FD = STATUS_STACK_OVERFLOW
+_issue_body_stem.md	refs=[165]	## 症状 `vocalIsolation` 有効時、demucs が利用可能な環境では分離に demucs が優先されるが、**入力の主旋律が人声でない**（シンセリード・ホルン等の楽器ソロ）場合、demucs は全エネルギーを `no_vocals` stem に逃がし、`vocals` stem として事実上無音
+_issue_body_swing.md	refs=[]	## 背景 `swing-4-4` 行が唯一の非満点（onset F1 0.9375, med err 41.7ms）。pitch は 100% なので音符自体は正しい。 ## 解釈 真値はスウィング八分（長短 2:1、offbeat
+_issue_body_tempo_fold.md	refs=[]	﻿## 症状 リファレンス曲（M!LK「クレッシェンド」、全編一定 143.55 BPM。実測: librosa beat_track が全 20 秒窓で 143.55 を一貫して返し、アンカー間隔中央値 418ms・532 拍）に対して、テンポマップが「128 → 121
+_issue_body_uxq.md	refs=[181]	## 概要 採譜オプションの「分離品質」（#181 で追加）は demucs 未導入環境では実質的に何も変えない — center extraction フォールバックにティアは無関係。しかし UI 上は有効なセレクトとして表示されるため、ユーザーは「高精度を選んだのに変わらない」と感じ得る仕様不整合。 ## 実機で確
+_issue_body_vocal_quality.md	refs=[165]	## 概要 ボーカル分離（vocalIsolation）で使う demucs のモデルを選択可能にし、既定の `htdemucs` に加えて fine-tune 版 `htdemucs_ft` + shift 平均を「高精度」ティアとして提供する。#165 の結論（残り誤差は分離品質依存）への直接的な精度レバー。完全無
+_issue_body_wv2.md	refs=[]	﻿## 概要 v0.2.0 のインストーラー版・ポータブル版ともに起動直後にシステムエラー「WebView2Loader.dll が見つからないため、コードの実行を続行できません」でクラッシュする。 ## 原因 - gnu toolchain (stable-x86_64-pc-windows-gnu) でビルドした場
+_issue_c.txt	refs=[203]	## 概要 #203 で追加された伴奏パートはソース分離（demucs no_vocals / center complement）由来の自動検出であり、主旋律パートより精度が落ちるのが構造的に避けられない。しかし現在、伴奏パートのノートにはレビュー指摘（boundary_uncertain 等）が付かず、出典・信頼度
+_issue_comment.md	refs=[50, 122]	## 完了記録 (PR #122) **やったこと**: - `scripts/package_portable.py` 新設: shell exe + 同梱 engine + tools(ffmpeg/ffprobe+LICENSE) +
+_issue_d.txt	refs=[203]	## 概要 #203 の伴奏パートは accompaniment stem を basic-pitch で検出し、最大2声部のモノフォニック分割 (split_voices) で譜面化している。JPOP の伴奏はピアノ/ギターのコードボイシングが中心で、2声部の単旋律分割では内声の和音が失われる。 ## 現状 - 出力
+_issue_leipzig.md	refs=[201]	## 背景 #201 でテンポ記号の音符グリフが ☒ 化する問題を CSP（`font-src data:`）で修正したが、WebView2 が inline SVG 内の `<style>@font-face` を解決しない環境・バージョンでは依然として再現し得る。SMuFL テキスト（テンポ拍子音符、ダイナミクス等
+_issue_marker.md	refs=[220]	## 現象 実機スコアで要確認マーカーの「!」バッジが譜面上に大量に散る（実機 110 件の issue でシステムあたり多数）。Verovio の `g.staff` は「小節×パート」単位のため、現行の『スタッフごとに 1 バッジ』集約（#220）は実質『小節ごとに 1 バッジ』になっており、実機譜面では数十個のバ
+_issue_marker_density.md	refs=[]	## 症状 採譜結果画面で、レビュー項目の「!」マーカーが小節ごとに大量に重なり、譜面そのものが読みにくい。実測で 8 小節の楽譜に 30〜40 件のレビュー項目が出ると、ほぼ全音符に ! が付く状態になる（画像: PCの音 採譜結果）。 ## 問題 - マーカー同士が重なって譜面要素（音符・臨時記号）を覆い隠す -
+_issue_new.md	refs=[190]	## 概要 採譜ジョブ実行中に「エンジンを再起動」を押せてしまい、走っているジョブが黙って kill される。 ## 経路 - 診断情報シートの「エンジンを再起動」ボタン - 設定 → ツール → demucs 行の「エンジンを再起動」ボタン（#190
+_issue_new_url.txt	refs=[]	https://github.com/ka0923s-a11y/HornScribe/issues/264
+_issue_oct.md	refs=[4, 236]	リード旋律に楽句句コンテキストから完全に外れたオクターブ誤り（D2→実際はD3/D4、B2→B3、E6）が残留する。 ## 実測（リファレンス曲 M!LK「クレッシェンド」230s、採譜結果） - MIDI 38 (D2) ×3箇所: E4→D2→A3 のような ±19st 超の孤立深潜り - MIDI 47
+_issue_requant_poly.md	refs=[213]	## 症状 和音を含むマージパート（chords テクスチャの Horn in F (chords) パート、#213 のマージ伴奏パート）に対して設定変更由来の requantize（apply_score_edit kind=requantize）を実行すると、同時発音が消えて単旋律化する。 ## 原因 _requ
+_issue_short.md	refs=[252]	リード旋律のオクターブ補正（#252）で大半の外れ値は修復されたが、**約120ms未満の極短イベント**は octave_prefers の最小スパン（OCTAVE_MIN_SPAN_SEC=0.12s, FFT 分解能限界）を下回り、スペクトル仲裁自体が実行不能で残存する。 ## 実測（リファレンス曲 230s、v
+_issue_split.md	refs=[]	## 要望 JPOP などのミックス音源を採譜したとき、**主旋律と伴奏を自動で分けて採譜**してほしい。現状は 1 パートに伴奏も混ざり、読めない楽譜になる（ホルン単旋律の譜面に和音・クラスタ・低音が混入）。 ## 設計 - ボーカル分離（demucs / 中央抽出）が動いたとき、`no_vocals`（伴奏）ステム
+_issue_stemev.md	refs=[233, 252]	#252 でオクターブ判定を「検出元音声（ステム）」に切り替えたが、残る音声証拠の読み取り先が依然ソースミックスのまま: | 証拠 | 現在のバッファ | 本来あるべきバッファ | |---|---|---| | `boundary_flags`（boundary_uncertain 生成） | samples（ミック
+_issue_tempo.md	refs=[]	## 症状 定速の JPOP 音源（ループバック録音）を採譜すると、テンポマークが小節ごとに発行され、151.39 → 144.83 → 122.25 → 168.79 → 135.9 … と ±15%
+_issue_tofu.md	refs=[]	## 症状 採譜結果の楽譜で、テンポ記号が「☒ = 151.39」のように音符部分が豆腐（□に×）化する。数値テキストは正常で、音符グリフだけが欠ける。 ## 原因 Verovio は `<metronome>` の beat-unit を SMuFL グリフ（Leipzig フォント、SVG
+_issues.json	refs=[]	[{"number":100,"title":"feat: ループバック録音は全ミックス対象 — 対象アプリ限定キャプチャの検討 + 注意喚起"}]
+_issues.json	refs=[]	[{"number":100,"title":"feat: ループバック録音は全ミックス対象 — 対象アプリ限定キャプチャの検討 + 注意喚起"}]
+_issues.txt	refs=[]	264 OPEN 採譜精度の残存課題（実曲リファレンス検証 v0.2.14 時点） 2026-10-09T11:05:39Z
+_issues.txt	refs=[]	264 OPEN 採譜精度の残存課題（実曲リファレンス検証 v0.2.14 時点） 2026-10-09T11:05:39Z
+_issues_all.txt	refs=[219]	249 CLOSED 伴奏パート由来の per-note レビュー issue が lead の指摘を埋没させている (音域チェック等は transposing パートのみに適用すべき) bug 2026-10-07T13:01:11Z 247 CLOSED
+_issues_all.txt	refs=[219]	249 CLOSED 伴奏パート由来の per-note レビュー issue が lead の指摘を埋没させている (音域チェック等は transposing パートのみに適用すべき) bug 2026-10-07T13:01:11Z 247 CLOSED
+_issues_bug.txt	refs=[351]	153 CLOSED ux(errors): NO_PITCHED_CONTENT に専用コピーと回復導線を出す enhancement 2026-10-01T11:16:09Z 177 CLOSED パッケージ版でアプリを閉じれない(X・Alt+F4・終了確認が全て無反応) — allow-destroy 未付与 2
+_issues_bug.txt	refs=[351]	153 CLOSED ux(errors): NO_PITCHED_CONTENT に専用コピーと回復導線を出す enhancement 2026-10-01T11:16:09Z 177 CLOSED パッケージ版でアプリを閉じれない(X・Alt+F4・終了確認が全て無反応) — allow-destroy 未付与 2
+_issues_closed.txt	refs=[]	262 CLOSED quantizer: triplet run-membership ignores local cost — noise-chained regions mass-enable triplets (26% atoms on
+_issues_closed.txt	refs=[]	262 CLOSED quantizer: triplet run-membership ignores local cost — noise-chained regions mass-enable triplets (26% atoms on
+_issues_open.txt	refs=[]	
+_issues_open.txt	refs=[]	

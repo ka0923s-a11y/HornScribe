@@ -1,0 +1,1 @@
+PR #61 がマージされました (squash commit b0ba2a5)。この issue の対応は main に入っています。

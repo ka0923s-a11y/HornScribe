@@ -1,0 +1,28 @@
+{
+  "id": "error.export_permission_denied",
+  "screenState": "ERROR",
+  "scenario": "書き出し先フォルダに書き込み権限がない。別の保存先を選ぶ導線を出す。",
+  "elements": [
+    {
+      "id": "errorTitle",
+      "component": "ErrorSurface",
+      "copyKey": "errors.exportPermissionDenied.title",
+      "text": "保存先に書き込めません"
+    },
+    {
+      "id": "errorBody",
+      "component": "ErrorSurface",
+      "copyKey": "errors.exportPermissionDenied.body",
+      "text": "選択したフォルダへの書き込み権限がありません。プロジェクトと楽譜は失われていません。"
+    },
+    {
+      "id": "actionChooseDestination",
+      "component": "Button",
+      "copyKey": "errors.exportPermissionDenied.actions.chooseDestination",
+      "text": "別の保存先を選ぶ"
+    }
+  ],
+  "sampleData": {
+    "destination": "C:\\Program Files\\readonly"
+  }
+}

@@ -1,0 +1,5 @@
+HANDSHAKE: {"protocolVersion": 1, "engineInfo": {"name": "hornscribe-engine", "version": "0.1.0", "python": "3.12.10", "platform": "win32", "pid": 51044}, "capabilities": {"methods": ["debug.hang", "debug.stacks", "engine.handshake", "engine.ping", "engine.shutdown", "export.midi", "job.cancel", "job.start", "project.save", "score.edit"], "jobKinds": ["transcription", "demoLongTask"], "maxConcurrentJobs": 1, "cooperativeCancel": true, "cancellationFallback": "terminate+restart", "progressEvents": true, "ba
+  ev preparing_audio 0.0 {'jobId': 'job-0001', 'jobKind': 'transcription', 'phase': 'started', 'stage': 'preparing_audio', 'progress': 0.0}
+DONE err= None
+score keys: []
+notes: 0 measures: 0

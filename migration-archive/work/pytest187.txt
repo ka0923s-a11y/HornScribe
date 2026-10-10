@@ -1,0 +1,42 @@
+........................................................................ [  8%]
+........................................................................ [ 17%]
+........................................................................ [ 26%]
+........................................................................ [ 35%]
+........................................................................ [ 43%]
+........................................................................ [ 52%]
+.......................F................................................ [ 61%]
+........................................................................ [ 70%]
+........................................................................ [ 78%]
+........................................................................ [ 87%]
+................................sss..................................... [ 96%]
+.............................                                            [100%]
+================================== FAILURES ===================================
+_____________________ test_all_master_plan_reasons_exist ______________________
+
+    def test_all_master_plan_reasons_exist() -> None:
+        expected = {
+            "low_model_confidence",
+            "very_short_detection",
+            "overlapping_candidates",
+            "quantization_ambiguous",
+            "possible_triplet",
+            "pitch_spelling_ambiguous",
+            "outside_preferred_horn_range",
+                "structural_measure_conflict",
+                "meter_conflict",
+                "swing_feel",
+                "monophonic_backend",
+                "tempo_uncertain",
+            }
+>       assert {r.value for r in ReviewReason} == expected
+E       AssertionError: assert {'low_model_c...biguous', ...} == {'low_model_c...biguous', ...}
+E         
+E         Extra items in the left set:
+E         'vocal_isolation_applied'
+E         'vocal_isolation_unavailable'
+E         Use -v to get more diff
+
+tests\python\test_review.py:50: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/python/test_review.py::test_all_master_plan_reasons_exist - Asse...
+1 failed, 817 passed, 3 skipped in 70.59s (0:01:10)

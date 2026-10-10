@@ -1,0 +1,4 @@
+ISSUE: overlapping_candidates | caution | {"polyphonicOverlaps": 9, "note": "overlapping pitches were merged into a single line", "suggestVoicesTexture": true}
+META tempo: 120.0 auto: False meter: 4/4 conf: 1.0
+content keys: ['tempoMap', 'timeSignature', 'keySignature', 'pickupBeats', 'parts', 'quantizationSettings', 'meterChanges']
+tempoMap: [{"startBeat": "0/1", "bpm": 120.0}]

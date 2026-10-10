@@ -1,0 +1,2 @@
+aaa
+"""Smoke-test a frozen HornScribe engine binary (#244).

@@ -1,0 +1,1 @@
+* New 「音源の種類」 `mono` / `melody` / `auto`.

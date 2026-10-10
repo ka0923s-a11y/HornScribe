@@ -1,0 +1,30 @@
+{
+  "id": "loading.opening_audio",
+  "screenState": "LOADING",
+  "scenario": "音声ファイルを開いて波形を準備している途中。",
+  "elements": [
+    {
+      "id": "status",
+      "component": "StatusBar",
+      "copyKey": "loading.openingAudio",
+      "text": "音声ファイルを読み込んでいます"
+    },
+    {
+      "id": "waveformLoading",
+      "component": "WaveformView",
+      "copyKey": "waveform.loading",
+      "text": "波形を読み込んでいます"
+    },
+    {
+      "id": "statusBar",
+      "component": "StatusBar",
+      "copyKey": "a11y.statusBar",
+      "text": "状態表示",
+      "role": "accessible name"
+    }
+  ],
+  "sampleData": {
+    "fileName": "ホルン独奏_朝練_2026-09-21.wav",
+    "progressPercent": null
+  }
+}

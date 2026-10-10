@@ -1,0 +1,72 @@
+{
+  "id": "settings.tools_status",
+  "screenState": "SETTINGS",
+  "scenario": "設定のツール欄。FFmpegは検出済み、MuseScoreは未検出。言語設定は存在しない。",
+  "elements": [
+    {
+      "id": "settingsTitle",
+      "component": "SettingsPage",
+      "copyKey": "settings.title",
+      "text": "設定"
+    },
+    {
+      "id": "toolsSection",
+      "component": "SettingsSection",
+      "copyKey": "settings.tools.label",
+      "text": "ツール"
+    },
+    {
+      "id": "ffmpegName",
+      "component": "ToolStatus",
+      "copyKey": "settings.tools.ffmpeg",
+      "text": "FFmpeg"
+    },
+    {
+      "id": "ffmpegStatus",
+      "component": "ToolStatus",
+      "copyKey": "dependencies.statusFound",
+      "text": "検出済み"
+    },
+    {
+      "id": "ffmpegPurpose",
+      "component": "ToolStatus",
+      "copyKey": "dependencies.ffmpeg.purpose",
+      "text": "音声ファイルの変換に必要です。"
+    },
+    {
+      "id": "musescoreName",
+      "component": "ToolStatus",
+      "copyKey": "settings.tools.musescore",
+      "text": "MuseScore"
+    },
+    {
+      "id": "musescoreStatus",
+      "component": "ToolStatus",
+      "copyKey": "dependencies.statusMissing",
+      "text": "見つかりません"
+    },
+    {
+      "id": "musescorePurpose",
+      "component": "ToolStatus",
+      "copyKey": "dependencies.musescore.purpose",
+      "text": "PDFの書き出しに必要です。"
+    },
+    {
+      "id": "specifyLocation",
+      "component": "Button",
+      "copyKey": "dependencies.specifyLocation",
+      "text": "場所を指定"
+    },
+    {
+      "id": "toolStatusAria",
+      "component": "ToolStatus",
+      "copyKey": "a11y.toolStatus",
+      "text": "外部ツールの状態",
+      "role": "accessible name"
+    }
+  ],
+  "sampleData": {
+    "ffmpegPath": "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    "musescorePath": null
+  }
+}

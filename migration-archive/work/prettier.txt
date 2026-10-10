@@ -1,0 +1,12 @@
+npm warn exec The following package was not found and will be installed: prettier@3.9.9
+src/score/inspector.test.ts 120ms
+src/import/project.test.ts 39ms
+src/score/reviewSession.test.ts 53ms
+src/score/xmlDocument.ts 37ms
+src/score/document.ts 11ms (unchanged)
+src/score/ReviewBar.tsx 52ms
+src/score/ScoreReadyWorkspace.tsx 234ms
+src/strings/ja.ts 61ms
+src/import/project.ts 19ms
+src/import/controller.ts 39ms
+src/App.tsx 170ms

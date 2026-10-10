@@ -1,0 +1,19 @@
+STATE[after-drop]: {
+ "hash": "",
+ "scorePages": 0,
+ "svgs": 21,
+ "errorEls": [],
+ "text": "HornScribe\n—\nruntime-fixture.wav\n開く\n採譜\nコンサートピッチ\nF管ホルン\n取り込み\n要確認\n書き出し\nruntime-fixture.wav\nズーム中\n\nまだ楽譜はありません\n\nruntime-fixture.wav\n・\nWAV\n・\n00:08.2\n・\n355 KB\n\n採譜を開始\n採譜オプション\n00:00.0 / 00:08.2\n1×\nruntime-fixture.wav を読み込みました\n解析エンジン: 未接続"
+}
+audioReady reached
+transcribe clicked
+  waiting... {"svg":0,"err":0,"transcribing":true}
+outcome: score
+STATE[score]: {
+ "hash": "",
+ "scorePages": 1,
+ "svgs": 22,
+ "errorEls": [],
+ "text": "HornScribe\n—\nruntime-fixture.wav *\n開く\n採譜し直す\nコンサートピッチ\nF管ホルン\n取り込み\n要確認（2）\n書き出し\nruntime-fixture.wav\nズーム中\n連続表示\nページ表示\n楽譜を縮小\n100%\n楽譜を拡大\n幅に合わせる\nHorn in F\n   =  39.15\n   =  41.02\nruntime-fixture\n00:00.0 / 00:08.2\n1×\n採譜が完了しました\n未保存の変更\n解析エンジン: 接続中"
+}
+screenshot -> C:\Users\ka092\Desktop\HornScribe\.work\runtime-score.png

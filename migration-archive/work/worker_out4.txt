@@ -1,0 +1,6 @@
+scoreDocument keys: ['projectId', 'revision', 'title', 'composer', 'arranger', 'sourceAudioPath', 'sourceAudioHash', 'transcriptionBackend', 'transcriptionBackendVersion', 'transcriptionSettings', 'pitchSpace', 'content', 'rawEvidence']
+notes: 0 measures: 0
+musicXmlConcert len: 7392
+musicXmlHornF len: 7856
+reviewIssues: 1
+meta: {"backend": "basic_pitch", "backendVersion": "0.4.0", "transcriptionRevision": "tr-505221014fca837b", "audioPath": "C:\\Users\\ka092\\Desktop\\HornScribe\\.work\\runtime-fixture.wav", "durationSec": 8.25, "tempoBpm": 120.0, "tempoAuto": false, "meter": "4/4", "meterEstimated": false, "meterConfidenc

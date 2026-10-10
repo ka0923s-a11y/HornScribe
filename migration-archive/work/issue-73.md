@@ -1,0 +1,1 @@
+実装しました (PR #61, commit ffc84b98)。\n\n- capture_devices コマンドで ACTIVE 状態のレンダー/キャプチャエンドポイントを列挙\n- 取り込みメニューに「出力先(PCの音)」「マイク」のデバイス選択セクションを追加(✓ で選択中表示)\n- 選択は localStorage (hornscribe.capture.deviceId) にソース別で永続化

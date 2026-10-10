@@ -1,0 +1,25 @@
+
+ RUN  v5.0.1 C:/Users/ka092/Desktop/HornScribe/apps/desktop
+
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's pause() method
+
+ Test Files  54 passed (54)
+      Tests  548 passed (548)
+   Start at  06:55:52
+   Duration  16.76s (import 39%, environment 37%, tests 13%, transform 10%)
+
+    Isolate  54 workers spawned · ~1.50s startup each (spawn + environment, per file)
+             at least ~3.91s faster with isolate: false — reuses workers across files instead of one per file
+

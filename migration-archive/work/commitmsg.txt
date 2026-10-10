@@ -1,0 +1,13 @@
+feat(engine+desktop): two-voice texture — polyphonic sources become a second part (#85)
+
+New texture option "voices": split_voices partitions raw events into
+two monophonic streams (earliest-free-slot assignment, higher pitch
+first at shared onsets, harmonic ghosts suppressed, 3+ simultaneous
+voices counted as dropped), each stream cleans and quantizes on the
+shared tempo/meter/alignment grid, and build_score emits one Part per
+voice with renumbered canonical ids. The desktop shows the option as
+"二声部として採譜"; rendering verifies every part's rhythm roundtrip
+and the split is reported as a review issue, never silent.
+
+quantize_events gains alignment_shift_sec so voice 2 shares voice 1's
+beat grid instead of searching its own.

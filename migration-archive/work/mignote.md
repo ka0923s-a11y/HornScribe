@@ -1,0 +1,1 @@
+## 移行完了メモ`n`n- gh auth (ka0923s-a11y) により git push 経路を確保。**通常の git push で全履歴(234 commits, SHA完全同一)を移行完了**`n- remote origin = https://github.com/ka0923s-a11y/HornScribe.git`n- .github/workflows は #2 の方針で削除済み(Actions不使用)`n- タグ v0.1.0 は workflow scope 不足で push 拒否(旧コミットが ci.yml を含むため)。必要なら gh auth refresh -s workflow で対応`n- 旧番号の対応は各 issue の [orig #NNN] タグを参照

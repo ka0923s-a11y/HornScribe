@@ -1,0 +1,75 @@
+{
+  "id": "audio_ready.loaded",
+  "screenState": "AUDIO_READY",
+  "scenario": "音源読み込み直後。波形は出ているが楽譜はまだない。",
+  "elements": [
+    {
+      "id": "commandOpen",
+      "component": "CommandBar",
+      "copyKey": "commandBar.open.label",
+      "text": "開く"
+    },
+    {
+      "id": "commandTranscribe",
+      "component": "CommandBar",
+      "copyKey": "commandBar.transcribe.label",
+      "text": "採譜"
+    },
+    {
+      "id": "viewConcert",
+      "component": "SegmentedControl",
+      "copyKey": "segments.scoreView.concertPitch",
+      "text": "コンサートピッチ"
+    },
+    {
+      "id": "viewHorn",
+      "component": "SegmentedControl",
+      "copyKey": "segments.scoreView.hornInF",
+      "text": "F管ホルン"
+    },
+    {
+      "id": "waveformRegion",
+      "component": "WaveformView",
+      "copyKey": "waveform.regionAria",
+      "text": "波形",
+      "role": "accessible name"
+    },
+    {
+      "id": "scoreEmpty",
+      "component": "ScoreViewport",
+      "copyKey": "score.empty",
+      "text": "まだ楽譜はありません"
+    },
+    {
+      "id": "startTranscribe",
+      "component": "Button",
+      "copyKey": "emptyStates.noScore.cta",
+      "text": "採譜を開始"
+    },
+    {
+      "id": "transportRegion",
+      "component": "TransportBar",
+      "copyKey": "transport.regionAria",
+      "text": "再生コントロール",
+      "role": "accessible name"
+    },
+    {
+      "id": "loop",
+      "component": "LoopToggle",
+      "copyKey": "transport.loop",
+      "text": "ループ"
+    },
+    {
+      "id": "rate",
+      "component": "RateControl",
+      "copyKey": "transport.rate",
+      "text": "再生速度"
+    }
+  ],
+  "sampleData": {
+    "fileName": "ホルン独奏_朝練_2026-09-21.wav",
+    "positionLabel": "00:34.2",
+    "durationLabel": "03:17.8",
+    "rateLabel": "1.0×"
+  }
+}

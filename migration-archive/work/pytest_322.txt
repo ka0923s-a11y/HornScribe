@@ -1,0 +1,281 @@
+........................................................................ [  8%]
+........................................................................ [ 17%]
+........................................................................ [ 25%]
+........................................................................ [ 34%]
+........................................................................ [ 42%]
+.......................................................FF.FF............ [ 51%]
+........................................................................ [ 60%]
+........................................................................ [ 68%]
+........................................................................ [ 77%]
+........................................................................ [ 85%]
+...........................................sss.......................... [ 94%]
+..............................................                           [100%]
+================================== FAILURES ===================================
+_____________________ test_vocal_isolation_resolves_pyin ______________________
+
+tmp_path = WindowsPath('C:/Users/ka092/AppData/Local/Temp/pytest-of-ka092/pytest-2027/test_vocal_isolation_resolves_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000250C96EF1D0>
+
+    def test_vocal_isolation_resolves_pyin(tmp_path, monkeypatch) -> None:
+        """#316: a successfully isolated vocal is monophonic \u2014 the auto
+        backend resolves to pYIN (the singing tracker), not Basic Pitch."""
+        monkeypatch.setattr(
+            pipeline,
+            "vocal_wav",
+            lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs"),
+        )
+        called: list[str] = []
+    
+        def fake_pyin(path, revision, **kw):
+            called.append("pyin")
+            return _events()
+    
+        def fake_bp(path, revision, **kw):
+            called.append("bp")
+            return _events()
+    
+        monkeypatch.setattr(pipeline, "predict_note_events_pyin", fake_pyin)
+        monkeypatch.setattr(pipeline, "predict_note_events", fake_bp)
+>       result = _run(
+            tmp_path, {"backend": "auto", "vocalIsolation": True}
+        )
+
+tests\python\test_pipeline_backend.py:176: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+tmp_path = WindowsPath('C:/Users/ka092/AppData/Local/Temp/pytest-of-ka092/pytest-2027/test_vocal_isolation_resolves_0')
+payload_extra = {'backend': 'auto', 'vocalIsolation': True}, monkeypatch = None
+fake_backend = None
+
+    def _run(tmp_path, payload_extra, monkeypatch=None, fake_backend=None):
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected: list[dict] = []
+    
+        def emit(phase: str, **kw) -> None:
+            collected.append({"phase": phase, **kw})
+    
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                **payload_extra,
+            }
+        )
+        run_transcription_job(
+            job_id="j",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=fake_backend,
+            loader=lambda _p: (array("f", [0.0] * (22050 * 5)), 22050),
+        )
+>       assert collected[-1]["phase"] == "completed", collected
+E       AssertionError: [{'phase': 'started', 'stage': 'preparing_audio', 'progress': 0.0}, {'phase': 'progress', 'stage': 'transcribing', 'pr...5}, {'phase': 'failed', 'error': {'code': 'JOB_FAILED', 'message': 'not enough values to unpack (expected 5, got 4)'}}]
+E       assert 'failed' == 'completed'
+E         
+E         - completed
+E         + failed
+
+tests\python\test_pipeline_backend.py:77: AssertionError
+_______________ test_vocal_isolation_failure_keeps_basic_pitch ________________
+
+tmp_path = WindowsPath('C:/Users/ka092/AppData/Local/Temp/pytest-of-ka092/pytest-2027/test_vocal_isolation_failure_k0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000250E8105C40>
+
+    def test_vocal_isolation_failure_keeps_basic_pitch(
+        tmp_path, monkeypatch
+    ) -> None:
+        """#316: isolation that produced nothing leaves the polyphonic
+        model in place \u2014 the raw mix is not a monophonic vocal."""
+        monkeypatch.setattr(
+            pipeline,
+            "vocal_wav",
+            lambda *a, **k: (None, "unavailable", False, None),
+        )
+        called: list[str] = []
+    
+        monkeypatch.setattr(
+            pipeline,
+            "predict_note_events_pyin",
+            lambda *a, **k: called.append("pyin") or _events(),
+        )
+        monkeypatch.setattr(
+            pipeline,
+            "predict_note_events",
+            lambda *a, **k: called.append("bp") or _events(),
+        )
+>       _run(tmp_path, {"backend": "auto", "vocalIsolation": True})
+
+tests\python\test_pipeline_backend.py:209: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+tmp_path = WindowsPath('C:/Users/ka092/AppData/Local/Temp/pytest-of-ka092/pytest-2027/test_vocal_isolation_failure_k0')
+payload_extra = {'backend': 'auto', 'vocalIsolation': True}, monkeypatch = None
+fake_backend = None
+
+    def _run(tmp_path, payload_extra, monkeypatch=None, fake_backend=None):
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected: list[dict] = []
+    
+        def emit(phase: str, **kw) -> None:
+            collected.append({"phase": phase, **kw})
+    
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                **payload_extra,
+            }
+        )
+        run_transcription_job(
+            job_id="j",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=fake_backend,
+            loader=lambda _p: (array("f", [0.0] * (22050 * 5)), 22050),
+        )
+>       assert collected[-1]["phase"] == "completed", collected
+E       AssertionError: [{'phase': 'started', 'stage': 'preparing_audio', 'progress': 0.0}, {'phase': 'progress', 'stage': 'transcribing', 'pr...5}, {'phase': 'failed', 'error': {'code': 'JOB_FAILED', 'message': 'not enough values to unpack (expected 5, got 4)'}}]
+E       assert 'failed' == 'completed'
+E         
+E         - completed
+E         + failed
+
+tests\python\test_pipeline_backend.py:77: AssertionError
+__________________ test_vocal_isolation_stages_isolated_wav ___________________
+
+tmp_path = WindowsPath('C:/Users/ka092/AppData/Local/Temp/pytest-of-ka092/pytest-2027/test_vocal_isolation_stages_is0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000250E7DE4230>
+
+    def test_vocal_isolation_stages_isolated_wav(tmp_path, monkeypatch) -> None:
+        """#187: vocalIsolation=on runs the backend on the isolated WAV,
+        marks the result, and echoes the option in settings."""
+        captured: dict = {}
+    
+        def fake(path, *args, **kw):
+            captured["path"] = path
+            return _events()
+    
+        # Fake the isolation stage: the pipeline must consume whatever
+        # vocal_wav returns \u2014 a managed cache path here.
+        monkeypatch.setattr(
+            pipeline,
+            "vocal_wav",
+            lambda *a, **k: ("/tmp/hs-vocal.wav", "applied", True, "demucs"),
+        )
+>       result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\python\test_pipeline_backend.py:257: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+tmp_path = WindowsPath('C:/Users/ka092/AppData/Local/Temp/pytest-of-ka092/pytest-2027/test_vocal_isolation_stages_is0')
+payload_extra = {'vocalIsolation': True}, monkeypatch = None
+fake_backend = <function test_vocal_isolation_stages_isolated_wav.<locals>.fake at 0x00000250E8055940>
+
+    def _run(tmp_path, payload_extra, monkeypatch=None, fake_backend=None):
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected: list[dict] = []
+    
+        def emit(phase: str, **kw) -> None:
+            collected.append({"phase": phase, **kw})
+    
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                **payload_extra,
+            }
+        )
+        run_transcription_job(
+            job_id="j",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=fake_backend,
+            loader=lambda _p: (array("f", [0.0] * (22050 * 5)), 22050),
+        )
+>       assert collected[-1]["phase"] == "completed", collected
+E       AssertionError: [{'phase': 'started', 'stage': 'preparing_audio', 'progress': 0.0}, {'phase': 'progress', 'stage': 'transcribing', 'pr...5}, {'phase': 'failed', 'error': {'code': 'JOB_FAILED', 'message': 'not enough values to unpack (expected 5, got 4)'}}]
+E       assert 'failed' == 'completed'
+E         
+E         - completed
+E         + failed
+
+tests\python\test_pipeline_backend.py:77: AssertionError
+_______________ test_vocal_isolation_unavailable_reports_reason _______________
+
+tmp_path = WindowsPath('C:/Users/ka092/AppData/Local/Temp/pytest-of-ka092/pytest-2027/test_vocal_isolation_unavailab0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000250E80C0F20>
+
+    def test_vocal_isolation_unavailable_reports_reason(
+        tmp_path, monkeypatch
+    ) -> None:
+        """#187: a failed/mono isolation falls back to the raw path and
+        the review issue says why \u2014 never silent."""
+        captured: dict = {}
+    
+        def fake(path, *args, **kw):
+            captured["path"] = path
+            return _events()
+    
+        monkeypatch.setattr(
+            pipeline,
+            "vocal_wav",
+            lambda *a, **k: (None, "mono_source", False, None),
+        )
+>       result = _run(tmp_path, {"vocalIsolation": True}, fake_backend=fake)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\python\test_pipeline_backend.py:280: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+tmp_path = WindowsPath('C:/Users/ka092/AppData/Local/Temp/pytest-of-ka092/pytest-2027/test_vocal_isolation_unavailab0')
+payload_extra = {'vocalIsolation': True}, monkeypatch = None
+fake_backend = <function test_vocal_isolation_unavailable_reports_reason.<locals>.fake at 0x00000250E7FD7E20>
+
+    def _run(tmp_path, payload_extra, monkeypatch=None, fake_backend=None):
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected: list[dict] = []
+    
+        def emit(phase: str, **kw) -> None:
+            collected.append({"phase": phase, **kw})
+    
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                **payload_extra,
+            }
+        )
+        run_transcription_job(
+            job_id="j",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=fake_backend,
+            loader=lambda _p: (array("f", [0.0] * (22050 * 5)), 22050),
+        )
+>       assert collected[-1]["phase"] == "completed", collected
+E       AssertionError: [{'phase': 'started', 'stage': 'preparing_audio', 'progress': 0.0}, {'phase': 'progress', 'stage': 'transcribing', 'pr...5}, {'phase': 'failed', 'error': {'code': 'JOB_FAILED', 'message': 'not enough values to unpack (expected 5, got 4)'}}]
+E       assert 'failed' == 'completed'
+E         
+E         - completed
+E         + failed
+
+tests\python\test_pipeline_backend.py:77: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/python/test_pipeline_backend.py::test_vocal_isolation_resolves_pyin
+FAILED tests/python/test_pipeline_backend.py::test_vocal_isolation_failure_keeps_basic_pitch
+FAILED tests/python/test_pipeline_backend.py::test_vocal_isolation_stages_isolated_wav
+FAILED tests/python/test_pipeline_backend.py::test_vocal_isolation_unavailable_reports_reason
+4 failed, 831 passed, 3 skipped in 73.68s (0:01:13)

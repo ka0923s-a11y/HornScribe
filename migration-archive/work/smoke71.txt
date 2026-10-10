@@ -1,0 +1,8 @@
+2026-09-28 14:39:08,291 INFO hornscribe.worker: sidecar started pid=13760 protocol=v1 hornscribe=0.1.0
+2026-09-28 14:39:15,846 WARNING root: Coremltools is not installed. If you plan to use a CoreML Saved Model, reinstall basic-pitch with `pip install 'basic-pitch[coreml]'`
+2026-09-28 14:39:15,846 WARNING root: tflite-runtime is not installed. If you plan to use a TFLite Model, reinstall basic-pitch with `pip install 'basic-pitch tflite-runtime'` or `pip install 'basic-pitch[tf]'
+2026-09-28 14:39:15,971 WARNING root: Tensorflow is not installed. If you plan to use a TF Saved Model, reinstall basic-pitch with `pip install 'basic-pitch[tf]'`
+2026-09-28 14:39:16,782 INFO hornscribe.transcription.backend: basic_pitch: Predicting MIDI for C:\Users\ka092\AppData\Local\Temp\tmp4otgs5yp\fixture.wav...
+2026-09-28 14:39:16,994 INFO hornscribe.worker: sidecar stopped
+handshake ok: {'name': 'hornscribe-engine', 'version': '0.1.0', 'python': '3.12.10', 'platform': 'win32', 'pid': 13760}
+transcription ok: 1 notes
