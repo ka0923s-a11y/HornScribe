@@ -215,12 +215,14 @@ def test_trailing_anchor_past_last_onset_emits_no_mark() -> None:
     intervals = [0.6] * 7 + [60.0 / 140.0] * 8 + [0.39]
     est = _estimate(intervals)
     last_onset_sec = 7.8  # beat 15 (ql 15, measure 3)
-    # Without the onset bound the tail anchor stays in the lattice:
-    # the settled level reads the phantom's extrapolated rate (154)
-    # and the mark drifts to measure 3, a full bar late.
+    # #133: even without the onset bound a measure past the last
+    # anchor has zero measured span and emits nothing — but measure 3
+    # still absorbs the tail anchor's own fast interval (143 vs 140),
+    # which only the onset bound can cut out.
     unbounded = tempo_map_from_estimate(est, meter)
-    assert unbounded[-1].start_beat == 12
-    assert unbounded[-1].bpm > 150.0
+    assert all(s.start_beat < 16 for s in unbounded)
+    assert unbounded[-1].start_beat == 8
+    assert unbounded[-1].bpm > 140.0
     segs = tempo_map_from_estimate(
         est, meter, last_onset_sec=last_onset_sec
     )
@@ -228,9 +230,25 @@ def test_trailing_anchor_past_last_onset_emits_no_mark() -> None:
     assert segs[0].start_beat == 0
     assert abs(segs[0].bpm - 100.0) < 0.5
     assert segs[1].start_beat == 8
-    # The tail anchor still inflates measure 3's own rate slightly —
-    # what must not happen is the mark MOVING to measure 4.
-    assert abs(segs[1].bpm - 140.0) < 4.0
+    # The onset bound cuts the tail interval out of measure 3's rate —
+    # the printed mark now reads within ~2 % of the settled tempo.
+    assert abs(segs[1].bpm - 140.0) < 3.0
+
+
+def test_final_measure_with_no_measured_span_emits_no_mark() -> None:
+    """#133: a last onset at the barline leaves the closing measure
+    essentially unmeasured — it must not print a rate of its own, and
+    the settled episode's mark carries to the piece's end."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    intervals = [0.6] * 7 + [60.0 / 140.0] * 8 + [0.39]
+    est = _estimate(intervals)
+    # Onset lands on the measure-3 barline (ql 12): measure 3 keeps
+    # under half a beat of measured span, so no mark is minted there —
+    # the 140 episode from measure 2 continues to the end.
+    segs = tempo_map_from_estimate(est, meter, last_onset_sec=6.343)
+    assert all(s.start_beat != 12 for s in segs)
+    assert segs[-1].start_beat == 8
+    assert abs(segs[-1].bpm - 140.0) < 3.0
 
 
 def test_median_bpm_uses_anchor_slope_not_interval_median() -> None:

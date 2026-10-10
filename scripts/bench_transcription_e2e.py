@@ -1294,6 +1294,15 @@ def main() -> int:
                 abs(g[0] - e.onset)
                 for g, e in zip(got, fx.notes, strict=False)
             )
+            # #133: the same matcher window that scores onsets also
+            # hides systematic drift — a row can keep a perfect F1
+            # while every "match" sits ~a beat off-axis. Flag the row
+            # when the median aligned error exceeds the F1 tolerance;
+            # the mark renders as a warning in the report so a good
+            # F1 is no longer read as a good axis by itself.
+            aligned_med = (
+                aligned[len(aligned) // 2] if aligned else None
+            )
             # The accomp staves are a real product surface (#203) —
             # score their recall against the backing truth instead of
             # letting them pollute the lead row as 'extra'.
@@ -1322,9 +1331,12 @@ def main() -> int:
                 ),
                 "runtimeSec": round(elapsed, 1),
                 "alignedErrMs": (
-                    round(aligned[len(aligned) // 2] * 1000.0, 1)
-                    if aligned
+                    round(aligned_med * 1000.0, 1)
+                    if aligned_med is not None
                     else None
+                ),
+                "axisWarn": (
+                    aligned_med is not None and aligned_med > 0.150
                 ),
                 **seq,
                 **ons,
@@ -1370,6 +1382,8 @@ def main() -> int:
             else "-"
         )
         axis_cell = r.get("alignedErrMs", "-")
+        if r.get("axisWarn"):
+            axis_cell = f"{axis_cell} !"
         md.append(
             (
                 f"| {r['fixture']} | {r['pitchAccuracy']} | {r['octaveOff']} "
@@ -1385,6 +1399,13 @@ def main() -> int:
                 f"| {r['runtimeSec']} | **job failed**: {r['error']} |"
             )
         )
+    md.append("")
+    md.append(
+        "axis err marked [ ! ] has a median index-aligned onset error above "
+        "the 150 ms F1 window: the onset F1 on this row absorbed a "
+        "systematic score-axis drift, so the axis fidelity is worse than "
+        "the F1 suggests (#133)."
+    )
     stem.with_suffix(".md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print(f"wrote {stem.with_suffix('.md')}")
     return 0
