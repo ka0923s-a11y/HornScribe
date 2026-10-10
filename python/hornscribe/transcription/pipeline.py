@@ -1062,6 +1062,10 @@ def _span_pitch_median(
 # gap (3-7st) is a different question.
 ARBITER_OCTAVE_MIN_ST = 10.5
 ARBITER_OCTAVE_MAX_ST = 13.5
+#: #103: how many phrase neighbours each side contribute to the
+#: context median -- three per side (up to six) follows the local
+#: contour without letting one flagged outlier tip it.
+_CONTEXT_ARBITER_NEIGHBORS = 3
 
 
 def _octave_issues(
@@ -1210,6 +1214,82 @@ def _octave_issues(
                         },
                     ),
                 )
+    # #103: melodic-context arbitration — a second opinion that costs
+    # no inference at all, so it also covers the non-isolated path
+    # where no second engine ran. A note sitting ~±12st off its local
+    # phrase median carries the phrase-boundary octave-error signature
+    # (#264's residual class). The spectrum still decides: a real
+    # octave leap keeps its written pitch and stays silent — only a
+    # context outlier the note's own harmonics can't explain flags.
+    # Neighbours already flagged are excluded so one error cannot
+    # anchor another.
+    for part in parts:
+        seq = sorted(
+            (n for n in part.notes if not n.deleted),
+            key=lambda n: (n.start_beat, n.id),
+        )
+        for i, n in enumerate(seq):
+            if n.id in flagged:
+                continue
+            if not any(
+                e in audited_events for e in n.source_event_ids
+            ):
+                continue
+            lo = max(0, i - _CONTEXT_ARBITER_NEIGHBORS)
+            hi = min(len(seq), i + _CONTEXT_ARBITER_NEIGHBORS + 1)
+            ctx = [
+                m.pitch_midi
+                for m in seq[lo:i] + seq[i + 1 : hi]
+                if m.id not in flagged
+            ]
+            if len(ctx) < 2:
+                continue
+            ctx.sort()
+            mid = len(ctx) // 2
+            median = (
+                float(ctx[mid])
+                if len(ctx) % 2
+                else (ctx[mid - 1] + ctx[mid]) / 2.0
+            )
+            diff = median - n.pitch_midi
+            if not (
+                ARBITER_OCTAVE_MIN_ST
+                <= abs(diff)
+                <= ARBITER_OCTAVE_MAX_ST
+            ):
+                continue
+            suggested = int(n.pitch_midi) + (12 if diff > 0 else -12)
+            lo_sec = warp.ql_to_seconds(n.start_beat * beat_ql)
+            hi_sec = warp.ql_to_seconds(n.end_beat * beat_ql)
+            if not octave_prefers(
+                samples,
+                sample_rate,
+                lo_sec,
+                hi_sec,
+                n.pitch_midi,
+                float(suggested),
+                time_offset_sec=time_offset_sec,
+            ):
+                continue  # a real leap — the spectrum stands by the jump
+            flagged.add(n.id)
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(n.id,),
+                    time_range=TimeRange(start_sec=lo_sec, end_sec=hi_sec),
+                    reason=ReviewReason.OCTAVE_UNCERTAIN,
+                    severity=Severity.CAUTION,
+                    evidence={
+                        "pitchMidi": int(n.pitch_midi),
+                        "suggestedMidi": suggested,
+                        # The melodic neighbourhood's own reading —
+                        # the disagreement the flag describes.
+                        "contextMedian": round(median, 1),
+                        "contextNoteCount": len(ctx),
+                    },
+                ),
+            )
     issues.sort(key=lambda i: i.time_range.start_sec)
     return issues[:MAX_BOUNDARY_ISSUES]
 
