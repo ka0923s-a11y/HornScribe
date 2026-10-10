@@ -320,6 +320,17 @@ def main() -> int:
             "release: warning: HEAD != origin/main - the tag will point at a "
             "commit that is not on the pushed main branch"
         )
+    # A running hornscribe-desktop.exe locks its file on Windows and
+    # cargo dies minutes into 'cargo check' with 'os error 32'. Probe
+    # the lock up front so the failure is immediate and legible (#126).
+    for exe in SRC_TAURI.glob("target/*/hornscribe-desktop.exe"):
+        try:
+            with exe.open("ab"):
+                pass
+        except OSError:
+            raise _die(
+                f"{exe} is locked - close the running app before releasing"
+            )
 
     rust_env: dict[str, str] = {}
     if args.toolchain == "gnu":
