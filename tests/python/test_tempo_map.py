@@ -203,6 +203,36 @@ def test_compound_meter_reports_primary_beat_bpm() -> None:
     assert abs(segs[1].bpm - 100.0) < 0.5
 
 
+def test_trailing_anchor_past_last_onset_emits_no_mark() -> None:
+    """#128 follow-up: beat anchors keep ticking into the decay tail,
+    so the lattice can hold a measure with no onsets. Its tail-
+    extrapolated rate used to print a mark at the piece's end that
+    swallowed the genuine mid-piece step ({0:99, 16:154} instead of
+    {0:99, 8:140} on bench tempo-step-4-4)."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    # 2 measures at 100 BPM, 2 at 140, then one short tail anchor in
+    # measure 4 (~154 BPM extrapolation).
+    intervals = [0.6] * 7 + [60.0 / 140.0] * 8 + [0.39]
+    est = _estimate(intervals)
+    last_onset_sec = 7.8  # beat 15 (ql 15, measure 3)
+    # Without the onset bound the tail anchor stays in the lattice:
+    # the settled level reads the phantom's extrapolated rate (154)
+    # and the mark drifts to measure 3, a full bar late.
+    unbounded = tempo_map_from_estimate(est, meter)
+    assert unbounded[-1].start_beat == 12
+    assert unbounded[-1].bpm > 150.0
+    segs = tempo_map_from_estimate(
+        est, meter, last_onset_sec=last_onset_sec
+    )
+    assert len(segs) == 2
+    assert segs[0].start_beat == 0
+    assert abs(segs[0].bpm - 100.0) < 0.5
+    assert segs[1].start_beat == 8
+    # The tail anchor still inflates measure 3's own rate slightly —
+    # what must not happen is the mark MOVING to measure 4.
+    assert abs(segs[1].bpm - 140.0) < 4.0
+
+
 def test_median_bpm_uses_anchor_slope_not_interval_median() -> None:
     """Alternating +-1-frame intervals: the interval median reports a
     whole-frame quantum, while the anchor regression recovers the

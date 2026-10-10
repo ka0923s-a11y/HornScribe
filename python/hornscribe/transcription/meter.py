@@ -303,6 +303,11 @@ def _slot_evidence(
         phase += sorted(residuals)[len(residuals) // 2]
     k_lo = int(round((beat_times_sec[0] - phase) / interval_sec))
     k_hi = int(round((beat_times_sec[-1] - phase) / interval_sec))
+    # The lattice span is NOT bounded by len(beat_times_sec): rounding
+    # each endpoint independently can widen (last-first)/interval by
+    # +1, and a shrunken median interval widens it further. Size the
+    # slots to the span or an onset landing on k_hi overflows (#128).
+    accents = [0.0] * (k_hi - k_lo + 1)
     for onset, accent in event_accents:
         k = int(round((onset - phase) / interval_sec))
         if not k_lo <= k <= k_hi:

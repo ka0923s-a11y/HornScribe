@@ -1697,6 +1697,21 @@ class TestMeterEventAccents:
         est = estimate_meter(beats, (), event_accents=accents)
         assert est.meter != "5/4"
 
+    def test_dropped_beat_gap_does_not_overflow_slots(self) -> None:
+        # Regression (#128): a single dropped tracker beat leaves a
+        # 2x interval gap; the lattice span (last-first)/median then
+        # exceeds len(beats)-1, and sizing the uniform slot array to
+        # the beat count let an onset on the far slot IndexError the
+        # whole job (bench tempo-step-4-4 crash). A lone gap does not
+        # trip _tempo_shifted, so this exercises the uniform path.
+        beats = (0.0, 0.5, 1.0, 1.5, 2.5, 3.0, 3.5, 4.0)
+        accents = tuple(
+            (t, 0.6 if i % 2 == 0 else 0.3)
+            for i, t in enumerate(beats)
+        )
+        est = estimate_meter(beats, (), event_accents=accents)
+        assert est.meter  # any verdict — the contract is "no crash"
+
 
 class TestKey:
     def test_c_major(self) -> None:

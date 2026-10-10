@@ -2676,7 +2676,9 @@ def run_transcription_job(
             chord_symbols = ()
         build_done += 1
         step(5, build_done, build_total)
-        tempo_map = tempo_map_from_estimate(estimate, meter)
+        tempo_map = tempo_map_from_estimate(
+            estimate, meter, last_onset_sec=cleaned.events[-1].onset_sec
+        )
         shift = best.diagnostics.alignment_shift_sec
         # #134 swing feel: census the normalized offbeat onsets — a
         # dominant 2/3-of-beat cluster with a quiet 1/3 cluster reads

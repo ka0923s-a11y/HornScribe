@@ -1051,7 +1051,17 @@ def _frac(value) -> float:
     return float(value)
 
 
-def _detected_notes(result: dict) -> list[tuple[float, int]]:
+def _detected_notes(
+    result: dict, *, accompaniment: bool = False
+) -> list[tuple[float, int]]:
+    """(onset_sec, midi) rows from the score's staves.
+
+    accompaniment=False reads only the transposing horn staves (part-1
+    plus any extra lead voices) — the lead line the fixture truth
+    describes. accompaniment=True reads the non-transposing
+    accompaniment staves (scorebuild.py extra_parts mark them
+    transposing=False), scored separately against fx.backing.
+    """
     """(onset_sec, midi) rows — beats converted piecewise via the
     result's own tempoMap so a wrong tempo pick (or a missing tempo
     segment) shows up as onset error."""
@@ -1119,6 +1129,8 @@ def _detected_notes(result: dict) -> list[tuple[float, int]]:
 
     out: list[tuple[float, int]] = []
     for part in parts:
+        if (part.get("transposing") is False) != accompaniment:
+            continue
         for n in part.get("notes") or []:
             if n.get("deleted"):
                 continue
@@ -1274,6 +1286,28 @@ def main() -> int:
             got_p = [m for _, m in got]
             seq = _align_pitches(exp_p, got_p)
             ons = _onset_f1([n.onset for n in fx.notes], [o for o, _ in got])
+            # Index-aligned axis error: the greedy F1 matcher absorbs a
+            # systematic ~1-onset drift (det[k] lands on truth[k-1]),
+            # which let a worse tempo map score better. The aligned
+            # error reports the score axis' real fidelity.
+            aligned = sorted(
+                abs(g[0] - e.onset)
+                for g, e in zip(got, fx.notes, strict=False)
+            )
+            # The accomp staves are a real product surface (#203) —
+            # score their recall against the backing truth instead of
+            # letting them pollute the lead row as 'extra'.
+            accomp = _detected_notes(result, accompaniment=True)
+            accomp_cols: dict = {}
+            if fx.backing or accomp:
+                a_ons = _onset_f1(
+                    [n.onset for n in fx.backing], [o for o, _ in accomp]
+                )
+                accomp_cols = {
+                    "accompDetected": len(accomp),
+                    "accompOnsetF1": a_ons["onsetF1@150ms"],
+                    "accompTpFpFn": f"{a_ons['tp']}/{a_ons['fp']}/{a_ons['fn']}",
+                }
             meta = result.get("meta") or {}
             row = {
                 "fixture": fx.name,
@@ -1287,8 +1321,14 @@ def main() -> int:
                     else None
                 ),
                 "runtimeSec": round(elapsed, 1),
+                "alignedErrMs": (
+                    round(aligned[len(aligned) // 2] * 1000.0, 1)
+                    if aligned
+                    else None
+                ),
                 **seq,
                 **ons,
+                **accomp_cols,
             }
             rows.append(row)
             print(json.dumps(row, ensure_ascii=False))
@@ -1320,21 +1360,28 @@ def main() -> int:
     md = ["# E2E transcription accuracy benchmark", ""]
     md.append(
         "| fixture | pitch acc | octaveOff | miss/extra | onset F1@150ms"
-        " | med err ms | tempo (ratio) | meter (ok) | s | note |"
+        " | med err ms | axis err ms | accomp F1 (tp/fp/fn) | tempo (ratio) | meter (ok) | s | note |"
     )
-    md.append("|---|---|---|---|---|---|---|---|---|---|")
+    md.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in rows:
+        accomp_cell = (
+            f"{r['accompOnsetF1']} ({r['accompTpFpFn']})"
+            if "accompOnsetF1" in r
+            else "-"
+        )
+        axis_cell = r.get("alignedErrMs", "-")
         md.append(
             (
                 f"| {r['fixture']} | {r['pitchAccuracy']} | {r['octaveOff']} "
                 f"| {r['missing']}/{r['extra']} | {r['onsetF1@150ms']} | {r['medianOnsetErrMs']} "
+                f"| {axis_cell} | {accomp_cell} "
                 f"| {r['tempoBpmDetected']} ({r['tempoRatio']}) "
                 f"| {r['meterDetected']} ({r['meterOk']}) "
                 f"| {r['runtimeSec']} | {r['note']} |"
             )
             if "error" not in r
             else (
-                f"| {r['fixture']} | - | - | - | - | - | - | - "
+                f"| {r['fixture']} | - | - | - | - | - | - | - | - | - "
                 f"| {r['runtimeSec']} | **job failed**: {r['error']} |"
             )
         )

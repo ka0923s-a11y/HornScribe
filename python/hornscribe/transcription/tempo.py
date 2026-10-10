@@ -526,6 +526,8 @@ def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
 def tempo_map_from_estimate(
     estimate: TempoEstimate,
     meter: MeterSegment,
+    *,
+    last_onset_sec: float | None = None,
 ) -> tuple[TempoSegment, ...]:
     """Derive the score's tempo map (primary-beat BPM per measure).
 
@@ -614,6 +616,17 @@ def tempo_map_from_estimate(
     measure_bpm: dict[int, float] = {}
     first_m = measure_index(estimate.warp.seconds_to_ql(times[0]))
     last_m = measure_index(estimate.warp.seconds_to_ql(times[-1]))
+    # Beat anchors keep ticking into the decay tail, so last_m can land
+    # one measure past the music. A tempo mark on a measure with no
+    # onsets describes nothing — and its tail-extrapolated rate can
+    # swallow a genuine mid-piece step via the episode's emit_pos scan
+    # (bench tempo-step-4-4 printed {0: 99, 16: 154} instead of
+    # {0: 99, 8: 140}). Clamp emission to the last onset's measure.
+    if last_onset_sec is not None:
+        last_m = min(
+            last_m,
+            measure_index(estimate.warp.seconds_to_ql(last_onset_sec)),
+        )
     for index in range(first_m, last_m + 1):
         a_ql, b_ql = measure_bounds_ql(index)
         if b_ql <= a_ql:
@@ -690,11 +703,16 @@ def tempo_map_from_estimate(
         if persisted or tail_jump:
             # The mark belongs at the first measure already AT the new
             # level -- a boundary-crossing step starts its episode on
-            # the mixed transition measure, so onset != settle.
+            # the mixed transition measure, so onset != settle. The
+            # corridor uses the tail-jump scale (8 %): the tight
+            # 2.5 % merge corridor rejected genuinely-settled first
+            # measures under tracker settling lag (~4-5 % noise) and
+            # jumped the mark a whole measure late (bench tempo-step
+            # printed the step at beat 12 instead of beat 8).
             emit_pos = pos
             for q in range(pending_pos, pos + 1):
                 q_bpm = smoothed[indices[q]]
-                if abs(q_bpm - bpm) / bpm <= _TEMPO_MERGE_RATIO:
+                if abs(q_bpm - bpm) / bpm <= _TEMPO_TAIL_JUMP_RATIO:
                     emit_pos = q
                     break
             segments.append(
