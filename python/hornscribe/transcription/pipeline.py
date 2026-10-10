@@ -1030,6 +1030,40 @@ def _boundary_issues(
     return issues[:MAX_BOUNDARY_ISSUES]
 
 
+def _span_pitch_median(
+    events: tuple[RawNoteEvent, ...],
+    lo_sec: float,
+    hi_sec: float,
+) -> float | None:
+    """Span-overlap-weighted median pitch of events covering [lo, hi].
+
+    Robust to flicker: an octave jump inside a note only moves the
+    median when it persists for most of the span — exactly the
+    signal a real octave disagreement produces.
+    """
+    vals: list[tuple[float, float]] = []
+    for e in events:
+        w = min(hi_sec, e.offset_sec) - max(lo_sec, e.onset_sec)
+        if w > 0.02:
+            vals.append((w, e.pitch_midi))
+    if not vals:
+        return None
+    vals.sort(key=lambda t: t[1])
+    total = sum(w for w, _ in vals)
+    acc = 0.0
+    for w, p in vals:
+        acc += w
+        if acc >= total / 2.0:
+            return p
+    return vals[-1][1]
+
+
+# The two tracks must disagree by roughly an octave — a chord-tone
+# gap (3-7st) is a different question.
+ARBITER_OCTAVE_MIN_ST = 10.5
+ARBITER_OCTAVE_MAX_ST = 13.5
+
+
 def _octave_issues(
     samples: Any,
     sample_rate: int,
@@ -1039,6 +1073,8 @@ def _octave_issues(
     parts: tuple[Any, ...],
     score_revision: ScoreRevisionId,
     time_offset_sec: float,
+    arbiter_events: tuple[RawNoteEvent, ...] = (),
+    arbiter_backend: str = "",
 ) -> list[ReviewIssue]:
     """Low-octave audit (#264) — flag-only second opinion on pitch.
 
@@ -1080,6 +1116,7 @@ def _octave_issues(
         ev.id for c in cleaneds for ev in c.events
     }
     issues: list[ReviewIssue] = []
+    flagged: set[ScoreNoteId] = set()
     for part in parts:
         for n in part.notes:
             if n.deleted:
@@ -1098,6 +1135,7 @@ def _octave_issues(
             )
             if not low_octave_suspected(evidence):
                 continue
+            flagged.add(n.id)
             issues.append(
                 ReviewIssue(
                     id="",
@@ -1116,6 +1154,62 @@ def _octave_issues(
                     },
                 )
             )
+    # #80: second-track arbitration — the lead gate's losing engine is
+    # an independent pitch read on the same stem buffer, already paid
+    # for. A ~±12st disagreement over the note's own span means one
+    # engine tracked an octave error; the note's spectrum arbitrates
+    # (fundamental-band dominance), so only a confirmed disagreement
+    # flags — a bare disagreement with no spectral support stays
+    # silent, and a note the spectral audit already flagged is not
+    # double-counted.
+    if arbiter_events:
+        for part in parts:
+            for n in part.notes:
+                if n.deleted or n.id in flagged:
+                    continue
+                if not any(e in audited_events for e in n.source_event_ids):
+                    continue
+                lo_sec = warp.ql_to_seconds(n.start_beat * beat_ql)
+                hi_sec = warp.ql_to_seconds(n.end_beat * beat_ql)
+                median = _span_pitch_median(arbiter_events, lo_sec, hi_sec)
+                if median is None:
+                    continue
+                diff = median - n.pitch_midi
+                if not (
+                    ARBITER_OCTAVE_MIN_ST
+                    <= abs(diff)
+                    <= ARBITER_OCTAVE_MAX_ST
+                ):
+                    continue
+                suggested = int(n.pitch_midi) + (12 if diff > 0 else -12)
+                if not octave_prefers(
+                    samples,
+                    sample_rate,
+                    lo_sec,
+                    hi_sec,
+                    n.pitch_midi,
+                    float(suggested),
+                    time_offset_sec=time_offset_sec,
+                ):
+                    continue  # spectrum keeps the written pitch
+                issues.append(
+                    ReviewIssue(
+                        id="",
+                        score_revision=score_revision,
+                        canonical_note_ids=(n.id,),
+                        time_range=TimeRange(start_sec=lo_sec, end_sec=hi_sec),
+                        reason=ReviewReason.OCTAVE_UNCERTAIN,
+                        severity=Severity.CAUTION,
+                        evidence={
+                            "pitchMidi": int(n.pitch_midi),
+                            "suggestedMidi": suggested,
+                            # The second engine's own reading — the
+                            # disagreement the flag describes.
+                            "arbiterMidi": round(median, 1),
+                            "arbiterBackend": arbiter_backend or None,
+                        },
+                    ),
+                )
     issues.sort(key=lambda i: i.time_range.start_sec)
     return issues[:MAX_BOUNDARY_ISSUES]
 
@@ -1308,9 +1402,14 @@ def _lead_track_gate(
     pyin_revision: TranscriptionRevisionId,
     hz_kwargs: dict[str, Any],
     prefer: str,
-) -> tuple[bool, float, tuple[RawNoteEvent, ...]]:
+) -> tuple[bool, float, tuple[RawNoteEvent, ...], tuple[RawNoteEvent, ...]]:
     """Run pYIN and rescued Basic Pitch on the isolated estimate and
-    return ``(adopt_pyin, agreement, events)`` (#165).
+    return ``(adopt_pyin, agreement, winner, loser)`` (#165, #80).
+
+    The losing track is returned too - it is an independent pitch
+    opinion the gate already paid for, and the octave audit uses it
+    as the disagreement arbiter (two engines an octave apart on the
+    same span is exactly the case that needs a flag).
 
     #316 resolved pYIN unconditionally for an isolated vocal — the
     estimate was assumed monophonic.  In practice the centre
@@ -1332,7 +1431,9 @@ def _lead_track_gate(
     bp_line = clean_monophonic(bp_events, merge_gap_sec=MERGE_GAP_SEC, prefer=prefer).events
     agreement = lead_track_agreement(bp_line, pyin_events)
     adopt_pyin = agreement >= LEAD_GATE_MIN_AGREEMENT or (not bp_line and bool(pyin_events))
-    return adopt_pyin, agreement, (pyin_events if adopt_pyin else bp_events)
+    winner = pyin_events if adopt_pyin else bp_events
+    loser = bp_events if adopt_pyin else pyin_events
+    return adopt_pyin, agreement, winner, loser
 
 
 def run_transcription_job(
@@ -1630,6 +1731,11 @@ def run_transcription_job(
         # so the tr-* identity follows the effective chain, not the
         # request. Recorded on the result meta for provenance too.
         preprocess: dict[str, Any] | None = None
+        # #80: the lead-gate's losing track — an independent pitch
+        # opinion on the same stem buffer, kept for the octave audit's
+        # disagreement arbitration (empty when no gate ran).
+        arbiter_events: tuple[RawNoteEvent, ...] = ()
+        arbiter_backend = ""
         if params.vocal_isolation:
             preprocess = {
                 "vocalIsolation": True,
@@ -1676,7 +1782,7 @@ def run_transcription_job(
                     backend_version=pyin_version,
                     preprocess=preprocess,
                 )
-                adopt_pyin, agreement, gate_events = _lead_track_gate(
+                adopt_pyin, agreement, gate_events, gate_loser = _lead_track_gate(
                     backend_path,
                     bp_revision=revision,
                     pyin_revision=pyin_revision,
@@ -1684,6 +1790,8 @@ def run_transcription_job(
                     prefer="top" if params.texture == "melody" else "onset",
                 )
                 raw_events = gate_events
+                arbiter_events = gate_loser
+                arbiter_backend = BACKEND_ID if adopt_pyin else PYIN_BACKEND_ID
                 if adopt_pyin:
                     resolved_pyin = True
                     revision = pyin_revision
@@ -1729,6 +1837,12 @@ def run_transcription_job(
                     os.unlink(vocal_path)
         if staged_path is not None or vocal_path is not None:
             raw_events = _shift_event_times(raw_events, selection_offset_sec)
+            # The arbiter rides the same timeline — it came off the
+            #  same staged buffer, so the selection shift applies too.
+            if arbiter_events:
+                arbiter_events = _shift_event_times(
+                    arbiter_events, selection_offset_sec
+                )
         step(1, transcribe_done + 1, transcribe_total)
         if stop(1):
             return
@@ -1929,7 +2043,7 @@ def run_transcription_job(
                     preprocess=rescue_preprocess,
                 )
                 try:
-                    rescue_adopted_pyin, agreement, gate_events = _lead_track_gate(
+                    rescue_adopted_pyin, agreement, gate_events, _ = _lead_track_gate(
                         rescue_vocal_path,
                         bp_revision=rescue_revision,
                         pyin_revision=rescue_pyin_revision,
@@ -2705,6 +2819,8 @@ def run_transcription_job(
                 built.payload.parts,
                 score_revision,
                 selection_offset_sec,
+                arbiter_events=arbiter_events,
+                arbiter_backend=arbiter_backend,
             )
         )
         # #264: isolated semitone dips — a short chromatic note one
