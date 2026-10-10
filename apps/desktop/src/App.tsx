@@ -55,7 +55,7 @@ import type {
   ScoreWorkspaceController,
   ScoreWorkspaceState,
 } from "./score/controller";
-import { openIssues } from "./score/review";
+import { openIssues, type ScoreReviewIssue } from "./score/review";
 import { waveformNoteOverlay } from "./score/noteOverlay";
 import { scoreHasPolyphony } from "./score/polyphony";
 import { extractTimingCorrection } from "./sidecar/resultMeta";
@@ -219,8 +219,60 @@ function polyModifierFromHash(hash: string): boolean {
   return hash.slice(STATE_HASH_PREFIX.length).endsWith("-poly");
 }
 
+/** #104/#361 verification surface: "hornscribe.dev.reviewIssues"
+ *  swaps the dev-state fixture's issue list for a same-reason set so
+ *  the batch-review UI (accept/dismiss by reason, batch remedy) can
+ *  be exercised — the stock fixture deliberately carries one issue
+ *  per reason, so batch buttons never show there. Values:
+ *  "delete" = 4× low_model_confidence (phantom-delete remedy),
+ *  "octave" = 4× octave_uncertain (-12 transpose remedy),
+ *  "mixed"  = both sets. DEV-gated like hornscribe.dev.museScore. */
+function devReviewIssuesOverride(): readonly ScoreReviewIssue[] | null {
+  if (!import.meta.env.DEV) return null;
+  try {
+    const flag = window.localStorage.getItem(
+      "hornscribe.dev.reviewIssues",
+    );
+    if (!flag) return null;
+    const rev = "dev-review-batch";
+    const mk = (
+      n: number,
+      noteId: string,
+      partial: Partial<ScoreReviewIssue>,
+    ): ScoreReviewIssue => ({
+      id: `ri-dev-${String(n).padStart(6, "0")}`,
+      scoreRevision: rev,
+      canonicalNoteIds: [noteId],
+      timeRange: { startSec: n, endSec: n + 0.5 },
+      reason: "low_model_confidence",
+      severity: "caution",
+      evidence: {},
+      status: "open",
+      ...partial,
+    });
+    const deleters = [20, 21, 23, 24].map((note, i) =>
+      mk(i + 1, `sn-${String(note).padStart(6, "0")}`, {
+        severity: "warning",
+        evidence: { confidence: 0.41 },
+      }),
+    );
+    const octaves = [30, 31, 32, 33].map((note, i) =>
+      mk(i + 5, `sn-${String(note).padStart(6, "0")}`, {
+        reason: "octave_uncertain",
+        evidence: { pitchMidi: 76 + i, suggestedMidi: 64 + i },
+      }),
+    );
+    if (flag === "delete") return deleters;
+    if (flag === "octave") return octaves;
+    if (flag === "mixed") return [...deleters, ...octaves];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** #234: content-derived audio identity for score ownership — the
- *  import-time SHA-256 when known, else the durable path, else a
+*  import-time SHA-256 when known, else the durable path, else a
  *  name+size fallback for browser-dev File refs. A score only ever
  *  belongs to the source identity that produced it. */
 function audioIdentityOf(audio: LoadedAudio | null): string | null {
@@ -2590,6 +2642,9 @@ export default function App() {
           // canonicalDocument key must stay absent (not undefined) in the
           // mono case — an explicit undefined reads as "no canonical".
           const poly = polyModifierFromHash(h);
+          // #104: dev-only same-reason issue sets for the batch-review
+          //  surface (see devReviewIssuesOverride).
+          const issueOverrides = devReviewIssuesOverride();
           setScoreDocument(
             (doc) =>
               doc ??
@@ -2597,7 +2652,9 @@ export default function App() {
                 ? createFixtureScoreDocument({
                     canonicalDocument: fixtureVoicesCanonical(),
                   })
-                : createFixtureScoreDocument()),
+                : createFixtureScoreDocument(
+                    issueOverrides ? { issues: issueOverrides } : undefined,
+                  )),
           );
         }
         // #148: an audio-bearing forced screen needs a live audio slot —
