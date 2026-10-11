@@ -290,15 +290,19 @@ function inspectorCopy(): InspectorCopy {
          *  actionable: '4/4 vs 2/4 by a coin flip'). */
         if (issue.reason === "meter_conflict") {
           const est = issue.evidence["estimatedMeter"];
-          if (typeof est === "string" && est.length > 0) {
-            const runner = issue.evidence["runnerUpMeter"];
-            const conf = numEvidence(issue, "meterConfidence");
-            return ja.reviewEvidence.meterConflict({
-              estimated: est,
-              runnerUp: typeof runner === "string" ? runner : null,
-              confidencePct: conf != null ? Math.round(conf * 100) : null,
-            });
-          }
+          /* #147: a refusal reports estimatedMeter:null — the
+           *  estimator could not justify ANY candidate and the
+           *  written 4/4 is just the fallback. Render the meter copy
+           *  anyway (it has a dedicated 'undecidable' branch);
+           *  falling through would mislabel the flag as a
+           *  note-values conflict. */
+          const runner = issue.evidence["runnerUpMeter"];
+          const conf = numEvidence(issue, "meterConfidence");
+          return ja.reviewEvidence.meterConflict({
+            estimated: typeof est === "string" ? est : null,
+            runnerUp: typeof runner === "string" ? runner : null,
+            confidencePct: conf != null ? Math.round(conf * 100) : null,
+          });
         }
         // #352: name the estimated key plus every reason it is
         // unsure — the engine's `details` flags decide which clauses

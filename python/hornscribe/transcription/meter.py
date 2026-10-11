@@ -31,11 +31,22 @@ The lag rules are also what the strengths-only fallback uses.
 Confidence is the margin between the best and runner-up score. Low
 confidence never fails the job: the caller falls back to 4/4 and
 surfaces a 'meter_conflict' review issue so the user can override.
+
+#147: the caller may also hand independent accent pools via
+'channel_accents' -- e.g. the separated accompaniment part's own
+onsets, which carry the downbeat structure a vocal line lacks on
+pop material (a flat drum envelope dilutes a merged pool to ~1.0
+period ratios and forces a refusal). Each pool is scored alone and
+the per-channel verdicts are fused: trusted reads that agree win,
+trusted reads that disagree surface the dispute as an uncertain
+estimate naming both labels, agreeing weak reads report the
+consensus guess, and no-reads refuse honestly.
 """
 
 from __future__ import annotations
 
 from bisect import bisect_left
+from collections import Counter
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -125,11 +136,20 @@ class MeterEstimate:
     """Second-ranked candidate label -- the meter the estimate nearly
     picked. Surfaced on the meter_conflict review issue so the user
     sees WHICH ambiguity the confidence margin describes (#264)."""
+    refused: bool = False
+    """True when the estimator could not justify ANY candidate and
+    'meter' is only the written-fallback 4/4, not a rejected guess --
+    the caller reports no estimatedMeter so the UI does not label the
+    fallback itself as the estimate (#147)."""
 
 
 def _default() -> MeterEstimate:
     return MeterEstimate(
-        meter="4/4", confidence=0.0, tracked_eighths=False, uncertain=True
+        meter="4/4",
+        confidence=0.0,
+        tracked_eighths=False,
+        uncertain=True,
+        refused=True,
     )
 
 
@@ -137,6 +157,7 @@ def estimate_meter(
     beat_times_sec: tuple[float, ...],
     strengths: tuple[float, ...],
     event_accents: tuple[tuple[float, float], ...] = (),
+    channel_accents: dict[str, tuple[tuple[float, float], ...]] | None = None,
 ) -> MeterEstimate:
     """Pick the best-supported meter for one transcription run.
 
@@ -144,7 +165,27 @@ def estimate_meter(
     note -- supplied by the pipeline, which owns the audio samples.
     With it the accent evidence comes from performed-note energy;
     without it the strengths-only lag fallback runs.
+
+    'channel_accents' names additional, INDEPENDENT accent pools
+    (e.g. the separated accompaniment part's onsets). With any
+    non-empty pool present, every pool -- 'event_accents' included --
+    is scored on its own and the per-channel verdicts are fused by
+    'fuse_meter_estimates': independent evidence is never averaged
+    into a single slot grid, where a flat channel would dilute the
+    structured one (#147).
     """
+    if channel_accents:
+        pools = [event_accents, *channel_accents.values()]
+        non_empty = [p for p in pools if p]
+        if non_empty:
+            return fuse_meter_estimates(
+                tuple(
+                    estimate_meter(beat_times_sec, strengths, pool)
+                    for pool in non_empty
+                )
+            )
+        # Every channel empty -- the strengths-only fallback below
+        # is the last evidence left.
     n = len(beat_times_sec)
     if n < _MIN_BEATS:
         return _default()
@@ -171,6 +212,68 @@ def estimate_meter(
             beat_times_sec, event_accents, median_sec, variable
         )
     return _estimate_from_strengths(beat_times_sec, strengths, pulse_bpm)
+
+
+def fuse_meter_estimates(
+    estimates: tuple[MeterEstimate, ...],
+) -> MeterEstimate:
+    """Fuse per-channel meter verdicts into one estimate (#147).
+
+    A refusal abstains rather than voting for the fallback label --
+    'confidence 0, no candidate' is not evidence for 4/4. Trusted
+    reads that agree win outright; trusted reads that disagree
+    produce an uncertain verdict naming the strongest label and its
+    rival (a real cross-channel conflict IS a coin flip, so the
+    confidence bottoms at 0 and the review issue carries both).
+    With no trusted reads, a label agreed by two or more channels is
+    still reported as the guess -- weak but actionable -- while
+    mutually disagreeing weak reads refuse honestly.
+    """
+    ests = [e for e in estimates if not e.refused]
+    if not ests:
+        return _default()
+    if len(ests) == 1:
+        return ests[0]
+    trusted = [e for e in ests if not e.uncertain]
+    if trusted:
+        if all(e.meter == trusted[0].meter for e in trusted):
+            return max(trusted, key=lambda e: e.confidence)
+        top = max(trusted, key=lambda e: e.confidence)
+        rival = max(
+            (e for e in trusted if e.meter != top.meter),
+            key=lambda e: e.confidence,
+        )
+        return MeterEstimate(
+            meter=top.meter,
+            confidence=0.0,
+            tracked_eighths=top.tracked_eighths,
+            uncertain=True,
+            tracked_unit_ql=top.tracked_unit_ql,
+            runner_up=rival.meter,
+        )
+    votes = Counter(e.meter for e in ests)
+    label, count = votes.most_common(1)[0]
+    if count >= 2:
+        best = max(
+            (e for e in ests if e.meter == label),
+            key=lambda e: e.confidence,
+        )
+        other = next(
+            (lbl for lbl, _ in votes.most_common() if lbl != label),
+            # All channels agreed on the guess -- the margin the
+            # review copy describes is then the best read's OWN
+            # runner-up, not a dissenting channel.
+            best.runner_up,
+        )
+        return MeterEstimate(
+            meter=label,
+            confidence=best.confidence,
+            tracked_eighths=best.tracked_eighths,
+            uncertain=True,
+            tracked_unit_ql=best.tracked_unit_ql,
+            runner_up=other,
+        )
+    return _default()
 
 
 def _slot_phase(

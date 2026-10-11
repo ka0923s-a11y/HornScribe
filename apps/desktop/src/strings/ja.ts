@@ -1857,7 +1857,7 @@ export const ja = {
      *  names the runner-up when one exists. The engine always falls
      *  back to 4/4 when uncertain, so the written meter is named. */
     meterConflict: (p: {
-      readonly estimated: string;
+      readonly estimated: string | null;
       readonly runnerUp: string | null;
       readonly confidencePct: number | null;
     }) => {
