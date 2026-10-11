@@ -36,6 +36,7 @@ from hornscribe.transcription.options import TranscriptionParams
 from hornscribe.transcription.pipeline import (
     STAGES,
     _accomp_confidence_floor,
+    _accomp_pad_completion,
     _drop_stem_bleed_lows,
     run_transcription_job,
 )
@@ -3750,3 +3751,59 @@ class TestAccompConfidenceFloor:
     def test_none_confidence_dropped(self) -> None:
         ev = (self._ev(60.0, 0.0, 0.5, None),)
         assert _accomp_confidence_floor(ev) == ()
+
+
+class TestAccompPadCompletion:
+    """#136: sustained pads the attack detector never emits are mined
+    from the stem spectrum — deduped against existing detections."""
+
+    def _stem(self, sr: int = 22050) -> Any:
+        np = pytest.importorskip("numpy")
+        dur = 1.6
+        t = np.arange(int(dur * sr)) / sr
+        y = np.zeros_like(t)
+        # A held pad triad — exactly what Basic Pitch fades under a
+        # mix: long sustain, no percussive edge.
+        for m in (53, 57, 60):
+            f = 440.0 * 2 ** ((m - 69) / 12)
+            y += 0.15 * np.sin(2 * np.pi * f * t)
+        # Bass quarters the detector already covers — each is too
+        # short to mine anyway (0.35 s < the sustain floor), so the
+        # dedupe path is belt-and-suspenders here.
+        f = 440.0 * 2 ** ((45 - 69) / 12)
+        for q in range(4):
+            s = int(q * 0.4 * sr)
+            e = int((q * 0.4 + 0.35) * sr)
+            y[s:e] += 0.25 * np.sin(2 * np.pi * f * t[s:e])
+        return y
+
+    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-b{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.8,
+            velocity=80,
+            source="test",
+        )
+
+    def test_sustained_triad_emitted(self) -> None:
+        pytest.importorskip("librosa")
+        y = self._stem()
+        existing = tuple(
+            self._ev(45.0, q * 0.4, q * 0.4 + 0.35, q) for q in range(4)
+        )
+        out = _accomp_pad_completion(y, 22050, existing, _REV)
+        pitches = {int(round(e.pitch_midi)) for e in out}
+        assert {53, 57, 60} <= pitches
+
+    def test_silence_emits_nothing(self) -> None:
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        y = np.zeros(22050)
+        assert _accomp_pad_completion(y, 22050, (), _REV) == ()
+
+    def test_no_samples_emits_nothing(self) -> None:
+        assert _accomp_pad_completion(None, 0, (), _REV) == ()

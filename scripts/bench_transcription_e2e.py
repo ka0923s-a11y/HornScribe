@@ -1219,41 +1219,39 @@ def _onset_f1(expected: list[float], got: list[float]) -> dict:
     }
 
 
-def _accomp_pitch_acc(
+def _accomp_note_pitch_f1(
     truth: tuple[Note, ...], detected: list[tuple[float, float]]
 ) -> dict:
-    """#136: onset F1 never looks at pitch — and on the accomp staff the
-    detector loves placing notes on harmonic partials (+12/+19/+31).
-    Score the onset-matched pairs on semitone-exact pitch.  Matching
-    mirrors _onset_f1 (greedy nearest in the 150 ms window, 1:1) but
-    only against PITCHED truth — a drum-hit 'note' has no fair pitch
-    to be wrong about.
+    """#136: the accompaniment staff renders every surviving detection —
+    a reader sees the pitch SET, not one claimed note per truth. Score
+    it as note+pitch F1: a detection counts when some pitched truth
+    shares its onset (+-150 ms) AND its semitone; a truth counts when
+    some detection shares both. Greedy 1:1 in detection order. 'noise'
+    timbre truths stay excluded — a drum hit has no fair pitch to be
+    wrong about.
     """
     pitched = [n for n in truth if n.timbre != "noise"]
-    used = [False] * len(detected)
-    matched = 0
-    exact = 0
-    for n in pitched:
-        best = None
-        best_d = ONSET_TOL_S
-        for k, (o, _m) in enumerate(detected):
-            if used[k]:
+    used = [False] * len(pitched)
+    tp = 0
+    for o, m in detected:
+        hit = None
+        for i, n in enumerate(pitched):
+            if used[i] or n.midi != int(round(m)):
                 continue
-            d = abs(o - n.onset)
-            if d <= best_d:
-                best, best_d = k, d
-        if best is None:
-            continue
-        used[best] = True
-        matched += 1
-        if int(round(detected[best][1])) == n.midi:
-            exact += 1
+            if abs(n.onset - o) <= ONSET_TOL_S:
+                hit = i
+                break
+        if hit is not None:
+            used[hit] = True
+            tp += 1
+    prec = tp / len(detected) if detected else 0.0
+    rec = tp / len(pitched) if pitched else 0.0
+    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
     return {
-        "accompPitchAcc": (
-            round(exact / matched, 3) if matched else None
-        ),
-        "accompPitchMatched": matched,
-        "accompPitchExact": exact,
+        "accompNpF1": round(f1, 4),
+        "accompNpP": round(prec, 3),
+        "accompNpR": round(rec, 3),
+        "accompNpTp": tp,
     }
 
 
@@ -1354,7 +1352,7 @@ def main() -> int:
                     "accompDetected": len(accomp),
                     "accompOnsetF1": a_ons["onsetF1@150ms"],
                     "accompTpFpFn": f"{a_ons['tp']}/{a_ons['fp']}/{a_ons['fn']}",
-                    **_accomp_pitch_acc(fx.backing, accomp),
+                    **_accomp_note_pitch_f1(fx.backing, accomp),
                 }
             meta = result.get("meta") or {}
             row = {
@@ -1411,7 +1409,7 @@ def main() -> int:
     md = ["# E2E transcription accuracy benchmark", ""]
     md.append(
         "| fixture | pitch acc | octaveOff | miss/extra | onset F1@150ms"
-        " | med err ms | axis err ms | accomp F1 (tp/fp/fn) | accomp pAcc"
+        " | med err ms | axis err ms | accomp F1 (tp/fp/fn) | accomp npF1 (P/R)"
         " | tempo (ratio) | meter (ok) | s | note |"
     )
     md.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
@@ -1425,8 +1423,8 @@ def main() -> int:
         if r.get("axisWarn"):
             axis_cell = f"{axis_cell} !"
         pacc_cell = (
-            f"{r['accompPitchAcc']} ({r['accompPitchExact']}/{r['accompPitchMatched']})"
-            if r.get("accompPitchAcc") is not None
+            f"{r['accompNpF1']} ({r['accompNpP']}/{r['accompNpR']})"
+            if r.get("accompNpF1") is not None
             else "-"
         )
         md.append(

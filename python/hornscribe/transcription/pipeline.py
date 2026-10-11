@@ -422,6 +422,200 @@ def _accomp_confidence_floor(
     return tuple(kept)
 
 
+# #136: sustained-harmony completion for the accompaniment part. Basic
+# Pitch tracks attacks — a held pad chord fades under the mix and the
+# detector either skips it or writes sub-floor flicker (JPOP-mix stem:
+# 3/24 pad truths reached the staff). The spectrum keeps them: each pad
+# tone is a pitch band that stays locally peaked and elevated for the
+# whole bar. Mine the stem's magnitude spectrogram for that signature
+# and emit the survivors as extra accompaniment events.
+_ACCOMP_PAD_MIN_SUSTAIN_SEC = 0.45
+_ACCOMP_PAD_MIDI_LO = 36
+_ACCOMP_PAD_MIDI_HI = 84
+_ACCOMP_PAD_AMP_RATIO = 0.40
+# A real chord pads out at a handful of simultaneous tones; a broadband
+# wash (cymbals, noise bed) lights up dozens of bands at once. Cap the
+# simultaneous count so a wash cannot mint a wall of fake pads.
+_ACCOMP_PAD_MAX_SIMULTANEOUS = 6
+
+
+def _sustained_pitch_bands(
+    samples: Any,
+    sample_rate: int,
+    *,
+    min_sustain_sec: float = _ACCOMP_PAD_MIN_SUSTAIN_SEC,
+    midi_lo: int = _ACCOMP_PAD_MIDI_LO,
+    midi_hi: int = _ACCOMP_PAD_MIDI_HI,
+) -> list[tuple[float, float, int, float]]:
+    """STFT magnitude -> sustained pitch-band candidates.
+
+    For each MIDI bin a narrow (+-45 cent) band energy track is built.
+    A candidate span requires the band to be the local MIDI maximum AND
+    elevated above its own quiet baseline for a contiguous run of at
+    least ``min_sustain_sec`` — the signature of a held pad/string tone
+    rather than attack flicker or a neighbour's spectral leakage.
+    Returns ``(onset_sec, offset_sec, midi, mean_amp)`` tuples.
+    """
+    require_module("librosa")
+    import librosa  # noqa: PLC0415 - lazy optional dependency
+    import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+    if sample_rate != 22050:
+        samples = librosa.resample(
+            samples, orig_sr=sample_rate, target_sr=22050
+        )
+        sample_rate = 22050
+    hop = 512
+    n_fft = 4096
+    spec = np.abs(librosa.stft(samples, n_fft=n_fft, hop_length=hop))
+    if spec.shape[1] < 2:
+        return []
+    freqs = librosa.fft_frequencies(sr=sample_rate, n_fft=n_fft)
+    times = librosa.frames_to_time(
+        np.arange(spec.shape[1]), sr=sample_rate, hop_length=hop
+    )
+    dt = float(times[1] - times[0])
+    mids = list(range(midi_lo, midi_hi + 1))
+    band_e = np.stack(
+        [
+            spec[
+                (freqs >= 440.0 * 2 ** ((m - 69 - 0.45) / 12))
+                & (freqs <= 440.0 * 2 ** ((m - 69 + 0.45) / 12))
+            ].sum(axis=0)
+            for m in mids
+        ]
+    )
+    out: list[tuple[float, float, int, float]] = []
+    for i, m in enumerate(mids):
+        e = band_e[i]
+        lo = max(0, i - 1)
+        hi = min(len(mids), i + 2)
+        is_peak = e >= band_e[lo:hi].max(axis=0) * 0.999
+        # Elevated = clearly above the stem's quiet spectral floor. A
+        # per-band history baseline fails on a pure-sustain stem (the
+        # pad IS its own baseline) — measure against the floor shared
+        # by every band instead, with a crest-relative backstop.
+        floor_g = float(np.percentile(band_e, 30))
+        peak = (
+            float(np.percentile(e[is_peak], 90)) if bool(is_peak.any()) else 0.0
+        )
+        thresh = max(floor_g * 2.0, peak * 0.22)
+        hot = (e > thresh) & is_peak
+        k = 0
+        while k < len(hot):
+            if not hot[k]:
+                k += 1
+                continue
+            j = k
+            while j < len(hot) and hot[j]:
+                j += 1
+            if (j - k) * dt >= min_sustain_sec:
+                out.append(
+                    (
+                        float(times[k]),
+                        float(times[min(j, len(times) - 1)]),
+                        m,
+                        float(e[k:j].mean()),
+                    )
+                )
+            k = j
+    return out
+
+
+def _merge_band_fragments(
+    cands: list[tuple[float, float, int, float]],
+    *,
+    gap_sec: float = 0.15,
+) -> list[tuple[float, float, int, float]]:
+    """Join same-pitch band fragments across short threshold dips —
+    a held pad dipping under a bass/strum transient must not re-onset
+    mid-bar (the split second half scored as a false note).
+    """
+    out: list[tuple[float, float, int, float]] = []
+    for s, e, m, a in sorted(cands, key=lambda c: (c[2], c[0])):
+        if out and out[-1][2] == m and s - out[-1][1] <= gap_sec:
+            ps, pe, pm, pa = out[-1]
+            out[-1] = (ps, max(pe, e), pm, max(pa, a))
+        else:
+            out.append((s, e, m, a))
+    return out
+
+
+def _accomp_pad_completion(
+    samples: Any,
+    sample_rate: int,
+    existing: tuple[RawNoteEvent, ...],
+    revision: TranscriptionRevisionId,
+) -> tuple[RawNoteEvent, ...]:
+    """Spectral pad completion -> extra accompaniment events (#136).
+
+    Candidates are consolidated argmax-amp-first: a weaker candidate
+    within +-2 semitones that overlaps a stronger one is spectral
+    leakage from that note, not a chord member (pad triads sit >=3
+    semitones apart). The relative amp gate keeps only bands carrying
+    a real share of the stem's sustained energy. Candidates already
+    covered by detection (same pitch, the detector spans half the
+    candidate's span) are skipped; at most
+    ``_ACCOMP_PAD_MAX_SIMULTANEOUS`` simultaneous bands are admitted so
+    a broadband wash cannot fabricate a wall of pads.
+    """
+    if samples is None or sample_rate <= 0:
+        return ()
+    try:
+        cands = _sustained_pitch_bands(samples, sample_rate)
+    except Exception:
+        return ()
+    if not cands:
+        return ()
+    cands = _merge_band_fragments(cands)
+    max_amp = max(c[3] for c in cands)
+    cands = [c for c in cands if c[3] >= max_amp * _ACCOMP_PAD_AMP_RATIO]
+    accepted: list[tuple[float, float, int, float]] = []
+    for s, e, m, a in sorted(cands, key=lambda c: -c[3]):
+        clash = any(
+            abs(m - m2) <= 2
+            and (min(e, e2) - max(s, s2)) > 0.5 * min(e - s, e2 - s2)
+           for _s2, e2, m2, _a2 in accepted
+            for s2, e2, m2, _a2 in accepted
+        )
+        if not clash:
+            accepted.append((s, e, m, a))
+    out: list[RawNoteEvent] = []
+    for s, e, m, _a in accepted:
+        span = e - s
+        if span <= 0.0:
+            continue
+        # Cumulative same-pitch coverage: a pad-length band is already
+        # written when DETECTED notes at that pitch cover half of it —
+        # four quarter-note bass hits together own their whole span.
+        covered_span = 0.0
+        for k in existing:
+            if abs(k.pitch_midi - m) <= 1:
+                covered_span += max(
+                    0.0, min(e, k.offset_sec) - max(s, k.onset_sec)
+                )
+        covered = covered_span > 0.5 * span
+        if covered:
+            continue
+        simultaneous = sum(
+            1 for x in out if x.onset_sec < e and x.offset_sec > s
+        )
+        if simultaneous >= _ACCOMP_PAD_MAX_SIMULTANEOUS:
+            continue
+        out.append(
+            RawNoteEvent(
+                id=RawNoteEventId(f"rne-p{len(out) + 1:06d}"),
+                transcription_revision=revision,
+                pitch_midi=float(m),
+                onset_sec=s,
+                offset_sec=e,
+                confidence=None,
+                source="pad-completion",
+            )
+        )
+    return tuple(out)
+
+
 def _track_beats(samples: Any, sample_rate: int) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Beat times + onset strength sampled at each beat (librosa).
 
@@ -2343,6 +2537,25 @@ def run_transcription_job(
                     )
                     if c.events:
                         accomp_cleaned.append(c)
+            # #136: sustained pads never reach Basic Pitch's attack-
+            # driven detector — mine the stem's spectrum for held
+            # pitch bands and add them as one more accompaniment
+            # voice (deduped against what the detector did find).
+            pad_extra = _accomp_pad_completion(
+                accomp_y,
+                accomp_env_sr,
+                accomp_ranged,
+                revision,
+            )
+            if pad_extra:
+                accomp_cleaned.append(
+                    CleanedEvents(
+                        events=pad_extra,
+                        dropped_too_short=0,
+                        merged=0,
+                        clipped_overlaps=0,
+                    )
+                )
             # The stem file's job ends at detection — an unmanaged
             # temp is released here, the managed cache copy stays.
             if not accomp_managed:
