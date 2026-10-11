@@ -811,6 +811,35 @@ def _fuse_flux_events(
     return fused
 
 
+def _expand_flux_members(
+    events: list[tuple[float, frozenset[int], str]],
+    support_peaks: list[tuple[float, int]],
+) -> list[tuple[float, frozenset[int], str]]:
+    """Grow each flux onset's member set to every band that rose (#181).
+
+    A member whose re-strike lands just under its hard flux bar still
+    re-attacked for real — the member set decides which held runs a
+    flux onset may cut, so membership must be the whole support
+    signature at the strike, not only the hard proof bands that
+    certified the event itself. Strong-tier events keep their
+    measured member set: they cut every held run regardless.
+    """
+    if not support_peaks:
+        return events
+    out: list[tuple[float, frozenset[int], str]] = []
+    for t, mem, kind in events:
+        if kind != "flux":
+            out.append((t, mem, kind))
+            continue
+        soft = frozenset(
+            m
+            for s, m in support_peaks
+            if abs(s - t) <= _ACCOMP_PAD_LATTICE_ALIGN_SEC
+        )
+        out.append((t, soft or mem, kind))
+    return out
+
+
 class _AccompBands:
     """Per-midi band evidence over one accompaniment stem (#155).
 
@@ -961,6 +990,11 @@ class _AccompBands:
         )
         events.sort(key=lambda x: x[0])
         events = _fuse_flux_events(events)
+        # #181: a member whose rise lands just under the hard bar
+        # still re-attacked — the member set decides which held runs
+        # a flux onset may cut, so count every band with a
+        # support-level peak at the strike.
+        events = _expand_flux_members(events, support_peaks)
         self._chord_events = events
         self._chord_onsets = [t for t, _m, _k in events]
 

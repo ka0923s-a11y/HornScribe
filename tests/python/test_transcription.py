@@ -4520,6 +4520,51 @@ class TestLatticeFlux:
         assert b._lattice_flux(hard, support, events) == []
 
 
+class TestExpandFluxMembers:
+    """#181: a member whose rise lands just under the hard flux bar
+    still re-attacked — the member set decides which held runs a
+    flux onset may cut, so membership grows to every band carrying
+    a support-level peak at the strike."""
+
+    def test_soft_member_joins_flux_event(self) -> None:
+        from hornscribe.transcription.pipeline import _expand_flux_members
+
+        events = [(1.0, frozenset({55, 60}), "flux")]
+        support = [(0.99, 55), (1.0, 60), (1.02, 64)]
+        out = _expand_flux_members(events, support)
+        assert out == [(1.0, frozenset({55, 60, 64}), "flux")]
+
+    def test_strong_event_keeps_its_measured_members(self) -> None:
+        """A strong-tier onset cuts every held run regardless — its
+        member set stays the strict measurement, not the soft
+        signature."""
+        from hornscribe.transcription.pipeline import _expand_flux_members
+
+        events = [(1.0, frozenset({55, 60}), "strong")]
+        support = [(1.0, 55), (1.0, 60), (1.0, 64)]
+        out = _expand_flux_members(events, support)
+        assert out == [(1.0, frozenset({55, 60}), "strong")]
+
+    def test_peak_outside_align_window_does_not_join(self) -> None:
+        """A rise past the lattice align window belongs to another
+        strike — it must not ride on this onset's member set."""
+        from hornscribe.transcription.pipeline import (
+            _ACCOMP_PAD_LATTICE_ALIGN_SEC,
+            _expand_flux_members,
+        )
+
+        events = [(1.0, frozenset({55}), "flux")]
+        support = [(1.0 + _ACCOMP_PAD_LATTICE_ALIGN_SEC + 0.01, 64)]
+        out = _expand_flux_members(events, support)
+        assert out == [(1.0, frozenset({55}), "flux")]
+
+    def test_empty_support_keeps_events_untouched(self) -> None:
+        from hornscribe.transcription.pipeline import _expand_flux_members
+
+        events = [(1.0, frozenset({55, 60}), "flux")]
+        assert _expand_flux_members(events, []) == events
+
+
 class TestPadEventVoices:
     """#169: mined pad events must quantize per pitch — a single blob
     reads as one monophonic voice and the quantizer staggers chord
