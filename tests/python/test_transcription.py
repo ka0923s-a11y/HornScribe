@@ -37,10 +37,12 @@ from hornscribe.transcription.pipeline import (
     STAGES,
     _accomp_band_verdict,
     _accomp_confidence_floor,
+    _accomp_detected_events,
     _accomp_pad_completion,
     _dedup_accomp_unison,
     _drop_stem_bleed_lows,
     _heal_accomp_fragments,
+    _merge_band_fragments,
     run_transcription_job,
 )
 from hornscribe.transcription.swing import detect_swing
@@ -1715,6 +1717,23 @@ class TestMeterEventAccents:
         )
         est = estimate_meter(beats, (), event_accents=accents)
         assert est.meter  # any verdict — the contract is "no crash"
+
+    def test_single_ternary_stray_keeps_simple_meter(self) -> None:
+        # Regression (#162): one interior hit at a ternary phase used
+        # to saturate the subdivision census (ternary_ratio=1.0 ->
+        # factor 1.30) and flip a straight four-on-the-floor accent
+        # lattice to a TRUSTED 12/8 — measured on the jpop-mix
+        # accompaniment channel (ratio4=1.57, one stray at frac 2/3).
+        n = 32
+        beat = 0.468
+        beats = self._beats(n, period=beat)
+        accents = [
+            (t, 0.12 if i % 4 == 3 else 0.06) for i, t in enumerate(beats)
+        ]
+        accents.append((beats[11] + beat * 2 / 3, 0.05))
+        est = estimate_meter(beats, (), event_accents=tuple(accents))
+        assert est.meter == "4/4"
+        assert not est.uncertain
 
 
 class TestMeterChannelFusion:
@@ -4234,3 +4253,75 @@ class TestAccompPadCompletionOffset:
             y, sr, existing, _REV, time_offset_sec=3.0
         )
         assert out == ()
+
+
+class TestMergeBandFragments:
+    """#162: the band-merge bridge must span a separation dropout
+    (~0.4 s on center-extraction stems) without welding genuinely
+    separate bands or different pitches."""
+
+    def test_dropout_gap_merges(self) -> None:
+        cands = [(0.0, 1.0, 60, 0.5), (1.4, 3.0, 60, 0.4)]
+        out = _merge_band_fragments(cands)
+        assert out == [(0.0, 3.0, 60, 0.5)]
+
+    def test_long_gap_stays_split(self) -> None:
+        cands = [(0.0, 1.0, 60, 0.5), (1.7, 3.0, 60, 0.4)]
+        out = _merge_band_fragments(cands)
+        assert out == [(0.0, 1.0, 60, 0.5), (1.7, 3.0, 60, 0.4)]
+
+    def test_other_pitch_never_merges(self) -> None:
+        cands = [(0.0, 1.0, 60, 0.5), (1.05, 3.0, 64, 0.4)]
+        out = _merge_band_fragments(cands)
+        assert len(out) == 2
+
+    def test_explicit_gap_overrides_default(self) -> None:
+        cands = [(0.0, 1.0, 60, 0.5), (1.4, 3.0, 60, 0.4)]
+        out = _merge_band_fragments(cands, gap_sec=0.15)
+        assert len(out) == 2
+
+
+class TestAccompDetectedEvents:
+    """#162: meter channels and pickup phase evidence drink from the
+    accompaniment accent pool, so mined pad-completion onsets (band
+    threshold crossings, not articulations) must not reach it."""
+
+    def _ev(
+        self, midi: float, onset: float, i: int, source: str | None
+    ) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-d{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=onset + 0.4,
+            confidence=0.8,
+            velocity=80,
+            source=source,
+        )
+
+    def _cleaned(self, events: tuple[RawNoteEvent, ...]) -> CleanedEvents:
+        return CleanedEvents(
+            events=events,
+            dropped_too_short=0,
+            merged=0,
+            clipped_overlaps=0,
+        )
+
+    def test_mined_onsets_excluded(self) -> None:
+        detected = (
+            self._ev(45.0, 0.0, 0, "basic-pitch"),
+            self._ev(52.0, 0.5, 1, "pyin"),
+            self._ev(57.0, 1.0, 2, None),
+        )
+        mined = tuple(
+            self._ev(60.0, 0.25 + 0.5 * i, 10 + i, "pad-completion")
+            for i in range(6)
+        )
+        cleaned = [self._cleaned(detected), self._cleaned(mined)]
+        out = list(_accomp_detected_events(cleaned))
+        assert [e.pitch_midi for e in out] == [45.0, 52.0, 57.0]
+        assert all(e.source != "pad-completion" for e in out)
+
+    def test_empty_yields_nothing(self) -> None:
+        assert list(_accomp_detected_events(())) == []
