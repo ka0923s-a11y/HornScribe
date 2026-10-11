@@ -2632,7 +2632,11 @@ def run_transcription_job(
         # #155: dedup contained same-pitch events across the surviving
         # accompaniment voices before anything downstream reads them —
         # one stacked unison per physical tone.
+        _accomp_pre_dedup = sum(len(c.events) for c in accomp_cleaned)
         accomp_cleaned = _dedup_accomp_unison(accomp_cleaned)
+        accomp_unison_dropped = _accomp_pre_dedup - sum(
+            len(c.events) for c in accomp_cleaned
+        )
         # #236: the lead track keeps only notes the accompaniment stem
         # does NOT explain -- sub-register bleed lands in the 伴奏 part
         # where it belongs instead of dragging the melody into bass
@@ -3765,6 +3769,7 @@ def run_transcription_job(
                     # confidence floor removed.
                     "accompanimentCleaning": {
                         "confidenceDropped": accomp_conf_dropped,
+                        "unisonDropped": accomp_unison_dropped,
                         "voiceCount": len(accomp_cleaned),
                         "eventCount": sum(
                             len(c.events) for c in accomp_cleaned
