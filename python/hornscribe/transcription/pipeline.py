@@ -722,12 +722,14 @@ def _sustained_pitch_bands(
 def _merge_band_fragments(
     cands: list[tuple[float, float, int, float]],
     *,
-    gap_sec: float = 0.15,
+    gap_sec: float = 0.45,
 ) -> list[tuple[float, float, int, float]]:
-    """Join same-pitch band fragments across short threshold dips —
-    a held pad dipping under a bass/strum transient must not re-onset
-    mid-bar (the split second half scored as a false note).
-    """
+    """Join same-pitch band fragments across threshold dips —
+    a held pad dipping under a bass/strum transient (or a separation
+    dropout) must not re-onset mid-bar (the split second half scored
+    as a false note). #162: raised 0.15 -> 0.45 — center-extraction
+    stems lose a pad band for ~0.4 s mid-bar, so a 150 ms bridge left
+    one held tone split into a late "phantom" second onset."""
     out: list[tuple[float, float, int, float]] = []
     for s, e, m, a in sorted(cands, key=lambda c: (c[2], c[0])):
         if out and out[-1][2] == m and s - out[-1][1] <= gap_sec:
@@ -1069,6 +1071,28 @@ def _tempo_regions_from_dyn(dyn: Any, frame_sec: float) -> list[tuple[float, flo
     if len(merged) < 2:
         return []
     return [(r[0] * frame_sec, r[1] * frame_sec, r[2]) for r in merged]
+
+
+def _accomp_detected_events(
+    cleaned: Iterable[CleanedEvents],
+) -> Iterable[RawNoteEvent]:
+    """Detected accompaniment attacks only.
+
+    ``pad-completion`` onsets are band-threshold crossings, not
+    articulations: they fire wherever a sustain crosses its own
+    gate — mid-bar as often as on a downbeat — so a pool of them
+    votes compound meters on straight pop (#162: the mined-onset
+    pool read 12/8 on the 4/4 JPOP mix while the detected pool
+    read 4/4 at 0.32 confidence). Meter channels and the pickup
+    phase evidence both drink from this pool, so the mined onsets
+    are kept out of rhythm evidence while still reaching the score.
+    """
+    return (
+        e
+        for c in cleaned
+        for e in c.events
+        if e.source != "pad-completion"
+    )
 
 
 def _event_accents(
@@ -2853,7 +2877,9 @@ def run_transcription_job(
         accomp_accent_pool: tuple[tuple[float, float], ...] | None = None
         if accomp_cleaned and accomp_y is not None:
             acc_pool = _event_accents(
-                (e for c in accomp_cleaned for e in c.events),
+                # #162: only detected attacks vote on meter/pickup
+                # phase — mined pad onsets are not articulations.
+                _accomp_detected_events(accomp_cleaned),
                 accomp_y,
                 accomp_env_sr,
                 time_offset_sec=vis_lo,

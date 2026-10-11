@@ -55,6 +55,7 @@ _PERIOD_BY_METER = {"2/4": 2, "3/4": 3, "4/4": 4, "5/4": 5}
 # Compound meters by their primary-beat count (dotted-quarter beats
 # per measure) for the beat-level path.
 _COMPOUND_BY_BEATS = {2: "6/8", 3: "9/8", 4: "12/8"}
+_COMPOUND_SIMPLE_SIBLING = {2: "2/4", 3: "3/4", 4: "4/4"}
 _COMPOUND_LABELS = frozenset(_COMPOUND_BY_BEATS.values()) | {"7/8"}
 # Tie-break order -- a smaller period is the simpler reading of the
 # same accent evidence.
@@ -99,6 +100,15 @@ _CENSUS_MIN_ACCENT_SHARE = 0.2
 _COMPOUND_FACTOR_BASE = 0.4
 _COMPOUND_FACTOR_GAIN = 0.9
 _CENSUS_DEFAULT_TERNARY = 0.3
+# Pseudo-observation strength behind the census prior: with no
+# interior events the ratio is the default (0.3) and each counted
+# subdivision pulls it toward the observed share. Without the prior
+# a single stray onset at a ternary phase reads ternary_ratio=1.0
+# and maxes the compound boost — one syncopated hit flipped a
+# straight 4/4 pop mix to a trusted 12/8 (#162). Weight 4 means a
+# compound groove needs ~5 genuine interior hits before the factor
+# crosses 1.0, which real 6/8/12/8 passages produce easily.
+_CENSUS_PRIOR_WEIGHT = 4.0
 # Beat intervals spread wider than this mean a genuine tempo change,
 # not jitter -- switch to index-space slots so a 100->140 step still
 # reads accents on the beat lattice (#93). The test is a SUSTAINED
@@ -490,11 +500,14 @@ def _estimate_beat_level(
     if not accents or sum(accents) <= 0:
         return _default()
 
+    # Bayesian smoothing: the observed ternary share is pooled with
+    # _CENSUS_PRIOR_WEIGHT pseudo-votes at the default — one stray
+    # interior onset can no longer saturate the compound factor
+    # (#162), while the empty-census limit still lands on
+    # _CENSUS_DEFAULT_TERNARY exactly as before.
     ternary_ratio = (
-        ternary / (ternary + binary)
-        if (ternary + binary)
-        else _CENSUS_DEFAULT_TERNARY
-    )
+        ternary + _CENSUS_PRIOR_WEIGHT * _CENSUS_DEFAULT_TERNARY
+    ) / (ternary + binary + _CENSUS_PRIOR_WEIGHT)
 
     ratios = {p: _period_ratio(accents, p) for p in (2, 3, 4, 5)}
     scores = {m: ratios[p] for m, p in _PERIOD_BY_METER.items()}
@@ -508,6 +521,16 @@ def _estimate_beat_level(
             if ratios[beats] >= _MIN_ACCENT_RATIO
             else ratios[beats]
         )
+    # The same census argues AGAINST the simple sibling once it does
+    # find a ternary groove: otherwise compound only ever wins its
+    # period by the factor's own thin margin ((f-1)/f <= ~0.23) and a
+    # clean 6/8 can never be trusted (#162). The gate is one-sided on
+    # purpose — binary or absent groove evidence must not inflate a
+    # merely-structured simple label into a fabricated confident read.
+    if factor > 1.0:
+        for beats, simple_label in _COMPOUND_SIMPLE_SIBLING.items():
+            if ratios[beats] >= _MIN_ACCENT_RATIO:
+                scores[simple_label] = ratios[beats] / factor
     # Candidates need at least three full periods on the grid -- a
     # five-slot window is noise, not evidence of 5/4.
     for meter_label, period in _SORT_PERIOD.items():
