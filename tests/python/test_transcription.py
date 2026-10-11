@@ -35,12 +35,15 @@ from hornscribe.transcription.meter import estimate_meter
 from hornscribe.transcription.options import TranscriptionParams
 from hornscribe.transcription.pipeline import (
     STAGES,
+    _accomp_band_evidence,
     _accomp_band_verdict,
     _accomp_confidence_floor,
     _accomp_detected_events,
     _accomp_pad_completion,
+    _backdate_accomp_onsets,
     _dedup_accomp_unison,
     _drop_stem_bleed_lows,
+    _fold_accomp_slivers,
     _heal_accomp_fragments,
     _merge_band_fragments,
     run_transcription_job,
@@ -3800,7 +3803,12 @@ class TestStemBleedDrop:
         )
 
     def _ev(
-        self, midi: float, onset: float, offset: float, i: int = 0
+        self,
+        midi: float,
+        onset: float,
+        offset: float,
+        i: int = 0,
+        src: str = "test",
     ) -> RawNoteEvent:
         return RawNoteEvent(
             id=RawNoteEventId(f"rne-t{i + 1:06d}"),
@@ -3810,7 +3818,7 @@ class TestStemBleedDrop:
             offset_sec=offset,
             confidence=0.9,
             velocity=80,
-            source="test",
+            source=src,
         )
 
     def test_corroborated_low_bleed_dropped(self) -> None:
@@ -3955,7 +3963,12 @@ class TestDedupAccompUnison:
     can never see it, so the shorter duplicate is dropped here."""
 
     def _ev(
-        self, midi: float, onset: float, offset: float, i: int = 0
+        self,
+        midi: float,
+        onset: float,
+        offset: float,
+        i: int = 0,
+        src: str = "test",
     ) -> RawNoteEvent:
         return RawNoteEvent(
             id=RawNoteEventId(f"rne-t{i + 1:06d}"),
@@ -3965,8 +3978,19 @@ class TestDedupAccompUnison:
             offset_sec=offset,
             confidence=0.9,
             velocity=80,
-            source="test",
+            source=src,
         )
+
+    class _FakeRuns:
+        """run_start answers for the overlap-union pass (#155)."""
+
+        def __init__(self, starts: dict[int, float | None]) -> None:
+            self._starts = starts
+
+        def run_start(
+            self, midi: float, onset_sec: float
+        ) -> float | None:
+            return self._starts.get(int(round(midi)))
 
     def _voice(self, *evs: RawNoteEvent) -> CleanedEvents:
         return CleanedEvents(
@@ -4016,6 +4040,83 @@ class TestDedupAccompUnison:
         )
         total = sum(len(c.events) for c in out)
         assert total == 2
+
+    def test_mined_anchor_unions_detected_overlap(self) -> None:
+        # The phantom-onset shape: a mined run from 0.0 and a detected
+        # onset at 0.44 the band traces back to the run's start — one
+        # held tone, so the pair unions into the mined event's head.
+        bands = self._FakeRuns({64: 0.0})
+        out = _dedup_accomp_unison(
+            [
+                self._voice(
+                    self._ev(64.0, 0.44, 1.79, 1),
+                    self._ev(64.0, 0.0, 0.49, 2, src="pad-completion"),
+                )
+            ],
+            bands,
+        )
+        evs = [e for c in out for e in c.events]
+        assert len(evs) == 1
+        assert evs[0].onset_sec == pytest.approx(0.0)
+        assert evs[0].offset_sec == pytest.approx(1.79)
+
+    def test_detected_first_mined_inside_is_a_reattack(self) -> None:
+        # The mirror shape: a fresh mined run opening inside a
+        # detected span is the miner's own re-attack signature —
+        # both events stay even though the run reaches back.
+        bands = self._FakeRuns({60: 7.5})
+        out = _dedup_accomp_unison(
+            [
+                self._voice(
+                    self._ev(60.0, 7.5, 10.68, 1),
+                    self._ev(60.0, 9.36, 11.21, 2, src="pad-completion"),
+                )
+            ],
+            bands,
+        )
+        assert sum(len(c.events) for c in out) == 2
+
+    def test_overlap_union_needs_band_evidence(self) -> None:
+        # No stem, no verdict — a detected+mined overlap stands.
+        out = _dedup_accomp_unison(
+            [
+                self._voice(
+                    self._ev(64.0, 0.44, 1.79, 1),
+                    self._ev(64.0, 0.0, 0.49, 2, src="pad-completion"),
+                )
+            ]
+        )
+        assert sum(len(c.events) for c in out) == 2
+
+    def test_detected_pair_overlap_never_unions(self) -> None:
+        # Two detector events can be a real re-attack — without a
+        # mined anchor the band's reach-back is not enough.
+        bands = self._FakeRuns({64: 0.0})
+        out = _dedup_accomp_unison(
+            [
+                self._voice(
+                    self._ev(64.0, 0.0, 0.49, 1),
+                    self._ev(64.0, 0.44, 1.79, 2),
+                )
+            ],
+            bands,
+        )
+        assert sum(len(c.events) for c in out) == 2
+
+    def test_overlap_union_run_miss_keeps_pair(self) -> None:
+        # The later onset's run starts at itself — a genuine attack
+        # inside a held tone (the band rose under it), not a phantom.
+        bands = self._FakeRuns({64: 0.44})
+        out = _dedup_accomp_unison(
+            [
+                self._voice(
+                    self._ev(64.0, 0.0, 0.49, 1, src="pad-completion"),
+                    self._ev(64.0, 0.44, 1.79, 2),
+                )
+            ],
+            bands,
+        )
+        assert sum(len(c.events) for c in out) == 2
 
     def test_empty_and_singleton_passthrough(self) -> None:
         assert _dedup_accomp_unison([]) == []
@@ -4206,6 +4307,204 @@ class TestAccompBandVerdict:
         a = self._ev(57.0, 3.2, 3.9, 1)
         b = self._ev(57.0, 3.9, 4.7, 2)
         assert verdict(a, b) is False
+
+
+class TestFoldAccompSlivers:
+    """#155: a sub-90 ms event wedged gap-free between same-pitch
+    neighbours is detector boundary noise — fold it into the
+    predecessor rather than printing a phantom 32nd."""
+
+    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-f{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.8,
+            source="test",
+        )
+
+    def test_sandwiched_sliver_folds(self) -> None:
+        ev = (
+            self._ev(45.0, 7.504, 7.899, 1),
+            self._ev(45.0, 7.899, 7.970, 2),  # 71 ms boundary sliver
+            self._ev(45.0, 7.970, 8.364, 3),
+        )
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 1 and len(out) == 2
+        assert out[0].offset_sec == pytest.approx(7.970)
+        assert out[1].onset_sec == pytest.approx(7.970)
+
+    def test_sliver_with_real_gap_kept(self) -> None:
+        # A gap on one side means a real articulation happened.
+        ev = (
+            self._ev(45.0, 0.0, 0.4, 1),
+            self._ev(45.0, 0.44, 0.50, 2),
+            self._ev(45.0, 0.50, 0.9, 3),
+        )
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 0 and len(out) == 3
+
+    def test_long_note_never_a_sliver(self) -> None:
+        ev = (
+            self._ev(45.0, 0.0, 0.4, 1),
+            self._ev(45.0, 0.4, 0.7, 2),  # 300 ms — a real note
+            self._ev(45.0, 0.7, 0.9, 3),
+        )
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 0 and len(out) == 3
+
+    def test_different_pitch_neighbours_untouched(self) -> None:
+        ev = (
+            self._ev(45.0, 0.0, 0.4, 1),
+            self._ev(48.0, 0.4, 0.45, 2),
+            self._ev(45.0, 0.45, 0.9, 3),
+        )
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 0 and len(out) == 3
+
+    def test_too_short_input_passthrough(self) -> None:
+        ev = (self._ev(45.0, 0.0, 0.05, 1), self._ev(45.0, 0.05, 0.5, 2))
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 0 and len(out) == 2
+
+
+class TestBackdateAccompOnsets:
+    """#155: a detection fired mid-sustain is a late onset — the band
+    run reaches back to the tone's true start (jpdb: midi-64 pad
+    detected 1.3 s late became a false note)."""
+
+    class _FakeBands:
+        def __init__(
+            self, starts: dict[int, float], separated: bool = True
+        ) -> None:
+            self._starts = starts
+            self._separated = separated
+
+        def run_start(self, midi: float, onset_sec: float) -> float | None:
+            return self._starts.get(int(round(midi)))
+
+        def separated(self, a: RawNoteEvent, b: RawNoteEvent) -> bool:
+            return self._separated
+
+    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-d{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.8,
+            source="test",
+        )
+
+    def test_late_onset_backdates_to_run_start(self) -> None:
+        bands = self._FakeBands({64: 3.75})
+        ev = (self._ev(64.0, 5.006, 5.541, 1),)
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert backdated == 1 and merged == 0
+        assert out[0].onset_sec == pytest.approx(3.75)
+        assert out[0].offset_sec == pytest.approx(5.541)
+
+    def test_small_gain_not_a_backdate(self) -> None:
+        # 80 ms of window lead is smear, not a late onset.
+        bands = self._FakeBands({60: 0.92})
+        ev = (self._ev(60.0, 1.0, 1.5, 1),)
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert backdated == 0 and out[0].onset_sec == pytest.approx(1.0)
+
+    def test_same_pitch_predecessor_inside_run_merges(self) -> None:
+        # The band stayed hot through the gap — one sustained tone the
+        # detector re-onset (the >120 ms-gap sibling of the seam heal).
+        bands = self._FakeBands({57: 0.2}, separated=False)
+        ev = (
+            self._ev(57.0, 0.2, 0.9, 1),
+            self._ev(57.0, 1.1, 1.7, 2),
+        )
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert merged == 1 and len(out) == 1
+        assert out[0].offset_sec == pytest.approx(1.7)
+
+    def test_gap_before_run_start_keeps_real_rest(self) -> None:
+        # Band went cold after the predecessor, then rose again — the
+        # second note is a real new onset, only backdated to its rise.
+        bands = self._FakeBands({57: 1.0})
+        ev = (
+            self._ev(57.0, 0.2, 0.9, 1),
+            self._ev(57.0, 1.3, 1.7, 2),
+        )
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert merged == 0 and len(out) == 2
+        # run 1.0 > floor 0.9 and gain 0.3 >= min -> onset moves to 1.0
+        assert out[1].onset_sec == pytest.approx(1.0)
+
+    def test_dipped_gap_is_a_reattack_not_a_merge(self) -> None:
+        # A 30 ms release dip between same-pitch notes reads as a
+        # re-articulation to the seam verdict — the second note keeps
+        # its own onset instead of folding into a fake sustained tone.
+        bands = self._FakeBands({45: 0.3}, separated=True)
+        ev = (
+            self._ev(45.0, 0.0, 0.5, 1),
+            self._ev(45.0, 0.54, 1.0, 2),
+        )
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert merged == 0 and len(out) == 2
+        # run 0.3 < floor 0.5 -> the recovered span is too small to
+        # move the onset — the note keeps its detected attack.
+        assert out[1].onset_sec == pytest.approx(0.54)
+
+    def test_no_evidence_passthrough(self) -> None:
+        ev = (self._ev(60.0, 0.0, 0.5, 1),)
+        out, backdated, merged = _backdate_accomp_onsets(ev, None)
+        assert backdated == 0 and merged == 0 and len(out) == 1
+
+    def test_pad_completion_events_never_touched(self) -> None:
+        bands = self._FakeBands({57: 0.0})
+        pad = replace(
+            self._ev(57.0, 1.0, 2.0, 1), source="pad-completion"
+        )
+        out, backdated, merged = _backdate_accomp_onsets((pad,), bands)
+        assert backdated == 0 and merged == 0
+        assert out[0].onset_sec == pytest.approx(1.0)
+
+    def test_real_stem_late_onset(self) -> None:
+        # Sustained tone 0.2-1.7, detection claims onset 1.0 — the
+        # band run must pull it back near the true start.
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        sr = 22050
+        t = np.arange(int(2.0 * sr)) / sr
+        y = np.zeros_like(t)
+        f = 440.0 * 2 ** ((57 - 69) / 12)
+        m = (t >= 0.2) & (t < 1.7)
+        y[m] += 0.2 * np.sin(2 * np.pi * f * t[m])
+        bands = _accomp_band_evidence(y, sr)
+        assert bands is not None
+        ev = (self._ev(57.0, 1.0, 1.6, 1),)
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert backdated == 1
+        assert out[0].onset_sec < 0.45  # ~0.2 minus window smear
+
+    def test_real_stem_cold_onset_not_moved(self) -> None:
+        # A genuine attack: the band is cold before the onset — the
+        # run starts at the detection, so nothing moves.
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        sr = 22050
+        t = np.arange(int(2.0 * sr)) / sr
+        y = np.zeros_like(t)
+        f = 440.0 * 2 ** ((57 - 69) / 12)
+        m = (t >= 1.0) & (t < 1.7)
+        y[m] += 0.2 * np.sin(2 * np.pi * f * t[m])
+        bands = _accomp_band_evidence(y, sr)
+        assert bands is not None
+        ev = (self._ev(57.0, 1.05, 1.6, 1),)
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        # band rises ~1 frame before the true onset (window smear) —
+        # far under the 0.18 s floor, so the onset stays put.
+        assert backdated == 0 and merged == 0
+        assert out[0].onset_sec == pytest.approx(1.05)
 
 
 class TestAccompPadCompletionOffset:

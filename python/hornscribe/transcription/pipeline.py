@@ -436,6 +436,7 @@ _ACCOMP_UNISON_TOL_SEC = 0.03
 
 def _dedup_accomp_unison(
     accomp_cleaned: list[CleanedEvents],
+    bands: _AccompBands | None = None,
 ) -> list[CleanedEvents]:
     """Drop same-pitch events fully contained in a longer one (#155).
 
@@ -447,11 +448,22 @@ def _dedup_accomp_unison(
     the span within _ACCOMP_UNISON_TOL_SEC) means the two detections
     describe one tone, so the shorter goes. Identical twins keep
     the first occurrence.
+
+    With band evidence a second pass unions a partially overlapping
+    same-pitch pair shaped exactly like the mid-sustain failure: the
+    miner's run started first and the tracker fired INSIDE it — the
+    band says the tone began at the mined onset, so the detected
+    onset is a phantom and the pair unions into the mined event.
+    The mirror shape (tracker event first, a fresh mined run starting
+    inside it) is kept: the miner's own run boundary is a re-attack
+    signature, and a detector+detector overlap cannot be told from a
+    real re-attack at all.
     """
     events = [e for c in accomp_cleaned for e in c.events]
     if len(events) < 2:
         return accomp_cleaned
     drop: set[int] = set()
+    grown: dict[int, RawNoteEvent] = {}
     for i, e in enumerate(events):
         e_len = e.offset_sec - e.onset_sec
         for j, o in enumerate(events):
@@ -468,18 +480,46 @@ def _dedup_accomp_unison(
             if longer or j < i:
                 drop.add(i)
                 break
-    if not drop:
+    if bands is not None:
+        by_pitch: dict[int, list[int]] = {}
+        for k, e in enumerate(events):
+            if k not in drop:
+                by_pitch.setdefault(int(round(e.pitch_midi)), []).append(k)
+        for idxs in by_pitch.values():
+            idxs.sort(key=lambda k: events[k].onset_sec)
+            cur = idxs[0]
+            cur_ev = grown.get(cur, events[cur])
+            for k in idxs[1:]:
+                e = events[k]
+                if e.onset_sec >= cur_ev.offset_sec - _ACCOMP_UNISON_TOL_SEC:
+                    cur, cur_ev = k, e
+                    continue
+                run = bands.run_start(e.pitch_midi, e.onset_sec)
+                if (
+                    cur_ev.source == "pad-completion"
+                    and e.source != "pad-completion"
+                    and run is not None
+                    and run <= cur_ev.onset_sec + _ACCOMP_UNISON_TOL_SEC
+                ):
+                    cur_ev = _extend(
+                        cur_ev, e.offset_sec, e.confidence, e.pitch_bends
+                    )
+                    grown[cur] = cur_ev
+                    drop.add(k)
+                else:
+                    cur, cur_ev = k, e
+    if not drop and not grown:
         return accomp_cleaned
     out: list[CleanedEvents] = []
     base = 0
     for c in accomp_cleaned:
         kept = tuple(
-            e
+            grown.get(base + k, e)
             for k, e in enumerate(c.events)
             if (base + k) not in drop
         )
         base += len(c.events)
-        if len(kept) != len(c.events):
+        if kept != c.events:
             c = replace(c, events=kept)
         if c.events:
             out.append(c)
@@ -500,24 +540,310 @@ _ACCOMP_SEAM_BAND_DIP = 0.70
 # held tone where the player breathed.
 _ACCOMP_SEAM_MAX_GAP_SEC = 0.12
 
+# #155: a sustained accompaniment tone can be "found" late — Basic
+# Pitch fires a mid-sustain onset inside a held pad member and the
+# onset lands as a false note (the band evidence says the tone has
+# been sounding for seconds). Walk the band's hot mask back to where
+# the run actually started; only a gain beyond this floor is a real
+# late-onset correction, anything smaller is window smear.
+_ACCOMP_BACKDATE_MIN_SEC = 0.18
+# A few cold frames inside a run are a transient dip (a drum hit or
+# the pad's own beating envelope), not the end of the tone — bridged
+# unconditionally because the only consumer is onset backdating,
+# which is bounded below by the predecessor's offset anyway.
+_ACCOMP_RUN_HOLE_FRAMES = 4
+# A vocal-mask dropout has a signature a real release cannot fake:
+# the WHOLE band census collapses for a bounded span while the lead
+# sings (measured 9-16 hot bands -> ~3 on the JPOP stem). A real
+# release silences its own band only. Bridging is refused in sparse
+# textures — with only a couple of bands standing, a solo line's
+# rest is indistinguishable from a mask event, and today's behaviour
+# is the honest one.
+_ACCOMP_DROPOUT_MAX_SEC = 0.6
+_ACCOMP_DROPOUT_MIN_SURROUND = 6
+_ACCOMP_DROPOUT_MIN_COLLAPSE = 0.5
+# The detector can split a note at a real re-attack boundary into
+# <note><sliver><note>: a sub-90 ms island abutting same-pitch events
+# on both sides is boundary noise, not a playable 32nd.
+_ACCOMP_SLIVER_MAX_SEC = 0.09
+_ACCOMP_SLIVER_GAP_SEC = 0.03
+# #136 pad-mining bounds — hoisted above _AccompBands because the
+# class defaults run_start/sustained kwargs off them.
+_ACCOMP_PAD_MIN_SUSTAIN_SEC = 0.45
+_ACCOMP_PAD_MIDI_LO = 36
+_ACCOMP_PAD_MIDI_HI = 84
+_ACCOMP_PAD_AMP_RATIO = 0.40
+# A real chord pads out at a handful of simultaneous tones; a broadband
+# wash (cymbals, noise bed) lights up dozens of bands at once. Cap the
+# simultaneous count so a wash cannot mint a wall of fake pads.
+_ACCOMP_PAD_MAX_SIMULTANEOUS = 6
 
-def _accomp_band_verdict(
+
+def _pitch_band_energy(spec: Any, freqs: Any, midi: int) -> Any:
+    """One +-45 cent pitch band's energy track over an STFT magnitude."""
+    lo = 440.0 * 2 ** ((midi - 69 - 0.45) / 12)
+    hi = 440.0 * 2 ** ((midi - 69 + 0.45) / 12)
+    return spec[(freqs >= lo) & (freqs <= hi)].sum(axis=0)
+
+
+def _sustained_band_matrix(
+    spec: Any, freqs: Any, mids: list[int] | tuple[int, ...]
+) -> tuple[Any, list[Any]]:
+    """(band_e, hot) — per-midi band energy + the sustain signature.
+
+    hot = band is the local MIDI maximum (+-1 semitone) AND elevated
+    above the stem-wide spectral floor (crest-relative backstop). One
+    definition shared by the pad miner (#136), the onset backdater and
+    the continuity merge (#155) so "sustained tone" means the same
+    thing to all three.
+    """
+    import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+    band_e = np.stack([_pitch_band_energy(spec, freqs, m) for m in mids])
+    # Elevated = clearly above the stem's quiet spectral floor. A
+    # per-band history baseline fails on a pure-sustain stem (the
+    # pad IS its own baseline) — measure against the floor shared
+    # by every band instead, with a crest-relative backstop.
+    floor_g = float(np.percentile(band_e, 30))
+    hot: list[Any] = []
+    for i in range(len(mids)):
+        e = band_e[i]
+        lo = max(0, i - 1)
+        hi = min(len(mids), i + 2)
+        is_peak = e >= band_e[lo:hi].max(axis=0) * 0.999
+        peak = (
+            float(np.percentile(e[is_peak], 90)) if bool(is_peak.any()) else 0.0
+        )
+        thresh = max(floor_g * 2.0, peak * 0.22)
+        hot.append((e > thresh) & is_peak)
+    return band_e, hot
+
+
+def _hot_run_spans(
+    mids: list[int] | tuple[int, ...],
+    band_e: Any,
+    hot: list[Any],
+    times: Any,
+    min_sustain_sec: float,
+) -> list[tuple[float, float, int, float]]:
+    """Contiguous hot runs >= min_sustain_sec -> (onset, offset, midi, mean_amp)."""
+    out: list[tuple[float, float, int, float]] = []
+    dt = float(times[1] - times[0])
+    for i, m in enumerate(mids):
+        e = band_e[i]
+        h = hot[i]
+        k = 0
+        while k < len(h):
+            if not h[k]:
+                k += 1
+                continue
+            j = k
+            while j < len(h) and h[j]:
+                j += 1
+            if (j - k) * dt >= min_sustain_sec:
+                out.append(
+                    (
+                        float(times[k]),
+                        float(times[min(j, len(times) - 1)]),
+                        m,
+                        float(e[k:j].mean()),
+                    )
+                )
+            k = j
+    return out
+
+
+class _AccompBands:
+    """Per-midi band evidence over one accompaniment stem (#155).
+
+    The accompaniment stem answers three spectral questions — seam
+    continuity (#160), onset-run backdating (#155) and sustained-band
+    mining (#136). Each needs the same magnitude STFT, so build it
+    once here and let every consumer read from it.
+
+    ``time_offset_sec`` maps job-timeline seconds onto the stem's own
+    axis (the stem covers the backend input span only): public methods
+    take and return job-timeline seconds.
+    """
+
+    __slots__ = (
+        "_band_e",
+        "_cache",
+        "_frames",
+        "_freqs",
+        "_hot",
+        "_hot_matrix",
+        "_mids",
+        "_n_hot",
+        "_offset",
+        "_spec",
+        "_spf",
+    )
+
+    def __init__(
+        self, spec: Any, sample_rate: int, *, time_offset_sec: float = 0.0
+    ) -> None:
+        import librosa  # noqa: PLC0415 - lazy optional dependency
+        import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+        self._spec = spec
+        self._freqs = librosa.fft_frequencies(sr=sample_rate, n_fft=4096)
+        self._spf = 512.0 / sample_rate
+        self._frames = spec.shape[1]
+        self._offset = float(time_offset_sec)
+        self._cache: dict[int, Any] = {}
+        self._mids = tuple(
+            range(_ACCOMP_PAD_MIDI_LO, _ACCOMP_PAD_MIDI_HI + 1)
+        )
+        self._band_e, self._hot = _sustained_band_matrix(
+            spec, self._freqs, self._mids
+        )
+        self._hot_matrix = np.stack(self._hot)
+        self._n_hot = self._hot_matrix.sum(axis=0)
+
+    def _band(self, m: int) -> Any:
+        if m not in self._cache:
+            self._cache[m] = _pitch_band_energy(self._spec, self._freqs, m)
+        return self._cache[m]
+
+    def separated(self, a: RawNoteEvent, b: RawNoteEvent) -> bool:
+        """True when the band dips through the a->b seam (#160)."""
+        import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+        m = int(round(0.5 * (a.pitch_midi + b.pitch_midi)))
+        e = self._band(m)
+        # The union span's median is the band's own "sounding" level —
+        # a trough below _ACCOMP_SEAM_BAND_DIP of it means the tone
+        # actually stopped between the two detections.
+        i0 = max(0, int((a.onset_sec - self._offset) / self._spf))
+        i1 = min(self._frames, int((b.offset_sec - self._offset) / self._spf) + 1)
+        if i1 <= i0:
+            return True  # out-of-range events: keep the seam
+        med = float(np.median(e[i0:i1]))
+        if med <= 0.0:
+            return True  # silent band carries no merge evidence
+        lo = a.offset_sec - self._offset
+        hi = b.onset_sec - self._offset
+        if hi - lo > self._spf:
+            j0 = max(0, int(lo / self._spf))
+            j1 = min(self._frames, int(hi / self._spf) + 1)
+            trough = float(e[j0:j1].min())
+        else:
+            # Abutting/overlapping detections: the seam is one instant —
+            # take the band minimum within a frame of it so a real
+            # 30 ms release still registers.
+            mid = 0.5 * (lo + hi)
+            j0 = max(0, int((mid - self._spf) / self._spf))
+            j1 = min(self._frames, int((mid + self._spf) / self._spf) + 1)
+            trough = float(e[j0:j1].min()) if j1 > j0 else 0.0
+        return trough < _ACCOMP_SEAM_BAND_DIP * med
+
+    def run_start(self, midi: float, onset_sec: float) -> float | None:
+        """Job-time start of the sustained run containing ``onset_sec``.
+
+        The tone under a detection may have started long before the
+        tracker fired — walk the pitch band's hot mask left until the
+        run ends. Returns job-timeline seconds, or None when the band
+        offers no evidence (pitch out of the mined range, or no hot
+        frame near the onset — a genuine attack). Cold stretches of at
+        most ``_ACCOMP_RUN_HOLE_FRAMES`` frames always bridge;
+        longer ones bridge only when ``_mask_dropout`` sees the
+        whole band census collapse — the vocal mask's signature, not
+        a real release.
+        """
+        m = int(round(midi))
+        if m < self._mids[0] or m > self._mids[-1]:
+            return None
+        j0 = int((onset_sec - self._offset) / self._spf)
+        if not 0 <= j0 < self._frames:
+            return None
+        hot = self._hot[m - self._mids[0]]
+        # The detector onset may itself land inside a mask dropout —
+        # a cold frame or two — while the tone runs on underneath.
+        # Anchor the walk on the nearest hot frame instead of
+        # refusing outright.
+        j = j0
+        if not bool(hot[j0]):
+            nxt = j0 + 1
+            while (
+                nxt < self._frames
+                and nxt <= j0 + _ACCOMP_RUN_HOLE_FRAMES
+                and not bool(hot[nxt])
+            ):
+                nxt += 1
+            if nxt >= self._frames or not bool(hot[nxt]):
+                return None
+            j = nxt
+        k = j - 1
+        while k >= 0:
+            if bool(hot[k]):
+                j = k
+                k -= 1
+                continue
+            # A cold stretch: tiny holes always bridge; longer ones
+            # only when the whole band census collapsed — the vocal
+            # mask's signature — not when this one band released.
+            e = k
+            while e >= 0 and not bool(hot[e]):
+                e -= 1
+            stretch = k - e
+            if (
+                stretch <= _ACCOMP_RUN_HOLE_FRAMES
+                or self._mask_dropout(e + 1, k)
+            ):
+                k = e
+                continue
+            break
+        return j * self._spf + self._offset
+
+    def _mask_dropout(self, cold_lo: int, cold_hi: int) -> bool:
+        """True when a cold stretch is the vocal mask eating the stem.
+
+        The mask suppresses every non-vocal band while the lead sings:
+        at the stretch's deepest frame almost none of the bands that
+        were hot just before it are still standing. A real release
+        silences its own band only — the rest of the matrix keeps
+        sounding. Bounded in length — a longer silence is trusted as
+        a rest — and refused under sparse textures where a solo
+        line's band is nearly the whole census anyway.
+        """
+        span_sec = (cold_hi - cold_lo + 1) * self._spf
+        if span_sec > _ACCOMP_DROPOUT_MAX_SEC:
+            return False
+        seg = self._n_hot[cold_lo : cold_hi + 1]
+        jdeep = cold_lo + int(seg.argmin())
+        prev = self._hot_matrix[:, max(0, cold_lo - 4) : cold_lo].any(axis=1)
+        n_prev = int(prev.sum())
+        if n_prev < _ACCOMP_DROPOUT_MIN_SURROUND:
+            return False
+        survived = prev & self._hot_matrix[:, jdeep]
+        return (
+            1.0 - float(survived.sum()) / float(n_prev)
+            >= _ACCOMP_DROPOUT_MIN_COLLAPSE
+        )
+
+    def sustained(
+        self, min_sustain_sec: float = _ACCOMP_PAD_MIN_SUSTAIN_SEC
+    ) -> list[tuple[float, float, int, float]]:
+        """Stem-axis sustained-band candidates — the #136 pad evidence."""
+        import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+        times = np.arange(self._frames, dtype=np.float64) * self._spf
+        return _hot_run_spans(
+            self._mids, self._band_e, self._hot, times, min_sustain_sec
+        )
+
+
+def _accomp_band_evidence(
     samples: Any,
     sample_rate: int,
     *,
     time_offset_sec: float = 0.0,
-) -> Callable[[RawNoteEvent, RawNoteEvent], bool] | None:
-    """Per-midi band continuity verdict for accompaniment seams (#160).
+) -> _AccompBands | None:
+    """One shared STFT pass -> _AccompBands | None.
 
-    Returns an ``(a, b) -> bool`` check — True means the seam
-    between same-pitch neighbours is a real articulation (the band
-    energy at that pitch dips through it), False means the band stays
-    elevated and the two fragments describe one sustained tone. None
-    when the stem/audio stack is unavailable — the caller then keeps
+    None when the stem/audio stack is unavailable — callers then keep
     the merge_gap=0 status quo rather than guessing from no evidence.
-
-    ``time_offset_sec`` maps the job-timeline event times back to
-    the stem's own axis (the stem covers the backend input span only).
     """
     if samples is None or sample_rate <= 0:
         return None
@@ -538,48 +864,25 @@ def _accomp_band_verdict(
         return None
     if spec.shape[1] < 2:
         return None
-    freqs = librosa.fft_frequencies(sr=sr, n_fft=4096)
-    frames = spec.shape[1]
-    spf = 512.0 / sr
-    cache: dict[int, Any] = {}
+    return _AccompBands(spec, sr, time_offset_sec=time_offset_sec)
 
-    def _band(m: int) -> Any:
-        if m not in cache:
-            lo = 440.0 * 2 ** ((m - 69 - 0.45) / 12)
-            hi = 440.0 * 2 ** ((m - 69 + 0.45) / 12)
-            cache[m] = spec[(freqs >= lo) & (freqs <= hi)].sum(axis=0)
-        return cache[m]
 
-    def _separated(a: RawNoteEvent, b: RawNoteEvent) -> bool:
-        m = int(round(0.5 * (a.pitch_midi + b.pitch_midi)))
-        e = _band(m)
-        # The union span's median is the band's own "sounding" level —
-        # a trough below _ACCOMP_SEAM_BAND_DIP of it means the tone
-        # actually stopped between the two detections.
-        i0 = max(0, int((a.onset_sec - time_offset_sec) / spf))
-        i1 = min(frames, int((b.offset_sec - time_offset_sec) / spf) + 1)
-        if i1 <= i0:
-            return True  # out-of-range events: keep the seam
-        med = float(np.median(e[i0:i1]))
-        if med <= 0.0:
-            return True  # silent band carries no merge evidence
-        lo = a.offset_sec - time_offset_sec
-        hi = b.onset_sec - time_offset_sec
-        if hi - lo > spf:
-            j0 = max(0, int(lo / spf))
-            j1 = min(frames, int(hi / spf) + 1)
-            trough = float(e[j0:j1].min())
-        else:
-            # Abutting/overlapping detections: the seam is one instant —
-            # take the band minimum within a frame of it so a real
-            # 30 ms release still registers.
-            mid = 0.5 * (lo + hi)
-            j0 = max(0, int((mid - spf) / spf))
-            j1 = min(frames, int((mid + spf) / spf) + 1)
-            trough = float(e[j0:j1].min()) if j1 > j0 else 0.0
-        return trough < _ACCOMP_SEAM_BAND_DIP * med
+def _accomp_band_verdict(
+    samples: Any,
+    sample_rate: int,
+    *,
+    time_offset_sec: float = 0.0,
+) -> Callable[[RawNoteEvent, RawNoteEvent], bool] | None:
+    """Per-midi band continuity verdict for accompaniment seams (#160).
 
-    return _separated
+    Thin wrapper over :func:``_accomp_band_evidence`` for callers that
+    only need the seam question — the band matrix itself now feeds
+    backdating and pad mining too.
+    """
+    bands = _accomp_band_evidence(
+        samples, sample_rate, time_offset_sec=time_offset_sec
+    )
+    return bands.separated if bands is not None else None
 
 
 def _heal_accomp_fragments(
@@ -619,21 +922,111 @@ def _heal_accomp_fragments(
     return tuple(out), merged
 
 
+def _fold_accomp_slivers(
+    events: tuple[RawNoteEvent, ...],
+) -> tuple[tuple[RawNoteEvent, ...], int]:
+    """Fold sub-90 ms same-pitch slivers into their predecessor (#155).
+
+    Around a real re-attack boundary the detector can emit
+    <note><sliver><note>: a ~70 ms island abutting same-pitch events
+    on both sides is boundary noise, not a playable 32nd — a real fast
+    articulation shows a detectable gap on at least one side. The
+    sliver folds into its predecessor, which keeps the surviving pair
+    honest (the re-attack count stays put).
+    """
+    if len(events) < 3:
+        return tuple(events), 0
+    evs = list(events)
+    out: list[RawNoteEvent] = [evs[0]]
+    folded = 0
+    i = 1
+    while i < len(evs) - 1:
+        prev = out[-1]
+        e = evs[i]
+        nxt = evs[i + 1]
+        if (
+            int(round(prev.pitch_midi)) == int(round(e.pitch_midi))
+            and int(round(nxt.pitch_midi)) == int(round(e.pitch_midi))
+            and e.offset_sec - e.onset_sec <= _ACCOMP_SLIVER_MAX_SEC
+            and e.onset_sec - prev.offset_sec <= _ACCOMP_SLIVER_GAP_SEC
+            and nxt.onset_sec - e.offset_sec <= _ACCOMP_SLIVER_GAP_SEC
+        ):
+            out[-1] = _extend(
+                prev, e.offset_sec, e.confidence, e.pitch_bends
+            )
+            folded += 1
+            i += 1
+            continue
+        out.append(e)
+        i += 1
+    out.append(evs[-1])
+    return tuple(out), folded
+
+
+def _backdate_accomp_onsets(
+    events: tuple[RawNoteEvent, ...],
+    bands: _AccompBands | None,
+) -> tuple[tuple[RawNoteEvent, ...], int, int]:
+    """Move late detections back to where their band actually rose (#155).
+
+    Basic Pitch can "find" a held accompaniment tone mid-sustain — on
+    the JPOP-mix stem the detector wrote a midi-64 onset 1.3 s into a
+    sounding pad member, scoring as a false note on top of the pad's
+    true (missed) onset. The band's hot mask knows when the tone
+    actually started: walk it back via ``bands.run_start`` and move
+    the onset there when the recovered span beats
+    ``_ACCOMP_BACKDATE_MIN_SEC``.
+
+    When the seam to a same-pitch predecessor stays elevated (the
+    #160 dip test — ``bands.separated`` False) the band says the
+    tone never stopped — fold the event into that predecessor (the
+    >0.12 s-gap sibling of the seam heal, gated by the same evidence
+    rather than a fixed silence budget). A real re-attack dips
+    through the seam and is kept.
+
+    Returns (events, backdated, continuity_merged).
+    """
+    if bands is None or not events:
+        return tuple(events), 0, 0
+    out: list[RawNoteEvent] = []
+    backdated = 0
+    merged = 0
+    for ev in sorted(events, key=lambda e: (e.onset_sec, e.offset_sec)):
+        if ev.source == "pad-completion":
+            out.append(ev)
+            continue
+        run = bands.run_start(ev.pitch_midi, ev.onset_sec)
+        if run is None:
+            out.append(ev)
+            continue
+        prev = out[-1] if out else None
+        if (
+            prev is not None
+            and int(round(prev.pitch_midi)) == int(round(ev.pitch_midi))
+            and not bands.separated(prev, ev)
+        ):
+            out[-1] = _extend(
+                prev, ev.offset_sec, ev.confidence, ev.pitch_bends
+            )
+            merged += 1
+            continue
+        floor = prev.offset_sec if prev is not None else 0.0
+        onset = max(run, floor)
+        if ev.onset_sec - onset >= _ACCOMP_BACKDATE_MIN_SEC:
+            ev = replace(ev, onset_sec=onset)
+            backdated += 1
+        out.append(ev)
+    return tuple(out), backdated, merged
+
+
 # #136: sustained-harmony completion for the accompaniment part. Basic
 # Pitch tracks attacks — a held pad chord fades under the mix and the
 # detector either skips it or writes sub-floor flicker (JPOP-mix stem:
 # 3/24 pad truths reached the staff). The spectrum keeps them: each pad
 # tone is a pitch band that stays locally peaked and elevated for the
 # whole bar. Mine the stem's magnitude spectrogram for that signature
-# and emit the survivors as extra accompaniment events.
-_ACCOMP_PAD_MIN_SUSTAIN_SEC = 0.45
-_ACCOMP_PAD_MIDI_LO = 36
-_ACCOMP_PAD_MIDI_HI = 84
-_ACCOMP_PAD_AMP_RATIO = 0.40
-# A real chord pads out at a handful of simultaneous tones; a broadband
-# wash (cymbals, noise bed) lights up dozens of bands at once. Cap the
-# simultaneous count so a wash cannot mint a wall of fake pads.
-_ACCOMP_PAD_MAX_SIMULTANEOUS = 6
+# and emit the survivors as extra accompaniment events. The _ACCOMP_PAD_*
+# constants live above _AccompBands, which defaults kwargs off them.
 
 
 def _sustained_pitch_bands(
@@ -671,52 +1064,9 @@ def _sustained_pitch_bands(
     times = librosa.frames_to_time(
         np.arange(spec.shape[1]), sr=sample_rate, hop_length=hop
     )
-    dt = float(times[1] - times[0])
     mids = list(range(midi_lo, midi_hi + 1))
-    band_e = np.stack(
-        [
-            spec[
-                (freqs >= 440.0 * 2 ** ((m - 69 - 0.45) / 12))
-                & (freqs <= 440.0 * 2 ** ((m - 69 + 0.45) / 12))
-            ].sum(axis=0)
-            for m in mids
-        ]
-    )
-    out: list[tuple[float, float, int, float]] = []
-    for i, m in enumerate(mids):
-        e = band_e[i]
-        lo = max(0, i - 1)
-        hi = min(len(mids), i + 2)
-        is_peak = e >= band_e[lo:hi].max(axis=0) * 0.999
-        # Elevated = clearly above the stem's quiet spectral floor. A
-        # per-band history baseline fails on a pure-sustain stem (the
-        # pad IS its own baseline) — measure against the floor shared
-        # by every band instead, with a crest-relative backstop.
-        floor_g = float(np.percentile(band_e, 30))
-        peak = (
-            float(np.percentile(e[is_peak], 90)) if bool(is_peak.any()) else 0.0
-        )
-        thresh = max(floor_g * 2.0, peak * 0.22)
-        hot = (e > thresh) & is_peak
-        k = 0
-        while k < len(hot):
-            if not hot[k]:
-                k += 1
-                continue
-            j = k
-            while j < len(hot) and hot[j]:
-                j += 1
-            if (j - k) * dt >= min_sustain_sec:
-                out.append(
-                    (
-                        float(times[k]),
-                        float(times[min(j, len(times) - 1)]),
-                        m,
-                        float(e[k:j].mean()),
-                    )
-                )
-            k = j
-    return out
+    band_e, hot = _sustained_band_matrix(spec, freqs, mids)
+    return _hot_run_spans(mids, band_e, hot, times, min_sustain_sec)
 
 
 def _merge_band_fragments(
@@ -747,6 +1097,7 @@ def _accomp_pad_completion(
     revision: TranscriptionRevisionId,
     *,
     time_offset_sec: float = 0.0,
+    band_evidence: _AccompBands | None = None,
 ) -> tuple[RawNoteEvent, ...]:
     """Spectral pad completion -> extra accompaniment events (#136).
 
@@ -766,12 +1117,17 @@ def _accomp_pad_completion(
     INTO job time at emission, and the coverage check compares
     ``existing`` back on the stem axis, so both sides stay honest.
     """
-    if samples is None or sample_rate <= 0:
+    if band_evidence is None and (samples is None or sample_rate <= 0):
         return ()
-    try:
-        cands = _sustained_pitch_bands(samples, sample_rate)
-    except Exception:
-        return ()
+    if band_evidence is not None:
+        # #155: the shared band matrix already paid the STFT — reuse it
+        # instead of resampling + re-transforming the same stem.
+        cands = band_evidence.sustained(_ACCOMP_PAD_MIN_SUSTAIN_SEC)
+    else:
+        try:
+            cands = _sustained_pitch_bands(samples, sample_rate)
+        except Exception:
+            return ()
     if not cands:
         return ()
     cands = _merge_band_fragments(cands)
@@ -2705,6 +3061,13 @@ def run_transcription_job(
         # accompaniment detections, reported in meta for review.
         accomp_conf_dropped = 0
         accomp_seam_merged = 0
+        accomp_sliver_folded = 0
+        accomp_onsets_backdated = 0
+        accomp_continuity_merged = 0
+        # Shared per-pitch band evidence over the accompaniment stem —
+        # built inside the stem branch below; stays None when no stem
+        # ran so every consumer degrades to its no-evidence path.
+        accomp_bands: _AccompBands | None = None
         # #233/#260/#259: grab the stem's decoded audio + evidence
         # curves now, while the file still exists -- stage 3 uses the
         # onset/flux pools for meter accents, stage 5 reuses the
@@ -2757,21 +3120,25 @@ def run_transcription_job(
             pre_floor = len(accomp_ranged)
             accomp_ranged = _accomp_confidence_floor(accomp_ranged)
             accomp_conf_dropped += pre_floor - len(accomp_ranged)
+            # #160+#155: seam questions, onset backdates and pad
+            # mining all read the accompaniment stem's per-pitch
+            # band evidence — one shared STFT pass answers all of
+            # them (a drum hit must not veto a heal, a real bass
+            # re-attack must not merge, a late onset must move
+            # back to where the band actually rose).
+            accomp_bands = _accomp_band_evidence(
+                accomp_y,
+                accomp_env_sr,
+                time_offset_sec=selection_offset_sec,
+            )
             if accomp_ranged:
                 a_split = split_voices(
                     accomp_ranged,
                     max_voices=min(4, params.max_voices),
                     merge_gap_sec=_ACCOMP_MERGE_GAP_SEC,
                 )
-                # #160: seam questions on the accompaniment stem are
-                # per-pitch — a drum hit next to a split pad boundary
-                # must not veto the heal, and a real bass re-attack
-                # must not merge. The band verdict answers both from
-                # the same STFT pass.
-                accomp_seam = _accomp_band_verdict(
-                    accomp_y,
-                    accomp_env_sr,
-                    time_offset_sec=selection_offset_sec,
+                accomp_seam = (
+                    accomp_bands.separated if accomp_bands is not None else None
                 )
                 for v in a_split.voices:
                     c = clean_monophonic(
@@ -2785,10 +3152,20 @@ def run_transcription_job(
                         )
                         if seam_merges:
                             accomp_seam_merged += seam_merges
+                        healed, slivers = _fold_accomp_slivers(healed)
+                        if slivers:
+                            accomp_sliver_folded += slivers
+                        healed, backdated, cont_merged = (
+                            _backdate_accomp_onsets(healed, accomp_bands)
+                        )
+                        accomp_onsets_backdated += backdated
+                        accomp_continuity_merged += cont_merged
+                        merges = seam_merges + slivers + cont_merged
+                        if merges or backdated:
                             c = replace(
                                 c,
                                 events=healed,
-                                merged=c.merged + seam_merges,
+                                merged=c.merged + merges,
                             )
                         accomp_cleaned.append(c)
             # #136: sustained pads never reach Basic Pitch's attack-
@@ -2801,6 +3178,7 @@ def run_transcription_job(
                 accomp_ranged,
                 revision,
                 time_offset_sec=selection_offset_sec,
+                band_evidence=accomp_bands,
             )
             if pad_extra:
                 accomp_cleaned.append(
@@ -2824,9 +3202,11 @@ def run_transcription_job(
             accomp_path = None
         # #155: dedup contained same-pitch events across the surviving
         # accompaniment voices before anything downstream reads them —
-        # one stacked unison per physical tone.
+        # one stacked unison per physical tone. Band evidence also
+        # unions a tracker/miner pair that split one held tone at a
+        # mid-sustain detection.
         _accomp_pre_dedup = sum(len(c.events) for c in accomp_cleaned)
-        accomp_cleaned = _dedup_accomp_unison(accomp_cleaned)
+        accomp_cleaned = _dedup_accomp_unison(accomp_cleaned, accomp_bands)
         accomp_unison_dropped = _accomp_pre_dedup - sum(
             len(c.events) for c in accomp_cleaned
         )
@@ -3966,6 +4346,9 @@ def run_transcription_job(
                         "confidenceDropped": accomp_conf_dropped,
                         "unisonDropped": accomp_unison_dropped,
                         "seamMerged": accomp_seam_merged,
+                        "sliverFolded": accomp_sliver_folded,
+                        "onsetBackdated": accomp_onsets_backdated,
+                        "continuityMerged": accomp_continuity_merged,
                         "voiceCount": len(accomp_cleaned),
                         "eventCount": sum(
                             len(c.events) for c in accomp_cleaned
