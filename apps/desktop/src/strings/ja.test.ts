@@ -33,3 +33,39 @@ describe("reviewEvidence.chordUncertain", () => {
     expect(text).toContain("次点のEsus4との差が2%しかありません");
   });
 });
+
+describe("reviewEvidence.meterConflict", () => {
+  /* #147: a refusal reports estimatedMeter:null — the written 4/4
+   * is the fallback, NOT a rejected candidate. The copy must say
+   * 'undecidable' without naming a fake candidate, or the flag reads
+   * 'candidates: 4/4, wrote 4/4' (nonsense) on flat-accent pop. */
+  it("a refusal names no candidate — never '4/4'", () => {
+    const text = ja.reviewEvidence.meterConflict({
+      estimated: null,
+      runnerUp: null,
+      confidencePct: 0,
+    });
+    expect(text).toContain("拍子を確定できませんでした");
+    expect(text).not.toContain("候補");
+    expect(text).not.toContain("推定");
+  });
+
+  it("a real dispute names both candidates", () => {
+    const text = ja.reviewEvidence.meterConflict({
+      estimated: "5/4",
+      runnerUp: "3/4",
+      confidencePct: 0,
+    });
+    expect(text).toContain("候補: 5/4 / 3/4");
+  });
+
+  it("a thin-margin guess names the estimate and runner-up", () => {
+    const text = ja.reviewEvidence.meterConflict({
+      estimated: "5/4",
+      runnerUp: "2/4",
+      confidencePct: 8,
+    });
+    expect(text).toContain("自動推定は 5/4");
+    expect(text).toContain("次点: 2/4");
+  });
+});

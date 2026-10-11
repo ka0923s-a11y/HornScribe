@@ -1714,6 +1714,122 @@ class TestMeterEventAccents:
         assert est.meter  # any verdict — the contract is "no crash"
 
 
+class TestMeterChannelFusion:
+    """#147: independent accent pools are scored independently and
+    fused — a flat channel must not dilute a structured one the way
+    the old slot-max merge did (a J-pop mix's four-on-the-floor stem
+    envelope flattened every period ratio to ~1.0 and forced a
+    refusal on straight 4/4)."""
+
+    def _beats(self, n: int, period: float = 0.5) -> tuple[float, ...]:
+        return tuple(i * period for i in range(n))
+
+    @staticmethod
+    def _accents(
+        beats: tuple[float, ...], period: int, hi: float, lo: float
+    ) -> tuple[tuple[float, float], ...]:
+        return tuple(
+            (t, hi if i % period == 0 else lo)
+            for i, t in enumerate(beats)
+        )
+
+    def test_accomp_channel_rescues_flat_lead(self) -> None:
+        # The reference J-pop mix: the merged pool refused outright,
+        # while the accompaniment part's own onsets carry ratio4
+        # ~1.6 -- a trusted 4/4.
+        beats = self._beats(32)
+        flat_lead = tuple((t, 0.25) for t in beats)
+        accomp = self._accents(beats, 4, 0.9, 0.4)
+        est = estimate_meter(
+            beats,
+            (),
+            event_accents=flat_lead,
+            channel_accents={"accompaniment": accomp},
+        )
+        assert est.meter == "4/4"
+        assert not est.uncertain
+        assert not est.refused
+
+    def test_trusted_channels_disagree_names_both(self) -> None:
+        # A lead reading 3/4 against an accompaniment reading 4/4 is
+        # a genuine dispute: the fused verdict stays uncertain and
+        # names BOTH labels so the review copy can quote them.
+        beats = self._beats(32)
+        lead = self._accents(beats, 3, 0.9, 0.4)
+        accomp = self._accents(beats, 4, 0.9, 0.4)
+        est = estimate_meter(
+            beats,
+            (),
+            event_accents=lead,
+            channel_accents={"accompaniment": accomp},
+        )
+        assert est.uncertain
+        assert not est.refused
+        assert est.confidence == 0.0
+        assert {est.meter, est.runner_up} == {"3/4", "4/4"}
+
+    def test_weak_consensus_reports_the_shared_guess(self) -> None:
+        # Two pools that each weakly favour 4/4 agree on a guess even
+        # though neither alone is trustworthy -- report it (still
+        # uncertain, still review-flagged) instead of refusing.
+        beats = self._beats(32)
+        lead = self._accents(beats, 4, 0.9, 0.7)
+        accomp = self._accents(beats, 4, 0.9, 0.68)
+        solo = estimate_meter(beats, (), event_accents=lead)
+        assert solo.meter == "4/4" and solo.uncertain and not solo.refused
+        est = estimate_meter(
+            beats,
+            (),
+            event_accents=lead,
+            channel_accents={"accompaniment": accomp},
+        )
+        assert est.meter == "4/4"
+        assert est.uncertain
+        assert not est.refused
+        # No dissenting channel label -- the reported rival is the
+        # guess's own runner-up.
+        assert est.runner_up == solo.runner_up
+
+    def test_all_refused_stays_a_refusal(self) -> None:
+        # Flat pools everywhere: no channel can justify a candidate,
+        # so the fused verdict is an honest refusal — NOT a 4/4 guess.
+        beats = self._beats(32)
+        flat = tuple((t, 0.25) for t in beats)
+        est = estimate_meter(
+            beats,
+            (),
+            event_accents=flat,
+            channel_accents={"accompaniment": flat},
+        )
+        assert est.refused
+        assert est.uncertain
+        assert est.confidence == 0.0
+
+    def test_empty_channels_keep_the_strengths_fallback(self) -> None:
+        # Empty pools must not mask the last-resort strengths read --
+        # and an empty channel map is the single-pool path, not the
+        # fused one.
+        n = 24
+        beats = self._beats(n)
+        strengths = tuple(0.9 if i % 3 == 0 else 0.4 for i in range(n))
+        est = estimate_meter(
+            beats, strengths, (), {"accompaniment": ()}
+        )
+        assert est.meter == "3/4"
+        est2 = estimate_meter(beats, strengths, (), {})
+        assert est2.meter == "3/4"
+
+    def test_refusal_flag_marks_default_not_a_guess(self) -> None:
+        # _default() is a refusal; a real low-margin read is a guess.
+        beats = self._beats(16)
+        refused = estimate_meter(beats, (), ())
+        assert refused.refused
+        guessed = estimate_meter(
+            beats, (), self._accents(beats, 4, 0.9, 0.7)
+        )
+        assert not guessed.refused
+
+
 class TestKey:
     def test_c_major(self) -> None:
         key, conf = estimate_key(
@@ -3569,6 +3685,34 @@ class TestAutoMeterFallback:
         # confidence margin describes ('6/8 vs 3/4') is what the user
         # judges, not a bare 0.0.
         assert conflicts[0]["evidence"]["runnerUpMeter"] == "3/4"
+
+    def test_refused_estimate_reports_no_candidate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hornscribe.transcription.meter import MeterEstimate
+
+        # #147: a refusal is not a 4/4 guess — the evidence must carry
+        # no estimatedMeter so the UI shows its 'undecidable' copy
+        # instead of 'candidates: 4/4, wrote 4/4'.
+        log = self._run_with_meter_est(
+            tmp_path,
+            monkeypatch,
+            MeterEstimate(
+                meter="4/4",
+                confidence=0.0,
+                tracked_eighths=False,
+                uncertain=True,
+                refused=True,
+            ),
+        )
+        assert log[-1]["phase"] == "completed"
+        result = log[-1]["result"]
+        assert result["meta"]["meter"] == "4/4"
+        conflicts = [
+            i for i in result["reviewIssues"] if i["reason"] == "meter_conflict"
+        ]
+        assert conflicts
+        assert conflicts[0]["evidence"]["estimatedMeter"] is None
 
     def test_trusted_compound_meter_still_writes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

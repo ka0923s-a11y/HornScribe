@@ -399,6 +399,11 @@ _ACCOMP_SUSTAIN_MIN_SEC = 0.30
 # (split_voices and the per-voice clean) so neither re-fuses what the
 # other released.
 _ACCOMP_MERGE_GAP_SEC = 0.0
+# #147: accompaniment onsets need a couple of periods of coverage
+# before they vote on meter — below this the stem-envelope channel
+# supplies the accompaniment evidence instead (and a same-source
+# channel is never scored twice).
+_ACCOMP_METER_MIN_ACCENTS = 8
 
 
 def _accomp_confidence_floor(
@@ -2620,55 +2625,70 @@ def run_transcription_job(
                 ),
                 time_offset_sec=selection_offset_sec,
             )
-            # #233: on a separated mix the melody line's onsets are the
-            # WORST meter evidence (vocal phrases start off-beat); the
-            # no_vocals stem still carries the drums/bass that mark
-            # downbeats -- inject its percussive envelope, sampled at
-            # the tracked beats and normalised into the accent-RMS
-            # scale so the pool stays internally consistent.
-            if accomp_env is not None and beat_times:
-                stem_acc = [
+            # #147: independent evidence scores as INDEPENDENT
+            # channels inside estimate_meter — a slot-max merge with
+            # the flat four-on-the-floor stem envelope used to bury
+            # every real period ratio under a ~1.0 floor and force a
+            # refusal on straight 4/4 pop.
+            channel_accents: dict[str, tuple[tuple[float, float], ...]] = {}
+            # The accompaniment PART's onsets are the strongest
+            # downbeat evidence a separated mix offers — bass/chord
+            # changes land on barlines (measured ratio4 1.58 vs 1.08
+            # for the merged pool on the reference J-pop mix). They
+            # already exist here: the part transcribed before the
+            # rhythm stage.
+            if accomp_cleaned and accomp_y is not None:
+                acc_pool = _event_accents(
+                    (e for c in accomp_cleaned for e in c.events),
+                    accomp_y,
+                    accomp_env_sr,
+                    time_offset_sec=vis_lo,
+                )
+                if len(acc_pool) >= _ACCOMP_METER_MIN_ACCENTS:
+                    channel_accents["accompaniment"] = acc_pool
+            # #233: on a separated mix the melody line's onsets are
+            # the WORST meter evidence (vocal phrases start off-beat);
+            # the no_vocals stem still carries the drums/bass that
+            # mark downbeats. The env samples ride their own channel
+            # now — and only when the detected part produced no pool,
+            # since two channels drawn from the same stem would
+            # double-vote one source. The pool is scale-free, so the
+            # old p90 normalisation is gone with the merge.
+            if (
+                accomp_env is not None
+                and beat_times
+                and "accompaniment" not in channel_accents
+            ):
+                stem_acc = tuple(
                     (
                         t,
                         float(accomp_env[i])
                         if 0
-                        <= (i := int(round((t - vis_lo) * accomp_env_sr / 512.0)))
+                        <= (
+                            i := int(
+                                round(
+                                    (t - vis_lo) * accomp_env_sr / 512.0
+                                )
+                            )
+                        )
                         < len(accomp_env)
                         else 0.0,
                     )
                     for t in beat_times
-                ]
-                chan_vals = sorted(a for _, a in stem_acc if a > 0)
-                base_vals = sorted(a for _, a in accents if a > 0)
-                # Normalise onto the accent pool's p90 (peak range, not
-                # the noise-floor median): the stem env is then in the
-                # same unit the slot-max comparison runs on. With no
-                # vocal accents at all the raw env still works — the
-                # meter read is scale-free within one pool.
-                base_ref = (
-                    base_vals[min(len(base_vals) - 1, int(len(base_vals) * 0.9))]
-                    if base_vals
-                    else 0.0
                 )
-                chan_ref = (
-                    chan_vals[min(len(chan_vals) - 1, int(len(chan_vals) * 0.9))]
-                    if chan_vals
-                    else 0.0
-                )
-                scale = (
-                    base_ref / chan_ref
-                    if base_ref > 0 and chan_ref > 0
-                    else (1.0 if chan_ref > 0 else 0.0)
-                )
-                if scale > 0:
-                    accents = tuple(
-                        sorted(
-                            (*accents, *((t, a * scale) for t, a in stem_acc)),
-                            key=lambda p: p[0],
-                        )
-                    )
-            meter_est = estimate_meter(beat_times or (), strengths, event_accents=accents)
-            meter_est_label = meter_est.meter
+                if any(a > 0 for _, a in stem_acc):
+                    channel_accents["accompaniment_env"] = stem_acc
+            meter_est = estimate_meter(
+                beat_times or (),
+                strengths,
+                event_accents=accents,
+                channel_accents=channel_accents or None,
+            )
+            # A refusal abstains: its '4/4' field is the written
+            # fallback, not a rejected guess — report no estimate so
+            # the review copy reads 'undecidable' instead of
+            # 'candidate: 4/4, wrote 4/4' (#147).
+            meter_est_label = None if meter_est.refused else meter_est.meter
             # #24 contract fix: an uncertain estimate never writes its
             # guess — the estimator contract (meter.py) says the caller
             # falls back to 4/4 and lets the meter_conflict review
@@ -3215,9 +3235,12 @@ def run_transcription_job(
                     evidence={
                         # The rejected guess, not the written 4/4 —
                         # the user needs to see what the estimator
-                        # nearly picked to judge the fallback.
-                        "estimatedMeter": meter_est_label
-                        or f"{meter.numerator}/{meter.denominator}",
+                        # nearly picked to judge the fallback. A
+                        # refusal carries None instead: 4/4 is the
+                        # written fallback, not a candidate, and the
+                        # UI has dedicated 'undecidable' copy for a
+                        # missing estimate (#147).
+                        "estimatedMeter": meter_est_label,
                         "meterConfidence": round(meter_confidence, 3),
                         # The ambiguity the confidence margin describes —
                         # '4/4 vs 2/4 by a coin flip' is actionable in a
