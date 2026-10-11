@@ -4402,6 +4402,46 @@ class TestAccompPadCompletion:
         assert len(_fuse_flux_events(events)) == 2
 
 
+class TestHotRunBridge:
+    """#179: short release dips inside the pad-mining walk bridge so a
+    restruck member's flickering mask still forms its run."""
+
+    def _spans(self, mask, hole=0):
+        np = pytest.importorskip("numpy")
+        from hornscribe.transcription.pipeline import _hot_run_spans
+
+        h = [np.asarray(mask, dtype=bool)]
+        e = [np.ones(len(mask), dtype=float)]
+        t = np.arange(len(mask), dtype=float) * 0.0232
+        return _hot_run_spans((60,), e, h, t, 0.1, hole_frames=hole)
+
+    def test_short_gap_bridges_into_one_run(self) -> None:
+        # hot 10f - cold 2f - hot 10f: a ~46 ms release dip.
+        mask = [True] * 10 + [False] * 2 + [True] * 10
+        out = self._spans(mask, hole=4)
+        assert len(out) == 1
+        assert out[0][0] == pytest.approx(0.0)
+        assert out[0][1] == pytest.approx(21 * 0.0232, abs=0.001)
+
+    def test_unbridged_walk_keeps_fragments(self) -> None:
+        mask = [True] * 10 + [False] * 2 + [True] * 10
+        assert len(self._spans(mask, hole=0)) == 2
+
+    def test_real_release_breaks_the_run(self) -> None:
+        # cold 6f (~139 ms) exceeds the 4-frame hole budget — a real
+        # rest, not a strike dip.
+        mask = [True] * 10 + [False] * 6 + [True] * 10
+        assert len(self._spans(mask, hole=4)) == 2
+
+    def test_trailing_cold_does_not_extend(self) -> None:
+        # The run must still end where the band actually released —
+        # a hole bridges interior gaps only.
+        mask = [True] * 10 + [False] * 2 + [False] * 10
+        out = self._spans(mask, hole=4)
+        assert len(out) == 1
+        assert out[0][1] == pytest.approx(10 * 0.0232, abs=0.001)
+
+
 class TestLatticeFlux:
     """#177: strict events anchor a strike grid; interior grid
     points join on the softer support signature."""

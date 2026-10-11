@@ -672,6 +672,14 @@ _ACCOMP_PAD_LATTICE_COVERAGE = 0.6
 # below _ACCOMP_PAD_LATTICE_STEP_MIN_SEC, so same-tier neighbours
 # this near are duplicates, not a finer real grid).
 _ACCOMP_PAD_FLUX_FUSE_SEC = 0.19
+# #179: a re-struck pad member releases for ~1-2 frames between hits;
+# on an attenuated stem that dip drops the whole band under its hot
+# threshold, fragmenting the run below the min-sustain floor so the
+# miner never sees the member at all. Bridge release gaps this short
+# inside the mining walk only — a real release holds the band cold
+# far longer, and the strong tier keeps its unbridged runs because a
+# merged strike train would erase the chord-change starts it needs.
+_ACCOMP_PAD_BRIDGE_FRAMES = 4
 
 
 def _pitch_band_energy(spec: Any, freqs: Any, midi: int) -> Any:
@@ -720,8 +728,20 @@ def _hot_run_spans(
     hot: list[Any],
     times: Any,
     min_sustain_sec: float,
+    *,
+    hole_frames: int = 0,
 ) -> list[tuple[float, float, int, float]]:
-    """Contiguous hot runs >= min_sustain_sec -> (onset, offset, midi, mean_amp)."""
+    """Contiguous hot runs >= min_sustain_sec -> (onset, offset, midi, mean_amp).
+
+    ``hole_frames`` (#179) bridges cold gaps that short inside a run:
+    a re-struck member releases for only ~1-2 frames between hits —
+    on an attenuated stem that dip drops the whole band under its
+    threshold, leaving sub-minimum fragments that vanish before the
+    miner ever sees them. A real release holds the band cold far
+    longer, so nothing real fuses. The strong-tier callers keep 0 —
+    bridging a strike train into one run would erase the chord-change
+    starts it exists to find.
+    """
     out: list[tuple[float, float, int, float]] = []
     dt = float(times[1] - times[0])
     for i, m in enumerate(mids):
@@ -735,6 +755,19 @@ def _hot_run_spans(
             j = k
             while j < len(h) and h[j]:
                 j += 1
+            while hole_frames:
+                # j sits on the first cold frame after the hot block;
+                # extend through the gap only if it ends inside the
+                # hole budget AND something hot still follows.
+                jj = j
+                while jj < len(h) and not h[jj] and jj - j <= hole_frames:
+                    jj += 1
+                if jj < len(h) and h[jj] and jj - j <= hole_frames:
+                    j = jj
+                    while j < len(h) and h[j]:
+                        j += 1
+                else:
+                    break
             if (j - k) * dt >= min_sustain_sec:
                 out.append(
                     (
@@ -1297,14 +1330,22 @@ class _AccompBands:
         )
 
     def sustained(
-        self, min_sustain_sec: float = _ACCOMP_PAD_MIN_SUSTAIN_SEC
+        self,
+        min_sustain_sec: float = _ACCOMP_PAD_MIN_SUSTAIN_SEC,
+        *,
+        hole_frames: int = 0,
     ) -> list[tuple[float, float, int, float]]:
         """Stem-axis sustained-band candidates — the #136 pad evidence."""
         import numpy as np  # noqa: PLC0415 - lazy optional dependency
 
         times = np.arange(self._frames, dtype=np.float64) * self._spf
         return _hot_run_spans(
-            self._mids, self._band_e, self._hot, times, min_sustain_sec
+            self._mids,
+            self._band_e,
+            self._hot,
+            times,
+            min_sustain_sec,
+            hole_frames=hole_frames,
         )
 
 
@@ -1558,7 +1599,15 @@ def _sustained_pitch_bands(
     )
     mids = list(range(midi_lo, midi_hi + 1))
     band_e, hot = _sustained_band_matrix(spec, freqs, mids)
-    return _hot_run_spans(mids, band_e, hot, times, min_sustain_sec)
+    # #179: same release-dip bridging as the shared-evidence path.
+    return _hot_run_spans(
+        mids,
+        band_e,
+        hot,
+        times,
+        min_sustain_sec,
+        hole_frames=_ACCOMP_PAD_BRIDGE_FRAMES,
+    )
 
 
 def _merge_band_fragments(
@@ -1614,7 +1663,14 @@ def _accomp_pad_completion(
     if band_evidence is not None:
         # #155: the shared band matrix already paid the STFT — reuse it
         # instead of resampling + re-transforming the same stem.
-        cands = band_evidence.sustained(_ACCOMP_PAD_MIN_SUSTAIN_SEC)
+        # #179: bridge release dips inside the mining walk — a
+        # restruck member toggles cold ~1-2 frames each hit on an
+        # attenuated stem, and unbridged fragments die under the
+        # min-sustain floor before the strike grid can cut them.
+        cands = band_evidence.sustained(
+            _ACCOMP_PAD_MIN_SUSTAIN_SEC,
+            hole_frames=_ACCOMP_PAD_BRIDGE_FRAMES,
+        )
     else:
         try:
             cands = _sustained_pitch_bands(samples, sample_rate)
