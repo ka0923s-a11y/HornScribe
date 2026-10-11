@@ -126,7 +126,7 @@ from .clean import (
     clip_to_range,
     split_voices,
 )
-from .key import analyze_key, key_uncertainty
+from .key import analyze_key, key_uncertainty, refine_key_with_harmony
 from .leadvoice import lead_track_agreement
 from .meter import estimate_meter
 from .options import TranscriptionParams
@@ -2883,6 +2883,34 @@ def run_transcription_job(
                     prefer_flats=prefer_flats,
                 )
             )
+            # #145: harmony self-check — the melodic K-S estimate can
+            # pick a signature the detected chord set contradicts (an
+            # F-major chord inside an E-minor signature).  Re-rank the
+            # candidates against melody+chord-root coverage before the
+            # chord labels and the score spelling commit to that key.
+            # Modulating pieces and user-pinned keys keep their answer.
+            if key_hint_sig is None and not key_changes and chord_map:
+                try:
+                    refined = refine_key_with_harmony(
+                        tuple(key_pitches),
+                        tuple(key_durations),
+                        chord_map,
+                    )
+                except Exception:  # noqa: BLE001 - advisory only
+                    refined = None
+                if (
+                    refined is not None
+                    and refined.key != key
+                    and key_analysis is not None
+                ):
+                    key = refined.key
+                    key_analysis = replace(
+                        key_analysis,
+                        head=refined,
+                        confidence=refined.confidence,
+                    )
+                    key_confidence = refined.confidence
+                    prefer_flats = key.fifths < 0
             chord_symbols = tuple(
                 ChordSymbol(
                     start_beat=lo_b,

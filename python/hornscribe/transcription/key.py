@@ -502,3 +502,115 @@ def key_uncertainty(analysis: KeyAnalysis) -> dict[str, Any] | None:
         evidence["segments"] = segment_reports
         evidence["uncertainSegments"] = uncertain_measures
     return evidence
+
+
+# #145: harmony-aware key refinement. The melodic K-S estimate trusts
+# the line's register over the harmony it sits on — an F-major chord
+# inside an E-minor signature is a contradiction the histogram cannot
+# see. Re-rank the top candidates under a combined melody+chord-root
+# coverage gate, then let a first/last-chord tonic prior arbitrate
+# only between near-tied survivors.
+_COVERAGE_MIN = 0.95
+_TONIC_BONUS_MARGIN = 0.12
+_FIRST_TONIC_BONUS = 0.10
+_LAST_TONIC_BONUS = 0.05
+
+
+def _signature_pcs(fifths: int) -> set[int]:
+    """Pitch-class collection of a signature — shared by the relative
+    major/minor pair (natural-minor reading of the key sig)."""
+    tonic = (7 * fifths) % 12
+    return {(tonic + pc) % 12 for pc in (0, 2, 4, 5, 7, 9, 11)}
+
+
+def _tonic_pc(key: KeySignature) -> int:
+    tonic = (7 * key.fifths) % 12
+    return (tonic + 9) % 12 if key.mode == "minor" else tonic
+
+
+def refine_key_with_harmony(
+    pitches: tuple[int, ...],
+    durations_ql: tuple[Fraction, ...],
+    chords: tuple[Any, ...],
+    *,
+    top_n: int = 8,
+) -> KeyEstimate | None:
+    """Second opinion on the melodic key estimate (#145).
+
+    'chords' are the detected segment estimates — duck-typed
+    start_sec/end_sec/root_pc/quality/confidence attributes
+    (ChordEstimate satisfies it). The chord set is corroborating
+    evidence: candidates whose signature cannot cover the combined
+    melody+chord-root weight are dropped, and among the survivors a
+    first/last-chord tonic match arbiters candidates within
+    _TONIC_BONUS_MARGIN of the best K-S correlation — the classic
+    pop convention that the opening chord is the tonic.
+
+    Returns a replacement KeyEstimate when harmony disagrees with
+    the melodic winner, else None (caller keeps the estimate).
+    The returned estimate carries the survivor's honest K-S
+    confidence and the displaced melodic winner as runner_up —
+    reviewers see both votes, not a laundered answer.
+    """
+    hist = _histogram(pitches, durations_ql)
+    if hist is None or not chords:
+        return None
+    chord_weight = [0.0] * 12
+    total_cw = 0.0
+    for est in chords:
+        w = max(0.0, float(est.end_sec) - float(est.start_sec)) * max(
+            0.0, float(est.confidence)
+        )
+        chord_weight[est.root_pc % 12] += w
+        total_cw += w
+    if total_cw <= 0.0:
+        return None
+    candidates = _top_keys(hist)[: max(2, top_n)]
+    if not candidates:
+        return None
+    # Combined evidence is half melody, half harmony — neither side
+    # may veto alone, but a signature contradicting a real share of
+    # the total weight cannot be the piece's collection.
+    mel_w = 0.5
+    ch_w = 0.5 / total_cw
+    scored: list[tuple[float, KeySignature]] = []
+    for key, corr in candidates:
+        pcs = _signature_pcs(key.fifths)
+        covered = sum(hist[pc] for pc in pcs) * mel_w
+        covered += sum(chord_weight[pc] for pc in pcs) * ch_w
+        if covered >= _COVERAGE_MIN:
+            scored.append((corr, key))
+    if not scored:
+        # Every candidate contradicts the harmony — the chord map is
+        # suspect, not the key. Keep the melodic answer.
+        return None
+    best_corr = max(c for c, _k in scored)
+    first, last = chords[0], chords[-1]
+
+    def tonic_bonus(key: KeySignature, corr: float) -> float:
+        if corr < best_corr - _TONIC_BONUS_MARGIN:
+            return 0.0
+        tonic = _tonic_pc(key)
+        want_q = "min" if key.mode == "minor" else "maj"
+        bonus = 0.0
+        if first.root_pc % 12 == tonic and first.quality == want_q:
+            bonus += _FIRST_TONIC_BONUS
+        if last.root_pc % 12 == tonic and last.quality == want_q:
+            bonus += _LAST_TONIC_BONUS
+        return bonus
+
+    ranked = sorted(
+        scored,
+        key=lambda c: (c[0] + tonic_bonus(c[1], c[0]), c[0]),
+        reverse=True,
+    )
+    w_corr, w_key = ranked[0]
+    head_key, head_corr = candidates[0]
+    if w_key == head_key:
+        return None
+    return KeyEstimate(
+        w_key,
+        w_corr,
+        head_key,
+        head_corr,
+    )
