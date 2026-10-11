@@ -28,7 +28,7 @@
 | boundary-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | - | - | 120.0 (1.0) | 4/4 (True) | 5.0 | first onset at t=0, last note clipped by EOF |
 | noisy-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | 0.0 (0/0/1) | 0.0 (0.0/0.0) | 120.0 (1.0) | 4/4 (True) | 4.9 | broadband hiss bed — SNR robustness |
 | octave-leaps-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | - | - | 120.0 (1.0) | 4/4 (True) | 4.8 | real octave jumps — octave-repair regression guard |
-| very-quiet-lead | 0.8947 | 1 | 3/3 | 0.8947 | 0.0 | 468.8 ! | 0.8354 (132/0/52) | 0.9286 (0.886/0.975) | 128.0 (1.0) | 4/4 (True) | 6.1 | ~-9.5 dB lead — free-stack SNR floor probe |
+| very-quiet-lead | 0.8947 | 1 | 3/3 | 0.8947 | 0.0 | 0.0 | 0.8354 (132/0/52) | 0.9286 (0.886/0.975) | 128.0 (1.0) | 4/4 (True) | 15.9 | ~-9.5 dB lead — free-stack SNR floor probe |
 | detuned-horn-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | - | - | 120.0 (1.0) | 4/4 (True) | 4.9 | +20c tuning drift — semitone assignment under detune |
 | ornaments-4-4 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | - | - | 120.0 (1.0) | 4/4 (True) | 4.6 | ~70 ms grace notes at the min-duration boundary |
 

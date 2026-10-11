@@ -1158,12 +1158,14 @@ def _align_pitches(expected: list[int], got: list[int]) -> dict:
     # traceback
     i, j = n, m
     pairs = []
+    pairs_idx: list[tuple[int, int]] = []
     ins = dele = 0
     while i > 0 or j > 0:
         if i > 0 and j > 0 and dp[i][j] == dp[i - 1][j - 1] + (
             0 if expected[i - 1] == got[j - 1] else -2
         ):
             pairs.append((expected[i - 1], got[j - 1]))
+            pairs_idx.append((i - 1, j - 1))
             i -= 1
             j -= 1
         elif i > 0 and dp[i][j] == dp[i - 1][j] - 1:
@@ -1186,6 +1188,10 @@ def _align_pitches(expected: list[int], got: list[int]) -> dict:
         "extra": ins,
         "pitchAccuracy": round(exact / n, 4) if n else 0.0,
         "noteRatio": round(m / n, 4) if n else 0.0,
+        # #143: index pairs of aligned (matched or substituted) columns
+        # — lets the caller measure the score axis on true note
+        # correspondences instead of fragile index-zip pairing.
+        "pairsIdx": pairs_idx,
     }
 
 
@@ -1321,21 +1327,19 @@ def main() -> int:
             exp_p = [n.midi for n in fx.notes]
             got_p = [m for _, m in got]
             seq = _align_pitches(exp_p, got_p)
+            pairs_idx = seq.pop("pairsIdx")
             ons = _onset_f1([n.onset for n in fx.notes], [o for o, _ in got])
-            # Index-aligned axis error: the greedy F1 matcher absorbs a
-            # systematic ~1-onset drift (det[k] lands on truth[k-1]),
-            # which let a worse tempo map score better. The aligned
-            # error reports the score axis' real fidelity.
+            # #133+#143: the greedy F1 matcher absorbs a systematic
+            # ~1-onset drift (det[k] lands on truth[k-1]), which let a
+            # worse tempo map score better — so axis fidelity is
+            # measured on real correspondences.  Plain index-zip
+            # pairing misfired whenever a note went missing or extra
+            # (every later pair shifted a note, ~1 beat per index);
+            # the NW alignment pairs keep the true note mapping and
+            # only actual axis drift surfaces here.
             aligned = sorted(
-                abs(g[0] - e.onset)
-                for g, e in zip(got, fx.notes, strict=False)
+                abs(got[j][0] - fx.notes[i].onset) for i, j in pairs_idx
             )
-            # #133: the same matcher window that scores onsets also
-            # hides systematic drift — a row can keep a perfect F1
-            # while every "match" sits ~a beat off-axis. Flag the row
-            # when the median aligned error exceeds the F1 tolerance;
-            # the mark renders as a warning in the report so a good
-            # F1 is no longer read as a good axis by itself.
             aligned_med = (
                 aligned[len(aligned) // 2] if aligned else None
             )
