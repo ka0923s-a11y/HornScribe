@@ -595,6 +595,72 @@ def _jpop_mix_hard_raw() -> Fixture:
     )
 
 
+def _jpop_pad8th_parts() -> tuple[tuple[Note, ...], tuple[Note, ...]]:
+    """#171: the pad triads re-strike every eighth note — the classic
+    fast pad ostinato the fixed 0.3 s split margin could not see.
+    Lead melody identical to jpop-mix so the row stays comparable;
+    the truth counts every eighth strike per pad member."""
+    lead, _backing = _jpop_mix_parts()
+    sixteenth = 60.0 / 128.0 / 4.0
+    bar = 16 * sixteenth
+    chords = (
+        (57, 60, 64, 45),  # Am
+        (53, 57, 60, 41),  # F
+        (55, 60, 64, 48),  # C
+        (55, 59, 62, 43),  # G
+    )
+    backing: list[Note] = []
+    for b in range(8):
+        pad, bass_root = chords[b % 4][:3], chords[b % 4][3]
+        for e in range(8):
+            for k, p in enumerate(pad):
+                backing.append(
+                    Note(
+                        b * bar + e * 2 * sixteenth,
+                        b * bar + (e + 1) * 2 * sixteenth - 0.028,
+                        p,
+                        0.22,
+                        "pad",
+                        (-0.55, 0.55, -0.3)[k],
+                    )
+                )
+        for q in range(4):
+            backing.append(
+                Note(b * bar + q * 4 * sixteenth,
+                     b * bar + (q + 1) * 4 * sixteenth - 0.03,
+                     bass_root, 0.4, "bass", -0.15)
+            )
+        for q, pan, amp in ((0, 0.2, 0.5), (1, -0.2, 0.4), (2, 0.2, 0.5),
+                            (3, -0.2, 0.4)):
+            backing.append(
+                Note(b * bar + q * 4 * sixteenth,
+                     b * bar + q * 4 * sixteenth + 0.06,
+                     60, amp, "noise", pan)
+            )
+        for e in range(4):
+            backing.append(
+                Note(b * bar + (e * 2 + 1) * 2 * sixteenth,
+                     b * bar + (e * 2 + 1) * 2 * sixteenth + 0.04,
+                     60, 0.18, "noise", 0.4)
+            )
+    return lead, tuple(backing)
+
+
+def _jpop_pad8th_vocal() -> Fixture:
+    lead, backing = _jpop_pad8th_parts()
+    return Fixture(
+        "jpop-pad8th-vocal",
+        lead,
+        backing=backing,
+        stereo=True,
+        vocal_isolation=True,
+        meter="4/4",
+        tempo_bpm=128.0,
+        texture="melody",
+        note="#171: eighth-note pad ostinato — every strike is truth",
+    )
+
+
 def _auto_44() -> Fixture:
     # No hints — the product default. Estimation must find 4/4 @ 96.
     beat = 60.0 / 96.0
@@ -939,6 +1005,7 @@ FIXTURES = (
     _jpop_mix_vocal,
     _jpop_mix_hard_raw,
     _jpop_mix_hard_vocal,
+    _jpop_pad8th_vocal,
     _auto_44,
     _auto_34,
     _auto_68,

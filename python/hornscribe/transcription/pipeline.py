@@ -614,6 +614,21 @@ _ACCOMP_PAD_MAX_SIMULTANEOUS = 6
 # keeps genuine short re-strikes while refusing hairline cuts.
 _ACCOMP_PAD_REATTACK_CLUSTER_SEC = 0.15
 _ACCOMP_PAD_SPLIT_MARGIN_SEC = 0.3
+# #171: the 0.3 s margin was sized for half-bar chord moves — an
+# eighth-note strike train (234 ms at 128 BPM) fails it on both sides
+# and every re-strike merges into one held note. The margin now adapts
+# to the locally observed onset spacing (40% of the nearest neighbour
+# interval) with this floor, below which a mined "note" is hairline
+# notation noise anyway.
+_ACCOMP_PAD_SPLIT_MARGIN_MIN_SEC = 0.12
+# #171: a fast-tier chord onset needs more members than a strong one —
+# a drum hit raises broadband flux everywhere at once, so the pad-only
+# re-strike signature is >=3 previously-hot bands rising together.
+_ACCOMP_PAD_FLUX_MIN_MEMBERS = 3
+# A flux-tier onset is refused when the census was already dead this
+# long — ~5 frames and up is a mask-dropout recovery, not the 1-2
+# frame release gap of a real re-strike (#171).
+_ACCOMP_PAD_FLUX_DEAD_MAX_SEC = 0.115
 
 
 def _pitch_band_energy(spec: Any, freqs: Any, midi: int) -> Any:
@@ -706,6 +721,7 @@ class _AccompBands:
     __slots__ = (
         "_band_e",
         "_cache",
+        "_chord_events",
         "_chord_onsets",
         "_frames",
         "_freqs",
@@ -747,6 +763,21 @@ class _AccompBands:
         # Consolidate + amp-gate exactly like the pad miner first: a
         # lone weak fragment restarting mid-bar is band noise, not a
         # chord — real re-strikes start several strong members at once.
+        # Chord onsets (stem-axis seconds): moments where several
+        # sustained bands start together — the re-strike signature.
+        # Two tiers (#171):
+        #   "strong": merged-run starts — the classic chord move.
+        #   "flux":   per-band log-flux re-attack peaks — a pad
+        #             restruck every eighth note never lets the hot
+        #             mask toggle off (the 186 ms window smears the
+        #             release) but every hit RISES the band energy.
+        #             Admitted only when >=3 distinct bands rise
+        #             together (a drum hit's broadband rise is wider
+        #             but its members were not recently-hot pad
+        #             bands), the band was hot recently before the
+        #             rise (a re-attack, not a fresh attack), and the
+        #             preceding census did not collapse (mask
+        #             recovery, not a replayed chord).
         runs = _merge_band_fragments(
             _hot_run_spans(
                 self._mids,
@@ -761,19 +792,89 @@ class _AccompBands:
             if runs
             else 0.0
         )
-        starts = sorted(s for s, _e, _m, a in runs if a >= amp_floor)
-        self._chord_onsets: list[float] = []
-        c = 0
-        while c < len(starts):
-            d = c
-            while (
-                d + 1 < len(starts)
-                and starts[d + 1] - starts[c] <= _ACCOMP_PAD_REATTACK_CLUSTER_SEC
+
+        def cluster(
+            starts: list[tuple[float, int]],
+        ) -> list[tuple[float, frozenset[int]]]:
+            out: list[tuple[float, frozenset[int]]] = []
+            i = 0
+            while i < len(starts):
+                j = i
+                while (
+                    j + 1 < len(starts)
+                    and starts[j + 1][0] - starts[i][0]
+                    <= _ACCOMP_PAD_REATTACK_CLUSTER_SEC
+                ):
+                    j += 1
+                members = {m for _s, m in starts[i : j + 1]}
+                if len(members) >= 2:
+                    out.append((starts[i][0], frozenset(members)))
+                i = j + 1
+            return out
+
+        events: list[tuple[float, frozenset[int], str]] = [
+            (t, mem, "strong")
+            for t, mem in cluster(
+                sorted((s, m) for s, _e, m, a in runs if a >= amp_floor)
+            )
+        ]
+        for t, mem in cluster(self._reattack_peaks(amp_floor)):
+            if len(mem) < _ACCOMP_PAD_FLUX_MIN_MEMBERS:
+                continue
+            if any(
+                abs(t - t0) <= _ACCOMP_PAD_REATTACK_CLUSTER_SEC
+                for t0, _m, _k in events
             ):
-                d += 1
-            if d > c:
-                self._chord_onsets.append(starts[c])
-            c = d + 1
+                continue
+            jt = int(t / self._spf)
+            if self._dead_span_sec(jt) >= _ACCOMP_PAD_FLUX_DEAD_MAX_SEC:
+                continue
+            events.append((t, mem, "flux"))
+        events.sort(key=lambda x: x[0])
+        self._chord_events = events
+        self._chord_onsets = [t for t, _m, _k in events]
+
+    def _reattack_peaks(self, amp_floor: float) -> list[tuple[float, int]]:
+        """(sec, midi) per-band re-attack rises over the hot mask (#171).
+
+        A re-struck pad raises its band's log-energy sharply at every
+        hit even though the release between hits is too short for the
+        hot mask to toggle — the mask sees one long run, the flux sees
+        every strike. A peak counts only when the band was hot within
+        the preceding ~0.23 s: a fresh attack is the strong tier's
+        job, and a band coming back after a real rest is not a
+        re-attack either. The absolute amp gate matters too — noise
+        floor bands flicker "hot" whenever the real bands breathe, and
+        their mid-gap rises would otherwise mint aligned fake onsets
+        that shadow the true strikes.
+        """
+        import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+        le = np.log1p(self._band_e * 1e4)
+        flux = np.maximum(0.0, np.diff(le, axis=1))
+        recent = int(0.23 / self._spf)
+        out: list[tuple[float, int]] = []
+        for i, m in enumerate(self._mids):
+            f = flux[i]
+            pos = f[f > 0]
+            if pos.size == 0:
+                continue
+            thr = max(0.22 * float(f.max()), 1.5 * float(np.median(pos)))
+            hot = self._hot[i]
+            e = self._band_e[i]
+            for k in range(1, f.size - 1):
+                if (
+                    f[k] < thr
+                    or f[k] < f[k - 1]
+                    or f[k] <= f[k + 1]
+                ):
+                    continue
+                if not hot[max(0, k - recent) : k].any():
+                    continue
+                if float(e[k : k + 3].mean()) < amp_floor:
+                    continue
+                out.append((k * self._spf, m))
+        return sorted(out)
 
     def _band(self, m: int) -> Any:
         if m not in self._cache:
@@ -875,8 +976,12 @@ class _AccompBands:
         # Return the latest one instead of the run's older start.
         later = [
             t
-            for t in self._chord_onsets
+            for t, mem, tier in self._chord_events
             if rs + 0.05 < t <= onset_stem
+            # #171: a flux-tier onset is a re-attack signature of ITS
+            # member bands only — a foreign pad re-striking elsewhere
+            # must not pull this band's sustained onset forward.
+            and (tier != "flux" or int(round(midi)) in mem)
         ]
         if later:
             rs = max(later)
@@ -896,7 +1001,43 @@ class _AccompBands:
         span_sec = (cold_hi - cold_lo + 1) * self._spf
         if span_sec > _ACCOMP_DROPOUT_MAX_SEC:
             return False
+        return self._census_collapsed(cold_lo, cold_hi)
+
+    def _dead_span_sec(self, jt: int) -> float:
+        """Contiguous near-silent census ending at frame ``jt`` (#171).
+
+        A vocal-mask dropout silences the WHOLE stem for a stretch
+        (0.2-0.6 s) before the bands come back together — that recovery
+        is not a chord re-strike. A re-struck pad silences its members
+        for only a frame or two, and only the struck bands. Depth alone
+        cannot tell them apart (a pad-only texture's strike gap IS a
+        census collapse), so measure the contiguous low-census run just
+        before the candidate onset instead; the level tracks the local
+        census median so dense textures are untouched.
+        """
+        import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+        look = max(1, int(0.5 / self._spf))
+        base = self._n_hot[max(0, jt - look) : jt + 1]
+        lvl = max(
+            2.0, 0.25 * float(np.median(base)) if base.size else 2.0
+        )
+        j = jt - 1
+        while j >= 0 and self._n_hot[j] <= lvl:
+            j -= 1
+        return (jt - 1 - j) * self._spf
+
+    def _census_collapsed(self, cold_lo: int, cold_hi: int) -> bool:
+        """Whole-census collapse inside [cold_lo, cold_hi] frames.
+
+        The shared core of the dropout signature (#171 also applies it
+        to the window before a fragment-level chord onset: aligned
+        restarts after a real collapse are mask recovery, not a pad
+        being replayed).
+        """
         seg = self._n_hot[cold_lo : cold_hi + 1]
+        if seg.size == 0:
+            return False
         jdeep = cold_lo + int(seg.argmin())
         prev = self._hot_matrix[:, max(0, cold_lo - 4) : cold_lo].any(axis=1)
         n_prev = int(prev.sum())
@@ -1232,27 +1373,76 @@ def _accomp_pad_completion(
     # pad bands newly start is a chord member carried across a
     # re-strike (the pad replays the chord but this tone's energy
     # never dipped). Cut the surviving span at the shared onset.
-    starts = sorted(s for s, _e, _m, _a in accepted)
-    chord_onsets: list[float] = []
-    i = 0
-    while i < len(starts):
-        j = i
-        while (
-            j + 1 < len(starts)
-            and starts[j + 1] - starts[i] <= _ACCOMP_PAD_REATTACK_CLUSTER_SEC
-        ):
-            j += 1
-        if j > i:
-            chord_onsets.append(starts[i])
-        i = j + 1
+    accepted_midis = {m for _s, _e, m, _a in accepted}
+    if band_evidence is not None:
+        # #171: the shared band evidence also carries fragment-level
+        # onsets (a fast re-strike train dips each hit; merging hides
+        # every boundary). Keep only onsets where >=2 members are pads
+        # we actually accepted — an unrelated coincident restrike
+        # (bass + drum-fill bands) must not cut a held pad.
+        chord_events = sorted(
+            (t, mem, tier)
+            for t, mem, tier in band_evidence._chord_events
+            if len(mem & accepted_midis) >= 2
+        )
+        chord_onsets = [t for t, _m, _k in chord_events]
+    else:
+        starts = sorted((s, m) for s, _e, m, _a in accepted)
+        chord_events = []
+        i = 0
+        while i < len(starts):
+            j = i
+            while (
+                j + 1 < len(starts)
+                and starts[j + 1][0] - starts[i][0]
+                <= _ACCOMP_PAD_REATTACK_CLUSTER_SEC
+            ):
+                j += 1
+            members = {m for _s, m in starts[i : j + 1]}
+            if len(members) >= 2:
+                chord_events.append(
+                    (starts[i][0], frozenset(members), "strong")
+                )
+            i = j + 1
+        chord_onsets = [t for t, _m, _k in chord_events]
     if chord_onsets:
+        # #171: margin adapts to the locally observed onset spacing —
+        # a fixed 0.3 s refuses every split inside an eighth-note
+        # strike train (234 ms at 128 BPM). 40% of the nearest
+        # neighbour interval, floored where shorter pieces stop being
+        # notatable.
+        margins: list[float] = []
+        for k, t in enumerate(chord_onsets):
+            left = t - chord_onsets[k - 1] if k else float("inf")
+            right = (
+                chord_onsets[k + 1] - t
+                if k + 1 < len(chord_onsets)
+                else float("inf")
+            )
+            near = min(left, right)
+            margins.append(
+                _ACCOMP_PAD_SPLIT_MARGIN_SEC
+                if near == float("inf")
+                else min(
+                    _ACCOMP_PAD_SPLIT_MARGIN_SEC,
+                    max(_ACCOMP_PAD_SPLIT_MARGIN_MIN_SEC, 0.4 * near),
+                )
+            )
         split: list[tuple[float, float, int, float]] = []
         for s, e, m, a in accepted:
             prev = s
-            for t in chord_onsets:
-                if s + _ACCOMP_PAD_SPLIT_MARGIN_SEC < t < e - _ACCOMP_PAD_SPLIT_MARGIN_SEC:
-                    split.append((prev, t, m, a))
-                    prev = t
+            for (t, mem, tier), mg in zip(chord_events, margins):
+                if not (s + mg < t < e - mg):
+                    continue
+                # A fast-tier onset is a re-attack signature: cut only
+                # the bands that demonstrably re-attacked — a stranger
+                # tone held through an ostinato it does not belong to
+                # stays whole (pedal point honesty). Strong-tier
+                # onsets keep the legacy cut-everything behaviour.
+                if tier == "flux" and m not in mem:
+                    continue
+                split.append((prev, t, m, a))
+                prev = t
             split.append((prev, e, m, a))
         accepted = split
     out: list[RawNoteEvent] = []

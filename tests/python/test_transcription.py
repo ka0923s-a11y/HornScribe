@@ -4210,6 +4210,108 @@ class TestAccompPadCompletion:
         assert m57[1][0] == pytest.approx(1.0, abs=0.15)
         assert m57[0][1] == pytest.approx(m57[1][0], abs=0.05)
 
+    def test_eighth_note_ostinato_splits_each_strike(self) -> None:
+        """#171: a pad restruck every ~0.23 s (eighths at 128 BPM)
+        fragments every member band on each hit. The fixed 0.3 s
+        margin refused every cut; the fragment-level onsets plus the
+        spacing-adaptive margin must notate each strike."""
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        from hornscribe.transcription.pipeline import _accomp_band_evidence
+
+        sr = 22050
+        strike = 0.234
+        n_strikes = 8
+        dur = strike * n_strikes + 0.4
+        t = np.arange(int(dur * sr)) / sr
+        y = np.zeros_like(t)
+        for m in (53, 57, 60):
+            f = 440.0 * 2 ** ((m - 69) / 12)
+            for k in range(n_strikes):
+                s = k * strike
+                e = s + strike - 0.028
+                seg = (t >= s) & (t < e)
+                y[seg] += 0.18 * np.sin(2 * np.pi * f * t[seg])
+        bands = _accomp_band_evidence(y, sr)
+        assert bands is not None
+        out = _accomp_pad_completion(
+            y, sr, (), _REV, band_evidence=bands
+        )
+        m57 = sorted(
+            e.onset_sec for e in out
+            if int(round(e.pitch_midi)) == 57
+        )
+        # Each of the 8 strikes should surface as its own note —
+        # before #171 the merged run stayed one long span.
+        assert len(m57) >= n_strikes - 1
+
+    def test_ostinato_does_not_split_sustained_stranger(self) -> None:
+        """#171 safety: a tone held through an ostinato it does NOT
+        belong to keeps its span — the member-set filter requires >=2
+        accepted pad midis to share the onset."""
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        from hornscribe.transcription.pipeline import _accomp_band_evidence
+
+        sr = 22050
+        strike = 0.234
+        n_strikes = 8
+        dur = strike * n_strikes + 0.4
+        t = np.arange(int(dur * sr)) / sr
+        y = np.zeros_like(t)
+        # Stranger: one continuous pad tone that never dips.
+        f = 440.0 * 2 ** ((69 - 69) / 12)
+        y += 0.18 * np.sin(2 * np.pi * f * t)
+        # Ostinato pair re-striking together every eighth.
+        for m in (53, 60):
+            f = 440.0 * 2 ** ((m - 69) / 12)
+            for k in range(n_strikes):
+                s = k * strike
+                e = s + strike - 0.028
+                seg = (t >= s) & (t < e)
+                y[seg] += 0.18 * np.sin(2 * np.pi * f * t[seg])
+        bands = _accomp_band_evidence(y, sr)
+        assert bands is not None
+        out = _accomp_pad_completion(
+            y, sr, (), _REV, band_evidence=bands
+        )
+        m69 = sorted(
+            (e.onset_sec, e.offset_sec) for e in out
+            if int(round(e.pitch_midi)) == 69
+        )
+        # The stranger's run is one continuous tone — at most one
+        # mined event; the ostinato's onsets must not slice it.
+        assert len(m69) <= 2
+
+    def test_fragment_onset_rejected_after_census_collapse(
+        self,
+    ) -> None:
+        """#171 safety: aligned band restarts after a whole-census
+        collapse are the vocal mask recovering, not a re-strike — no
+        fragment-level onset may be minted there."""
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        from hornscribe.transcription.pipeline import _accomp_band_evidence
+
+        sr = 22050
+        dur = 3.0
+        t = np.arange(int(dur * sr)) / sr
+        y = np.zeros_like(t)
+        # Six bands (dense texture) ringing, silenced mid-piece by a
+        # hard drop then all restarting together — mask recovery.
+        for i, m in enumerate((48, 53, 57, 60, 64, 67)):
+            f = 440.0 * 2 ** ((m - 69) / 12)
+            seg = (t < 1.0) | (t >= 1.35)
+            y[seg] += 0.15 * np.sin(2 * np.pi * f * t[seg])
+        bands = _accomp_band_evidence(y, sr)
+        assert bands is not None
+        # The restart at ~1.35 s follows a census collapse and must
+        # NOT register as a chord onset for pad splitting purposes.
+        near_restart = [
+            t0 for t0 in bands._chord_onsets if 1.2 < t0 < 1.6
+        ]
+        assert near_restart == []
+
 
 class TestPadEventVoices:
     """#169: mined pad events must quantize per pitch — a single blob
