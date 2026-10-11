@@ -633,12 +633,45 @@ _ACCOMP_PAD_SPLIT_MARGIN_SEC = 0.3
 _ACCOMP_PAD_SPLIT_MARGIN_MIN_SEC = 0.12
 # #171: a fast-tier chord onset needs more members than a strong one —
 # a drum hit raises broadband flux everywhere at once, so the pad-only
-# re-strike signature is >=3 previously-hot bands rising together.
-_ACCOMP_PAD_FLUX_MIN_MEMBERS = 3
+# re-strike signature is several previously-hot bands rising together.
+# #177: >=3 was unreachable on attenuated stems — a center-extraction
+# stem cuts panned members below the amp floor, so a real 3-note pad
+# strike shows only 1-2 usable bands. The strong tier already treats
+# >=2 simultaneous starts as a chord; the flux tier now matches, and
+# the lattice pass below recovers the strikes that still fall short.
+_ACCOMP_PAD_FLUX_MIN_MEMBERS = 2
 # A flux-tier onset is refused when the census was already dead this
 # long — ~5 frames and up is a mask-dropout recovery, not the 1-2
 # frame release gap of a real re-strike (#171).
 _ACCOMP_PAD_FLUX_DEAD_MAX_SEC = 0.115
+# #177 lattice promotion — once strict events prove a strike grid
+# exists, the interior grid points only need a soft signature: a real
+# eighth-note ostinato lets every OTHER hit fall under the per-band
+# flux threshold (weak strikes sit at the band's own jitter median).
+# A peak qualifies for support at this fraction of its band's
+# threshold; a promoted grid point still needs >=3 support members
+# with >=1 hard peak among them.
+_ACCOMP_PAD_FLUX_SOFT = 0.45
+_ACCOMP_PAD_LATTICE_MIN_SUPPORT = 3
+# Grid sanity bounds: only gaps this size or smaller subdivide (a
+# longer span is a held-chord region, not a strike train), grid steps
+# outside this range are notation noise, and a support peak aligns
+# with a grid point inside this tolerance.
+_ACCOMP_PAD_LATTICE_MAX_GAP_SEC = 1.4
+_ACCOMP_PAD_LATTICE_STEP_MIN_SEC = 0.15
+_ACCOMP_PAD_LATTICE_STEP_MAX_SEC = 0.7
+_ACCOMP_PAD_LATTICE_ALIGN_SEC = 0.1
+_ACCOMP_PAD_LATTICE_MAX_SUBDIV = 8
+# Interior coverage — a subdivision is only adopted when this share
+# of its interior grid points actually carries a support cluster, so
+# a partial grid (one lucky jitter coincidence) mints nothing.
+_ACCOMP_PAD_LATTICE_COVERAGE = 0.6
+# #177: one strike's members can straggle across the cluster window
+# and mint two flux onsets ~150 ms apart. Events this close sharing
+# a member are one strike — fuse them (the lattice never mints steps
+# below _ACCOMP_PAD_LATTICE_STEP_MIN_SEC, so same-tier neighbours
+# this near are duplicates, not a finer real grid).
+_ACCOMP_PAD_FLUX_FUSE_SEC = 0.19
 
 
 def _pitch_band_energy(spec: Any, freqs: Any, midi: int) -> Any:
@@ -713,6 +746,36 @@ def _hot_run_spans(
                 )
             k = j
     return out
+
+
+def _fuse_flux_events(
+    events: list[tuple[float, frozenset[int], str]],
+) -> list[tuple[float, frozenset[int], str]]:
+    """Merge same-tier neighbour onsets that are one strike (#177).
+
+    One hit's member bands can straggle across the cluster window and
+    mint two flux onsets ~150 ms apart. Same-tier neighbours this
+    close that share a member band are one strike — fuse them, keep
+    the larger cluster's measured time, union the members so every
+    re-attacked band's run is still cut. The lattice never mints
+    steps below _ACCOMP_PAD_LATTICE_STEP_MIN_SEC, so flux neighbours
+    this near are duplicates rather than a finer real grid.
+    """
+    fused: list[tuple[float, frozenset[int], str]] = []
+    for t, mem, kind in events:
+        if (
+            fused
+            and kind == "flux"
+            and fused[-1][2] == "flux"
+            and t - fused[-1][0] <= _ACCOMP_PAD_FLUX_FUSE_SEC
+            and mem & fused[-1][1]
+        ):
+            pt, pmem, pk = fused[-1]
+            keep_t = pt if len(pmem) >= len(mem) else t
+            fused[-1] = (keep_t, pmem | mem, pk)
+        else:
+            fused.append((t, mem, kind))
+    return fused
 
 
 class _AccompBands:
@@ -828,7 +891,21 @@ class _AccompBands:
                 sorted((s, m) for s, _e, m, a in runs if a >= amp_floor)
             )
         ]
-        for t, mem in cluster(self._reattack_peaks(amp_floor)):
+        # #177: the amp gate is calibrated per band — a member panned
+        # off-centre survives the stem at half the level of the loudest
+        # run and a global floor on the max would mute its every hit.
+        # Bands with at least one sustained run answer to their own
+        # scale; run-less bands keep the global floor (a noise band
+        # cannot self-certify).
+        band_amp: dict[int, float] = {}
+        for _s, _e, m, a in runs:
+            band_amp[m] = max(band_amp.get(m, 0.0), a)
+        band_floor = {
+            m: min(amp_floor, a * _ACCOMP_PAD_AMP_RATIO)
+            for m, a in band_amp.items()
+        }
+        hard_peaks = self._reattack_peaks(amp_floor, band_floor)
+        for t, mem in cluster(hard_peaks):
             if len(mem) < _ACCOMP_PAD_FLUX_MIN_MEMBERS:
                 continue
             if any(
@@ -841,10 +918,25 @@ class _AccompBands:
                 continue
             events.append((t, mem, "flux"))
         events.sort(key=lambda x: x[0])
+        # #177: strict events anchor the strike grid — interior grid
+        # points join on the softer support signature.
+        support_peaks = self._reattack_peaks(
+            amp_floor, band_floor, thr_scale=_ACCOMP_PAD_FLUX_SOFT
+        )
+        events.extend(
+            self._lattice_flux(hard_peaks, support_peaks, events)
+        )
+        events.sort(key=lambda x: x[0])
+        events = _fuse_flux_events(events)
         self._chord_events = events
         self._chord_onsets = [t for t, _m, _k in events]
 
-    def _reattack_peaks(self, amp_floor: float) -> list[tuple[float, int]]:
+    def _reattack_peaks(
+        self,
+        amp_floor: float,
+        band_floor: dict[int, float] | None = None,
+        thr_scale: float = 1.0,
+    ) -> list[tuple[float, int]]:
         """(sec, midi) per-band re-attack rises over the hot mask (#171).
 
         A re-struck pad raises its band's log-energy sharply at every
@@ -857,6 +949,12 @@ class _AccompBands:
         floor bands flicker "hot" whenever the real bands breathe, and
         their mid-gap rises would otherwise mint aligned fake onsets
         that shadow the true strikes.
+
+        ``band_floor`` (#177) overrides the global amp gate for bands
+        that already proved they sustain — a quiet member answers to
+        its own scale. ``thr_scale`` admits softer peaks for the
+        lattice pass: real strikes alternate around the per-band
+        threshold on an attenuated stem.
         """
         import numpy as np  # noqa: PLC0415 - lazy optional dependency
 
@@ -869,9 +967,17 @@ class _AccompBands:
             pos = f[f > 0]
             if pos.size == 0:
                 continue
-            thr = max(0.22 * float(f.max()), 1.5 * float(np.median(pos)))
+            thr = (
+                max(0.22 * float(f.max()), 1.5 * float(np.median(pos)))
+                * thr_scale
+            )
             hot = self._hot[i]
             e = self._band_e[i]
+            floor = (
+                band_floor.get(m, amp_floor)
+                if band_floor is not None
+                else amp_floor
+            )
             for k in range(1, f.size - 1):
                 if (
                     f[k] < thr
@@ -881,10 +987,111 @@ class _AccompBands:
                     continue
                 if not hot[max(0, k - recent) : k].any():
                     continue
-                if float(e[k : k + 3].mean()) < amp_floor:
+                if float(e[k : k + 3].mean()) < floor:
                     continue
                 out.append((k * self._spf, m))
         return sorted(out)
+
+    def _lattice_flux(
+        self,
+        hard: list[tuple[float, int]],
+        support: list[tuple[float, int]],
+        events: list[tuple[float, frozenset[int], str]],
+    ) -> list[tuple[float, frozenset[int], str]]:
+        """Interior grid onsets between established anchors (#177).
+
+        A strict event proves a strike grid exists locally; an
+        eighth-note ostinato lets every OTHER hit dip under the
+        per-band flux threshold (a weak strike sits at the band's own
+        jitter median, so amplitude alone cannot certify it). Between
+        two anchors <=1.4 s apart where at least one is already a
+        flux event, try evenly spaced subdivisions: the finest grid
+        whose interior points mostly carry a support cluster is the
+        measured strike rate, and each covered interior point mints a
+        flux onset at its members' measured rise.
+
+        Guards that keep a held chord honest:
+          * a support peak is assigned to its NEAREST grid point only
+            — a loose alignment window cannot count one rise twice;
+          * a point needs >=3 support members including >=1 hard
+            peak — held-chord jitter on one band mints nothing;
+          * the gap needs a flux anchor — strong-to-strong spans
+            (real chord changes) never subdivide, so a sustained pad
+            under a drum grid is left whole;
+          * coverage must reach the threshold or the whole
+            subdivision is refused — partial grids mint nothing.
+        """
+        import math  # noqa: PLC0415 - lazy optional dependency
+
+        if len(events) < 2 or not support:
+            return []
+        win = _ACCOMP_PAD_LATTICE_ALIGN_SEC
+        out: list[tuple[float, frozenset[int], str]] = []
+        sup_t = [s for s, _m in support]
+        hard_t = [s for s, _m in hard]
+        for i in range(len(events) - 1):
+            t0, _m0, k0 = events[i]
+            t1, _m1, k1 = events[i + 1]
+            if "flux" not in (k0, k1):
+                continue
+            gap = t1 - t0
+            if not (0.3 <= gap <= _ACCOMP_PAD_LATTICE_MAX_GAP_SEC):
+                continue
+            for sub in range(_ACCOMP_PAD_LATTICE_MAX_SUBDIV, 1, -1):
+                step = gap / sub
+                if (
+                    step < _ACCOMP_PAD_LATTICE_STEP_MIN_SEC
+                    or step > _ACCOMP_PAD_LATTICE_STEP_MAX_SEC
+                ):
+                    continue
+                pts = [t0 + j * step for j in range(1, sub)]
+                # Each peak belongs to exactly its nearest grid point
+                # (ties break to the earlier one) — one rise must not
+                # certify two candidates.
+                nearest = [
+                    min(range(len(pts)), key=lambda jj: abs(s - pts[jj]))
+                    for s, _m in support
+                ]
+                nearest_hard = [
+                    min(range(len(pts)), key=lambda jj: abs(s - pts[jj]))
+                    for s in hard_t
+                ]
+                covered: list[tuple[float, frozenset[int]]] = []
+                for j, tp in enumerate(pts):
+                    mem = {
+                        support[p][1]
+                        for p, s in enumerate(sup_t)
+                        if abs(s - tp) <= win and nearest[p] == j
+                    }
+                    has_hard = any(
+                        abs(s - tp) <= win and nearest_hard[p] == j
+                        for p, s in enumerate(hard_t)
+                    )
+                    if (
+                        len(mem) >= _ACCOMP_PAD_LATTICE_MIN_SUPPORT
+                        and has_hard
+                    ):
+                        covered.append((tp, frozenset(mem)))
+                need = max(
+                    1, math.ceil(_ACCOMP_PAD_LATTICE_COVERAGE * len(pts))
+                )
+                if len(covered) < need:
+                    continue
+                for tp, mem in covered:
+                    if any(
+                        abs(tp - t) <= _ACCOMP_PAD_REATTACK_CLUSTER_SEC
+                        for t, _m, _k in events
+                    ):
+                        continue
+                    jt = int(tp / self._spf)
+                    if (
+                        self._dead_span_sec(jt)
+                        >= _ACCOMP_PAD_FLUX_DEAD_MAX_SEC
+                    ):
+                        continue
+                    out.append((tp, mem, "flux"))
+                break
+        return out
 
     def _band(self, m: int) -> Any:
         if m not in self._cache:

@@ -4355,6 +4355,130 @@ class TestAccompPadCompletion:
         ]
         assert near_restart == []
 
+    def test_straggler_strike_members_fuse_into_one_onset(self) -> None:
+        """#177: one strike whose member bands peak >cluster-window
+        apart minted two flux onsets ~150 ms apart — the fuse pass
+        collapses them, unions the members, and keeps the larger
+        cluster's measured time."""
+        from hornscribe.transcription.pipeline import _fuse_flux_events
+
+        events = [
+            (1.0, frozenset({55, 60, 64}), "flux"),
+            (1.155, frozenset({55, 60}), "flux"),
+        ]
+        out = _fuse_flux_events(events)
+        assert out == [(1.0, frozenset({55, 60, 64}), "flux")]
+
+    def test_fuse_prefers_richer_cluster_time(self) -> None:
+        from hornscribe.transcription.pipeline import _fuse_flux_events
+
+        events = [
+            (1.0, frozenset({55, 60}), "flux"),
+            (1.15, frozenset({55, 60, 64}), "flux"),
+        ]
+        out = _fuse_flux_events(events)
+        assert out == [(1.15, frozenset({55, 60, 64}), "flux")]
+
+    def test_unrelated_flux_neighbours_stay_separate(self) -> None:
+        """#177 safety: flux onsets sharing no member band are two
+        strikes even this close — no fuse."""
+        from hornscribe.transcription.pipeline import _fuse_flux_events
+
+        events = [
+            (1.0, frozenset({55, 60}), "flux"),
+            (1.15, frozenset({53, 57}), "flux"),
+        ]
+        assert len(_fuse_flux_events(events)) == 2
+
+    def test_strong_neighbour_never_fuses_into_flux(self) -> None:
+        """#177 safety: a strong-tier onset beside a flux one is a
+        real adjacent articulation, not a straggler."""
+        from hornscribe.transcription.pipeline import _fuse_flux_events
+
+        events = [
+            (1.0, frozenset({55, 60}), "strong"),
+            (1.1, frozenset({55, 60}), "flux"),
+        ]
+        assert len(_fuse_flux_events(events)) == 2
+
+
+class TestLatticeFlux:
+    """#177: strict events anchor a strike grid; interior grid
+    points join on the softer support signature."""
+
+    def _bands(self):
+        np = pytest.importorskip("numpy")
+        from hornscribe.transcription.pipeline import _AccompBands
+
+        b = _AccompBands.__new__(_AccompBands)
+        b._spf = 0.0232
+        b._n_hot = np.full(2000, 8)  # healthy census — no dead span
+        return b
+
+    def test_interior_grid_point_mints_event(self) -> None:
+        b = self._bands()
+        hard = [(0.234, 57), (0.468, 57)]
+        support = [
+            (0.234, 53), (0.234, 57), (0.234, 60), (0.468, 57),
+        ]
+        events = [
+            (0.0, frozenset({53, 57}), "strong"),
+            (0.468, frozenset({53, 57}), "flux"),
+        ]
+        out = b._lattice_flux(hard, support, events)
+        assert [round(t, 3) for t, _m, _k in out] == [0.234]
+        assert out[0][1] == frozenset({53, 57, 60})
+        assert out[0][2] == "flux"
+
+    def test_strong_to_strong_gap_never_subdivides(self) -> None:
+        """#177 safety: a held-chord span (strong anchors only) is a
+        chord change, not a strike train — no grid is invented."""
+        b = self._bands()
+        hard = [(0.234, 57)]
+        support = [(0.234, 53), (0.234, 57), (0.234, 60)]
+        events = [
+            (0.0, frozenset({53, 57}), "strong"),
+            (0.468, frozenset({53, 57}), "strong"),
+        ]
+        assert b._lattice_flux(hard, support, events) == []
+
+    def test_sparse_coverage_mints_nothing(self) -> None:
+        """#177 safety: one lucky support cluster inside a long gap
+        is not a grid — coverage below the threshold refuses the
+        whole subdivision."""
+        b = self._bands()
+        hard = [(0.234, 57)]
+        support = [(0.234, 53), (0.234, 57), (0.234, 60)]
+        events = [
+            (0.0, frozenset({53, 57}), "flux"),
+            (0.936, frozenset({53, 57}), "flux"),
+        ]
+        assert b._lattice_flux(hard, support, events) == []
+
+    def test_jitter_without_hard_peak_mints_nothing(self) -> None:
+        """#177 safety: >=3 soft members still need >=1 hard peak —
+        held-chord jitter bands alone cannot mint a grid point."""
+        b = self._bands()
+        support = [(0.234, 53), (0.234, 57), (0.234, 60)]
+        events = [
+            (0.0, frozenset({53, 57}), "flux"),
+            (0.468, frozenset({53, 57}), "flux"),
+        ]
+        assert b._lattice_flux([], support, events) == []
+
+    def test_existing_onset_suppresses_duplicate(self) -> None:
+        """A grid point already carrying an event mints nothing —
+        the lattice fills gaps, it does not double them."""
+        b = self._bands()
+        hard = [(0.234, 57)]
+        support = [(0.234, 53), (0.234, 57), (0.234, 60)]
+        events = [
+            (0.0, frozenset({53, 57}), "flux"),
+            (0.234, frozenset({53, 57}), "flux"),
+            (0.468, frozenset({53, 57}), "flux"),
+        ]
+        assert b._lattice_flux(hard, support, events) == []
+
 
 class TestPadEventVoices:
     """#169: mined pad events must quantize per pitch — a single blob
