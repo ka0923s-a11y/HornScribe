@@ -34,6 +34,41 @@ describe("reviewEvidence.chordUncertain", () => {
   });
 });
 
+describe("reviewEvidence.keyUncertain", () => {
+  it("harmony_override names the real arbitration — never a negative 差", () => {
+    /* #151: the harmony re-rank displaces the melodic winner, which
+     * makes the margin negative (-24%). 差が-24%しかありません is
+     * nonsense copy; the text must say the detected chords outvoted
+     * the melody-only read instead. */
+    const text = ja.reviewEvidence.keyUncertain({
+      details: ["harmony_override"],
+      estimated: "イ短調",
+      confidencePct: 49,
+      noteCount: 38,
+      runnerUp: "ホ短調",
+      marginPct: -24,
+      uncertainMeasures: [],
+    });
+    expect(text).not.toContain("-24%");
+    expect(text).toContain("ホ短調");
+    expect(text).toContain("イ短調");
+    expect(text).toContain("和音");
+  });
+
+  it("an ordinary close call keeps the runner-up margin wording", () => {
+    const text = ja.reviewEvidence.keyUncertain({
+      details: ["close_candidates"],
+      estimated: "ハ長調",
+      confidencePct: 62,
+      noteCount: 40,
+      runnerUp: "ト長調",
+      marginPct: 3,
+      uncertainMeasures: [],
+    });
+    expect(text).toContain("次点のト長調との差が3%しかありません");
+  });
+});
+
 describe("reviewEvidence.meterConflict", () => {
   /* #147: a refusal reports estimatedMeter:null — the written 4/4
    * is the fallback, NOT a rejected candidate. The copy must say

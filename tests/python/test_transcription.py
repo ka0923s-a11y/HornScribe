@@ -1990,6 +1990,36 @@ class TestKeyUncertainty:
     def test_empty_not_flagged(self) -> None:
         assert key_uncertainty(self._analyze([])) is None
 
+    def test_harmony_override_names_the_arbitration(self) -> None:
+        # #151: refine_key_with_harmony swaps the displaced melodic
+        # winner in as runner_up — the head margin goes negative,
+        # which is the structural signature of an override. The issue
+        # must say that, not "close candidates" (margin -24% is not
+        # a near-tie) or "low confidence" (the survivor's melodic
+        # score being lower is what makes an override an override).
+        from hornscribe.domain.score import KeySignature
+        from hornscribe.transcription.key import KeyEstimate
+
+        base = self._analyze(
+            [
+                (p, Fraction(i), Fraction(1))
+                for i, p in enumerate((60, 62, 64, 65, 67, 69, 71, 72))
+            ]
+        )
+        overridden = KeyEstimate(
+            KeySignature(0, "minor"),
+            0.488,
+            KeySignature(1, "minor"),
+            0.728,
+        )
+        a = replace(base, head=overridden, confidence=0.488)
+        ev = key_uncertainty(a)
+        assert ev is not None
+        assert ev["details"] == ["harmony_override"]
+        assert ev["keyMargin"] == -0.24
+        assert ev["keyFifths"] == 0 and ev["keyMode"] == "minor"
+        assert ev["runnerUpFifths"] == 1
+
     def test_uncertain_segment_identified(self) -> None:
         # 8 bars C major + 8 bars F# major (a real modulation the DP
         # splits) + 8 bars of drifting chromatic material the

@@ -445,6 +445,20 @@ def key_uncertainty(analysis: KeyAnalysis) -> dict[str, Any] | None:
         # An empty score has no written key to question.
         return None
     details = _uncertainty_flags(analysis.head, analysis.note_count)
+    head_margin = analysis.head.margin
+    if head_margin is not None and head_margin < 0:
+        # #151: a negative margin only exists when the harmony re-rank
+        # displaced the melodic winner (#145 swaps the runner-up in
+        # ahead of the pick). Name the real arbitration and drop the
+        # melodic-doubt flags — they describe the vote the harmony
+        # already adjudicated, and a negative margin rendered as
+        # "only -24% apart" reads as nonsense in the review copy.
+        details = [
+            d
+            for d in details
+            if d not in ("low_confidence", "close_candidates")
+        ]
+        details.append("harmony_override")
     segment_reports: list[dict[str, Any]] = []
     uncertain_measures: list[int] = []
     if len(analysis.segments) > 1:

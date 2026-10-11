@@ -1823,6 +1823,19 @@ export const ja = {
       readonly uncertainMeasures: readonly number[];
     }) => {
       const clauses = [`推定は${p.estimated}です`];
+      if (
+        p.details.includes("harmony_override") &&
+        p.runnerUp != null
+      ) {
+        /* #151: the harmony re-rank displaced the melodic winner —
+         * the margin reads negative, so "close candidates" would be
+         * a lie. Name the actual arbitration: the detected chord
+         * progression overruled the melody-only vote. */
+        clauses.push(
+          `旋律のみの分析では${p.runnerUp}が優勢でしたが、検出された和音進行との整合から${p.estimated}を採用しました`,
+        );
+        clauses.push("元音源と聴き比べて確認してください");
+      }
       if (p.details.includes("too_few_notes")) {
         clauses.push(`材料は${p.noteCount}音のみで、調を確定できません`);
       }
@@ -1835,7 +1848,8 @@ export const ja = {
       if (
         p.details.includes("close_candidates") &&
         p.runnerUp != null &&
-        p.marginPct != null
+        p.marginPct != null &&
+        p.marginPct >= 0
       ) {
         clauses.push(
           `次点の${p.runnerUp}との差が${p.marginPct}%しかありません`,
