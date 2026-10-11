@@ -37,6 +37,7 @@ from hornscribe.transcription.pipeline import (
     STAGES,
     _accomp_confidence_floor,
     _accomp_pad_completion,
+    _dedup_accomp_unison,
     _drop_stem_bleed_lows,
     run_transcription_job,
 )
@@ -3925,6 +3926,81 @@ class TestAccompConfidenceFloor:
     def test_none_confidence_dropped(self) -> None:
         ev = (self._ev(60.0, 0.0, 0.5, None),)
         assert _accomp_confidence_floor(ev) == ()
+
+
+class TestDedupAccompUnison:
+    """#155: a contained same-pitch event is one physical tone
+    detected twice — across voices the merge inside clean_monophonic
+    can never see it, so the shorter duplicate is dropped here."""
+
+    def _ev(
+        self, midi: float, onset: float, offset: float, i: int = 0
+    ) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-t{i + 1:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.9,
+            velocity=80,
+            source="test",
+        )
+
+    def _voice(self, *evs: RawNoteEvent) -> CleanedEvents:
+        return CleanedEvents(
+            events=evs,
+            dropped_too_short=0,
+            merged=0,
+            clipped_overlaps=0,
+        )
+
+    def test_contained_duplicate_dropped_across_voices(self) -> None:
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(60.0, 0.0, 1.0, 1)),
+                self._voice(self._ev(60.0, 0.2, 0.4, 2)),
+            ]
+        )
+        assert [e.pitch_midi for c in out for e in c.events] == [60.0]
+
+    def test_identical_twins_keep_first(self) -> None:
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(57.0, 0.0, 0.9, 1)),
+                self._voice(self._ev(57.0, 0.0, 0.9, 2)),
+            ]
+        )
+        total = sum(len(c.events) for c in out)
+        assert total == 1
+
+    def test_different_pitch_untouched(self) -> None:
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(60.0, 0.0, 1.0, 1)),
+                self._voice(self._ev(64.0, 0.1, 0.9, 2)),
+            ]
+        )
+        total = sum(len(c.events) for c in out)
+        assert total == 2
+
+    def test_adjacent_same_pitch_kept(self) -> None:
+        # A re-articulation AFTER the longer note ended is a real
+        # second note, not a contained duplicate.
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(45.0, 0.0, 0.5, 1)),
+                self._voice(self._ev(45.0, 0.6, 0.9, 2)),
+            ]
+        )
+        total = sum(len(c.events) for c in out)
+        assert total == 2
+
+    def test_empty_and_singleton_passthrough(self) -> None:
+        assert _dedup_accomp_unison([]) == []
+        single = [self._voice(self._ev(60.0, 0.0, 0.5, 1))]
+        out = _dedup_accomp_unison(single)
+        assert sum(len(c.events) for c in out) == 1
 
 
 class TestAccompPadCompletion:

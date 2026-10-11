@@ -427,6 +427,64 @@ def _accomp_confidence_floor(
     return tuple(kept)
 
 
+# #155: a contained same-pitch event within this tolerance of the
+# covering event's edges describes the same physical tone — the two
+# detections are not a performable unison.
+_ACCOMP_UNISON_TOL_SEC = 0.03
+
+
+def _dedup_accomp_unison(
+    accomp_cleaned: list[CleanedEvents],
+) -> list[CleanedEvents]:
+    """Drop same-pitch events fully contained in a longer one (#155).
+
+    One physical tone can be detected twice — once per surviving
+    voice after split_voices, or once by the tracker and once by the
+    spectral pad miner (_accomp_pad_completion): the shorter
+    duplicate stacks a unison no player can perform and reads as
+    score clutter. Containment (same pitch, a longer event covering
+    the span within _ACCOMP_UNISON_TOL_SEC) means the two detections
+    describe one tone, so the shorter goes. Identical twins keep
+    the first occurrence.
+    """
+    events = [e for c in accomp_cleaned for e in c.events]
+    if len(events) < 2:
+        return accomp_cleaned
+    drop: set[int] = set()
+    for i, e in enumerate(events):
+        e_len = e.offset_sec - e.onset_sec
+        for j, o in enumerate(events):
+            if i == j:
+                continue
+            if int(round(o.pitch_midi)) != int(round(e.pitch_midi)):
+                continue
+            if (
+                o.onset_sec > e.onset_sec + _ACCOMP_UNISON_TOL_SEC
+                or o.offset_sec < e.offset_sec - _ACCOMP_UNISON_TOL_SEC
+            ):
+                continue
+            longer = (o.offset_sec - o.onset_sec) > e_len
+            if longer or j < i:
+                drop.add(i)
+                break
+    if not drop:
+        return accomp_cleaned
+    out: list[CleanedEvents] = []
+    base = 0
+    for c in accomp_cleaned:
+        kept = tuple(
+            e
+            for k, e in enumerate(c.events)
+            if (base + k) not in drop
+        )
+        base += len(c.events)
+        if len(kept) != len(c.events):
+            c = replace(c, events=kept)
+        if c.events:
+            out.append(c)
+    return out
+
+
 # #136: sustained-harmony completion for the accompaniment part. Basic
 # Pitch tracks attacks — a held pad chord fades under the mix and the
 # detector either skips it or writes sub-floor flicker (JPOP-mix stem:
@@ -2571,6 +2629,10 @@ def run_transcription_job(
             with contextlib.suppress(OSError):
                 os.unlink(accomp_path)
             accomp_path = None
+        # #155: dedup contained same-pitch events across the surviving
+        # accompaniment voices before anything downstream reads them —
+        # one stacked unison per physical tone.
+        accomp_cleaned = _dedup_accomp_unison(accomp_cleaned)
         # #236: the lead track keeps only notes the accompaniment stem
         # does NOT explain -- sub-register bleed lands in the 伴奏 part
         # where it belongs instead of dragging the melody into bass
