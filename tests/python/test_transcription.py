@@ -46,6 +46,7 @@ from hornscribe.transcription.pipeline import (
     _fold_accomp_slivers,
     _heal_accomp_fragments,
     _merge_band_fragments,
+    _pad_event_voices,
     run_transcription_job,
 )
 from hornscribe.transcription.swing import detect_swing
@@ -4208,6 +4209,52 @@ class TestAccompPadCompletion:
         assert m57[0][0] == pytest.approx(0.0, abs=0.1)
         assert m57[1][0] == pytest.approx(1.0, abs=0.15)
         assert m57[0][1] == pytest.approx(m57[1][0], abs=0.05)
+
+
+class TestPadEventVoices:
+    """#169: mined pad events must quantize per pitch — a single blob
+    reads as one monophonic voice and the quantizer staggers chord
+    members into adjacent grid slots."""
+
+    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-v{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=None,
+            velocity=None,
+            source="pad-completion",
+        )
+
+    def test_chord_members_split_into_per_pitch_voices(self) -> None:
+        pad = (
+            self._ev(57.0, 0.0, 1.86, 1),
+            self._ev(53.0, 0.0, 1.86, 2),
+            self._ev(60.0, 0.0, 1.86, 3),
+        )
+        voices = _pad_event_voices(pad)
+        assert len(voices) == 3
+        for v in voices:
+            assert len({int(round(e.pitch_midi)) for e in v.events}) == 1
+
+    def test_sequential_same_pitch_stays_one_voice(self) -> None:
+        pad = (
+            self._ev(57.0, 0.0, 1.0, 1),
+            self._ev(57.0, 1.86, 3.0, 2),
+            self._ev(60.0, 0.0, 3.0, 3),
+        )
+        voices = _pad_event_voices(pad)
+        assert len(voices) == 2
+        v57 = next(
+            v for v in voices
+            if int(round(v.events[0].pitch_midi)) == 57
+        )
+        assert [e.onset_sec for e in v57.events] == [0.0, 1.86]
+
+    def test_empty(self) -> None:
+        assert _pad_event_voices(()) == []
 
 
 class TestAccompSeamHeal:

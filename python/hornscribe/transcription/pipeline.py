@@ -526,6 +526,34 @@ def _dedup_accomp_unison(
     return out
 
 
+def _pad_event_voices(
+    pad_extra: tuple[RawNoteEvent, ...],
+) -> list[CleanedEvents]:
+    """Mined pad events -> one monophonic voice per pitch (#169).
+
+    A single blob would read as one monophonic voice and the
+    quantizer would stagger simultaneous chord members into adjacent
+    grid slots (each extra 16th pushes a member out of its truth's
+    onset window). Per-pitch voices keep chord onsets aligned; the
+    score build merges them back into one accompaniment staff as
+    real chords.
+    """
+    by_pitch: dict[int, list[RawNoteEvent]] = {}
+    for e in pad_extra:
+        by_pitch.setdefault(int(round(e.pitch_midi)), []).append(e)
+    return [
+        CleanedEvents(
+            events=tuple(
+                sorted(grp, key=lambda e: (e.onset_sec, e.offset_sec))
+            ),
+            dropped_too_short=0,
+            merged=0,
+            clipped_overlaps=0,
+        )
+        for grp in by_pitch.values()
+    ]
+
+
 # #160: the accompaniment stem answers seam questions per pitch — a
 # drum hit inside the broadband flux window reads as a re-attack to
 # the lead-line seam check and vetoes the merge of a held pad the
@@ -3266,14 +3294,7 @@ def run_transcription_job(
                 band_evidence=accomp_bands,
             )
             if pad_extra:
-                accomp_cleaned.append(
-                    CleanedEvents(
-                        events=pad_extra,
-                        dropped_too_short=0,
-                        merged=0,
-                        clipped_overlaps=0,
-                    )
-                )
+                accomp_cleaned.extend(_pad_event_voices(pad_extra))
             # The stem file's job ends at detection — an unmanaged
             # temp is released here, the managed cache copy stays.
             if not accomp_managed:
