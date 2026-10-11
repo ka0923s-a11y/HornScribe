@@ -66,6 +66,35 @@ def test_center_signal_survives_side_is_suppressed(tmp_path):
     assert e_vocal > 5 * e_accomp
 
 
+def test_accomp_stem_preserves_both_pans(tmp_path):
+    pytest.importorskip("librosa")
+    # #139: a panned source lives in BOTH channel reconstructions —
+    # folding to mono with a fixed "+side" kept left-panned energy but
+    # cancelled right-panned energy.  Symmetric pans must now survive
+    # at comparable strength.
+    rate = 22050
+    tone = _tone(330.0, 2.0, rate)
+
+    def band_energy(path, freq=330.0):
+        out = isolate_center_vocals(path)
+        assert out is not None
+        _vocal, accomp = out
+        accomp = np.asarray(accomp)
+        spec = np.abs(np.fft.rfft(accomp))
+        freqs = np.fft.rfftfreq(accomp.size, 1 / rate)
+        return spec[np.argmin(np.abs(freqs - freq))]
+
+    left_src = _write_stereo_wav(
+        tmp_path / "left.wav", tone, 0.3 * tone, rate
+    )
+    right_src = _write_stereo_wav(
+        tmp_path / "right.wav", 0.3 * tone, tone, rate
+    )
+    e_left = band_energy(left_src)
+    e_right = band_energy(right_src)
+    assert min(e_left, e_right) > 0.7 * max(e_left, e_right)
+
+
 def test_mono_source_returns_none(tmp_path):
     pytest.importorskip("librosa")
     mono = _tone(330.0, 1.0)
@@ -451,8 +480,11 @@ class TestSeparationQuality:
         assert vocal_mod.method_version("demucs") == "4.0.1"
         assert vocal_mod.method_version("demucs", "") == "4.0.1"
         assert vocal_mod.method_version("demucs", "htdemucs_ft-s2") == "4.0.1:htdemucs_ft-s2"
-        # Center extraction never wears a demucs variant.
-        assert vocal_mod.method_version("center_extraction", "htdemucs_ft-s2") == "1"
+        # Center extraction never wears a demucs variant — its version
+        # is the center algorithm's own tag.
+        assert vocal_mod.method_version("center_extraction", "htdemucs_ft-s2") == (
+            vocal_mod._CENTER_EXTRACTION_VERSION
+        )
 
     def test_center_tier_is_quality_independent(self, tmp_path, monkeypatch):
         """Without demucs the tier must not split the cache — a
@@ -470,7 +502,7 @@ class TestSeparationQuality:
 
         _p, _r, _m, method, ver = vocal_wav("a.wav", "h", 0.0, None, 22050)
         assert method == "center_extraction"
-        assert ver == "1"  # untagged — no demucs ran
+        assert ver == vocal_mod._CENTER_EXTRACTION_VERSION  # untagged — no demucs ran
         p2, _r2, _m2, _mth2, _v2 = vocal_wav("a.wav", "h", 0.0, None, 22050, quality="precision")
         assert p2 == _p  # precision hits the standard center slot
 
@@ -581,7 +613,9 @@ class TestIsolationProvenance:
 
         monkeypatch.setattr(vocal_mod, "_demucs_version", lambda: "4.0.1")
         assert vocal_mod.method_version("demucs") == "4.0.1"
-        assert vocal_mod.method_version("center_extraction") == "1"
+        assert vocal_mod.method_version("center_extraction") == (
+            vocal_mod._CENTER_EXTRACTION_VERSION
+        )
         assert vocal_mod.method_version(None) is None
         # A missing demucs version still names the method honestly.
         monkeypatch.setattr(vocal_mod, "_demucs_version", lambda: None)

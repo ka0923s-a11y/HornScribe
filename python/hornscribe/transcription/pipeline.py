@@ -575,7 +575,6 @@ def _accomp_pad_completion(
         clash = any(
             abs(m - m2) <= 2
             and (min(e, e2) - max(s, s2)) > 0.5 * min(e - s, e2 - s2)
-           for _s2, e2, m2, _a2 in accepted
             for s2, e2, m2, _a2 in accepted
         )
         if not clash:

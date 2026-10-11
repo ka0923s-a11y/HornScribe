@@ -120,7 +120,22 @@ def isolate_center_vocals(
     # whole side channel — center-panned backing (bass, kick-adjacent
     # keys) survives in the mid complement, panned instruments in the
     # sides.
-    accomp_stft = mid_stft * (1.0 - mask) + side_stft
+    # #139: the true stereo accompaniment is (L', R') = mid*(1-mask)
+    # +- side.  Folding that pair to mono with a FIXED "+side" kept
+    # left-panned sources at ~0.85 amplitude but cancelled
+    # right-panned sources to ~0.26 — right-panned pads vanished from
+    # the staff.  A panned source sits in BOTH channel
+    # reconstructions with opposite side sign, so keep whichever of
+    # the two true reconstructions is stronger per bin: every pan
+    # position then survives at full strength.
+    accomp_mid = mid_stft * (1.0 - mask)
+    accomp_left = accomp_mid + side_stft
+    accomp_right = accomp_mid - side_stft
+    accomp_stft = np.where(
+        np.abs(accomp_left) >= np.abs(accomp_right),
+        accomp_left,
+        accomp_right,
+    )
     accomp = librosa.istft(accomp_stft, hop_length=_HOP, length=len(mid))
     return (
         np.asarray(vocal, dtype=np.float32),
@@ -577,6 +592,11 @@ def _cache_key(
     # share a cache slot.  #181: the demucs model tier is part of the
     # identity too — an htdemucs_ft stem is not an htdemucs stem.
     tag = f"{method}|{variant}" if variant else method
+    # The center-extraction geometry is stem identity too — without
+    # it an algorithm change would silently serve cache entries the
+    # old math produced until TTL expiry (#139).
+    if method == "center_extraction":
+        tag = f"{tag}|ce{_CENTER_EXTRACTION_VERSION}"
     digest = hashlib.sha256(
         f"{basis}|{span}|{tag}|{_STEM_SET_VERSION}".encode()
     ).hexdigest()
@@ -602,7 +622,7 @@ def _demucs_version() -> str | None:
 # #319: the center-extraction algorithm carries its own version — bump
 # it whenever the mask/STFT geometry changes so a behavior change mints
 # a new transcription identity instead of silently rewriting one.
-_CENTER_EXTRACTION_VERSION = "1"
+_CENTER_EXTRACTION_VERSION = "2"
 
 
 def method_version(method: str | None, variant: str = "") -> str | None:
