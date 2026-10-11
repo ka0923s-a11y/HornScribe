@@ -17,8 +17,14 @@
 - Windows + Node/npm + Rust toolchain + `gh` CLI(ログイン済み)。
 - エンジン frozen 化には PyInstaller 入りの venv(`.venv-bp312` 等。
   未検出時はスクリプトが探してエラーにする)。
-- gnu toolchain でビルドする環境では `--toolchain gnu`
-  (RUSTUP_TOOLCHAIN と rust-lld の RUSTFLAGS を cargo/tauri 工程に設定)。
+- Rust toolchain: 既定の `--toolchain auto` は MSVC の `link.exe`
+  (PATH 上、または vswhere が報告する VC workload 配下) が使えるかを
+  preflight で判定し、使えなければ `stable-x86_64-pc-windows-gnu`
+  へ自動フォールバックする (#173)。未インストールなら rustup で導入
+  するので、Visual Studio Build Tools が無い/壊れたマシンでもそのまま
+  リリースできる(管理者権限不要)。既定ホストが既に gnu の場合は
+  rust-lld + self-contained の RUSTFLAGS だけを強制する。明示的に
+  gnu を使いたい場合は `--toolchain gnu`。
 
 ## 手順
 
@@ -67,6 +73,7 @@ python scripts/release.py --dry-run  # タグ/Release 作成の手前まで
 | `no venv with PyInstaller` | エンジン venv 不足 | venv に `pip install pyinstaller` |
 | インストーラーが小さい | エンジン未同梱 | `tauri.bundled.json` と resources を確認 |
 | link エラー(gnu) | gnu toolchain | `--toolchain gnu` を付ける |
+| `link.exe` not found / msvc | VC workload 破損等 | auto が gnu へ自動フォールバック; rustup が無い環境では VS Build Tools か rustup を導入 (#173) |
 
 ## 関連
 

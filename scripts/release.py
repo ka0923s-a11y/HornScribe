@@ -34,7 +34,12 @@ Flags worth knowing:
         gnu sets RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu and
         RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes" for the
         cargo/tauri steps - needed on machines where only the gnu
-        toolchain works. auto (default) inherits the environment.
+        toolchain works. auto (default) inherits the environment when an
+        MSVC linker is usable; when link.exe is missing entirely (#173 -
+        e.g. a Build Tools install whose VC workload was removed) auto
+        falls back to the gnu toolchain, installing it via rustup when
+        needed. Machines whose default rustc host is already gnu get
+        GNU_RUSTFLAGS so linking does not depend on a system gcc.
     --yes   Skip the interactive confirmation before publishing.
 """
 
@@ -80,6 +85,13 @@ _7Z_CANDIDATES = (
 
 GNU_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
 GNU_RUSTFLAGS = "-C linker=rust-lld -C link-self-contained=yes"
+GNU_HOST_TRIPLE = "x86_64-pc-windows-gnu"
+_VSWHERE = (
+    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+    / "Microsoft Visual Studio"
+    / "Installer"
+    / "vswhere.exe"
+)
 
 
 def _die(msg: str, code: int = 1) -> SystemExit:
@@ -249,6 +261,89 @@ def _rustc_host(env: dict[str, str]) -> str:
     return ""
 
 
+def _msvc_link_available() -> bool:
+    """True when an MSVC linker is usable for a msvc-host build (#173).
+
+    Two sources: link.exe already on PATH (dev prompt / portable MSVC
+    toolchains), or a vswhere install whose VC workload actually carries
+    bin/Hostx64/x64/link.exe. vswhere alone is not proof - a Build Tools
+    registration can survive with its VC\\Tools directory emptied,
+    which is exactly how this host lost its linker while winget still
+    claimed the product was installed.
+    """
+    if shutil.which("link"):
+        return True
+    vswhere = shutil.which("vswhere")
+    if vswhere is None and _VSWHERE.is_file():
+        vswhere = str(_VSWHERE)
+    if vswhere is None:
+        return False
+    for line in _out([vswhere, "-all", "-property", "installationPath"]).splitlines():
+        msvc = Path(line.strip()) / "VC" / "Tools" / "MSVC"
+        if any(msvc.glob("*/bin/Hostx64/x64/link.exe")):
+            return True
+    return False
+
+
+def _gnu_toolchain_installed() -> bool:
+    return GNU_TOOLCHAIN in _out(["rustup", "toolchain", "list"])
+
+
+def _ensure_gnu_toolchain() -> None:
+    """Install GNU_TOOLCHAIN via rustup when missing (#173).
+
+    rustup needs no elevation, so the release path stays free of any
+    VS Build Tools dependency; the toolchain also ships the rust-lld
+    that GNU_RUSTFLAGS links with.
+    """
+    if _gnu_toolchain_installed():
+        return
+    if shutil.which("rustup") is None:
+        raise _die(
+            "no MSVC linker found and rustup is missing - cannot "
+            f"install {GNU_TOOLCHAIN}. Either install VS Build Tools "
+            f"(workload VCTools) or rustup + {GNU_TOOLCHAIN}."
+        )
+    _run(
+        ["rustup", "toolchain", "install", GNU_TOOLCHAIN],
+        what=f"rustup install {GNU_TOOLCHAIN}",
+    )
+    if not _gnu_toolchain_installed():
+        raise _die(f"{GNU_TOOLCHAIN} still missing after rustup install")
+
+
+def _resolve_rust_env(choice: str) -> dict[str, str]:
+    """Pick the toolchain env for the cargo/tauri steps (#173).
+
+    "gnu" is explicit. "auto" keeps the ambient environment only when
+    the default rustc host can actually link - i.e. a msvc host with a
+    real link.exe. Otherwise it falls back to the gnu toolchain, which
+    is admin-free and needs nothing but rustup. A host already on gnu
+    gets only GNU_RUSTFLAGS so linking goes through rust-lld's
+    self-contained objects instead of a system gcc that may be absent
+    or unable to resolve -lgcc_eh (llvm-mingw).
+    """
+    if choice == "gnu":
+        _ensure_gnu_toolchain()
+        return {"RUSTUP_TOOLCHAIN": GNU_TOOLCHAIN, "RUSTFLAGS": GNU_RUSTFLAGS}
+    host = _rustc_host({})
+    if _msvc_link_available() and "msvc" in host:
+        return {}
+    if host == GNU_HOST_TRIPLE:
+        print(
+            "release: toolchain: default rustc host is gnu - "
+            "forcing rust-lld self-contained link flags"
+        )
+        return {"RUSTFLAGS": GNU_RUSTFLAGS}
+    else:
+        print(
+            "release: toolchain: MSVC link.exe not found - "
+            f"falling back to {GNU_TOOLCHAIN} (admin-free; see #173)"
+        )
+        _ensure_gnu_toolchain()
+        return {"RUSTUP_TOOLCHAIN": GNU_TOOLCHAIN, "RUSTFLAGS": GNU_RUSTFLAGS}
+
+
 def _bundled_config(need_loader: bool) -> Path:
     """Bundle config for tauri build --config (#141).
 
@@ -283,7 +378,11 @@ def main() -> int:
         "--toolchain",
         choices=("auto", "gnu"),
         default="auto",
-        help="rust toolchain for cargo/tauri steps (default: inherit env)",
+        help=(
+            "rust toolchain for cargo/tauri steps; auto uses MSVC when a "
+            "usable link.exe exists and falls back to "
+            f"{GNU_TOOLCHAIN} otherwise (#173)"
+        ),
     )
     args = ap.parse_args()
 
@@ -332,12 +431,7 @@ def main() -> int:
                 f"{exe} is locked - close the running app before releasing"
             )
 
-    rust_env: dict[str, str] = {}
-    if args.toolchain == "gnu":
-        rust_env = {
-            "RUSTUP_TOOLCHAIN": GNU_TOOLCHAIN,
-            "RUSTFLAGS": GNU_RUSTFLAGS,
-        }
+    rust_env = _resolve_rust_env(args.toolchain)
 
     # -- 2. tests -----------------------------------------------------------
     if not args.skip_tests:
