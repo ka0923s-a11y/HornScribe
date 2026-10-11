@@ -27,6 +27,7 @@ def _estimate(
     *,
     first_onset_sec: float | None,
     beat_strengths: tuple[float, ...] | None = None,
+    phase_accents: tuple[tuple[float, float], ...] | None = None,
     tempo_bpm: float | None = None,
     pulse_unit_ql: Fraction | None = None,
     numerator: int = 4,
@@ -45,12 +46,19 @@ def _estimate(
         beat_times=beat_times,
         pulse_unit_ql=pulse_unit_ql,
         beat_strengths=beat_strengths,
+        phase_accents=phase_accents,
     )
 
 
 def _downbeat_strengths(phase: int, n: int = 12) -> tuple[float, ...]:
     """Accents at every beat index ``i % 4 == phase`` (4/4 grid)."""
     return tuple(0.9 if i % 4 == phase else 0.2 for i in range(n))
+
+
+def _phase_accents(phase: int, n: int = 12) -> tuple[tuple[float, float], ...]:
+    """Onsets on every beat index ``i % 4 == phase`` -- the shape a
+    bassline or chord part stamps on the barline."""
+    return tuple((i * 0.5, 0.9) for i in range(n) if i % 4 == phase)
 
 
 class TestConfidentInference:
@@ -258,3 +266,92 @@ class TestEvidenceShape:
         assert a.candidates == ()
         assert a.strength_available is False
         assert pickup_uncertainty(est) is None
+
+
+class TestAccompanimentPhaseEvidence:
+    """#150: the separated accompaniment's onset phase is a second
+    downbeat source. A concentrated channel outranks the (often flat)
+    stem envelope; an unconcentrated one leaves the envelope logic
+    untouched."""
+
+    def test_acc_confirming_inference_silences_flat_envelope(
+        self,
+    ) -> None:
+        # The reference J-pop mix: a near-uniform stem envelope
+        # (margin < 0.10 -> ambiguous on its own) while the
+        # accompaniment onsets pile onto the written downbeat phase.
+        # The stronger channel settles it — no false-positive flag.
+        est = _estimate(
+            BEATS_120,
+            first_onset_sec=0.0,
+            beat_strengths=(0.81, 0.78, 0.83, 0.68) * 3,
+            phase_accents=_phase_accents(0),
+        )
+        a = est.pickup_analysis
+        assert a is not None
+        by_phase = {
+            c.pickup_beats: c.accomp_score for c in a.candidates
+        }
+        assert by_phase[0] is not None and by_phase[0] >= 3.9
+        assert pickup_uncertainty(est) is None
+
+    def test_acc_phase_mismatch_suggests_accompaniment_read(
+        self,
+    ) -> None:
+        # Flat envelope cannot arbitrate, but the accompaniment mass
+        # sits one beat late — report a mismatch carrying the
+        # accompaniment-preferred pickup, not a tie.
+        est = _estimate(
+            BEATS_120,
+            first_onset_sec=0.0,
+            beat_strengths=(0.81, 0.78, 0.83, 0.68) * 3,
+            phase_accents=_phase_accents(1),
+        )
+        ev = pickup_uncertainty(est)
+        assert ev is not None
+        assert ev["flags"] == ["downbeat_phase_mismatch"]
+        assert ev["suggestedPickupBeats"] == 1
+
+    def test_two_strong_sources_disagreeing_is_ambiguous(self) -> None:
+        # Envelope confidently at phase 0, accompaniment confidently
+        # at phase 1 — genuinely undecidable; flag ambiguous and
+        # still offer the stronger channel's guess.
+        est = _estimate(
+            BEATS_120,
+            first_onset_sec=0.0,
+            beat_strengths=_downbeat_strengths(0),
+            phase_accents=_phase_accents(1),
+        )
+        ev = pickup_uncertainty(est)
+        assert ev is not None
+        assert ev["flags"] == ["downbeat_phase_ambiguous"]
+        assert ev["suggestedPickupBeats"] == 1
+
+    def test_uniform_accompaniment_falls_back_to_envelope(
+        self,
+    ) -> None:
+        # Onsets on EVERY beat concentrate on no phase (score ~1.0
+        # each) — not evidence, so the flat envelope's ambiguous
+        # verdict still stands.
+        est = _estimate(
+            BEATS_120,
+            first_onset_sec=0.0,
+            beat_strengths=(0.81, 0.78, 0.83, 0.68) * 3,
+            phase_accents=tuple((i * 0.5, 0.9) for i in range(12)),
+        )
+        ev = pickup_uncertainty(est)
+        assert ev is not None
+        assert ev["flags"] == ["downbeat_phase_ambiguous"]
+
+    def test_evidence_carries_accomp_scores(self) -> None:
+        est = _estimate(
+            BEATS_120,
+            first_onset_sec=0.0,
+            beat_strengths=(0.81, 0.78, 0.83, 0.68) * 3,
+            phase_accents=_phase_accents(1),
+        )
+        ev = pickup_uncertainty(est)
+        assert ev is not None
+        scores = {c["pickupBeats"]: c["accompScore"] for c in ev["candidates"]}
+        assert scores[1] is not None and scores[1] >= 3.9
+        assert scores[0] == 0.0

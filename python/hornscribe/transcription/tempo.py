@@ -25,6 +25,7 @@ instead of per-beat noise.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Any
@@ -126,6 +127,13 @@ class PickupCandidate:
 
     pickup_beats: int
     downbeat_score: float
+    accomp_score: float | None = None
+    """#150: normalized onset-mass share of the separated
+    accompaniment part at this phase (1.0 = a uniform spread across
+    beats, None = no accompaniment evidence). A second, independent
+    accent source: the stem envelope can sit flat on a
+    four-on-the-floor mix while the bass/chord attacks still mark
+    the barline."""
 
 
 @dataclass(frozen=True)
@@ -165,6 +173,7 @@ def estimate_tempo(
     beat_times: tuple[float, ...] | None = None,
     pulse_unit_ql: Fraction | None = None,
     beat_strengths: tuple[float, ...] | None = None,
+    phase_accents: tuple[tuple[float, float], ...] | None = None,
 ) -> TempoEstimate:
     """Build the seconds->ql warp for this run.
 
@@ -178,7 +187,11 @@ def estimate_tempo(
     auto-detected 6/8 tracks eighths, not dotted quarters.
     ``beat_strengths`` is the parallel onset-envelope sample per
     ``beat_times`` entry — downbeat-phase evidence for the pickup
-    ambiguity analysis (#358).
+    ambiguity analysis (#358). ``phase_accents`` adds a second,
+    independent phase source: (onset_sec, post-onset RMS) pairs from
+    the separated accompaniment part, bucketed onto the nearest
+    tracked beat (#150). Only the auto path reads it — a pinned
+    tempo never inferred a pickup.
     """
     beat_unit_ql = pulse_unit_ql if pulse_unit_ql is not None else meter.beat_unit_ql
     if tempo_bpm is not None:
@@ -344,6 +357,7 @@ def estimate_tempo(
     pickup_analysis = _build_pickup_analysis(
         all_beats=all_beats,
         all_strengths=all_strengths,
+        phase_accents=phase_accents,
         first_onset_sec=first_onset_sec,
         first_tracked_beat_sec=first_tracked_beat_sec,
         median_interval_sec=median_sec,
@@ -372,12 +386,48 @@ _PICKUP_PHASE_MARGIN = 0.10
 _ONSET_JITTER_PHASE = 0.90
 _ONSET_MID_BEAT_LO = 0.25
 _ONSET_MID_BEAT_HI = 0.75
+# #150: the accompaniment phase channel is "confident" when its best
+# bucket clearly beats a uniform spread (score 1.0) AND clearly beats
+# the runner-up — a bass hit on every barline reads ~2.4 while a
+# wandering melodic line stays near the uniform floor.
+_ACCOMP_PHASE_MIN_SCORE = 1.5
+_ACCOMP_PHASE_MIN_MARGIN = 0.5
+
+
+def _phase_accent_mass(
+    all_beats: tuple[float, ...],
+    accents: tuple[tuple[float, float], ...] | None,
+    measure_beats: int,
+) -> list[float] | None:
+    """Normalized onset-mass share per beat-phase bucket (#150).
+
+    Each (onset_sec, amplitude) accent votes into the phase bucket of
+    its nearest tracked beat; the shares are scaled so a uniform
+    spread reads 1.0 and a concentrated downbeat phase reads above 1.
+    Returns ``None`` when there is nothing to distribute.
+    """
+    if not all_beats or not accents:
+        return None
+    mass = [0.0] * measure_beats
+    last = len(all_beats) - 1
+    for t, amp in accents:
+        i = bisect_left(all_beats, t)
+        if i > last:
+            i = last
+        elif i > 0 and t - all_beats[i - 1] <= all_beats[i] - t:
+            i -= 1
+        mass[i % measure_beats] += float(amp)
+    total = sum(mass)
+    if total <= 0:
+        return None
+    return [m / total * measure_beats for m in mass]
 
 
 def _build_pickup_analysis(
     *,
     all_beats: tuple[float, ...],
     all_strengths: list[float],
+    phase_accents: tuple[tuple[float, float], ...] | None = None,
     first_onset_sec: float | None,
     first_tracked_beat_sec: float | None,
     median_interval_sec: float,
@@ -412,6 +462,7 @@ def _build_pickup_analysis(
         mb = int(mb_frac)
         peak = max(all_strengths) if all_strengths else 1.0
         norm = peak if peak > 0 else 1.0
+        acc_mass = _phase_accent_mass(all_beats, phase_accents, mb)
         for j in range(mb):
             idx = [i for i in range(len(all_beats)) if i % mb == j]
             if strength_available:
@@ -426,6 +477,11 @@ def _build_pickup_analysis(
                 PickupCandidate(
                     pickup_beats=(inferred_beats + j) % mb,
                     downbeat_score=round(score, 4),
+                    accomp_score=(
+                        round(acc_mass[j], 4)
+                        if acc_mass is not None
+                        else None
+                    ),
                 )
             )
     else:
@@ -465,7 +521,47 @@ def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
         (c for c in a.candidates if c.pickup_beats == inferred_beats),
         None,
     )
-    if a.strength_available and len(ranked) >= 2:
+    # #150: the accompaniment part's onset phase is a second, much
+    # stronger downbeat source than the (often flat) stem envelope —
+    # when it concentrates on one phase its read outranks the
+    # envelope's and settles the question the envelope raised.
+    acc_ranked = sorted(
+        (c for c in a.candidates if c.accomp_score is not None),
+        key=lambda c: -(c.accomp_score or 0.0),
+    )
+    acc_pick: PickupCandidate | None = None
+    if len(acc_ranked) >= 2:
+        best_acc, runner_acc = acc_ranked[0], acc_ranked[1]
+        if (
+            (best_acc.accomp_score or 0.0) >= _ACCOMP_PHASE_MIN_SCORE
+            and (best_acc.accomp_score or 0.0)
+            - (runner_acc.accomp_score or 0.0)
+            >= _ACCOMP_PHASE_MIN_MARGIN
+        ):
+            acc_pick = best_acc
+    if acc_pick is not None:
+        if acc_pick.pickup_beats != inferred_beats:
+            env_pick: PickupCandidate | None = None
+            if (
+                a.strength_available
+                and len(ranked) >= 2
+                and ranked[0].downbeat_score - ranked[1].downbeat_score
+                >= _PICKUP_PHASE_MARGIN
+            ):
+                env_pick = ranked[0]
+            if (
+                env_pick is not None
+                and env_pick.pickup_beats != acc_pick.pickup_beats
+            ):
+                # Two strong sources prefer two different phases —
+                # genuinely undecidable; report the stronger guess.
+                flags.append("downbeat_phase_ambiguous")
+            else:
+                flags.append("downbeat_phase_mismatch")
+            suggested = acc_pick.pickup_beats
+        # When the stronger channel confirms the written phase the
+        # flat envelope's read is noise, not a conflict — stay silent.
+    elif a.strength_available and len(ranked) >= 2:
         best, runner_up = ranked[0], ranked[1]
         margin = best.downbeat_score - runner_up.downbeat_score
         current_score = current.downbeat_score if current else 0.0
@@ -505,6 +601,7 @@ def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
             {
                 "pickupBeats": c.pickup_beats,
                 "downbeatScore": c.downbeat_score,
+                "accompScore": c.accomp_score,
             }
             for c in a.candidates
         ],
