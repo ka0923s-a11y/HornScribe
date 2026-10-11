@@ -48,6 +48,13 @@ HANDSHAKE_TIMEOUT_S = 120.0
 JOB_TIMEOUT_S = 420.0
 ONSET_TOL_S = 0.150
 
+# Timbres that carry no scoreable pitch — percussion hits and noise
+# beds. They stay out of BOTH the onset and the pitch truth (#136,
+# #154): a detector that writes nothing for them is correct, not
+# missing, and any note it does write there is a real false positive
+# in the printed accompaniment staff.
+_UNPITCHED_TIMBRES = frozenset({"noise", "hiss"})
+
 
 # ---------------------------------------------------------------- fixtures
 
@@ -1232,11 +1239,11 @@ def _accomp_note_pitch_f1(
     a reader sees the pitch SET, not one claimed note per truth. Score
     it as note+pitch F1: a detection counts when some pitched truth
     shares its onset (+-150 ms) AND its semitone; a truth counts when
-    some detection shares both. Greedy 1:1 in detection order. 'noise'
-    timbre truths stay excluded — a drum hit has no fair pitch to be
-    wrong about.
+    some detection shares both. Greedy 1:1 in detection order.
+    _UNPITCHED_TIMBRES truths stay excluded — a drum hit has no fair
+    pitch to be wrong about.
     """
-    pitched = [n for n in truth if n.timbre != "noise"]
+    pitched = [n for n in truth if n.timbre not in _UNPITCHED_TIMBRES]
     used = [False] * len(pitched)
     tp = 0
     for o, m in detected:
@@ -1350,7 +1357,18 @@ def main() -> int:
             accomp_cols: dict = {}
             if fx.backing or accomp:
                 a_ons = _onset_f1(
-                    [n.onset for n in fx.backing], [o for o, _ in accomp]
+                    # #154: unpitched truths stay out of the onset
+                    # expectation too — a drum hit or a hiss bed is
+                    # not a scoreable note (npF1 already excludes
+                    # them for pitch). Detections ON them now land
+                    # in fp where they belong: they are real spurious
+                    # notes in the written accompaniment staff.
+                    [
+                        n.onset
+                        for n in fx.backing
+                        if n.timbre not in _UNPITCHED_TIMBRES
+                    ],
+                    [o for o, _ in accomp],
                 )
                 accomp_cols = {
                     "accompDetected": len(accomp),
@@ -1452,6 +1470,12 @@ def main() -> int:
         "the 150 ms F1 window: the onset F1 on this row absorbed a "
         "systematic score-axis drift, so the axis fidelity is worse than "
         "the F1 suggests (#133)."
+    )
+    md.append(
+        "accomp onset F1 scores pitched accompaniment only — unpitched "
+        "timbres (drum hits, hiss beds) are excluded from the truth "
+        "because they are not scoreable notes; detections on them "
+        "count as fp (#154)."
     )
     stem.with_suffix(".md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print(f"wrote {stem.with_suffix('.md')}")
