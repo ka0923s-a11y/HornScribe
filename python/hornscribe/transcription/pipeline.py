@@ -577,6 +577,15 @@ _ACCOMP_PAD_AMP_RATIO = 0.40
 # wash (cymbals, noise bed) lights up dozens of bands at once. Cap the
 # simultaneous count so a wash cannot mint a wall of fake pads.
 _ACCOMP_PAD_MAX_SIMULTANEOUS = 6
+# A pad chord restrikes on the beat even though one member's band can
+# run straight through the boundary (its energy never dipped). The
+# re-strike is still visible: the OTHER members' runs all start
+# together. Two or more new pad-band onsets inside this window are a
+# chord onset; a sustained band crossing one is split so the score
+# shows the repeated hit instead of one long tied tone. The margin
+# keeps genuine short re-strikes while refusing hairline cuts.
+_ACCOMP_PAD_REATTACK_CLUSTER_SEC = 0.15
+_ACCOMP_PAD_SPLIT_MARGIN_SEC = 0.3
 
 
 def _pitch_band_energy(spec: Any, freqs: Any, midi: int) -> Any:
@@ -669,6 +678,7 @@ class _AccompBands:
     __slots__ = (
         "_band_e",
         "_cache",
+        "_chord_onsets",
         "_frames",
         "_freqs",
         "_hot",
@@ -700,6 +710,42 @@ class _AccompBands:
         )
         self._hot_matrix = np.stack(self._hot)
         self._n_hot = self._hot_matrix.sum(axis=0)
+        # Chord onsets (stem-axis seconds): times where >=2 sustained
+        # pad-band runs start together — a chord re-strike signature.
+        # A band can hold straight through it, so a hot-run walk that
+        # crosses one may be looking at a re-attacked tone, not the
+        # run's true start (the same evidence the pad miner's
+        # re-strike split uses).
+        # Consolidate + amp-gate exactly like the pad miner first: a
+        # lone weak fragment restarting mid-bar is band noise, not a
+        # chord — real re-strikes start several strong members at once.
+        runs = _merge_band_fragments(
+            _hot_run_spans(
+                self._mids,
+                self._band_e,
+                self._hot,
+                np.arange(self._frames, dtype=np.float64) * self._spf,
+                _ACCOMP_PAD_MIN_SUSTAIN_SEC,
+            )
+        )
+        amp_floor = (
+            max(a for *_x, a in runs) * _ACCOMP_PAD_AMP_RATIO
+            if runs
+            else 0.0
+        )
+        starts = sorted(s for s, _e, _m, a in runs if a >= amp_floor)
+        self._chord_onsets: list[float] = []
+        c = 0
+        while c < len(starts):
+            d = c
+            while (
+                d + 1 < len(starts)
+                and starts[d + 1] - starts[c] <= _ACCOMP_PAD_REATTACK_CLUSTER_SEC
+            ):
+                d += 1
+            if d > c:
+                self._chord_onsets.append(starts[c])
+            c = d + 1
 
     def _band(self, m: int) -> Any:
         if m not in self._cache:
@@ -794,7 +840,19 @@ class _AccompBands:
                 k = e
                 continue
             break
-        return j * self._spf + self._offset
+        rs = j * self._spf
+        onset_stem = onset_sec - self._offset
+        # A chord onset inside the run is a likely re-strike — the
+        # tone may re-attack there while its own band never dips.
+        # Return the latest one instead of the run's older start.
+        later = [
+            t
+            for t in self._chord_onsets
+            if rs + 0.05 < t <= onset_stem
+        ]
+        if later:
+            rs = max(later)
+        return rs + self._offset
 
     def _mask_dropout(self, cold_lo: int, cold_hi: int) -> bool:
         """True when a cold stretch is the vocal mask eating the stem.
@@ -1142,6 +1200,33 @@ def _accomp_pad_completion(
         )
         if not clash:
             accepted.append((s, e, m, a))
+    # Re-strike split: a band held through a moment when >=2 sibling
+    # pad bands newly start is a chord member carried across a
+    # re-strike (the pad replays the chord but this tone's energy
+    # never dipped). Cut the surviving span at the shared onset.
+    starts = sorted(s for s, _e, _m, _a in accepted)
+    chord_onsets: list[float] = []
+    i = 0
+    while i < len(starts):
+        j = i
+        while (
+            j + 1 < len(starts)
+            and starts[j + 1] - starts[i] <= _ACCOMP_PAD_REATTACK_CLUSTER_SEC
+        ):
+            j += 1
+        if j > i:
+            chord_onsets.append(starts[i])
+        i = j + 1
+    if chord_onsets:
+        split: list[tuple[float, float, int, float]] = []
+        for s, e, m, a in accepted:
+            prev = s
+            for t in chord_onsets:
+                if s + _ACCOMP_PAD_SPLIT_MARGIN_SEC < t < e - _ACCOMP_PAD_SPLIT_MARGIN_SEC:
+                    split.append((prev, t, m, a))
+                    prev = t
+            split.append((prev, e, m, a))
+        accepted = split
     out: list[RawNoteEvent] = []
     for s, e, m, _a in accepted:
         span = e - s

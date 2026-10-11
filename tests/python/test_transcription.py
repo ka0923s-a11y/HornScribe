@@ -4180,6 +4180,35 @@ class TestAccompPadCompletion:
     def test_no_samples_emits_nothing(self) -> None:
         assert _accomp_pad_completion(None, 0, (), _REV) == ()
 
+    def test_held_member_splits_at_chord_restrike(self) -> None:
+        # A pad member whose band runs straight through a chord
+        # re-strike must notate the repeated hit: two sibling pad
+        # bands starting together mark the re-strike, so the held
+        # member's span splits there instead of reading as one tie.
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        sr = 22050
+        t = np.arange(int(3.0 * sr)) / sr
+        y = np.zeros_like(t)
+        f = 440.0 * 2 ** ((57 - 69) / 12)
+        y += 0.2 * np.sin(2 * np.pi * f * t)
+        # Sibling members sound only after the re-strike — their
+        # shared run start is the chord onset.
+        for m in (60, 64):
+            f2 = 440.0 * 2 ** ((m - 69) / 12)
+            seg = t >= 1.0
+            y[seg] += 0.2 * np.sin(2 * np.pi * f2 * t[seg])
+        out = _accomp_pad_completion(y, sr, (), _REV)
+        m57 = sorted(
+            (e.onset_sec, e.offset_sec)
+            for e in out
+            if int(round(e.pitch_midi)) == 57
+        )
+        assert len(m57) == 2
+        assert m57[0][0] == pytest.approx(0.0, abs=0.1)
+        assert m57[1][0] == pytest.approx(1.0, abs=0.15)
+        assert m57[0][1] == pytest.approx(m57[1][0], abs=0.05)
+
 
 class TestAccompSeamHeal:
     """#160: a same-pitch neighbour pair merges only when the stem's
@@ -4505,6 +4534,28 @@ class TestBackdateAccompOnsets:
         # far under the 0.18 s floor, so the onset stays put.
         assert backdated == 0 and merged == 0
         assert out[0].onset_sec == pytest.approx(1.05)
+
+    def test_run_start_stops_at_chord_restrike(self) -> None:
+        # The band holds straight through a chord re-strike, but the
+        # sibling members' shared run start marks the new attack —
+        # the walk must stop there, not at the run's older head.
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        sr = 22050
+        t = np.arange(int(2.4 * sr)) / sr
+        y = np.zeros_like(t)
+        f = 440.0 * 2 ** ((57 - 69) / 12)
+        y += 0.2 * np.sin(2 * np.pi * f * t)
+        for m in (60, 64):
+            f2 = 440.0 * 2 ** ((m - 69) / 12)
+            seg = t >= 1.0
+            y[seg] += 0.2 * np.sin(2 * np.pi * f2 * t[seg])
+        bands = _accomp_band_evidence(y, sr)
+        assert bands is not None
+        ev = (self._ev(57.0, 1.5, 2.0, 1),)
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert backdated == 1 and merged == 0
+        assert out[0].onset_sec == pytest.approx(1.0, abs=0.2)
 
 
 class TestAccompPadCompletionOffset:
