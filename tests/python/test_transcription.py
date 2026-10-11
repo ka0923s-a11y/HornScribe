@@ -3983,14 +3983,20 @@ class TestDedupAccompUnison:
         )
 
     class _FakeRuns:
-        """run_start answers for the overlap-union pass (#155)."""
+        """run_start answers for the overlap-union pass (#155).
 
-        def __init__(self, starts: dict[int, float | None]) -> None:
+        Keys may be ``midi`` (one answer for every onset) or
+        ``(midi, round(onset, 2))`` for per-onset answers (#172)."""
+
+        def __init__(self, starts: dict[object, float | None]) -> None:
             self._starts = starts
 
         def run_start(
             self, midi: float, onset_sec: float
         ) -> float | None:
+            key = (int(round(midi)), round(onset_sec, 2))
+            if key in self._starts:
+                return self._starts[key]
             return self._starts.get(int(round(midi)))
 
     def _voice(self, *evs: RawNoteEvent) -> CleanedEvents:
@@ -4113,6 +4119,43 @@ class TestDedupAccompUnison:
                 self._voice(
                     self._ev(64.0, 0.0, 0.49, 1, src="pad-completion"),
                     self._ev(64.0, 0.44, 1.79, 2),
+                )
+            ],
+            bands,
+        )
+        assert sum(len(c.events) for c in out) == 2
+
+    def test_later_mined_fragment_unions_into_grown_run(self) -> None:
+        # #172: the miner split one held tone across a local mask dip;
+        # the grown union (mined anchor + tracker onset folded in)
+        # already covers the fragment's span, and the fragment's own
+        # run reaches back to the union's onset — same tone, union.
+        bands = self._FakeRuns({64: 0.0})
+        out = _dedup_accomp_unison(
+            [
+                self._voice(
+                    self._ev(64.0, 0.0, 1.0, 1, src="pad-completion"),
+                    self._ev(64.0, 0.1, 1.4, 2, src="basic_pitch"),
+                    self._ev(64.0, 1.2, 1.45, 3, src="pad-completion"),
+                )
+            ],
+            bands,
+        )
+        evs = [e for c in out for e in c.events]
+        assert len(evs) == 1
+        assert evs[0].offset_sec == pytest.approx(1.45)
+
+    def test_later_run_mined_fragment_kept(self) -> None:
+        # #172 kept-side: a mined fragment overlapping the grown
+        # union whose own run starts LATER is a fresh re-strike
+        # inside the sustained span — not a shard of the union.
+        bands = self._FakeRuns({(64, 0.1): 0.0, (64, 1.2): 1.2})
+        out = _dedup_accomp_unison(
+            [
+                self._voice(
+                    self._ev(64.0, 0.0, 1.0, 1, src="pad-completion"),
+                    self._ev(64.0, 0.1, 1.4, 2, src="basic_pitch"),
+                    self._ev(64.0, 1.2, 1.45, 3, src="pad-completion"),
                 )
             ],
             bands,
@@ -4555,16 +4598,23 @@ class TestBackdateAccompOnsets:
 
     class _FakeBands:
         def __init__(
-            self, starts: dict[int, float], separated: bool = True
+            self,
+            starts: dict[int, float],
+            separated: bool = True,
+            attack: bool = True,
         ) -> None:
             self._starts = starts
             self._separated = separated
+            self._attack = attack
 
         def run_start(self, midi: float, onset_sec: float) -> float | None:
             return self._starts.get(int(round(midi)))
 
         def separated(self, a: RawNoteEvent, b: RawNoteEvent) -> bool:
             return self._separated
+
+        def attack_evidence(self, midi: float, onset_sec: float) -> bool:
+            return self._attack
 
     def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
         return RawNoteEvent(
@@ -4631,6 +4681,32 @@ class TestBackdateAccompOnsets:
         # run 0.3 < floor 0.5 -> the recovered span is too small to
         # move the onset — the note keeps its detected attack.
         assert out[1].onset_sec == pytest.approx(0.54)
+
+    def test_mask_dip_reonset_folds_into_run(self) -> None:
+        # #172: the seam dipped AND the run containing the re-onset
+        # reaches back to the predecessor's own onset with no attack
+        # evidence there — a mask-recovery refire of a tone that
+        # never released, folded into the surviving event.
+        bands = self._FakeBands({57: 0.2}, separated=True, attack=False)
+        ev = (
+            self._ev(57.0, 0.2, 0.9, 1),
+            self._ev(57.0, 1.1, 1.7, 2),
+        )
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert merged == 1 and len(out) == 1
+        assert out[0].offset_sec == pytest.approx(1.7)
+
+    def test_dipped_gap_with_attack_keeps_reattack(self) -> None:
+        # #172: the run also reaches back (short release gaps bridge
+        # as holes), but the band posts an attack at the re-onset —
+        # a real same-pitch re-strike like a bass quarter — kept.
+        bands = self._FakeBands({45: 0.2}, separated=True, attack=True)
+        ev = (
+            self._ev(45.0, 0.2, 0.6, 1),
+            self._ev(45.0, 0.63, 1.1, 2),
+        )
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert merged == 0 and len(out) == 2
 
     def test_no_evidence_passthrough(self) -> None:
         ev = (self._ev(60.0, 0.0, 0.5, 1),)

@@ -454,8 +454,12 @@ def _dedup_accomp_unison(
     miner's run started first and the tracker fired INSIDE it — the
     band says the tone began at the mined onset, so the detected
     onset is a phantom and the pair unions into the mined event.
-    The mirror shape (tracker event first, a fresh mined run starting
-    inside it) is kept: the miner's own run boundary is a re-attack
+    A later mined fragment of the same run unions in the same way —
+    the miner can split one held tone across a local mask dip, and
+    ``run_start`` reaching back to the union's onset proves the piece
+    belongs to it rather than to a re-attack (#172). The mirror
+    shape (tracker event first, a fresh mined run starting inside
+    it) is kept: the miner's own run boundary is a re-attack
     signature, and a detector+detector overlap cannot be told from a
     real re-attack at all.
     """
@@ -497,7 +501,6 @@ def _dedup_accomp_unison(
                 run = bands.run_start(e.pitch_midi, e.onset_sec)
                 if (
                     cur_ev.source == "pad-completion"
-                    and e.source != "pad-completion"
                     and run is not None
                     and run <= cur_ev.onset_sec + _ACCOMP_UNISON_TOL_SEC
                 ):
@@ -575,6 +578,13 @@ _ACCOMP_SEAM_MAX_GAP_SEC = 0.12
 # the run actually started; only a gain beyond this floor is a real
 # late-onset correction, anything smaller is window smear.
 _ACCOMP_BACKDATE_MIN_SEC = 0.18
+# #172: a same-pitch re-onset folds into its predecessor when the band
+# run containing it reaches back to the predecessor's own onset — the
+# dropout bridge inside run_start says the tone never released (a
+# local mask dip let go mid-sustain and the detector re-fired). A real
+# re-attack starts a LATER run instead. The epsilon covers detector
+# onset lateness vs the band's measured rise.
+_ACCOMP_RUN_CONT_EPS_SEC = 0.1
 # A few cold frames inside a run are a transient dip (a drum hit or
 # the pad's own beating envelope), not the end of the tone — bridged
 # unconditionally because the only consumer is onset backdating,
@@ -913,6 +923,36 @@ class _AccompBands:
             trough = float(e[j0:j1].min()) if j1 > j0 else 0.0
         return trough < _ACCOMP_SEAM_BAND_DIP * med
 
+    def attack_evidence(self, midi: float, onset_sec: float) -> bool:
+        """True when the band posts a real attack at ``onset_sec`` (#172).
+
+        Both conjuncts required: the hot mask is on at the onset
+        instant (a mask-recovery refire happens while the band is
+        still cold and ramping back), AND the band's log-flux at the
+        onset is attack-strength — measured on the JPOP stem the
+        mask's re-hot edge posts ~0.12 while even the softest real
+        re-strike (bass quarter) posts ~0.29, so 0.15 sits between.
+        A near-legato re-strike that never toggles the hot mask
+        still passes — its flux carries the signature — while a
+        refire on the dip's falling edge shows flux ~0.
+        """
+        import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+        m = int(round(midi))
+        if m < self._mids[0] or m > self._mids[-1]:
+            return True  # outside the mined range: cannot veto
+        j = int((onset_sec - self._offset) / self._spf)
+        if not 0 <= j < self._frames:
+            return True
+        i = m - self._mids[0]
+        hot = self._hot[i]
+        if not bool(hot[max(0, j - 2) : min(self._frames, j + 3)].any()):
+            return False
+        le = np.log1p(self._band_e[i] * 1e4)
+        flux = np.maximum(0.0, np.diff(le))
+        w = flux[max(0, j - 3) : min(self._frames - 1, j + 4)]
+        return bool(w.size) and float(w.max()) >= 0.15
+
     def run_start(self, midi: float, onset_sec: float) -> float | None:
         """Job-time start of the sustained run containing ``onset_sec``.
 
@@ -1204,12 +1244,15 @@ def _backdate_accomp_onsets(
     the onset there when the recovered span beats
     ``_ACCOMP_BACKDATE_MIN_SEC``.
 
-    When the seam to a same-pitch predecessor stays elevated (the
-    #160 dip test — ``bands.separated`` False) the band says the
-    tone never stopped — fold the event into that predecessor (the
-    >0.12 s-gap sibling of the seam heal, gated by the same evidence
-    rather than a fixed silence budget). A real re-attack dips
-    through the seam and is kept.
+    Two evidences fold the event into a same-pitch predecessor:
+    the seam staying elevated (the #160 dip test — ``bands.separated``
+    False), and — #172 — the onset's own run reaching back to the
+    predecessor's onset with no band-level attack at the re-onset
+    (``run_start`` bridging a mask dropout says the tone never
+    released even though the seam measured a local dip: the lead's
+    mask suppressed this one band mid-sustain and the detector
+    re-fired as it let go). A real re-attack either starts a later
+    run or posts ``attack_evidence`` at its onset — both are kept.
 
     Returns (events, backdated, continuity_merged).
     """
@@ -1230,7 +1273,22 @@ def _backdate_accomp_onsets(
         if (
             prev is not None
             and int(round(prev.pitch_midi)) == int(round(ev.pitch_midi))
-            and not bands.separated(prev, ev)
+            and (
+                not bands.separated(prev, ev)
+                or (
+                    # #172: mask-recovery refire — the run containing
+                    # this onset reaches back to the predecessor's own
+                    # onset AND the band shows no attack at the re-onset
+                    # (still cold mid-ramp, or a falling edge into the
+                    # dip). A real re-attack starts a later run and
+                    # carries an attack signature, so this folds only
+                    # genuine continuations.
+                    run <= prev.onset_sec + _ACCOMP_RUN_CONT_EPS_SEC
+                    and not bands.attack_evidence(
+                        ev.pitch_midi, ev.onset_sec
+                    )
+                )
+            )
         ):
             out[-1] = _extend(
                 prev, ev.offset_sec, ev.confidence, ev.pitch_bends
