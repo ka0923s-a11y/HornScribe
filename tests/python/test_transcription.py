@@ -35,10 +35,12 @@ from hornscribe.transcription.meter import estimate_meter
 from hornscribe.transcription.options import TranscriptionParams
 from hornscribe.transcription.pipeline import (
     STAGES,
+    _accomp_band_verdict,
     _accomp_confidence_floor,
     _accomp_pad_completion,
     _dedup_accomp_unison,
     _drop_stem_bleed_lows,
+    _heal_accomp_fragments,
     run_transcription_job,
 )
 from hornscribe.transcription.swing import detect_swing
@@ -4057,3 +4059,178 @@ class TestAccompPadCompletion:
 
     def test_no_samples_emits_nothing(self) -> None:
         assert _accomp_pad_completion(None, 0, (), _REV) == ()
+
+
+class TestAccompSeamHeal:
+    """#160: a same-pitch neighbour pair merges only when the stem's
+    per-midi band energy stays elevated across the seam — broadband
+    onsets (drums) must not veto the heal, and a real re-attack (the
+    band dips through the seam) must not merge."""
+
+    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-s{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.8,
+            velocity=80,
+            source="test",
+        )
+
+    def test_none_verdict_passthrough(self) -> None:
+        ev = (self._ev(60.0, 0.0, 0.4, 1), self._ev(60.0, 0.4, 0.8, 2))
+        out, n = _heal_accomp_fragments(ev, None)
+        assert n == 0 and len(out) == 2
+
+    def test_continuity_merges_adjacent(self) -> None:
+        ev = (self._ev(60.0, 0.0, 0.4, 1), self._ev(60.0, 0.44, 0.9, 2))
+        out, n = _heal_accomp_fragments(ev, lambda a, b: False)
+        assert n == 1
+        assert len(out) == 1
+        assert out[0].offset_sec == pytest.approx(0.9)
+
+    def test_dipped_band_keeps_separate(self) -> None:
+        ev = (self._ev(45.0, 0.0, 0.4, 1), self._ev(45.0, 0.44, 0.9, 2))
+        out, n = _heal_accomp_fragments(ev, lambda a, b: True)
+        assert n == 0 and len(out) == 2
+
+    def test_chain_folds_transitively(self) -> None:
+        ev = (
+            self._ev(57.0, 0.0, 0.3, 1),
+            self._ev(57.0, 0.3, 0.6, 2),
+            self._ev(57.0, 0.62, 0.9, 3),
+        )
+        out, n = _heal_accomp_fragments(ev, lambda a, b: False)
+        assert n == 2 and len(out) == 1
+        assert out[0].offset_sec == pytest.approx(0.9)
+
+    def test_wide_gap_never_merges(self) -> None:
+        # A >120 ms silence is a real rest — not a detector split.
+        ev = (self._ev(60.0, 0.0, 0.3, 1), self._ev(60.0, 0.5, 0.9, 2))
+        out, n = _heal_accomp_fragments(ev, lambda a, b: False)
+        assert n == 0 and len(out) == 2
+
+    def test_different_pitch_untouched(self) -> None:
+        ev = (self._ev(60.0, 0.0, 0.4, 1), self._ev(64.0, 0.4, 0.8, 2))
+        out, n = _heal_accomp_fragments(ev, lambda a, b: False)
+        assert n == 0 and len(out) == 2
+
+    def test_interleaved_other_pitch_blocks_chain(self) -> None:
+        # A lower/higher fragment between the same-pitch pair is real
+        # content — only directly adjacent neighbours may merge.
+        ev = (
+            self._ev(60.0, 0.0, 0.4, 1),
+            self._ev(64.0, 0.4, 0.5, 2),
+            self._ev(60.0, 0.5, 0.9, 3),
+        )
+        out, n = _heal_accomp_fragments(ev, lambda a, b: False)
+        assert n == 0 and len(out) == 3
+
+
+class TestAccompBandVerdict:
+    """#160: pitch-specific seam evidence on the accompaniment stem —
+    sustained tone -> merge, released+reattacked tone -> keep."""
+
+    def _tone(self, midi: int, sr: int = 22050, gap_sec: float = 0.0) -> Any:
+        np = pytest.importorskip("numpy")
+        f = 440.0 * 2 ** ((midi - 69) / 12)
+        t = np.arange(int(2.0 * sr)) / sr
+        y = np.zeros_like(t)
+        # note a: [0.2, 0.9), note b: [0.9+gap, 1.7)
+        a = (t >= 0.2) & (t < 0.9)
+        b = (t >= 0.9 + gap_sec) & (t < 1.7)
+        y[a] += 0.2 * np.sin(2 * np.pi * f * t[a])
+        y[b] += 0.2 * np.sin(2 * np.pi * f * t[b])
+        return y
+
+    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-v{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.8,
+            source="test",
+        )
+
+    def test_sustained_tone_seam_not_separated(self) -> None:
+        pytest.importorskip("librosa")
+        y = self._tone(57)  # continuous 0.2-1.7 except the split label
+        verdict = _accomp_band_verdict(y, 22050)
+        assert verdict is not None
+        a = self._ev(57.0, 0.2, 0.9, 1)
+        b = self._ev(57.0, 0.9, 1.7, 2)
+        assert verdict(a, b) is False
+
+    def test_reattack_with_silence_separated(self) -> None:
+        pytest.importorskip("librosa")
+        y = self._tone(45, gap_sec=0.10)  # real 100 ms release gap
+        verdict = _accomp_band_verdict(y, 22050)
+        assert verdict is not None
+        a = self._ev(45.0, 0.2, 0.9, 1)
+        b = self._ev(45.0, 1.0, 1.7, 2)
+        assert verdict(a, b) is True
+
+    def test_unavailable_audio_returns_none(self) -> None:
+        assert _accomp_band_verdict(None, 0) is None
+
+    def test_selection_offset_maps_to_stem_axis(self) -> None:
+        # Job times sit at +3.0 s against the stem's own axis — the
+        # verdict must subtract the offset before indexing frames.
+        pytest.importorskip("librosa")
+        y = self._tone(57)
+        verdict = _accomp_band_verdict(y, 22050, time_offset_sec=3.0)
+        assert verdict is not None
+        a = self._ev(57.0, 3.2, 3.9, 1)
+        b = self._ev(57.0, 3.9, 4.7, 2)
+        assert verdict(a, b) is False
+
+
+class TestAccompPadCompletionOffset:
+    """#160: pad candidates land on the job timeline — a selection job
+    must not emit them selection_offset_sec early, and the coverage
+    check must compare against stem-axis detections."""
+
+    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-o{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.8,
+            source="test",
+        )
+
+    def test_candidates_shifted_to_job_time(self) -> None:
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        sr = 22050
+        t = np.arange(int(1.6 * sr)) / sr
+        y = np.zeros_like(t)
+        f = 440.0 * 2 ** ((60 - 69) / 12)
+        y += 0.2 * np.sin(2 * np.pi * f * t)
+        out = _accomp_pad_completion(
+            y, sr, (), _REV, time_offset_sec=3.0
+        )
+        assert out
+        assert min(e.onset_sec for e in out) >= 3.0
+
+    def test_coverage_check_uses_stem_axis(self) -> None:
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("librosa")
+        sr = 22050
+        t = np.arange(int(1.6 * sr)) / sr
+        y = np.zeros_like(t)
+        f = 440.0 * 2 ** ((60 - 69) / 12)
+        y += 0.2 * np.sin(2 * np.pi * f * t)
+        # Job-time existing note covering the whole stem span at the
+        # same pitch — with the offset applied it suppresses the pad.
+        existing = (self._ev(60.0, 3.0, 4.5, 1),)
+        out = _accomp_pad_completion(
+            y, sr, existing, _REV, time_offset_sec=3.0
+        )
+        assert out == ()

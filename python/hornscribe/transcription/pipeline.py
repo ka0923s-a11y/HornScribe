@@ -122,6 +122,7 @@ from .chord import (
 from .clean import (
     MERGE_GAP_SEC,
     CleanedEvents,
+    _extend,
     clean_monophonic,
     clip_to_range,
     split_voices,
@@ -485,6 +486,139 @@ def _dedup_accomp_unison(
     return out
 
 
+# #160: the accompaniment stem answers seam questions per pitch — a
+# drum hit inside the broadband flux window reads as a re-attack to
+# the lead-line seam check and vetoes the merge of a held pad the
+# detector split (14 of 20 split seams on the JPOP-mix stem sat under
+# an unrelated transient). The stem's per-midi band energy asks the
+# right question instead: when the band dips through the seam the
+# neighbour is a real re-articulation (bass quarters measure 0.26-
+# 0.57 of their span level), when it stays elevated the fragments are
+# one sustained tone (pad splits measure 0.87-1.40).
+_ACCOMP_SEAM_BAND_DIP = 0.70
+# A wider silence is a real rest — merging across it would notate a
+# held tone where the player breathed.
+_ACCOMP_SEAM_MAX_GAP_SEC = 0.12
+
+
+def _accomp_band_verdict(
+    samples: Any,
+    sample_rate: int,
+    *,
+    time_offset_sec: float = 0.0,
+) -> Callable[[RawNoteEvent, RawNoteEvent], bool] | None:
+    """Per-midi band continuity verdict for accompaniment seams (#160).
+
+    Returns an ``(a, b) -> bool`` check — True means the seam
+    between same-pitch neighbours is a real articulation (the band
+    energy at that pitch dips through it), False means the band stays
+    elevated and the two fragments describe one sustained tone. None
+    when the stem/audio stack is unavailable — the caller then keeps
+    the merge_gap=0 status quo rather than guessing from no evidence.
+
+    ``time_offset_sec`` maps the job-timeline event times back to
+    the stem's own axis (the stem covers the backend input span only).
+    """
+    if samples is None or sample_rate <= 0:
+        return None
+    try:
+        require_module("librosa")
+        import librosa  # noqa: PLC0415 - lazy optional dependency
+        import numpy as np  # noqa: PLC0415 - lazy optional dependency
+    except Exception:
+        return None
+    try:
+        y = np.asarray(samples, dtype=np.float64)
+        sr = int(sample_rate)
+        if sr != 22050:
+            y = librosa.resample(y, orig_sr=sr, target_sr=22050)
+            sr = 22050
+        spec = np.abs(librosa.stft(y, n_fft=4096, hop_length=512))
+    except Exception:
+        return None
+    if spec.shape[1] < 2:
+        return None
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=4096)
+    frames = spec.shape[1]
+    spf = 512.0 / sr
+    cache: dict[int, Any] = {}
+
+    def _band(m: int) -> Any:
+        if m not in cache:
+            lo = 440.0 * 2 ** ((m - 69 - 0.45) / 12)
+            hi = 440.0 * 2 ** ((m - 69 + 0.45) / 12)
+            cache[m] = spec[(freqs >= lo) & (freqs <= hi)].sum(axis=0)
+        return cache[m]
+
+    def _separated(a: RawNoteEvent, b: RawNoteEvent) -> bool:
+        m = int(round(0.5 * (a.pitch_midi + b.pitch_midi)))
+        e = _band(m)
+        # The union span's median is the band's own "sounding" level —
+        # a trough below _ACCOMP_SEAM_BAND_DIP of it means the tone
+        # actually stopped between the two detections.
+        i0 = max(0, int((a.onset_sec - time_offset_sec) / spf))
+        i1 = min(frames, int((b.offset_sec - time_offset_sec) / spf) + 1)
+        if i1 <= i0:
+            return True  # out-of-range events: keep the seam
+        med = float(np.median(e[i0:i1]))
+        if med <= 0.0:
+            return True  # silent band carries no merge evidence
+        lo = a.offset_sec - time_offset_sec
+        hi = b.onset_sec - time_offset_sec
+        if hi - lo > spf:
+            j0 = max(0, int(lo / spf))
+            j1 = min(frames, int(hi / spf) + 1)
+            trough = float(e[j0:j1].min())
+        else:
+            # Abutting/overlapping detections: the seam is one instant —
+            # take the band minimum within a frame of it so a real
+            # 30 ms release still registers.
+            mid = 0.5 * (lo + hi)
+            j0 = max(0, int((mid - spf) / spf))
+            j1 = min(frames, int((mid + spf) / spf) + 1)
+            trough = float(e[j0:j1].min()) if j1 > j0 else 0.0
+        return trough < _ACCOMP_SEAM_BAND_DIP * med
+
+    return _separated
+
+
+def _heal_accomp_fragments(
+    events: tuple[RawNoteEvent, ...],
+    separated: Callable[[RawNoteEvent, RawNoteEvent], bool] | None,
+) -> tuple[tuple[RawNoteEvent, ...], int]:
+    """Merge adjacent same-pitch fragments the band calls one tone (#160).
+
+    The accomp clean path keeps merge_gap=0 so real re-attacks survive
+    (#132) — which also keeps every detector split of a sustained pad
+    or bass note. Heal those here: a same-pitch neighbour inside
+    _ACCOMP_SEAM_MAX_GAP_SEC folds into the running event ONLY when the
+    stem's per-midi band energy does not dip at the seam. Chains fold
+    transitively (a+b merged, then c measured against the union).
+    """
+    if separated is None or len(events) < 2:
+        return events, 0
+    ordered = sorted(events, key=lambda e: (e.onset_sec, e.offset_sec))
+    out: list[RawNoteEvent] = []
+    merged = 0
+    for ev in ordered:
+        if out:
+            prev = out[-1]
+            same_pitch = int(round(prev.pitch_midi)) == int(round(ev.pitch_midi))
+            gap = ev.onset_sec - prev.offset_sec
+            if (
+                same_pitch
+                and gap < _ACCOMP_SEAM_MAX_GAP_SEC
+                and not separated(prev, ev)
+            ):
+                out[-1] = _extend(
+                    prev, ev.offset_sec, ev.confidence, ev.pitch_bends
+                )
+                merged += 1
+                continue
+        out.append(ev)
+    return tuple(out), merged
+
+
 # #136: sustained-harmony completion for the accompaniment part. Basic
 # Pitch tracks attacks — a held pad chord fades under the mix and the
 # detector either skips it or writes sub-floor flicker (JPOP-mix stem:
@@ -609,6 +743,8 @@ def _accomp_pad_completion(
     sample_rate: int,
     existing: tuple[RawNoteEvent, ...],
     revision: TranscriptionRevisionId,
+    *,
+    time_offset_sec: float = 0.0,
 ) -> tuple[RawNoteEvent, ...]:
     """Spectral pad completion -> extra accompaniment events (#136).
 
@@ -621,6 +757,12 @@ def _accomp_pad_completion(
     candidate's span) are skipped; at most
     ``_ACCOMP_PAD_MAX_SIMULTANEOUS`` simultaneous bands are admitted so
     a broadband wash cannot fabricate a wall of pads.
+
+    The stem's own axis starts at 0 while ``existing`` and every
+    downstream consumer speak job-timeline seconds — for a selection
+    job those differ by ``time_offset_sec``. Candidates are shifted
+    INTO job time at emission, and the coverage check compares
+    ``existing`` back on the stem axis, so both sides stay honest.
     """
     if samples is None or sample_rate <= 0:
         return ()
@@ -654,13 +796,18 @@ def _accomp_pad_completion(
         for k in existing:
             if abs(k.pitch_midi - m) <= 1:
                 covered_span += max(
-                    0.0, min(e, k.offset_sec) - max(s, k.onset_sec)
+                    0.0,
+                    min(e, k.offset_sec - time_offset_sec)
+                    - max(s, k.onset_sec - time_offset_sec),
                 )
         covered = covered_span > 0.5 * span
         if covered:
             continue
         simultaneous = sum(
-            1 for x in out if x.onset_sec < e and x.offset_sec > s
+            1
+            for x in out
+            if x.onset_sec - time_offset_sec < e
+            and x.offset_sec - time_offset_sec > s
         )
         if simultaneous >= _ACCOMP_PAD_MAX_SIMULTANEOUS:
             continue
@@ -669,8 +816,8 @@ def _accomp_pad_completion(
                 id=RawNoteEventId(f"rne-p{len(out) + 1:06d}"),
                 transcription_revision=revision,
                 pitch_midi=float(m),
-                onset_sec=s,
-                offset_sec=e,
+                onset_sec=s + time_offset_sec,
+                offset_sec=e + time_offset_sec,
                 confidence=None,
                 source="pad-completion",
             )
@@ -2533,6 +2680,7 @@ def run_transcription_job(
         # #244: running count of sub-floor flicker dropped from the
         # accompaniment detections, reported in meta for review.
         accomp_conf_dropped = 0
+        accomp_seam_merged = 0
         # #233/#260/#259: grab the stem's decoded audio + evidence
         # curves now, while the file still exists -- stage 3 uses the
         # onset/flux pools for meter accents, stage 5 reuses the
@@ -2591,6 +2739,16 @@ def run_transcription_job(
                     max_voices=min(4, params.max_voices),
                     merge_gap_sec=_ACCOMP_MERGE_GAP_SEC,
                 )
+                # #160: seam questions on the accompaniment stem are
+                # per-pitch — a drum hit next to a split pad boundary
+                # must not veto the heal, and a real bass re-attack
+                # must not merge. The band verdict answers both from
+                # the same STFT pass.
+                accomp_seam = _accomp_band_verdict(
+                    accomp_y,
+                    accomp_env_sr,
+                    time_offset_sec=selection_offset_sec,
+                )
                 for v in a_split.voices:
                     c = clean_monophonic(
                         v,
@@ -2598,6 +2756,16 @@ def run_transcription_job(
                         octave_verdict=_accomp_octave_ev,
                     )
                     if c.events:
+                        healed, seam_merges = _heal_accomp_fragments(
+                            c.events, accomp_seam
+                        )
+                        if seam_merges:
+                            accomp_seam_merged += seam_merges
+                            c = replace(
+                                c,
+                                events=healed,
+                                merged=c.merged + seam_merges,
+                            )
                         accomp_cleaned.append(c)
             # #136: sustained pads never reach Basic Pitch's attack-
             # driven detector — mine the stem's spectrum for held
@@ -2608,6 +2776,7 @@ def run_transcription_job(
                 accomp_env_sr,
                 accomp_ranged,
                 revision,
+                time_offset_sec=selection_offset_sec,
             )
             if pad_extra:
                 accomp_cleaned.append(
@@ -3770,6 +3939,7 @@ def run_transcription_job(
                     "accompanimentCleaning": {
                         "confidenceDropped": accomp_conf_dropped,
                         "unisonDropped": accomp_unison_dropped,
+                        "seamMerged": accomp_seam_merged,
                         "voiceCount": len(accomp_cleaned),
                         "eventCount": sum(
                             len(c.events) for c in accomp_cleaned
