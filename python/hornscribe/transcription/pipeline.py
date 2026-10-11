@@ -2611,6 +2611,20 @@ def run_transcription_job(
         else:
             beat_times = None
             strengths = ()
+        # #150: the accompaniment part's onsets feed two rhythm-stage
+        # consumers — the meter estimate's independent accent channel
+        # and the pickup analysis's downbeat-phase evidence. Build the
+        # pool once here so a pinned meter still gets the latter.
+        accomp_accent_pool: tuple[tuple[float, float], ...] | None = None
+        if accomp_cleaned and accomp_y is not None:
+            acc_pool = _event_accents(
+                (e for c in accomp_cleaned for e in c.events),
+                accomp_y,
+                accomp_env_sr,
+                time_offset_sec=vis_lo,
+            )
+            if len(acc_pool) >= _ACCOMP_METER_MIN_ACCENTS:
+                accomp_accent_pool = acc_pool
         if params.meter == "auto":
             # #228: auto meter reads accents off a beat track — run it
             # even when the user pinned the tempo (the pinned BPM only
@@ -2636,16 +2650,10 @@ def run_transcription_job(
             # changes land on barlines (measured ratio4 1.58 vs 1.08
             # for the merged pool on the reference J-pop mix). They
             # already exist here: the part transcribed before the
-            # rhythm stage.
-            if accomp_cleaned and accomp_y is not None:
-                acc_pool = _event_accents(
-                    (e for c in accomp_cleaned for e in c.events),
-                    accomp_y,
-                    accomp_env_sr,
-                    time_offset_sec=vis_lo,
-                )
-                if len(acc_pool) >= _ACCOMP_METER_MIN_ACCENTS:
-                    channel_accents["accompaniment"] = acc_pool
+            # rhythm stage, and the pool was built above for the
+            # pickup phase evidence too (#150).
+            if accomp_accent_pool is not None:
+                channel_accents["accompaniment"] = accomp_accent_pool
             # #233: on a separated mix the melody line's onsets are
             # the WORST meter evidence (vocal phrases start off-beat);
             # the no_vocals stem still carries the drums/bass that
@@ -2723,6 +2731,7 @@ def run_transcription_job(
             beat_times=beat_times,
             pulse_unit_ql=pulse_unit_ql,
             beat_strengths=strengths,
+            phase_accents=accomp_accent_pool,
         )
         rhythm_done += 1
         step(3, rhythm_done, rhythm_total)
