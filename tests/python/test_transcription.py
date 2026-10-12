@@ -40,9 +40,10 @@ from hornscribe.transcription.pipeline import (
     _accomp_confidence_floor,
     _accomp_detected_events,
     _accomp_pad_completion,
+    _accomp_train_completion,
+    _admit_stem_lattice_candidates,
     _backdate_accomp_onsets,
     _dedup_accomp_unison,
-    _accomp_train_completion,
     _drop_stem_bleed_lows,
     _fold_accomp_slivers,
     _heal_accomp_fragments,
@@ -4000,6 +4001,155 @@ class TestStemBleedDrop:
         assert len(out.events) == 25
         assert out.bleed_dropped == 0
 
+
+class TestStemLatticeAdmission:
+    """#200: suppressed lattice candidates the stem corroborates are
+    re-admitted into the cleaned lead line — register window,
+    support count, and fundamental-band arbitration all gate the
+    rescue so bleed never earns a slot."""
+
+    def _stem(self, spans: list[tuple[float, float, float]]):
+        """Synthesize a mono stem buffer: a sine at each (onset,
+        offset, midi) span — the vocal estimate's honest content."""
+        np = pytest.importorskip("numpy")
+        sr = 22050
+        n = int(sr * 8.0)
+        y = np.zeros(n, dtype=np.float64)
+        t = np.arange(n) / sr
+        for on, off, midi in spans:
+            f = 440.0 * 2.0 ** ((midi - 69) / 12.0)
+            mask = (t >= on) & (t < off)
+            y[mask] += 0.5 * np.sin(2 * np.pi * f * t[mask])
+        return (y, sr)
+
+    def _lead(self, events: tuple[RawNoteEvent, ...]) -> CleanedEvents:
+        return CleanedEvents(
+            events=events,
+            dropped_too_short=0,
+            merged=0,
+            clipped_overlaps=0,
+        )
+
+    def _ev(
+        self,
+        midi: float,
+        onset: float,
+        offset: float,
+        i: int = 0,
+    ) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-t{i + 1:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.9,
+            velocity=80,
+            source="test",
+        )
+
+    def test_corroborated_suppressed_note_admitted(self) -> None:
+        """Two lattice fragments at midi 72 sit in the gap between
+        surviving 74s — the stem carries a real 72 sine there, so the
+        note is re-admitted."""
+        kept = self._lead(
+            (
+                self._ev(74.0, 0.4, 0.9, 1),
+                self._ev(74.0, 1.9, 2.4, 2),
+            )
+        )
+        ranged = tuple(kept.events) + (
+            self._ev(72.0, 1.0, 1.3, 3),
+            self._ev(72.0, 1.3, 1.6, 4),
+        )
+        stem = self._stem(
+            [(0.4, 0.9, 74.0), (1.0, 1.6, 72.0), (1.9, 2.4, 74.0)]
+        )
+        out, margins = _admit_stem_lattice_candidates(kept, ranged, stem)
+        assert len(out.events) == 3
+        admitted = [e for e in out.events if int(round(e.pitch_midi)) == 72]
+        assert len(admitted) == 1
+        assert admitted[0].onset_sec == pytest.approx(1.0, abs=0.02)
+        assert admitted[0].id in margins
+
+    def test_single_supporter_never_admitted(self) -> None:
+        """A lone lattice flicker under the same stem evidence is
+        not real support — the two-event floor holds."""
+        kept = self._lead(
+            (
+                self._ev(74.0, 0.4, 0.9, 1),
+                self._ev(74.0, 1.9, 2.4, 2),
+            )
+        )
+        ranged = tuple(kept.events) + (self._ev(72.0, 1.0, 1.6, 3),)
+        stem = self._stem(
+            [(0.4, 0.9, 74.0), (1.0, 1.6, 72.0), (1.9, 2.4, 74.0)]
+        )
+        out, margins = _admit_stem_lattice_candidates(kept, ranged, stem)
+        assert len(out.events) == 2
+        assert margins == {}
+
+    def test_out_of_register_candidate_rejected(self) -> None:
+        """A corroborated sub-bass hypothesis stays out — the local
+        line sits ~24 st above it."""
+        kept = self._lead(
+            (
+                self._ev(74.0, 0.4, 0.9, 1),
+                self._ev(74.0, 1.9, 2.4, 2),
+            )
+        )
+        ranged = tuple(kept.events) + (
+            self._ev(48.0, 1.0, 1.3, 3),
+            self._ev(48.0, 1.3, 1.6, 4),
+        )
+        stem = self._stem(
+            [(0.4, 0.9, 74.0), (1.0, 1.6, 48.0), (1.9, 2.4, 74.0)]
+        )
+        out, margins = _admit_stem_lattice_candidates(kept, ranged, stem)
+        assert len(out.events) == 2
+        assert margins == {}
+
+    def test_band_loser_rejected(self) -> None:
+        """A rival suppressed candidate whose band dominates the
+        span keeps the weaker one out."""
+        kept = self._lead(
+            (
+                self._ev(74.0, 0.4, 0.9, 1),
+                self._ev(74.0, 1.9, 2.4, 2),
+            )
+        )
+        ranged = tuple(kept.events) + (
+            self._ev(72.0, 1.0, 1.3, 3),
+            self._ev(72.0, 1.3, 1.6, 4),
+            self._ev(70.0, 1.0, 1.3, 5),
+            self._ev(70.0, 1.3, 1.6, 6),
+        )
+        # Stem carries 72 loud, 70 faint — 70 loses the band check.
+        np = pytest.importorskip("numpy")
+        sr = 22050
+        n = int(sr * 8.0)
+        y = np.zeros(n, dtype=np.float64)
+        t = np.arange(n) / sr
+        for on, off, midi, amp in (
+            (0.4, 0.9, 74.0, 0.5),
+            (1.0, 1.6, 72.0, 0.5),
+            (1.0, 1.6, 70.0, 0.06),
+            (1.9, 2.4, 74.0, 0.5),
+        ):
+            f = 440.0 * 2.0 ** ((midi - 69) / 12.0)
+            mask = (t >= on) & (t < off)
+            y[mask] += amp * np.sin(2 * np.pi * f * t[mask])
+        out, _margins = _admit_stem_lattice_candidates(
+            kept, ranged, (y, sr)
+        )
+        pitches = sorted(int(round(e.pitch_midi)) for e in out.events)
+        assert pitches == [72, 74, 74]
+
+    def test_no_stem_passthrough(self) -> None:
+        kept = self._lead((self._ev(74.0, 0.4, 0.9, 1),))
+        out, margins = _admit_stem_lattice_candidates(kept, (), None)
+        assert out is kept
+        assert margins == {}
 
 class TestAccompConfidenceFloor:
     """#244: the other-stem flicker floor keeps confident or sustained
