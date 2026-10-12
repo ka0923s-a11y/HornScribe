@@ -42,6 +42,7 @@ from hornscribe.transcription.pipeline import (
     _accomp_pad_completion,
     _backdate_accomp_onsets,
     _dedup_accomp_unison,
+    _accomp_train_completion,
     _drop_stem_bleed_lows,
     _fold_accomp_slivers,
     _heal_accomp_fragments,
@@ -4307,6 +4308,110 @@ class TestDedupAccompUnison:
         kept = [e for c in out for e in c.events]
         assert len(kept) == 1
         assert kept[0].offset_sec == pytest.approx(1.9)
+
+
+class TestAccompTrainCompletion:
+    """#191: a periodic same-pitch train mints the hits the detector
+    under-fired — but only inside a dead strike cover's span (the
+    detector's own merged hypothesis) and only where the band
+    envelope still rose at the predicted lattice point."""
+
+    class _FakeBands:
+        _spf = 0.02
+
+        def __init__(
+            self, rises: dict[int, list[tuple[float, float, float]]]
+        ) -> None:
+            self._rises = rises
+
+        def band_reattack(
+            self, midi: float, onset_sec: float
+        ) -> float | None:
+            out = 0.0
+            for lo, hi, r in self._rises.get(int(round(midi)), ()):
+                if lo <= onset_sec <= hi:
+                    out = max(out, r)
+            return out
+
+    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-b{i:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=midi,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.8,
+            velocity=80,
+            source="test",
+        )
+
+    def _voice(self, *evs: RawNoteEvent) -> CleanedEvents:
+        return CleanedEvents(
+            events=evs,
+            dropped_too_short=0,
+            merged=0,
+            clipped_overlaps=0,
+        )
+
+    def _train_voice(self) -> CleanedEvents:
+        # Three detected strikes at ~0.47 s establish the lattice;
+        # the fourth (truth ~1.64) was never emitted.
+        return self._voice(
+            self._ev(72.0, 0.244, 0.464, 1),
+            self._ev(72.0, 0.708, 0.928, 2),
+            self._ev(72.0, 1.184, 1.404, 3),
+            self._ev(72.0, 2.346, 2.566, 4),
+        )
+
+    def test_mints_strike_inside_dead_cover(self) -> None:
+        # The hard-vocal m72 shape: cover 0.232-1.858 died to the
+        # strike train; the missed 4th hit sits inside its span with
+        # a band rise at the lattice point.
+        bands = self._FakeBands({72: [(1.55, 1.80, 7.0)]})
+        out = _accomp_train_completion(
+            [self._train_voice()],
+            bands,
+            _REV,
+            evidence=[(72, 0.232, 1.858)],
+        )
+        assert len(out) == 1
+        assert out[0].onset_sec == pytest.approx(1.66, abs=0.13)
+        assert out[0].source == "train-completion"
+        assert int(round(out[0].pitch_midi)) == 72
+
+    def test_no_evidence_mints_nothing(self) -> None:
+        bands = self._FakeBands({72: [(1.55, 1.80, 7.0)]})
+        assert (
+            _accomp_train_completion(
+                [self._train_voice()], bands, _REV
+            )
+            == ()
+        )
+
+    def test_candidate_outside_cover_refused(self) -> None:
+        # The predicted 2.14 point is past the dead cover's end —
+        # no detector span ever claimed it, so even a strong band
+        # rise cannot mint there.
+        bands = self._FakeBands({72: [(2.0, 2.2, 7.0)]})
+        out = _accomp_train_completion(
+            [self._train_voice()],
+            bands,
+            _REV,
+            evidence=[(72, 0.232, 1.858)],
+        )
+        assert out == ()
+
+    def test_no_rise_at_covered_candidate_refused(self) -> None:
+        # Covered by a dead cover but the band stayed flat through
+        # the lattice point — a rest, not a miss.
+        bands = self._FakeBands({72: [(1.55, 1.80, 0.4)]})
+        out = _accomp_train_completion(
+            [self._train_voice()],
+            bands,
+            _REV,
+            evidence=[(72, 0.232, 1.858)],
+        )
+        assert out == ()
 
 
 class TestAccompPadCompletion:
