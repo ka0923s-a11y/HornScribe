@@ -443,13 +443,13 @@
       "tp": 38,
       "fp": 0,
       "fn": 0,
-      "accompDetected": 221,
-      "accompOnsetF1": 0.9933,
-      "accompTpFpFn": "221/0/3",
-      "accompNpF1": 0.9933,
+      "accompDetected": 224,
+      "accompOnsetF1": 1.0,
+      "accompTpFpFn": "224/0/0",
+      "accompNpF1": 1.0,
       "accompNpP": 1.0,
-      "accompNpR": 0.987,
-      "accompNpTp": 221
+      "accompNpR": 1.0,
+      "accompNpTp": 224
     },
     {
       "fixture": "auto-4-4-96",

@@ -678,6 +678,12 @@ _ACCOMP_PAD_LATTICE_MAX_SUBDIV = 8
 # of its interior grid points actually carries a support cluster, so
 # a partial grid (one lucky jitter coincidence) mints nothing.
 _ACCOMP_PAD_LATTICE_COVERAGE = 0.6
+# #187: the tail walk extends the established grid past the last
+# anchor -- the lattice only mints interior points, so a strike
+# train reaching EOF ends one anchor short.  Each predicted point
+# still needs a real support cluster, and the walk stops at the
+# first uncovered step; the cap bounds a runaway grid on noise.
+_ACCOMP_PAD_LATTICE_TAIL_MAX_STEPS = 8
 # #177: one strike's members can straggle across the cluster window
 # and mint two flux onsets ~150 ms apart. Events this close sharing
 # a member are one strike — fuse them (the lattice never mints steps
@@ -1000,6 +1006,13 @@ class _AccompBands:
         events.extend(
             self._lattice_flux(hard_peaks, support_peaks, events)
         )
+        # #187: the lattice only mints INTERIOR points -- a strike
+        # train reaching the analysis end has no trailing anchor,
+        # so extend the measured grid past the last event while
+        # each predicted point still carries a support cluster.
+        events.extend(
+            self._tail_flux(hard_peaks, support_peaks, events)
+        )
         events.sort(key=lambda x: x[0])
         events = _fuse_flux_events(events)
         # #181: a member whose rise lands just under the hard bar
@@ -1170,6 +1183,89 @@ class _AccompBands:
                         continue
                     out.append((tp, mem, "flux"))
                 break
+        return out
+
+    def _tail_flux(
+        self,
+        hard: list[tuple[float, int]],
+        support: list[tuple[float, int]],
+        events: list[tuple[float, frozenset[int], str]],
+    ) -> list[tuple[float, frozenset[int], str]]:
+        """Extend the strike grid past the last anchor (#187).
+
+        The lattice only mints interior points, so a strike train
+        that runs to the analysis end dies one anchor short: its
+        last strikes sit past the final measured event and no gap
+        subdivides them.  When the two most recent events stand at
+        an established step (with a flux anchor among them), walk
+        the grid forward -- each predicted point that still carries
+        the support signature is a strike the anchors could not
+        bracket, not a proof failure.
+
+        Same honesty guards as the interior lattice: every point
+        needs >=3 support members with >=1 hard peak (a soft rise
+        on jitter alone mints nothing), a peak belongs only to its
+        nearest candidate, the dead-span veto holds, and the walk
+        stops at the first uncovered step or the step cap.
+        """
+        if len(events) < 2 or not support:
+            return []
+        t0, _m0, k0 = events[-2]
+        t1, _m1, k1 = events[-1]
+        if "flux" not in (k0, k1):
+            return []
+        step = t1 - t0
+        if not (
+            _ACCOMP_PAD_LATTICE_STEP_MIN_SEC
+            <= step
+            <= _ACCOMP_PAD_LATTICE_STEP_MAX_SEC
+        ):
+            return []
+        win = _ACCOMP_PAD_LATTICE_ALIGN_SEC
+        end = self._frames * self._spf
+        sup_t = [s for s, _m in support]
+        hard_t = [s for s, _m in hard]
+        pts: list[float] = []
+        t = t1 + step
+        while (
+            t <= end + win
+            and len(pts) < _ACCOMP_PAD_LATTICE_TAIL_MAX_STEPS
+        ):
+            pts.append(t)
+            t += step
+        # A peak certifies only its nearest predicted point -- one
+        # rise must not count toward two candidates.
+        nearest = [
+            min(range(len(pts)), key=lambda jj: abs(s - pts[jj]))
+            for s, _m in support
+        ]
+        nearest_hard = [
+            min(range(len(pts)), key=lambda jj: abs(s - pts[jj]))
+            for s in hard_t
+        ]
+        out: list[tuple[float, frozenset[int], str]] = []
+        for j, tp in enumerate(pts):
+            mem = {
+                support[p][1]
+                for p, s in enumerate(sup_t)
+                if abs(s - tp) <= win and nearest[p] == j
+            }
+            has_hard = any(
+                abs(s - tp) <= win and nearest_hard[p] == j
+                for p, s in enumerate(hard_t)
+            )
+            if (
+                len(mem) < _ACCOMP_PAD_LATTICE_MIN_SUPPORT
+                or not has_hard
+            ):
+                break
+            jt = int(tp / self._spf)
+            if (
+                self._dead_span_sec(jt)
+                >= _ACCOMP_PAD_FLUX_DEAD_MAX_SEC
+            ):
+                break
+            out.append((tp, frozenset(mem), "flux"))
         return out
 
     def _band(self, m: int) -> Any:

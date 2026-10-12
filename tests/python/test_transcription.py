@@ -4648,6 +4648,84 @@ class TestExpandFluxMembers:
         assert _expand_flux_members(events, []) == events
 
 
+class TestTailFlux:
+    """#187: the lattice only mints interior grid points, so a strike
+    train reaching the analysis end dies one anchor short — the tail
+    walk extends the measured step while each predicted point still
+    carries a support cluster."""
+
+    def _bands(self):
+        np = pytest.importorskip("numpy")
+        from hornscribe.transcription.pipeline import _AccompBands
+
+        b = _AccompBands.__new__(_AccompBands)
+        b._spf = 0.0232
+        b._frames = 700
+        b._n_hot = np.full(2000, 8)  # healthy census — no dead span
+        return b
+
+    def test_supported_step_mints_one_tail_event(self) -> None:
+        b = self._bands()
+        hard = [(0.744, 59)]
+        support = [(0.744, 55), (0.745, 59), (0.768, 62)]
+        events = [
+            (0.280, frozenset({55, 59, 62}), "flux"),
+            (0.512, frozenset({55, 59, 62}), "flux"),
+        ]
+        out = b._tail_flux(hard, support, events)
+        assert [round(t, 3) for t, _m, _k in out] == [0.744]
+        assert out[0][1] == frozenset({55, 59, 62})
+        assert out[0][2] == "flux"
+
+    def test_walk_continues_while_support_continues(self) -> None:
+        b = self._bands()
+        hard = [(0.744, 59), (0.976, 59)]
+        support = [
+            (0.744, 55), (0.744, 59), (0.768, 62),
+            (0.976, 55), (0.976, 59), (0.976, 62),
+        ]
+        events = [
+            (0.280, frozenset({55, 59, 62}), "flux"),
+            (0.512, frozenset({55, 59, 62}), "flux"),
+        ]
+        out = b._tail_flux(hard, support, events)
+        assert [round(t, 3) for t, _m, _k in out] == [0.744, 0.976]
+
+    def test_strong_last_anchor_never_extends(self) -> None:
+        """#187 safety: a held-chord ending (strong anchors only) is
+        not a strike train — the walk needs a flux anchor."""
+        b = self._bands()
+        hard = [(0.744, 59)]
+        support = [(0.744, 55), (0.744, 59), (0.768, 62)]
+        events = [
+            (0.280, frozenset({55, 59, 62}), "strong"),
+            (0.512, frozenset({55, 59, 62}), "strong"),
+        ]
+        assert b._tail_flux(hard, support, events) == []
+
+    def test_no_hard_member_mints_nothing(self) -> None:
+        """#187 safety: >=3 soft members still need >=1 hard peak —
+        jitter alone cannot extend the grid."""
+        b = self._bands()
+        support = [(0.744, 55), (0.744, 59), (0.768, 62)]
+        events = [
+            (0.280, frozenset({55, 59, 62}), "flux"),
+            (0.512, frozenset({55, 59, 62}), "flux"),
+        ]
+        assert b._tail_flux([], support, events) == []
+
+    def test_first_uncovered_step_stops_the_walk(self) -> None:
+        b = self._bands()
+        hard = [(0.744, 59)]
+        support = [(0.744, 55), (0.744, 59), (0.768, 62)]
+        events = [
+            (0.280, frozenset({55, 59, 62}), "flux"),
+            (0.512, frozenset({55, 59, 62}), "flux"),
+        ]
+        out = b._tail_flux(hard, support, events)
+        assert len(out) == 1  # 0.976 has no support — walk stops
+
+
 class TestPadEventVoices:
     """#169: mined pad events must quantize per pitch — a single blob
     reads as one monophonic voice and the quantizer staggers chord
