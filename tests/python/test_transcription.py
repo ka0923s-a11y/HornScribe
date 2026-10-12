@@ -4079,6 +4079,36 @@ class TestDedupAccompUnison:
         total = sum(len(c.events) for c in out)
         assert total == 1
 
+    def test_mutual_tolerance_pair_keeps_the_longer(self) -> None:
+        # #185 (pad8th m59@14.5): inside _ACCOMP_UNISON_TOL_SEC each
+        # event 'contains' the other, so the old rule killed BOTH --
+        # the shorter via 'longer wins' and the longer via 'first
+        # listed' -- and two covers of one strike died together.
+        # Now the strictly longer twin is the single survivor.
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(59.0, 14.533, 14.986, 1)),   # det
+                self._voice(self._ev(59.0, 14.512, 15.000, 2)),   # mined
+            ]
+        )
+        kept = [e for c in out for e in c.events]
+        assert len(kept) == 1
+        assert kept[0].onset_sec == pytest.approx(14.512)
+        assert kept[0].offset_sec == pytest.approx(15.000)
+
+    def test_longer_first_twin_still_wins(self) -> None:
+        # The unchanged direction: a longer cover listed first drops
+        # the shorter twin exactly as before.
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(59.0, 14.512, 15.000, 1)),
+                self._voice(self._ev(59.0, 14.533, 14.986, 2)),
+            ]
+        )
+        kept = [e for c in out for e in c.events]
+        assert len(kept) == 1
+        assert kept[0].onset_sec == pytest.approx(14.512)
+
     def test_different_pitch_untouched(self) -> None:
         out = _dedup_accomp_unison(
             [
