@@ -475,3 +475,42 @@ def test_final_jump_still_marks_at_track_end() -> None:
     assert len(segs) == 2
     assert segs[1].start_beat == 24
     assert abs(segs[1].bpm - 90.0) < 3.0
+
+
+def test_sustained_ritardando_marks_each_drifting_measure() -> None:
+    """#199: a continuous rit. is a RAMP, not a step — the episode
+    model's single late mark used to lag the warp by whole beats
+    (rubato-4-4 onset F1 0.59, axis 133 ms). Once a pending run keeps
+    stepping one direction at ramp scale, each drifting measure earns
+    its own mark and the drift keeps marking per-measure until it
+    ends."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    # 32 beats slowing linearly 120 -> 90 bpm across 8 measures.
+    intervals = [
+        60.0 / (120.0 + (90.0 - 120.0) * k / 31) for k in range(31)
+    ]
+    segs = tempo_map_from_estimate(_estimate(intervals), meter)
+    assert len(segs) >= 5
+    assert all(s.start_beat % 4 == 0 for s in segs)
+    # A monotone drift never reverses its marks.
+    assert all(
+        later.bpm <= earlier.bpm
+        for earlier, later in zip(segs, segs[1:], strict=False)
+    )
+    # The closing mark tracks the drift's real level — the old
+    # staircase froze ~15 bpm high through the whole second half.
+    assert segs[-1].bpm <= 100.0
+
+
+def test_ramp_does_not_mark_a_discrete_step_run() -> None:
+    """#199: a step change with a mixed transition measure is NOT a
+    ramp — the >15 % run step disqualifies it, and emit_pos still
+    places the single mark at the settled measure."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    intervals = [0.6] * 7 + [60.0 / 140.0] * 8 + [0.39]
+    segs = tempo_map_from_estimate(
+        _estimate(intervals), meter, last_onset_sec=7.8
+    )
+    assert len(segs) == 2
+    assert segs[1].start_beat == 8
+    assert abs(segs[1].bpm - 140.0) < 3.0

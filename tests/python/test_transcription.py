@@ -1776,6 +1776,48 @@ class TestMeterEventAccents:
         est = estimate_meter(beats, (), event_accents=accents)
         assert est.meter  # any verdict — the contract is "no crash"
 
+    def test_short_tempo_step_keeps_simple_meter(self) -> None:
+        # Regression (#199): a 16-beat track has only 15 intervals —
+        # under the old 'at least two 8-interval windows' gate the
+        # step could never fire variable mode, so the uniform lattice
+        # scattered the bar accents into a phantom 5/4. The window
+        # must slide over whatever intervals exist.
+        beats: list[float] = [0.0]
+        for d in [0.6] * 8 + [60.0 / 140.0] * 7:
+            beats.append(beats[-1] + d)
+        accents = tuple(
+            (t, 0.9 if i % 4 == 0 else 0.4) for i, t in enumerate(beats)
+        )
+        est = estimate_meter(beats, (), event_accents=accents)
+        assert est.meter == "4/4"
+
+    def test_continuous_drift_keeps_simple_meter(self) -> None:
+        # Regression (#199): a smooth ritard keeps every sliding
+        # window near the global median — the first/last thirds
+        # comparison is what sees the drift. Index-space slots then
+        # keep the accent period readable (rubato-4-4).
+        beats = [0.0]
+        for k in range(31):
+            beats.append(
+                beats[-1] + 60.0 / (120.0 + (90.0 - 120.0) * k / 30)
+            )
+        accents = tuple(
+            (t, 0.9 if i % 4 == 0 else 0.4) for i, t in enumerate(beats)
+        )
+        est = estimate_meter(beats, (), event_accents=accents)
+        assert est.meter == "4/4"
+
+    def test_tail_gap_does_not_fake_a_drift(self) -> None:
+        # A lone doubled interval at the track's end is tracker
+        # fallout, not a rit. — the thirds test must stay quiet so
+        # the uniform lattice still regularises the accents.
+        beats = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0)
+        accents = tuple(
+            (t, 0.7 if i % 4 == 0 else 0.3) for i, t in enumerate(beats)
+        )
+        est = estimate_meter(beats, (), event_accents=accents)
+        assert est.meter == "4/4"
+
     def test_single_ternary_stray_keeps_simple_meter(self) -> None:
         # Regression (#162): one interior hit at a ternary phase used
         # to saturate the subdivision census (ternary_ratio=1.0 ->
