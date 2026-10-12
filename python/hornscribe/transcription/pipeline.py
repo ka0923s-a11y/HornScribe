@@ -936,6 +936,14 @@ _ACCOMP_DROPOUT_MIN_COLLAPSE = 0.5
 # on both sides is boundary noise, not a playable 32nd.
 _ACCOMP_SLIVER_MAX_SEC = 0.09
 _ACCOMP_SLIVER_GAP_SEC = 0.03
+# #195: a boundary artefact can leak a few ms past the 90 ms cap —
+# the detector's early false fire measured 93 ms on the JPOP-mix-hard
+# stem and stole the truth match from the real note behind it. Such a
+# leak still folds up to 110 ms, but only when its confidence sits
+# below BOTH neighbours: a genuine sandwiched 16th holds a real
+# attack's confidence, while the artefact reads weaker (0.54 vs
+# 0.72/0.67 on the fixture).
+_ACCOMP_SLIVER_WEAK_MAX_SEC = 0.11
 # #136 pad-mining bounds — hoisted above _AccompBands because the
 # class defaults run_start/sustained kwargs off them.
 _ACCOMP_PAD_MIN_SUSTAIN_SEC = 0.45
@@ -1962,6 +1970,11 @@ def _fold_accomp_slivers(
     articulation shows a detectable gap on at least one side. The
     sliver folds into its predecessor, which keeps the surviving pair
     honest (the re-attack count stays put).
+
+    #195 extends the fold into the 90-110 ms band as a weak-sliver
+    path: the island still has to abut same-pitch events on both
+    sides, and additionally its confidence must fall below BOTH
+    neighbours' — a real sandwiched articulation is kept.
     """
     if len(events) < 3:
         return tuple(events), 0
@@ -1974,12 +1987,23 @@ def _fold_accomp_slivers(
         e = evs[i]
         nxt = evs[i + 1]
         if (
-            int(round(prev.pitch_midi)) == int(round(e.pitch_midi))
-            and int(round(nxt.pitch_midi)) == int(round(e.pitch_midi))
-            and e.offset_sec - e.onset_sec <= _ACCOMP_SLIVER_MAX_SEC
-            and e.onset_sec - prev.offset_sec <= _ACCOMP_SLIVER_GAP_SEC
-            and nxt.onset_sec - e.offset_sec <= _ACCOMP_SLIVER_GAP_SEC
+            int(round(prev.pitch_midi)) != int(round(e.pitch_midi))
+            or int(round(nxt.pitch_midi)) != int(round(e.pitch_midi))
+            or e.onset_sec - prev.offset_sec > _ACCOMP_SLIVER_GAP_SEC
+            or nxt.onset_sec - e.offset_sec > _ACCOMP_SLIVER_GAP_SEC
         ):
+            out.append(e)
+            i += 1
+            continue
+        dur = e.offset_sec - e.onset_sec
+        foldable = dur <= _ACCOMP_SLIVER_MAX_SEC
+        if not foldable and dur <= _ACCOMP_SLIVER_WEAK_MAX_SEC:
+            weak_confs = (e.confidence, prev.confidence, nxt.confidence)
+            if all(c is not None for c in weak_confs):
+                foldable = e.confidence < min(
+                    prev.confidence, nxt.confidence
+                )
+        if foldable:
             out[-1] = _extend(
                 prev, e.offset_sec, e.confidence, e.pitch_bends
             )
