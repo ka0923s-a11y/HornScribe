@@ -326,6 +326,52 @@ describe("TranscriptionSession", () => {
     await session.dispose();
   });
 
+  it("#219: a timed-out job.start kills the zombie and restarts the engine", async () => {
+    // A job.start that outlives its timeout can still be running
+    // engine-side — the late accept drops as an unknown id and every
+    // retry hits JOB_ALREADY_RUNNING. The session must escalate to
+    // the terminate+restart fallback so the next start lands on a
+    // clean worker.
+    let n = 0;
+    const ports: MockSidecarPort[] = [];
+    const session = new TranscriptionSession({
+      portFactory: () => {
+        const p = new MockSidecarPort();
+        ports.push(p);
+        return p;
+      },
+      clientOptions: {
+        requestTimeoutMs: 250,
+        jobStartTimeoutMs: 300,
+        handshakeTimeoutMs: 500,
+        watchdogMs: 40,
+        pingTimeoutMs: 30,
+      },
+    });
+    // First engine up via a normal completed job.
+    await session.startTranscription(FAST);
+    await until(() => session.getSnapshot().job?.phase === "completed");
+    // Wedge the worker's dispatch loop — the next job.start gets no
+    // response while engine-side state is unknowable.
+    ports[0].simulateHang();
+    await expect(session.startTranscription(FAST)).rejects.toMatchObject({
+      code: ERR.REQUEST_TIMEOUT,
+    });
+    // The wedged worker was terminated and a fresh engine respawned;
+    // the failure is still honestly reported.
+    await until(() => session.getSnapshot().engine === "ready");
+    expect(session.getSnapshot().failure?.kind).toBe("transcriptionFailed");
+    expect(session.getSnapshot().failure?.errorCode).toBe(
+      ERR.REQUEST_TIMEOUT,
+    );
+    expect(ports.length).toBe(2);
+    // Explicit retry now works — the zombie is gone.
+    session.clearFailure();
+    await session.startTranscription(FAST);
+    await until(() => session.getSnapshot().job?.phase === "completed");
+    await session.dispose();
+  });
+
   it("protocolVersion tracks the negotiated handshake (#403)", async () => {
     const { session } = makeSession();
     // Offline: never negotiated — honest null, not a hardcoded 1.
@@ -453,7 +499,14 @@ describe("TranscriptionSession", () => {
       session.startTranscription({ steps: 5, stepDurationMs: 5 }),
     ).rejects.toMatchObject({ code: ERR.REQUEST_TIMEOUT });
     const s = session.getSnapshot();
-    expect(s.failure?.kind).toBe("transcriptionFailed");
+    // #219: the timeout now escalates to terminate+restart — on this
+    // single-port factory the wedged worker is also what the respawn
+    // gets, so the restart fails and the honest surface is
+    // workerNotResponding (the stronger failure wins; a clean-worker
+    // restart instead leaves transcriptionFailed, covered by the
+    // sibling test).
+    expect(s.failure?.kind).toBe("workerNotResponding");
+    expect(s.engine).toBe("crashed");
     expect(s.job).toBeNull();
     await session.dispose();
   });

@@ -396,6 +396,25 @@ export class TranscriptionSession {
       // racing JOB_ALREADY_RUNNING). Surface an honest failure rather than
       // leaving the screen on a job that never existed — unless crash
       // supervision already set a stronger one (don't downgrade it).
+      if (e instanceof SidecarError && e.code === ERR.REQUEST_TIMEOUT) {
+        // #219: a timed-out job.start may still have been accepted —
+        // the late accept drops as an unknown id, leaving a zombie job
+        // the client cannot name or cancel, and every retry then fails
+        // on engine-side JOB_ALREADY_RUNNING. The only honest recovery
+        // is the documented terminate+restart fallback (same fallback
+        // the cancel path escalates to): kill the worker, respawn a
+        // clean engine, and let the user retry. The start itself is
+        // never silently resubmitted (issue rule).
+        const dying = this.client;
+        this.client = null;
+        if (dying) await dying.terminate();
+        try {
+          await this.restartEngine();
+        } catch {
+          // Restart failure is already surfaced via engine/failure
+          // state — the original timeout failure stands.
+        }
+      }
       if (!this.snap.failure) {
         this.update({
           failure: {
