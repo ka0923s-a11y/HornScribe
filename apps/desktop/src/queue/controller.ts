@@ -226,6 +226,17 @@ export class TranscriptionQueue {
         status: "failed",
         error: e instanceof Error ? e.message : String(e),
       });
+      // Same consumption rule as the failed outcome below: a row-
+      // recorded failure must not linger into the post-run error
+      // surface — unless the engine itself is dead (workerCrashed /
+      // workerNotResponding survives a job.start timeout restart),
+      // which stops the run and keeps the flag for the error view.
+      const kind = this.session.getSnapshot().failure?.kind;
+      if (kind === "workerCrashed" || kind === "workerNotResponding") {
+        this.stopRequested = true;
+      } else {
+        this.session.clearFailure();
+      }
       this.driving = false;
       return;
     }

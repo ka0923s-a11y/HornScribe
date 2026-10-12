@@ -217,6 +217,59 @@ describe("TranscriptionQueue", () => {
     q.dispose();
   });
 
+  it("a start-rejected entry is consumed the same as a failed outcome", async () => {
+    // job.start rejection latches transcriptionFailed (session sets it
+    // before rethrowing); the row records it and the run must not leak
+    // the failure into the post-run error surface.
+    const sess = makeSession();
+    const { events } = makeEvents();
+    const q = new TranscriptionQueue(sess, events);
+    sess.startTranscription.mockImplementationOnce(async () => {
+      sess.snap = {
+        ...sess.snap,
+        failure: { kind: "transcriptionFailed", detail: "job.start timed out" },
+      };
+      sess.emit();
+      throw new Error("job.start timed out");
+    });
+    q.enqueue({ label: "bad.wav", params: entryParams });
+    q.enqueue({ label: "ok.wav", params: entryParams });
+    const run = q.start();
+    await tick();
+    expect(q.getSnapshot().entries[0].status).toBe("failed");
+    expect(q.getSnapshot().entries[0].error).toBe("job.start timed out");
+    expect(sess.snap.failure).toBeNull();
+    // The run continued — the next entry started on the clean engine.
+    expect(q.getSnapshot().entries[1].status).toBe("running");
+    sess.complete({});
+    await run;
+    expect(q.getSnapshot().entries[1].status).toBe("done");
+    q.dispose();
+  });
+
+  it("a start-rejected entry with engine-dead failure stops the run", async () => {
+    const sess = makeSession();
+    const { events } = makeEvents();
+    const q = new TranscriptionQueue(sess, events);
+    sess.startTranscription.mockImplementationOnce(async () => {
+      sess.snap = {
+        ...sess.snap,
+        failure: { kind: "workerNotResponding", detail: "restart failed" },
+      };
+      sess.emit();
+      throw new Error("job.start timed out");
+    });
+    q.enqueue({ label: "a.wav", params: entryParams });
+    q.enqueue({ label: "b.wav", params: entryParams });
+    const run = q.start();
+    await run;
+    const snap = q.getSnapshot();
+    expect(snap.entries[0].status).toBe("failed");
+    expect(snap.entries[1].status).toBe("pending");
+    expect(sess.snap.failure?.kind).toBe("workerNotResponding");
+    q.dispose();
+  });
+
   it("cancel(id) marks a pending entry and cancels the running job", async () => {
     const sess = makeSession();
     const { events } = makeEvents();
