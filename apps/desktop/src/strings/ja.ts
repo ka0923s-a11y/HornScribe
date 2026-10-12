@@ -2114,8 +2114,11 @@ export const ja = {
      *  lead-vocal mix — re-runs with vocal isolation + melody so the
      *  accompaniment drops out and the lead line survives. */
     retranscribeVocalIsolation: "ボーカル分離で採譜し直す",
+    /* #225: disclose the pinned precision tier — the remedy always runs
+     *  the strongest demucs pass (~4x the standard tier), so the label
+     *  cannot imply a plain re-run. */
     retranscribeVocalIsolationTip:
-      "ボーカルを分離して主旋律だけを採譜し直します（現在の編集は破棄されます）",
+      "高精度モデルでボーカルを分離し、主旋律だけを採譜し直します（現在の編集は破棄されます）",
     /** #222: the buried-lead retry when the standard demucs tier
      *  already ran — same handler as the vocal-isolation retry
      *  (the job pins the precision tier). */
