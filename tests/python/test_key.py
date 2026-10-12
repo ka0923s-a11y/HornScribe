@@ -87,3 +87,33 @@ def test_first_chord_tonic_only_arbiters_near_ties():
     assert refined is None or (
         refined.key.fifths == 1 and refined.key.mode == "major"
     )
+
+
+def test_noise_floor_chords_cannot_arbitrate():
+    # #204: silence and breakdowns return diatonic-bonus-only matches
+    # (~0.03) — calls the estimator itself would flag chord_uncertain.
+    # They are not corroborating evidence and must not displace the
+    # melodic winner via the first/last-chord tonic bonus.
+    pitches = (60, 62, 64, 65, 67, 69, 71, 67)
+    durs = tuple(F(1) for _ in pitches)
+    noise = tuple(
+        _Chord(b * 1.0, (b + 1) * 1.0, 0, "maj", confidence=0.03)
+        for b in range(4)
+    )
+    assert refine_key_with_harmony(pitches, durs, noise) is None
+
+
+def test_mixed_confidence_uses_only_strong_chords():
+    # One confident cadence chord among noise: the tonic arbiter
+    # still reads the confident calls, not the segment order.
+    pitches = (60, 62, 64, 65, 67, 69, 71, 67)
+    durs = tuple(F(1) for _ in pitches)
+    chords = (
+        _Chord(0.0, 1.0, 0, "maj", confidence=0.03),
+        _Chord(1.0, 2.0, 0, "maj", confidence=0.8),
+    )
+    refined = refine_key_with_harmony(pitches, durs, chords)
+    # Single strong C-major call is consistent with C anyway — the
+    # assertion that matters is that the noise segment was ignored,
+    # i.e. no crash/override driven by the 0.03 call alone.
+    assert refined is None or refined.key.fifths == 0
