@@ -257,6 +257,12 @@ function inspectorCopy(): InspectorCopy {
         // evidence — "kept N notes as a second voice, dropped M beyond
         // two voices" — instead of the generic overlap copy.
         if (issue.reason === "overlapping_candidates") {
+          // #207: a stem-admission recovery is not an overlap —
+          // the engine flags it for a listen check, so name the
+          // real provenance before the generic overlap branches.
+          if (issue.evidence["stemAdmitted"] === true) {
+            return ja.reviewEvidence.stemAdmitted;
+          }
           const second =
             numEvidence(issue, "extraVoiceNotes") ??
             numEvidence(issue, "secondVoiceNotes");
