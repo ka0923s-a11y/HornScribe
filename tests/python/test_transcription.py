@@ -4251,6 +4251,63 @@ class TestDedupAccompUnison:
         out = _dedup_accomp_unison(single)
         assert sum(len(c.events) for c in out) == 1
 
+    def test_strike_train_cover_dies_members_survive(self) -> None:
+        # #189 (hard-vocal m72): the backend emitted one strummed
+        # arpeggio member twice -- a merged 0.232-1.858 span in one
+        # voice and the real three-strike train in another. Interior
+        # re-fires at distinct attack times prove the cover is a
+        # merged strike train, not one held tone: the cover dies and
+        # the train survives whole (the edge-aligned 0.244 member is
+        # the first strike, not a duplicate of it).
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(72.0, 0.232, 1.858, 1)),
+                self._voice(
+                    self._ev(72.0, 0.244, 0.464, 2),
+                    self._ev(72.0, 0.708, 0.929, 3),
+                    self._ev(72.0, 1.184, 1.405, 4),
+                ),
+            ]
+        )
+        kept = sorted(e.onset_sec for c in out for e in c.events)
+        assert kept == pytest.approx([0.244, 0.708, 1.184])
+
+    def test_interior_twins_one_attack_time_not_a_train(self) -> None:
+        # Two interior events at the SAME attack time are a doubled
+        # detection of one tone, not a strike train -- containment
+        # still drops them and the cover stands.
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(60.0, 0.0, 1.0, 1)),
+                self._voice(
+                    self._ev(60.0, 0.3, 0.5, 2),
+                    self._ev(60.0, 0.3, 0.55, 3),
+                ),
+            ]
+        )
+        kept = [e for c in out for e in c.events]
+        assert len(kept) == 1
+        assert kept[0].onset_sec == pytest.approx(0.0)
+
+    def test_mined_interior_fragments_are_not_train_evidence(
+        self,
+    ) -> None:
+        # The miner can split one held tone across a mask dip (#172),
+        # so interior pad-completion fragments carry no re-strike
+        # verdict -- the cover still absorbs them.
+        out = _dedup_accomp_unison(
+            [
+                self._voice(self._ev(64.0, 0.0, 1.9, 1)),
+                self._voice(
+                    self._ev(64.0, 0.4, 0.7, 2, src="pad-completion"),
+                    self._ev(64.0, 1.1, 1.4, 3, src="pad-completion"),
+                ),
+            ]
+        )
+        kept = [e for c in out for e in c.events]
+        assert len(kept) == 1
+        assert kept[0].offset_sec == pytest.approx(1.9)
+
 
 class TestAccompPadCompletion:
     """#136: sustained pads the attack detector never emits are mined
