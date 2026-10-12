@@ -400,6 +400,11 @@ _ACCOMP_SUSTAIN_MIN_SEC = 0.30
 # (split_voices and the per-voice clean) so neither re-fuses what the
 # other released.
 _ACCOMP_MERGE_GAP_SEC = 0.0
+# #183: a concurrent-ghost pair needs two real attacks — a
+# same-pitch note ending within this slack of the would-be
+# fundamental's onset marks a continuation fragment that anchors
+# nothing, so a pad chord tone is not eaten by a bass detector split.
+_ACCOMP_GHOST_ATTACK_SLACK_SEC = 0.03
 # #147: accompaniment onsets need a couple of periods of coverage
 # before they vote on meter — below this the stem-envelope channel
 # supplies the accompaniment evidence instead (and a same-source
@@ -3794,6 +3799,7 @@ def run_transcription_job(
                     accomp_ranged,
                     max_voices=min(4, params.max_voices),
                     merge_gap_sec=_ACCOMP_MERGE_GAP_SEC,
+                    ghost_attack_slack_sec=_ACCOMP_GHOST_ATTACK_SLACK_SEC,
                 )
                 accomp_seam = (
                     accomp_bands.separated if accomp_bands is not None else None

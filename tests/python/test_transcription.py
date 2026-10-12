@@ -1421,6 +1421,59 @@ class TestSplitVoices:
         assert [e.pitch_midi for e in out.events] == [48.0]
         assert out.events[0].offset_sec == pytest.approx(0.5)
 
+    def test_fragment_boundary_cannot_anchor_a_concurrent_ghost(self) -> None:
+        # #183 (pad8th m60@11.024): the bass detector split one held
+        # tone at 11.036 and the fragment's boundary counted as an
+        # attack — eating the real pad re-strike a twelfth above it.
+        # With the attack guard the killer is a continuation, so the
+        # pair is not concurrent and the chord tone survives.
+        from hornscribe.transcription.clean import split_voices
+
+        bass_head = self._ev(1, 41, 0.780, 1.036, confidence=0.625)
+        bass_frag = self._ev(2, 41, 1.036, 1.210, confidence=0.586)
+        chord = self._ev(3, 60, 1.024, 1.326, confidence=0.357)  # +19
+        out = split_voices(
+            (bass_head, bass_frag, chord),
+            max_voices=4,
+            ghost_attack_slack_sec=0.03,
+        )
+        assert out.ghost_dropped == 0
+        assert any(
+            e.pitch_midi == 60.0 for v in out.voices for e in v
+        )
+
+        # Without the guard the same trio still loses the chord tone.
+        out = split_voices((bass_head, bass_frag, chord), max_voices=4)
+        assert out.ghost_dropped == 1
+
+    def test_real_attack_killer_still_suppresses_the_ghost(self) -> None:
+        # #183 safety: a fundamental that really did attack at the
+        # shared onset keeps its suppression — the guard only spares
+        # candidates paired against continuation fragments.
+        from hornscribe.transcription.clean import split_voices
+
+        bass = self._ev(1, 41, 1.036, 1.210, confidence=0.586)
+        ghost = self._ev(2, 60, 1.024, 1.326, confidence=0.357)  # +19
+        out = split_voices(
+            (bass, ghost), max_voices=4, ghost_attack_slack_sec=0.03
+        )
+        assert out.ghost_dropped == 1
+
+    def test_attack_guard_respects_the_slack(self) -> None:
+        # A same-pitch note that ended well before the onset is a real
+        # re-attack, not a continuation — the pair stays concurrent.
+        from hornscribe.transcription.clean import split_voices
+
+        bass_head = self._ev(1, 41, 0.780, 0.990, confidence=0.625)
+        bass_frag = self._ev(2, 41, 1.036, 1.210, confidence=0.586)
+        chord = self._ev(3, 60, 1.024, 1.326, confidence=0.357)  # +19
+        out = split_voices(
+            (bass_head, bass_frag, chord),
+            max_voices=4,
+            ghost_attack_slack_sec=0.03,
+        )
+        assert out.ghost_dropped == 1
+
     def test_top_fragment_over_long_pad_is_not_a_ghost(self) -> None:
         # #130: under melody texture the stronger concurrent note at a
         # harmonic interval is usually accompaniment, not a

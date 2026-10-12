@@ -622,6 +622,7 @@ def _is_concurrent_ghost(
     fundamental's span — the "rides the whole note" half of the ghost
     signature. Without it a sustained accompaniment note owns every
     weak same-interval melody fragment starting near its attack.
+
     """
     if abs(ev.onset_sec - other.onset_sec) > CONCURRENT_GHOST_ONSET_SEC:
         return False
@@ -648,6 +649,7 @@ def _concurrent_ghost_ids(
     min_event_sec: float,
     *,
     span_coverage: bool = False,
+    attack_slack_sec: float | None = None,
 ) -> set[int]:
     """Indexes of concurrent octave ghosts inside one event list.
 
@@ -655,6 +657,26 @@ def _concurrent_ghost_ids(
     after its ghost, and a too-short partner cannot kill (it is not
     even a note). O(n^2) on the raw count, trivial at job sizes.
     """
+    # A concurrent pair needs TWO real attacks.  When a same-pitch
+    # note ends within attack_slack_sec of *other*'s onset (or still
+    # sounds across it), the boundary is a detector split inside a
+    # held tone, not an attack — a mid-sustain candidate pairs
+    # against the live fundamental, not this fragment, and belongs
+    # to the harmonic-ghost rules instead (#183).
+    continuations: set[int] = set()
+    if attack_slack_sec is not None:
+        for j, o in enumerate(ordered):
+            om = int(round(o.pitch_midi))
+            for k, p in enumerate(ordered):
+                if (
+                    k != j
+                    and int(round(p.pitch_midi)) == om
+                    and p.offset_sec - p.onset_sec >= min_event_sec
+                    and p.onset_sec < o.onset_sec
+                    and p.offset_sec >= o.onset_sec - attack_slack_sec
+                ):
+                    continuations.add(j)
+                    break
     out: set[int] = set()
     for i, ev in enumerate(ordered):
         if ev.confidence is None:
@@ -663,6 +685,8 @@ def _concurrent_ghost_ids(
             if i == j or other.confidence is None:
                 continue
             if other.offset_sec - other.onset_sec < min_event_sec:
+                continue
+            if j in continuations:
                 continue
             if _is_concurrent_ghost(
                 ev, other, span_coverage=span_coverage
@@ -1054,6 +1078,7 @@ def split_voices(
     min_event_sec: float = MIN_EVENT_SEC,
     merge_gap_sec: float = MERGE_GAP_SEC,
     max_voices: int = 2,
+    ghost_attack_slack_sec: float | None = None,
 ) -> VoiceSplit:
     """Partition raw events into up to max_voices monophonic lines.
 
@@ -1065,9 +1090,18 @@ def split_voices(
     harmonic ghosts are suppressed against ANY sustained voice's tail
     (an overtone artifact under a held note is not another voice).
     Events that fit no free voice count as dropped_beyond_voices.
+
+    ``ghost_attack_slack_sec`` requires the would-be fundamental
+    of a concurrent-ghost pair to be a real attack (#183): a
+    same-pitch note ending within this slack of its onset makes the
+    boundary a continuation fragment that anchors nothing, so a pad
+    chord tone is no longer eaten by a bass detector split.  None
+    keeps the legacy signature.
     """
     ordered = sorted(events, key=lambda e: (e.onset_sec, -e.pitch_midi))
-    concurrent_ghosts = _concurrent_ghost_ids(ordered, min_event_sec)
+    concurrent_ghosts = _concurrent_ghost_ids(
+        ordered, min_event_sec, attack_slack_sec=ghost_attack_slack_sec
+    )
     voices: list[list[RawNoteEvent]] = [[] for _ in range(max_voices)]
     dropped = 0
     merged = 0
