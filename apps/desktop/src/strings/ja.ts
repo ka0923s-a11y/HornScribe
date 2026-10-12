@@ -1764,6 +1764,12 @@ export const ja = {
     mergedOverlapsSuggest: (count: number) =>
       count +
       " 箇所の音の重なりを検出し、1つの旋律にまとめました。「複数声部として採譜」で重なった音を別の声部として採譜し直せます",
+    /** #207: #200 stem-lattice admission — the note was recovered
+     *  from a suppressed candidate by isolated-stem band evidence,
+     *  not overlapped. The generic overlap copy mislabels it; tell
+     *  the user what was recovered and ask for a listen check. */
+    stemAdmitted:
+      "分離した主旋律の周波数成分と一致したため、見落とされていた候補から復元した音です。元の音源と聴き比べて確認してください",
     swingFeel: (offbeats: number, swing: number) =>
       "裏拍の音 " +
       offbeats +
