@@ -304,6 +304,262 @@ def _stem_analysis(stem_path: str | None) -> tuple[Any, int, Any]:
     return y, sr, librosa.onset.onset_strength(y=y, sr=sr)
 
 
+# #200: stem-evidence lattice admission — a suppressed hypothesis is
+# only re-admitted when every check below clears.
+_STEM_ADMIT_MIN_SPAN_SEC = 0.10
+_STEM_ADMIT_MERGE_GAP_SEC = 0.04
+_STEM_ADMIT_MIN_SUPPORT = 2
+_STEM_ADMIT_REGISTER_ST = 12.0
+_STEM_ADMIT_NEIGHBOR_RADIUS_SEC = 2.5
+_STEM_ADMIT_NEIGHBOR_FLOOR = 0.5
+_STEM_ADMIT_BAND_RATIO = 0.03
+
+
+def _stem_fundamental_peak(
+    samples: Any,
+    sample_rate: int,
+    onset_sec: float,
+    offset_sec: float,
+    midi: float,
+) -> float:
+    """FFT peak inside a +-3% band around the midi fundamental, over
+    the middle 60% of the span — the same measuring idiom
+    octave_prefers uses, generalised to an arbitrary candidate pitch."""
+    import numpy as np  # noqa: PLC0415
+
+    i0 = int(onset_sec * sample_rate)
+    i1 = int(offset_sec * sample_rate)
+    seg = np.asarray(samples[max(0, i0) : max(0, i1)], dtype=np.float64)
+    n = int(seg.shape[0])
+    if n < 128:
+        return 0.0
+    inset = int(n * 0.2)
+    core = seg[inset : n - inset]
+    if core.shape[0] < 32:
+        core = seg
+    win = core * np.hanning(core.shape[0])
+    mag = np.abs(np.fft.rfft(win))
+    freqs = np.fft.rfftfreq(core.shape[0], 1.0 / sample_rate)
+    f = 440.0 * 2.0 ** ((int(round(midi)) - 69) / 12.0)
+    mask = (freqs >= f * (1.0 - _STEM_ADMIT_BAND_RATIO)) & (
+        freqs <= f * (1.0 + _STEM_ADMIT_BAND_RATIO)
+    )
+    return float(mag[mask].max()) if mask.any() else 0.0
+
+
+def _admit_stem_lattice_candidates(
+    cleaned: CleanedEvents,
+    ranged: tuple[RawNoteEvent, ...],
+    stem: tuple[Any, int] | None,
+    *,
+    time_offset_sec: float = 0.0,
+) -> tuple[CleanedEvents, dict[RawNoteEventId, float | None]]:
+    """Re-admit lattice events the lead-line clean suppressed but the
+    stem's own spectrum corroborates (#200).
+
+    Under prefer="top" a lower-pitch hypothesis dies wherever the
+    winning line covers it — even on the span where it outlives the
+    winner and stands alone.  On a buried-lead stem that drop loses
+    real melody notes (very-quiet-lead: a strum-masked note at the
+    lead's own pitch vanished because a higher hypothesis overlapped
+    it).  The separated stem is the honest arbiter for that span:
+    the accompaniment no longer competes there, so the candidate
+    whose fundamental band is strongest inside the unoccupied span
+    is genuinely the loudest surviving line.
+
+    Admission is deliberately hard to earn — a candidate must
+    * sit within the local line's register (+-12 st of the nearby
+      cleaned pitches), so stray bass/high bleed stays out,
+    * be corroborated by at least two raw lattice events (merged
+      fragments of one sustained detection — single-fire flicker
+      never qualifies),
+    * win the fundamental-band comparison against every rival
+      suppressed candidate on the same uncovered span, and
+    * clear half the median band the neighbouring surviving notes
+      show at their own pitches — the note must be as present in
+      the stem as the line around it.
+
+    The admitted event is clipped to the uncovered span (the piece
+    no surviving note claims), so it never collides with the line.
+    Returns the widened CleanedEvents plus a per-id band-margin
+    map — the review layer flags those notes as stem-recovered so a
+    rescued note never silently passes for a primary detection.
+    """
+    if stem is None or not cleaned.events or not ranged:
+        return cleaned, {}
+    samples, sr = stem
+    if samples is None or sr <= 0:
+        return cleaned, {}
+    try:
+        import numpy  # noqa: F401, PLC0415 - lazy optional dependency
+    except Exception:
+        # The dev/lite install lacks numpy — admission is optional
+        # polish on top of the clean, never a reason to lose the job.
+        return cleaned, {}
+    kept = [(e.onset_sec, e.offset_sec, e.pitch_midi) for e in cleaned.events]
+
+    def _same_pitch(a: float, b: float) -> bool:
+        return abs(a - b) < 1.0
+
+    suppressed: list[RawNoteEvent] = []
+    for ev in ranged:
+        represented = any(
+            o < ev.offset_sec and off > ev.onset_sec and _same_pitch(m, ev.pitch_midi)
+            for o, off, m in kept
+        )
+        if not represented:
+            suppressed.append(ev)
+    if not suppressed:
+        return cleaned, {}
+
+    # Chain same-pitch supporters: one sustained detection the model
+    # fragmented still counts as multiple corroborating events, a
+    # single flicker never reaches the support bar.
+    suppressed.sort(key=lambda e: (int(round(e.pitch_midi)), e.onset_sec))
+    chains: list[tuple[list[RawNoteEvent], int]] = []
+    for ev in suppressed:
+        if (
+            chains
+            and int(round(ev.pitch_midi)) == chains[-1][1]
+            and ev.onset_sec - chains[-1][0][-1].offset_sec
+            < _STEM_ADMIT_MERGE_GAP_SEC
+        ):
+            chains[-1][0].append(ev)
+        else:
+            chains.append(([ev], int(round(ev.pitch_midi))))
+
+    def _local_median(t: float) -> float:
+        near = [
+            int(round(m))
+            for o, _off, m in kept
+            if abs(o - t) <= _STEM_ADMIT_NEIGHBOR_RADIUS_SEC
+        ]
+        if near:
+            near.sort()
+            return float(near[len(near) // 2])
+        globalp = sorted(int(round(m)) for _o, _f, m in kept)
+        return float(globalp[len(globalp) // 2])
+
+    _kept_band_cache: dict[tuple[float, float, int], float] = {}
+
+    def _neighbor_band_floor(t: float) -> float:
+        bands = []
+        for o, off, m in kept:
+            if abs(o - t) > _STEM_ADMIT_NEIGHBOR_RADIUS_SEC:
+                continue
+            key = (o, off, int(round(m)))
+            if key not in _kept_band_cache:
+                _kept_band_cache[key] = _stem_fundamental_peak(
+                    samples,
+                    sr,
+                    o - time_offset_sec,
+                    off - time_offset_sec,
+                    m,
+                )
+            bands.append(_kept_band_cache[key])
+        if not bands:
+            return 0.0
+        bands.sort()
+        return bands[len(bands) // 2] * _STEM_ADMIT_NEIGHBOR_FLOOR
+
+    # Uncovered sub-spans of a candidate: the parts of its footprint
+    # no surviving note occupies at all.
+    def _uncovered(c0: float, c1: float) -> list[tuple[float, float]]:
+        spans = [(c0, c1)]
+        for o, off, _m in kept:
+            out: list[tuple[float, float]] = []
+            for a, b in spans:
+                if off <= a or o >= b:
+                    out.append((a, b))
+                    continue
+                if o > a:
+                    out.append((a, o))
+                if off < b:
+                    out.append((off, b))
+            spans = out
+        return [(a, b) for a, b in spans if b - a >= _STEM_ADMIT_MIN_SPAN_SEC]
+
+    candidates: list[tuple[float, float, int, list[RawNoteEvent]]] = []
+    for chain, pitch in chains:
+        c0 = chain[0].onset_sec
+        c1 = max(e.offset_sec for e in chain)
+        for a, b in _uncovered(c0, c1):
+            candidates.append((a, b, pitch, chain))
+
+    margins: dict[RawNoteEventId, float | None] = {}
+    admitted: list[RawNoteEvent] = []
+    admitted_spans: list[tuple[float, float]] = []
+    used_ids: set[str] = {str(e.id) for e in cleaned.events}
+    for a, b, pitch, chain in candidates:
+        centre = 0.5 * (a + b)
+        median = _local_median(centre)
+        if abs(pitch - median) > _STEM_ADMIT_REGISTER_ST:
+            continue
+        if len(chain) < _STEM_ADMIT_MIN_SUPPORT:
+            continue
+        # Two chains may expose overlapping uncovered spans before
+        # either is admitted — the rival check arbitrates pitches
+        # inside one span, but only the earliest winner may claim a
+        # piece; a later admit overlapping it is the same evidence
+        # counted twice.
+        if any(a < b2 - 1e-9 and a2 < b - 1e-9 for a2, b2 in admitted_spans):
+            continue
+        cand_band = _stem_fundamental_peak(
+            samples, sr, a - time_offset_sec, b - time_offset_sec, pitch
+        )
+        if cand_band <= 0.0:
+            continue
+        rivals = [
+            p2
+            for a2, b2, p2, _c2 in candidates
+            if p2 != pitch
+            and abs(p2 - median) <= _STEM_ADMIT_REGISTER_ST
+            and a2 < b - 1e-9
+            and a < b2 - 1e-9
+        ]
+        rival_band = max(
+            (
+                _stem_fundamental_peak(
+                    samples, sr, a - time_offset_sec, b - time_offset_sec, p2
+                )
+                for p2 in rivals
+            ),
+            default=0.0,
+        )
+        if cand_band < rival_band or cand_band < _neighbor_band_floor(centre):
+            continue
+        # The longest supporter owns the admitted span — its id and
+        # confidence ride along so downstream meta stays honest.
+        supporter = max(chain, key=lambda e: e.offset_sec - e.onset_sec)
+        margin = cand_band / rival_band if rival_band > 0 else None
+        # A chain can expose several uncovered spans — each admit
+        # needs its own id or event_by_id collapses them into one
+        # (the first keeps the supporter's own id, later spans get
+        # a suffixed derivation).
+        admitted_id = supporter.id
+        k = 1
+        while str(admitted_id) in used_ids:
+            admitted_id = RawNoteEventId(f"{supporter.id}~{k}")
+            k += 1
+        used_ids.add(str(admitted_id))
+        admitted.append(
+            replace(
+                supporter,
+                id=admitted_id,
+                onset_sec=a,
+                offset_sec=b,
+            )
+        )
+        admitted_spans.append((a, b))
+        margins[admitted_id] = margin
+    if not admitted:
+        return cleaned, {}
+    merged_events = sorted(
+        [*cleaned.events, *admitted], key=lambda e: (e.onset_sec, e.offset_sec)
+    )
+    return replace(cleaned, events=tuple(merged_events)), margins
+
+
 def _drop_stem_bleed_lows(
     lead: CleanedEvents,
     accomp: list[CleanedEvents],
@@ -2939,17 +3195,54 @@ def _extra_issues(
     onsets_sec: dict[ScoreNoteId, float],
     event_by_id: dict[RawNoteEventId, RawNoteEvent],
     score_revision: ScoreRevisionId,
+    stem_admitted: dict[RawNoteEventId, float | None] | None = None,
 ) -> list[ReviewIssue]:
     """Confidence/range/duration issues the quantizer cannot see.
 
     ``built_notes`` are the canonical QuantizedNote rows; ids are the
-    ``sn-*`` values the review workspace highlights.
+    ``sn-*`` values the review workspace highlights.  ``stem_admitted``
+    marks notes the #200 lattice admission recovered from suppressed
+    candidates — they are corroborated, but the user should still
+    hear them against the source before trusting them.
     """
     issues: list[ReviewIssue] = []
     for note in built_notes:
         conf = confidence.get(note.id)
         onset = onsets_sec.get(note.id, 0.0)
         rng = TimeRange(start_sec=onset, end_sec=onset + 0.05)
+        if stem_admitted:
+            margins = [
+                m
+                for e in note.source_event_ids
+                if (m := stem_admitted.get(e)) is not None
+            ]
+            # An uncontested admission (no rival candidate on the
+            # span) carries margin None — still flagged, just
+            # without a meaningless ratio.
+            admitted_here = any(
+                e in stem_admitted for e in note.source_event_ids
+            )
+            if admitted_here:
+                evidence: dict[str, Any] = {
+                    "stemAdmitted": True,
+                    "note": (
+                        "note recovered from a suppressed "
+                        "candidate by stem-band evidence"
+                    ),
+                }
+                if margins:
+                    evidence["bandMargin"] = round(max(margins), 3)
+                issues.append(
+                    ReviewIssue(
+                        id="",
+                        score_revision=score_revision,
+                        canonical_note_ids=(note.id,),
+                        time_range=rng,
+                        reason=ReviewReason.OVERLAPPING_CANDIDATES,
+                        severity=Severity.CAUTION,
+                        evidence=evidence,
+                    )
+                )
         if conf is not None and conf < LOW_CONFIDENCE:
             issues.append(
                 ReviewIssue(
@@ -3953,6 +4246,10 @@ def run_transcription_job(
         # disagreement arbitration (empty when no gate ran).
         arbiter_events: tuple[RawNoteEvent, ...] = ()
         arbiter_backend = ""
+        # #200: ids + band margins of notes the stem-evidence lattice
+        # admission recovered after cleaning — the review layer flags
+        # them so a rescued note never reads as a primary detection.
+        stem_admitted: dict[RawNoteEventId, float | None] = {}
         if params.vocal_isolation:
             preprocess = {
                 "vocalIsolation": True,
@@ -4168,6 +4465,20 @@ def run_transcription_job(
                 edge_evidence=edge_ev,
                 octave_verdict=_octave_ev,
             )
+            # #200: on a separation stem the suppressed lattice is
+            # worth one more look — the clean already picked the
+            # top-priority line, but a buried hypothesis the winner
+            # overlapped only partially may be a real melody note the
+            # stem's own spectrum can still corroborate.
+            if prefer == "top":
+                cleaned, stem_admitted = _admit_stem_lattice_candidates(
+                    cleaned,
+                    ranged,
+                    lead_evidence,
+                    time_offset_sec=selection_offset_sec,
+                )
+                if stem_admitted and preprocess is not None:
+                    preprocess["stemAdmitted"] = len(stem_admitted)
             cleaned_lowers = []
             step(2, 1, 1)
         # #148: remember when auto detected a mix — the overlap warning
@@ -4309,6 +4620,19 @@ def run_transcription_job(
                         else (samples, sample_rate)
                     ),
                 )
+                # #200: the rescue stem admits its own corroborated
+                # suppressed candidates — the mix-level clean's
+                # admissions belong to the discarded lattice.
+                rescue_admitted: dict[RawNoteEventId, float | None] = {}
+                if rescue_cleaned.events:
+                    rescue_cleaned, rescue_admitted = (
+                        _admit_stem_lattice_candidates(
+                            rescue_cleaned,
+                            rescue_ranged,
+                            rescue_evidence,
+                            time_offset_sec=selection_offset_sec,
+                        )
+                    )
             if rescue_cleaned is not None and rescue_cleaned.events:
                 # Adopt the rescue: provenance re-mints so the tr-* id
                 # names the chain that actually produced the score.
@@ -4328,6 +4652,8 @@ def run_transcription_job(
                 vocal_path = rescue_vocal_path
                 vocal_managed = rescue_managed
                 vocal_reason = "applied"
+                if rescue_admitted:
+                    preprocess["stemAdmitted"] = len(rescue_admitted)
                 vocal_method = rescue_method
                 vocal_method_version = rescue_method_version
                 accomp_path = rescue_accomp_path
@@ -4335,6 +4661,7 @@ def run_transcription_job(
                 ranged = rescue_ranged
                 cleaned = rescue_cleaned
                 rescue_applied = True
+                stem_admitted = rescue_admitted
                 # #256: every downstream audio-evidence read for the
                 # lead now resolves against the rescue stem — the
                 # events were detected on it, not on the mix.
@@ -5108,6 +5435,7 @@ def run_transcription_job(
                 built.note_onset_sec,
                 event_by_id,
                 score_revision,
+                stem_admitted,
             )
         )
         # #272: severity-priority cap — warnings surface before

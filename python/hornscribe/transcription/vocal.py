@@ -262,21 +262,52 @@ def demucs_weights_pending() -> bool:
     the first separation call then spends minutes inside torch.hub
     before any audio work starts, and the UI should say why.
 
-    torch.hub resolves the checkpoint dir as $TORCH_HOME/hub/
-    checkpoints (default ~/.cache/torch).  An unreadable or
-    ambiguous state answers False -- a silent stage is cheaper than a
-    note claiming a download that is not happening.
+    demucs 4.1+ fetches its models from the Hugging Face Hub, not
+    torch.hub — the weights land under $HF_HOME/hub (default
+    ~/.cache/huggingface) as models--adefossez--HTDemucs*/snapshots/
+    <rev>/*.safetensors.  Older installs may still hold a torch.hub
+    checkpoint ($TORCH_HOME/hub/checkpoints, default ~/.cache/torch) —
+    either cache satisfies the check.  An unreadable or ambiguous
+    state answers False -- a silent stage is cheaper than a note
+    claiming a download that is not happening.
     """
     try:
         torch_home = os.environ.get("TORCH_HOME") or os.path.join(
             os.path.expanduser("~"), ".cache", "torch"
         )
         ckpt = os.path.join(torch_home, "hub", "checkpoints")
-        if not os.path.isdir(ckpt):
-            return True
-        return not any(
+        if os.path.isdir(ckpt) and any(
             name.endswith((".th", ".ckpt")) for name in os.listdir(ckpt)
+        ):
+            return False
+    except OSError:
+        return False
+    try:
+        hf_home = os.environ.get("HF_HOME") or os.path.join(
+            os.path.expanduser("~"), ".cache", "huggingface"
         )
+        hub = os.environ.get("HF_HUB_CACHE") or os.path.join(hf_home, "hub")
+        # A missing hub is a definitive "no HF cache" — still
+        # pending.  Only a listing failure mid-scan is ambiguous
+        # enough to stay quiet.
+        if not os.path.isdir(hub):
+            return True
+        for entry in os.listdir(hub):
+            if not entry.startswith("models--adefossez--"):
+                continue
+            snaps = os.path.join(hub, entry, "snapshots")
+            if not os.path.isdir(snaps):
+                continue
+            for rev in os.listdir(snaps):
+                rev_dir = os.path.join(snaps, rev)
+                if not os.path.isdir(rev_dir):
+                    continue
+                if any(
+                    name.endswith((".safetensors", ".th"))
+                    for name in os.listdir(rev_dir)
+                ):
+                    return False
+        return True
     except OSError:
         return False
 

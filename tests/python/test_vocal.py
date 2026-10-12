@@ -803,12 +803,21 @@ class TestDemucsResolution:
 
 class TestDemucsWeightsPending:
     """#229: the weights-presence probe gating the "model_download"
-    note -- it reads $TORCH_HOME/hub/checkpoints."""
+    note -- it reads $TORCH_HOME/hub/checkpoints AND the HF hub cache
+    (demucs 4.1+ stores its models under ~/.cache/huggingface, not
+    torch.hub).  Every case must point both caches at tmp dirs so the
+    developer machine's real model store can never leak in."""
+
+    @staticmethod
+    def _isolate_caches(tmp_path, monkeypatch):
+        monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+        monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+        monkeypatch.delenv("HF_HUB_CACHE", raising=False)
 
     def test_missing_dir_is_pending(self, tmp_path, monkeypatch):
         import hornscribe.transcription.vocal as vocal_mod
 
-        monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+        self._isolate_caches(tmp_path, monkeypatch)
         assert vocal_mod.demucs_weights_pending() is True
 
     def test_empty_checkpoints_is_pending(self, tmp_path, monkeypatch):
@@ -816,7 +825,7 @@ class TestDemucsWeightsPending:
 
         ckpt = tmp_path / "torch" / "hub" / "checkpoints"
         ckpt.mkdir(parents=True)
-        monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+        self._isolate_caches(tmp_path, monkeypatch)
         assert vocal_mod.demucs_weights_pending() is True
 
     def test_downloaded_weights_not_pending(self, tmp_path, monkeypatch):
@@ -825,5 +834,42 @@ class TestDemucsWeightsPending:
         ckpt = tmp_path / "torch" / "hub" / "checkpoints"
         ckpt.mkdir(parents=True)
         (ckpt / "955717e8-8726e21a.th").write_bytes(b"weights")
-        monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+        self._isolate_caches(tmp_path, monkeypatch)
         assert vocal_mod.demucs_weights_pending() is False
+
+    def test_hf_cache_weights_not_pending(self, tmp_path, monkeypatch):
+        """demucs 4.1's real layout: HF hub model repo + safetensors
+        under snapshots/<rev> — the check must find it even with an
+        empty torch cache."""
+        import hornscribe.transcription.vocal as vocal_mod
+
+        snap = (
+            tmp_path
+            / "hf"
+            / "hub"
+            / "models--adefossez--HTDemucs"
+            / "snapshots"
+            / "abc123"
+        )
+        snap.mkdir(parents=True)
+        (snap / "955717e8.safetensors").write_bytes(b"weights")
+        self._isolate_caches(tmp_path, monkeypatch)
+        assert vocal_mod.demucs_weights_pending() is False
+
+    def test_hf_repo_without_weights_is_pending(self, tmp_path, monkeypatch):
+        """A repo dir without a weight file (interrupted download)
+        does not count."""
+        import hornscribe.transcription.vocal as vocal_mod
+
+        snap = (
+            tmp_path
+            / "hf"
+            / "hub"
+            / "models--adefossez--HTDemucs"
+            / "snapshots"
+            / "abc123"
+        )
+        snap.mkdir(parents=True)
+        (snap / "config.json").write_text("{}")
+        self._isolate_caches(tmp_path, monkeypatch)
+        assert vocal_mod.demucs_weights_pending() is True
