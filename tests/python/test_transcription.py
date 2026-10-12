@@ -4485,6 +4485,151 @@ class TestAccompTrainCompletion:
         )
         assert m41 == pytest.approx([9.374, 10.328, 10.780])
 
+    def test_holed_train_still_qualifies(self) -> None:
+        # #197: the qlm m72 shape — most IOIs are multiples of the
+        # true 0.47 s period (the detector kept missing hits), so
+        # the old ~1x-only support count read the train as noise
+        # and never ran the walk. Multiple-IOI support keeps it a
+        # train, and the dead-cover mint fires at the dropped hit.
+        # IOIs [0.21, 0.23, 0.46, 0.47, 0.47, 0.48, 0.94, 0.95,
+        # 1.41, 1.88] over a 0.475 s median: only 4/10 sit at ~1x
+        # (old rule skipped the train); 8/10 are multiples.
+        onsets = (0.0, 0.21, 0.44, 0.90, 1.37, 1.84, 2.32, 3.26,
+                  4.21, 5.62, 7.50)
+        voice = self._voice(*(
+            self._ev(72.0, o, o + 0.2, i + 1)
+            for i, o in enumerate(onsets)
+        ))
+        bands = self._FakeBands({72: [(2.7, 2.9, 7.0)]})
+        out = _accomp_train_completion(
+            [voice],
+            bands,
+            _REV,
+            evidence=[(72, 2.6, 3.0)],
+        )
+        minted = [
+            e for c in out for e in c.events
+            if e.source == "train-completion"
+        ]
+        assert len(minted) == 1
+        assert minted[0].onset_sec == pytest.approx(2.8, abs=0.13)
+
+    def test_refined_period_splits_merged_span(self) -> None:
+        # #197 (qlm m69): sparse detection medianed the IOI at
+        # 0.935 s — twice the true 0.469 s strum grid — so the
+        # coarse lattice produced no walk point inside the merged
+        # 10.049-10.78 span hiding the e5 strike. The /2 refined
+        # lattice reaches it; own-band rise confirms and splits.
+        voice = self._voice(
+            self._ev(69.0, 0.012, 0.2, 1),
+            self._ev(69.0, 0.94, 1.1, 2),
+            self._ev(69.0, 2.114, 2.3, 3),
+            self._ev(69.0, 2.579, 2.75, 4),
+            self._ev(69.0, 3.055, 3.25, 5),
+            self._ev(69.0, 3.531, 3.7, 6),
+            self._ev(69.0, 7.504, 7.7, 7),
+            self._ev(69.0, 8.446, 8.6, 8),
+            self._ev(69.0, 9.618, 9.8, 9),
+            self._ev(69.0, 10.049, 10.78, 10),
+            self._ev(69.0, 11.024, 11.2, 11),
+        )
+        bands = self._FakeBands({69: [(10.45, 10.65, 7.5)]})
+        out = _accomp_train_completion([voice], bands, _REV)
+        m69 = sorted(
+            e.onset_sec
+            for c in out for e in c.events
+            if int(round(e.pitch_midi)) == 69
+        )
+        # The merged span split near the real strike (~10.55).
+        assert any(abs(o - 10.55) < 0.13 for o in m69)
+        assert any(abs(o - 10.049) < 0.01 for o in m69)
+
+    def test_refined_train_ignores_neighbor_thump(self) -> None:
+        # #197: on a refined (halved) lattice the midpoints land on
+        # OTHER chord members' strike times — the neighbor band's
+        # thump must not vouch for a split there (qlm m72 @12.19).
+        # The dense voice refines to 0.225 s; the interior points
+        # show neighbor-band rise only, so nothing may split.
+        voice = self._voice(
+            self._ev(60.0, 0.0, 0.2, 1),
+            self._ev(60.0, 0.45, 0.65, 2),
+            self._ev(60.0, 0.9, 1.1, 3),
+            self._ev(60.0, 1.35, 1.55, 4),
+            self._ev(60.0, 1.8, 2.0, 5),
+            self._ev(60.0, 3.6, 3.8, 6),
+            self._ev(60.0, 3.8, 4.0, 7),
+            self._ev(60.0, 5.0, 5.9, 8),   # long living span
+            self._ev(60.0, 6.3, 6.5, 9),
+        )
+        # Neighbor (m62) rises only where a refined-only midpoint
+        # sits (its argmax window is ~5.10-5.35); own band stays
+        # flat, and the base lattice points see no evidence at all.
+        bands = self._FakeBands({62: [(5.15, 5.30, 6.0)]})
+        out = _accomp_train_completion([voice], bands, _REV)
+        m60 = sorted(
+            (e.onset_sec, e.offset_sec)
+            for c in out for e in c.events
+            if int(round(e.pitch_midi)) == 60 and e.onset_sec >= 4.9
+        )
+        assert m60 == pytest.approx([(5.0, 5.9), (6.3, 6.5)])
+
+    def _refined_m72_voice(self, span_end: float) -> CleanedEvents:
+        # #197: the qlm m72 detection shape — a ~0.453 s strum grid
+        # plus one 0.232 s flicker pair, which refines the lattice to
+        # 0.2265 s. The long span covers several lattice slots.
+        return self._voice(
+            self._ev(72.0, 3.985, 4.217, 1),
+            self._ev(72.0, 4.461, 4.681, 2),
+            self._ev(72.0, 4.914, span_end, 3),
+            self._ev(72.0, 7.748, 7.958, 4),
+            self._ev(72.0, 8.213, 8.434, 5),
+            self._ev(72.0, 11.5, 11.7, 6),
+            self._ev(72.0, 11.732, 11.9, 7),
+        )
+
+    def test_refined_point_edge_argmax_rejected(self) -> None:
+        # #197: a refined-only lattice point (pos ~5.14) whose argmax
+        # lands at the window's far left edge is claiming the
+        # PREVIOUS attack's rise tail, not a strike of its own —
+        # >half the refined period off the proposal, so no cut.
+        bands = self._FakeBands({72: [(5.02, 5.03, 6.0)]})
+        voice = self._refined_m72_voice(5.45)
+        out = _accomp_train_completion([voice], bands, _REV)
+        m72 = sorted(
+            (e.onset_sec, e.offset_sec)
+            for c in out for e in c.events
+            if int(round(e.pitch_midi)) == 72
+        )
+        assert (4.914, 5.45) in [
+            (round(o, 3), round(e, 3)) for o, e in m72
+        ]
+        assert not any(
+            e.source == "train-completion"
+            for c in out for e in c.events
+        )
+
+    def test_close_double_cut_on_one_span_rejected(self) -> None:
+        # #197: two adjacent lattice points argmaxing the same
+        # attack must not cut twice — the 18 ms sliver between
+        # 5.455/5.473 on qlm m72. The first cut stands; the second
+        # lands <0.1 s from it and is refused.
+        bands = self._FakeBands(
+            {72: [(5.44, 5.47, 6.0), (5.50, 5.53, 6.0)]}
+        )
+        voice = self._refined_m72_voice(5.622)
+        out = _accomp_train_completion([voice], bands, _REV)
+        minted = sorted(
+            (e.onset_sec, e.offset_sec)
+            for c in out for e in c.events
+            if int(round(e.pitch_midi)) == 72
+            and e.source == "train-completion"
+        )
+        # Exactly one cut survives (~5.447 s from the first rise
+        # window); the second rise at ~5.51 sits 66 ms after it.
+        assert len(minted) == 1
+        assert minted[0][0] == pytest.approx(5.447, abs=0.021)
+        assert minted[0][1] == pytest.approx(5.622, abs=0.001)
+
 
 class TestAccompPadCompletion:
     """#136: sustained pads the attack detector never emits are mined
@@ -5257,10 +5402,12 @@ class TestBackdateAccompOnsets:
             starts: dict[int, float],
             separated: bool = True,
             attack: bool = True,
+            reattack: float = 0.0,
         ) -> None:
             self._starts = starts
             self._separated = separated
             self._attack = attack
+            self._reattack = reattack
 
         def run_start(self, midi: float, onset_sec: float) -> float | None:
             return self._starts.get(int(round(midi)))
@@ -5270,6 +5417,11 @@ class TestBackdateAccompOnsets:
 
         def attack_evidence(self, midi: float, onset_sec: float) -> bool:
             return self._attack
+
+        def band_reattack(
+            self, midi: float, onset_sec: float
+        ) -> float | None:
+            return self._reattack
 
     def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
         return RawNoteEvent(
@@ -5283,6 +5435,9 @@ class TestBackdateAccompOnsets:
         )
 
     def test_late_onset_backdates_to_run_start(self) -> None:
+        # reattack default 0.0: the mid-sustain detection carries no
+        # own-band attack at the claimed onset, so the run may pull
+        # it back (#197's veto only protects real re-strikes).
         bands = self._FakeBands({64: 3.75})
         ev = (self._ev(64.0, 5.006, 5.541, 1),)
         out, backdated, merged = _backdate_accomp_onsets(ev, bands)
@@ -5436,6 +5591,26 @@ class TestBackdateAccompOnsets:
         out, backdated, merged = _backdate_accomp_onsets(ev, bands)
         assert backdated == 1 and merged == 0
         assert out[0].onset_sec == pytest.approx(1.0, abs=0.2)
+
+    def test_attack_at_onset_never_backdated(self) -> None:
+        # #197: the band's own attack evidence at the reported onset
+        # marks an honest re-strike — qlm m72 @11.954 was dragged to
+        # the predecessor's offset (11.732) by the floor-clamped run,
+        # re-timing it onto the previous chord boundary's bleed and
+        # un-nesting it from the containing voice's span.
+        # The refire sibling measures ~1.2 own-band rise; an honest
+        # strike posts >=4.5 — 4.7 here clears the 3.0 veto bar.
+        bands = self._FakeBands(
+            {72: 11.238}, separated=True, attack=True, reattack=4.7
+        )
+        ev = (
+            self._ev(72.0, 11.5, 11.732, 1),
+            self._ev(72.0, 11.954, 12.175, 2),
+        )
+        out, backdated, merged = _backdate_accomp_onsets(ev, bands)
+        assert merged == 0 and len(out) == 2
+        assert backdated == 0
+        assert out[1].onset_sec == pytest.approx(11.954)
 
 
 class TestAccompPadCompletionOffset:

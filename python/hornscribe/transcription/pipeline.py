@@ -460,6 +460,20 @@ _ACCOMP_TRAIN_MIN_EVENTS = 3
 _ACCOMP_TRAIN_TAIL_MAX_STEPS = 4
 _ACCOMP_TRAIN_GAP_MAX_STEPS = 4
 _ACCOMP_TRAIN_ALIGN_SEC = 0.12
+# #197: a lattice point that exists only under the refined
+# (finer) period can land on a noise hit or a different chord
+# member's strike — the band still rises there, just much less
+# than at a real attack (measured 2.9-3.8 vs 6.8-8.2 on the qlm
+# stem). Refined-only points therefore need a stronger own-band
+# rise than the normal MIN_RISE evidence bar.
+_ACCOMP_TRAIN_REFINED_MIN_RISE = 4.5
+# #197: a mint at the dead cover's onset edge only restates the
+# cover's own claim — and chord-boundary bleed can launch the
+# merged span there (qlm m48/m72: the F->C boundary lifted every
+# band at once). Real strikes at the cover's onset are already
+# represented by surviving detections, so the first margin of the
+# span is off-limits for minting.
+_ACCOMP_TRAIN_COVER_EDGE_SEC = 0.10
 
 
 def _dedup_accomp_unison(
@@ -678,6 +692,14 @@ def _accomp_train_completion(
     Minted hits and split tails get source 'train-completion': they
     read as detected attacks to rhythm pools (they are) while
     staying visible as mined notes in the event dump.
+
+    #197 lattice honesty: a dropped hit leaves a k-period IOI, so
+    multiples count as train support (a sparse-but-real train is
+    not noise); and a median estimated at a multiple of the true
+    grid is refined by the finest divisor the onsets still
+    support — but a refined train's midpoints may coincide with
+    other members' strikes, so neighbor-band evidence is revoked
+    for it (own band only).
     """
     ev_spans: dict[int, list[tuple[float, float]]] = {}
     for p, s, e in evidence or ():
@@ -702,11 +724,42 @@ def _accomp_train_completion(
         iois = [
             b.onset_sec - a.onset_sec for a, b in zip(evs, evs[1:])
         ]
-        period = statistics.median(iois)
+        # #197: a hole in the train still lands ON the lattice — an
+        # IOI of k periods is as much support as adjacent strikes.
+        # Counting only ~1x IOIs read a sparse real train as noise
+        # (qlm m72: 7/17 -> skip, though band rise at every missing
+        # lattice point ran 6.8-7.8). Multiples up to 6x count; past
+        # that the gap is a section boundary, not a dropped hit.
+        def _support(p: float) -> int:
+            return sum(
+                1
+                for g in iois
+                if 1 <= round(g / p) <= 6
+                and abs(g / p - round(g / p)) <= 0.3
+            )
+
+        # The period is whichever observed IOI explains the most
+        # gaps — a median can land BETWEEN clusters and explain
+        # none (vql m72: median 0.686 s on a 0.469 s grid, support
+        # 4/17; the 0.464 s IOI explains 10/17). The smallest
+        # maximally-supported candidate wins the tie: a larger one
+        # would leave lattice-consistent IOIs unclaimed. Candidates
+        # sit at >= half the median — a sub-half IOI is a detector
+        # flicker pair, not a real strike spacing, and letting one
+        # pick the period subdivides the whole train.
+        floor_cand = 0.5 * statistics.median(iois)
+        period = min(
+            (g for g in set(iois) if g >= floor_cand),
+            key=lambda g: (-_support(g), g),
+            default=0.0,
+        )
         if period <= 0.0:
             continue
         support = sum(
-            1 for g in iois if 0.7 * period <= g <= 1.3 * period
+            1
+            for g in iois
+            if 1 <= round(g / period) <= 6
+            and abs(g / period - round(g / period)) <= 0.3
         )
         if support < max(2, math.ceil(0.5 * len(iois))):
             continue
@@ -714,6 +767,42 @@ def _accomp_train_completion(
             e.offset_sec - e.onset_sec for e in evs
         )
         onsets = [e.onset_sec for e in evs]
+        # #197: sparse detection can median at a multiple of the
+        # true grid (qlm m69: 0.935 s median on a 0.469 s grid — the
+        # coarser lattice then predicts no point inside the merged
+        # 10.049-10.78 span that hides the e5 strike). A finer
+        # divisor is accepted when it does not subdivide below the
+        # densest spacing the detector actually showed, AND leaves
+        # most onsets on the refined lattice. Points that exist only
+        # on the finer grid get own-band evidence AND the stronger
+        # REFINED_MIN_RISE bar: they can land on a noise hit or
+        # another member's strike, whose thump would otherwise leak
+        # a phantom split (m72 @5.04/12.07 measured 2.9-3.8 own).
+        refine_factor = 1  # product of accepted divisors
+        min_ioi = min(iois)
+        while True:
+            accepted = False
+            for div in (2, 3):
+                cand = period / div
+                if cand < 0.85 * min_ioi:
+                    continue
+                phase = statistics.median(o % cand for o in onsets)
+                on_grid = sum(
+                    1
+                    for o in onsets
+                    if min(
+                        ((o - phase) / cand) % 1,
+                        1 - ((o - phase) / cand) % 1,
+                    )
+                    <= 0.25
+                )
+                if on_grid >= math.ceil(0.55 * len(onsets)):
+                    period = cand
+                    refine_factor *= div
+                    accepted = True
+                    break
+            if not accepted:
+                break
         spans = [(e.onset_sec, e.offset_sec, e) for e in evs]
 
         def blocked(t: float) -> bool:
@@ -725,9 +814,11 @@ def _accomp_train_completion(
         def covered(pos: float) -> bool:
             # The dead cover's span bounds where a hit may mint: the
             # detector's merged hypothesis is the proof that energy
-            # actually ran under the lattice point.
+            # actually ran under the lattice point. #197 trims the
+            # onset edge — a mint there only restates the cover's
+            # own claim (chord-boundary bleed launches spans).
             return any(
-                s - _ACCOMP_TRAIN_ALIGN_SEC <= pos <= e + 0.05
+                s + _ACCOMP_TRAIN_COVER_EDGE_SEC <= pos <= e + 0.05
                 for s, e in ev_spans.get(pitch, ())
             )
 
@@ -737,12 +828,16 @@ def _accomp_train_completion(
                 return own
             return max(own, bands.band_neighbor_reattack(pitch, t))
 
-        def _argmax_rise(pos: float, with_neighbors: bool) -> tuple[float | None, float]:
+        def _argmax_rise(
+            pos: float,
+            with_neighbors: bool,
+            min_rise: float = _ACCOMP_UNISON_REATTACK_MIN_RISE,
+        ) -> tuple[float | None, float]:
             # Scan the align window at frame resolution; the peak of
             # the envelope's rise is the attack — the lattice's
             # proposal is a neighborhood, the envelope decides where.
             best_t: float | None = None
-            best = _ACCOMP_UNISON_REATTACK_MIN_RISE
+            best = min_rise
             lo = pos - _ACCOMP_TRAIN_ALIGN_SEC
             steps = 2 * max(1, round(_ACCOMP_TRAIN_ALIGN_SEC / bands._spf))
             for k in range(steps + 1):
@@ -752,25 +847,80 @@ def _accomp_train_completion(
                     best, best_t = r, t
             return best_t, best
 
-        def try_point(pos: float) -> float | None:
+        def try_point(pos: float, refined_only: bool = False) -> float | None:
             holder = next(
                 (i for i, (s, e, _ev) in enumerate(spans)
                  if s <= pos < e),
                 None,
             )
+            def _on_lattice(t: float) -> bool:
+                # #197: a refined-only point sits BETWEEN strikes of
+                # the coarser grid — the previous attack's rise tail
+                # still rises at its window's left edge, and the
+                # argmax then clips there (qlm m72: pos -0.12 every
+                # time). A strike truly owned by this point peaks
+                # within half the refined period; farther out it is
+                # closer to a neighbouring lattice point and belongs
+                # to that point's attack instead.
+                return (
+                    not refined_only
+                    or abs(t - pos) <= 0.5 * period
+                )
+
             if holder is not None:
                 # #193 merged-pair split: the lattice point fell
                 # inside a living event — a detector span this long
                 # covering >=2 grid slots can be two merged strikes.
                 # Saturated low bands never dip (own rise stays ~0),
                 # so the neighbor-band thump counts as evidence too.
+                # #197: but a finer-grid midpoint can land on OTHER
+                # members' strikes — only its own band may vouch,
+                # and only at the stronger REFINED_MIN_RISE bar.
                 s, e_off, holder_ev = spans[holder]
-                best_t, best = _argmax_rise(pos, with_neighbors=True)
+                if refined_only:
+                    # #197: a refined-only point can land on a noise
+                    # hit or another member's strike — the band does
+                    # rise there, just not like a real attack (measured
+                    # 2.9-3.8 vs 6.8-8.2 on true strikes). Only a
+                    # strong own-band rise may vouch for it.
+                    best_t, best = _argmax_rise(
+                        pos,
+                        with_neighbors=False,
+                        min_rise=_ACCOMP_TRAIN_REFINED_MIN_RISE,
+                    )
+                else:
+                    best_t, best = _argmax_rise(pos, with_neighbors=True)
                 if (
                     best_t is None
                     or best_t - s < 0.1
                     or e_off - best_t < 0.1
                 ):
+                    return None
+                # A different event may already own this attack —
+                # on a nearby voice or inside another span — and
+                # cutting the long one would double the strike (#197:
+                # v0's merged pair split at 5.44 while v2's own
+                # 5.401-5.622 event already covered the strike).
+                if any(
+                    k2 != holder
+                    and (
+                        spans[k2][0] <= best_t < spans[k2][1]
+                        or abs(best_t - spans[k2][0])
+                        <= _ACCOMP_TRAIN_ALIGN_SEC
+                    )
+                    for k2 in range(len(spans))
+                ):
+                    return None
+                # Two cuts on one span must keep the same minimum
+                # fragment the edge margins enforce — a closer pair
+                # is one attack claimed by two lattice points (#197:
+                # 5.455/5.473 produced an 18 ms sliver).
+                if any(
+                    abs(best_t - t2) < 0.1
+                    for t2 in splits.get(id(holder_ev), ())
+                ):
+                    return None
+                if not _on_lattice(best_t):
                     return None
                 splits.setdefault(id(holder_ev), []).append(best_t)
                 return best_t
@@ -778,11 +928,20 @@ def _accomp_train_completion(
             # only evidence strong enough to mint a fresh event.
             if not covered(pos):
                 return None
-            best_t, _best = _argmax_rise(pos, with_neighbors=False)
+            best_t, _best = _argmax_rise(
+                pos,
+                with_neighbors=False,
+                min_rise=(
+                    _ACCOMP_TRAIN_REFINED_MIN_RISE
+                    if refined_only
+                    else _ACCOMP_UNISON_REATTACK_MIN_RISE
+                ),
+            )
             if (
                 best_t is None
                 or blocked(best_t)
                 or not covered(best_t)
+                or not _on_lattice(best_t)
             ):
                 return None
             nxt = min(
@@ -817,14 +976,17 @@ def _accomp_train_completion(
                 pos = a.onset_sec + m * period
                 if pos >= b.onset_sec - _ACCOMP_TRAIN_ALIGN_SEC:
                     break
-                try_point(pos)
+                try_point(pos, refined_only=(m % refine_factor) != 0)
         # Tail: the dead cover may run past the last detected hit —
         # keep walking inside it while the envelope still answers,
         # stopping at the first refusal or the cover's edge
         # (#187's note-level twin).
         last = evs[-1].onset_sec
         for step in range(1, _ACCOMP_TRAIN_TAIL_MAX_STEPS + 1):
-            if try_point(last + step * period) is None:
+            if try_point(
+                last + step * period,
+                refined_only=(step % refine_factor) != 0,
+            ) is None:
                 break
     if not splits and not minted:
         return accomp_cleaned
@@ -909,6 +1071,11 @@ _ACCOMP_SEAM_MAX_GAP_SEC = 0.12
 # the run actually started; only a gain beyond this floor is a real
 # late-onset correction, anything smaller is window smear.
 _ACCOMP_BACKDATE_MIN_SEC = 0.18
+# #197: own-band log-energy rise at the reported onset that proves
+# the detection IS a real attack (not a mid-sustain refire) — the
+# measured gap on the fixture stems runs 1.5 (refire bump) to 4.5+
+# (honest strike), so 3.0 splits them with margin.
+_ACCOMP_BACKDATE_ATTACK_MIN_RISE = 3.0
 # #172: a same-pitch re-onset folds into its predecessor when the band
 # run containing it reaches back to the predecessor's own onset — the
 # dropout bridge inside run_start says the tone never released (a
@@ -2083,7 +2250,21 @@ def _backdate_accomp_onsets(
             continue
         floor = prev.offset_sec if prev is not None else 0.0
         onset = max(run, floor)
-        if ev.onset_sec - onset >= _ACCOMP_BACKDATE_MIN_SEC:
+        if (
+            ev.onset_sec - onset >= _ACCOMP_BACKDATE_MIN_SEC
+            # #197: the backdate exists for a mid-sustain detection —
+            # a held tone with NO attack of its own at the reported
+            # onset (a refire's bleed bump measures ~1.2-1.5 log
+            # rise). When the band posts a real re-attack there
+            # (honest strikes run >=4.5 — qlm m72 @11.954 showed
+            # 4.67), the onset is honest; dragging it to the run's
+            # floor-clamped start re-times it onto the previous
+            # chord boundary's bleed and un-nests it from the
+            # containing voice's span, minting a phantom onset.
+            and (
+                bands.band_reattack(ev.pitch_midi, ev.onset_sec) or 0.0
+            ) < _ACCOMP_BACKDATE_ATTACK_MIN_RISE
+        ):
             ev = replace(ev, onset_sec=onset)
             backdated += 1
         out.append(ev)
