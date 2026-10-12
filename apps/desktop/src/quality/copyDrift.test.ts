@@ -15,9 +15,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import deck from "../../../../protocol/copy/ja-JP.json";
 import { ja } from "../strings/ja";
-import { REVIEW_REASON_COPY_KEYS } from "../sidecar/review";
+import { REVIEW_REASONS, REVIEW_REASON_COPY_KEYS } from "../sidecar/review";
 
 /** Flatten nested {group: {leaf: "…"}} objects to "a.b" → value pairs. */
 function leafMap(node: unknown, prefix = ""): Map<string, string> {
@@ -131,5 +132,26 @@ describe("copy deck drift guard (#116)", () => {
     }
     expect(missing).toEqual([]);
     expect(mismatched).toEqual([]);
+  });
+
+  it("REVIEW_REASONS mirrors the engine ReviewReason enum (#209)", () => {
+    // The sidecar list calls itself a mirror of
+    // python/hornscribe/domain/review.py — pin the claim so a new
+    // engine reason cannot ship without its UI mirror entry.
+    const src = readFileSync(
+      new URL(
+        "../../../../python/hornscribe/domain/review.py",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const enumBody = src.slice(
+      src.indexOf("class ReviewReason"),
+      src.indexOf("class Severity"),
+    );
+    const engineReasons = [
+      ...enumBody.matchAll(/^\s+[A-Z_]+ = "([a-z_]+)"/gm),
+    ].map((m) => m[1]);
+    expect(sorted(REVIEW_REASONS)).toEqual(sorted(engineReasons));
   });
 });
