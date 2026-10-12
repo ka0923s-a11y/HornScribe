@@ -3209,7 +3209,21 @@ def _extra_issues(
     for note in built_notes:
         conf = confidence.get(note.id)
         onset = onsets_sec.get(note.id, 0.0)
-        rng = TimeRange(start_sec=onset, end_sec=onset + 0.05)
+        # #212: the flag describes the whole note, so the range covers
+        # its detected span — the review A-B loop and the navigator
+        # label both read timeRange verbatim, and a fixed 50 ms window
+        # looped as an unrecognizable click while rendering the same
+        # second twice in the label. The 50 ms floor stays only as
+        # the no-source-events fallback.
+        end = max(
+            (
+                event_by_id[e].offset_sec
+                for e in note.source_event_ids
+                if e in event_by_id
+            ),
+            default=onset + 0.05,
+        )
+        rng = TimeRange(start_sec=onset, end_sec=max(end, onset + 0.05))
         if stem_admitted:
             margins = [
                 m
