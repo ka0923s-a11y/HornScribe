@@ -5660,7 +5660,17 @@ def run_transcription_job(
                     # produced the audio the backend saw. Absent when
                     # no preprocessing was requested.
                     **({"preprocess": preprocess} if preprocess is not None else {}),
-                    "tempoBpm": round(estimate.median_bpm, 2),
+                    # #199: on a tracked multi-tempo piece the median
+                    # interval mixes the regions into a fictitious
+                    # tempo (tempo-step read 130.78 for 100->140). The
+                    # emitted map's opening mark is the honest primary
+                    # tempo; a pinned run has no map segments to draw.
+                    "tempoBpm": round(
+                        tempo_map[0].bpm
+                        if estimate.auto and tempo_map
+                        else estimate.median_bpm,
+                        2,
+                    ),
                     "tempoAuto": estimate.auto,
                     "meter": f"{meter.numerator}/{meter.denominator}",
                     "meterEstimated": meter_estimated,

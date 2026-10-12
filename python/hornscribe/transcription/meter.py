@@ -119,6 +119,13 @@ _CENSUS_PRIOR_WEIGHT = 4.0
 # moves the windowed median itself.
 _TEMPO_SHIFT_DEVIATION = 0.25
 _TEMPO_SHIFT_WINDOW = 8
+# A smooth rit./accel. keeps every sliding window near the global
+# median (the drift sits inside the spread the window itself
+# averages), so sustained drift needs an endpoint comparison instead:
+# first-third vs last-third medians (rubato-4-4 moves ~17 % end to
+# end, #199).
+_TEMPO_DRIFT_DEVIATION = 0.12
+_TEMPO_DRIFT_MIN_INTERVALS = 7
 # Score-time value (quarterLength) of one tracked pulse when the
 # tracker sits on eighths regardless of the winning label.
 _EIGHTH_QL = Fraction(1, 2)
@@ -306,26 +313,42 @@ def _slot_phase(
 def _tempo_shifted(
     beat_times_sec: tuple[float, ...], interval_sec: float,
 ) -> bool:
-    """True when a run of beat intervals sits off the global median.
+    """True when the tracked pulse rate is not constant over the piece.
 
-    Single missed/doubled beats jitter around the median; a real
-    tempo change keeps a whole window of consecutive intervals off
-    it. The sliding median therefore separates tracker noise from an
-    actual pulse step (#260 vs the #93 case that needs index-space
-    slots).
+    Two signatures, both blind to point jitter (a dropped or doubled
+    tracker beat perturbs a single window, never a sustained run):
+
+    * step -- one sliding window whose median interval deviates from
+      the global median past _TEMPO_SHIFT_DEVIATION. The window
+      slides over however many intervals exist; the old 'at least two
+      full windows' gate left every short track (< 2w intervals)
+      unable to see a step at all -- tempo-step-4-4's 15 intervals
+      scattered the uniform-lattice accents into a 5/4 read (#199).
+    * drift -- the first and last thirds' medians differ past
+      _TEMPO_DRIFT_DEVIATION. A smooth rit./accel. keeps EVERY window
+      near the global median, so only an endpoint comparison sees it.
+      Each third is at least 3 intervals wide (n >= 7 required), so a
+      lone tail gap cannot masquerade as a trend.
     """
     intervals = [
         b - a
         for a, b in zip(beat_times_sec, beat_times_sec[1:], strict=False)
         if b - a > 0
     ]
-    w = _TEMPO_SHIFT_WINDOW
-    if len(intervals) < 2 * w or interval_sec <= 0:
+    n = len(intervals)
+    if n < 4 or interval_sec <= 0:
         return False
-    for i in range(len(intervals) - w + 1):
+    w = min(_TEMPO_SHIFT_WINDOW, n)
+    for i in range(n - w + 1):
         window = sorted(intervals[i : i + w])
         med = window[w // 2]
         if abs(med - interval_sec) > _TEMPO_SHIFT_DEVIATION * interval_sec:
+            return True
+    if n >= _TEMPO_DRIFT_MIN_INTERVALS:
+        third = max(3, n // 3)
+        first = sorted(intervals[:third])[third // 2]
+        last = sorted(intervals[-third:])[third // 2]
+        if abs(last - first) > _TEMPO_DRIFT_DEVIATION * interval_sec:
             return True
     return False
 

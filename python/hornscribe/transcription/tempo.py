@@ -70,6 +70,20 @@ _LSQ_MAX_OUTLIER_SHARE = 1.0 / 3.0
 _STEADY_MIN_ANCHORS = 8
 _STEADY_MEAN_RESID_FRAC = 0.08
 _STEADY_MAX_RESID_FRAC = 0.40
+# #199: a sustained one-direction drift (rit./accel.) defeats the
+# episode model -- EVERY measure is a fresh out-of-corridor level, so
+# persistence emits a staircase one corridor wide and the printed map
+# lags the warp by whole beats (rubato-4-4 scored onset F1 0.59 with
+# a 133 ms axis error). When the pending run keeps stepping the same
+# direction at ramp scale -- a bigger step is a discrete tempo CHANGE,
+# not a drift -- emit every drifting measure's own rate and keep
+# emitting per-measure while the drift continues.
+_TEMPO_RAMP_STEP_RATIO = 0.015
+_TEMPO_RAMP_MAX_STEP = 0.15
+# A corridor-flat measure does not declare the drift over (a rit.
+# that pauses a bar is still a rit.) — but more than this many
+# straight pause measures does.
+_TEMPO_RAMP_IDLE_MEASURES = 2
 
 
 def _anchor_slope_sec(times: tuple[float, ...]) -> float | None:
@@ -740,6 +754,18 @@ def tempo_map_from_estimate(
         ql_tail = min(
             ql_tail, estimate.warp.seconds_to_ql(last_onset_sec)
         )
+        # #199: measure tempo only through anchors at or before the
+        # last onset -- the tracker ticks past the music at an
+        # invented tail rate, and interpolating inside that phantom
+        # interval drags the closing measure's mark off the settled
+        # level (tempo-step's tail anchor pushed the last measure
+        # toward ~146-161 for a true 140).
+        for t in reversed(times):
+            if t <= last_onset_sec + 1e-6:
+                ql_tail = min(ql_tail, estimate.warp.seconds_to_ql(t))
+                break
+        else:
+            ql_tail = ql_head
     for index in range(first_m, last_m + 1):
         a_ql, b_ql = measure_bounds_ql(index)
         a_ql = max(a_ql, ql_head)
@@ -801,11 +827,44 @@ def tempo_map_from_estimate(
     # the corridor or a direction flip discard the pending episode.
     pending_pos: int | None = None
     pending_dir = 0
+    ramp_dir = 0
+    ramp_idle = 0
     last_pos = len(indices) - 1
     for pos in range(1, len(indices)):
         index = indices[pos]
         bpm = smoothed[index]
         dev = bpm - last_bpm
+        if ramp_dir:
+            # #199: mid-drift — each further measure at ramp scale in
+            # the drift direction earns its own mark immediately. A
+            # measure that merely pauses inside the merge corridor
+            # does not end the drift (a rit. that breathes for a bar
+            # is still a rit.); only a reversal or a step-sized jump
+            # does. Up to _TEMPO_RAMP_IDLE_MEASURES corridor measures
+            # may pass before the drift is declared over.
+            step_ratio = dev / last_bpm if last_bpm else 0.0
+            if (
+                _TEMPO_MERGE_RATIO
+                < step_ratio * ramp_dir
+                <= _TEMPO_RAMP_MAX_STEP
+            ):
+                segments.append(
+                    TempoSegment(
+                        start_beat=measure_start_beats(index),
+                        bpm=float(round(bpm)),
+                    )
+                )
+                last_bpm = bpm
+                pending_pos = None
+                pending_dir = 0
+                ramp_idle = 0
+                continue
+            if abs(step_ratio) <= _TEMPO_MERGE_RATIO:
+                ramp_idle += 1
+                if ramp_idle <= _TEMPO_RAMP_IDLE_MEASURES:
+                    continue
+            ramp_dir = 0
+            ramp_idle = 0
         if abs(dev) / last_bpm <= _TEMPO_MERGE_RATIO:
             pending_pos = None
             pending_dir = 0
@@ -818,27 +877,85 @@ def tempo_map_from_estimate(
             abs(bpm - last_bpm) / last_bpm > _TEMPO_TAIL_JUMP_RATIO
         )
         if persisted or tail_jump:
-            # The mark belongs at the first measure already AT the new
-            # level -- a boundary-crossing step starts its episode on
-            # the mixed transition measure, so onset != settle. The
-            # corridor uses the tail-jump scale (8 %): the tight
-            # 2.5 % merge corridor rejected genuinely-settled first
-            # measures under tracker settling lag (~4-5 % noise) and
-            # jumped the mark a whole measure late (bench tempo-step
-            # printed the step at beat 12 instead of beat 8).
-            emit_pos = pos
-            for q in range(pending_pos, pos + 1):
-                q_bpm = smoothed[indices[q]]
-                if abs(q_bpm - bpm) / bpm <= _TEMPO_TAIL_JUMP_RATIO:
-                    emit_pos = q
-                    break
-            segments.append(
-                TempoSegment(
-                    start_beat=measure_start_beats(indices[emit_pos]),
-                    bpm=float(round(bpm)),
+            # #199: is the pending run a RAMP? A run that keeps
+            # stepping the pending direction at ramp scale — at least
+            # two in-band steps, no discrete jump, no reversal — is a
+            # sustained rit./accel.: emit each drifting measure's own
+            # rate instead of one mark at the far end. Trailing run
+            # measures that stopped moving already sit at the new
+            # level; the emit_pos path owns those.
+            run = list(indices[pending_pos : pos + 1])
+            end = len(run) - 1
+            while end > 0 and abs(
+                smoothed[run[end]] - smoothed[run[end - 1]]
+            ) / smoothed[run[end - 1]] < _TEMPO_RAMP_STEP_RATIO:
+                end -= 1
+            trimmed = run[: end + 1]
+            run_steps = [
+                (smoothed[trimmed[q]] - smoothed[trimmed[q - 1]])
+                / smoothed[trimmed[q - 1]]
+                for q in range(1, len(trimmed))
+            ]
+            is_ramp = (
+                len(trimmed) >= 3
+                and len(
+                    [
+                        s
+                        for s in run_steps
+                        if _TEMPO_RAMP_STEP_RATIO
+                        <= s * pending_dir
+                        <= _TEMPO_RAMP_MAX_STEP
+                    ]
+                )
+                >= 2
+                and all(
+                    s * pending_dir <= _TEMPO_RAMP_MAX_STEP
+                    for s in run_steps
+                )
+                and all(
+                    s * pending_dir >= -_TEMPO_RAMP_STEP_RATIO
+                    for s in run_steps
                 )
             )
-            last_bpm = bpm
+            if is_ramp:
+                for q in trimmed:
+                    q_bpm = smoothed[q]
+                    if (
+                        abs(q_bpm - last_bpm) / last_bpm
+                        <= _TEMPO_MERGE_RATIO
+                    ):
+                        continue
+                    segments.append(
+                        TempoSegment(
+                            start_beat=measure_start_beats(q),
+                            bpm=float(round(q_bpm)),
+                        )
+                    )
+                    last_bpm = q_bpm
+                ramp_dir = pending_dir
+            else:
+                # The mark belongs at the first measure already AT the
+                # new level -- a boundary-crossing step starts its
+                # episode on the mixed transition measure, so onset
+                # != settle. The corridor uses the tail-jump scale
+                # (8 %): the tight 2.5 % merge corridor rejected
+                # genuinely-settled first measures under tracker
+                # settling lag (~4-5 % noise) and jumped the mark a
+                # whole measure late (bench tempo-step printed the
+                # step at beat 12 instead of beat 8).
+                emit_pos = pos
+                for q in range(pending_pos, pos + 1):
+                    q_bpm = smoothed[indices[q]]
+                    if abs(q_bpm - bpm) / bpm <= _TEMPO_TAIL_JUMP_RATIO:
+                        emit_pos = q
+                        break
+                segments.append(
+                    TempoSegment(
+                        start_beat=measure_start_beats(indices[emit_pos]),
+                        bpm=float(round(bpm)),
+                    )
+                )
+                last_bpm = bpm
             pending_pos = None
             pending_dir = 0
     return tuple(segments)
