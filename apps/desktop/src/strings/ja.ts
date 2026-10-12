@@ -2551,6 +2551,8 @@ export const ja = {
     paramsVocalIsolation: "ボーカル分離",
     /* #181: non-default demucs tier echo on queue rows. */
     paramsVocalIsolationPrecision: "分離高精度",
+    /* #203: accompaniment-staff opt-out echo on queue rows. */
+    paramsAccompanimentOff: "伴奏なし",
     paramsTempo: (bpm: number) => `${bpm} BPM`,
     paramsKey: (key: string) => `調 ${key}`,
     paramsTriplets: {

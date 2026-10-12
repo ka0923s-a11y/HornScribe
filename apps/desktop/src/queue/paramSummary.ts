@@ -39,6 +39,10 @@ export function queueParamSummary(params: TranscriptionJobParams): string {
    * summary must not claim it either. */
   if (params.vocalIsolation && params.vocalIsolationQuality === "precision")
     f.push(ja.queue.paramsVocalIsolationPrecision);
+  /* #203: the opt-out flag is a pinned non-default too — hiding it
+   *  would let a queued job silently drop the accompaniment staff. */
+  if (params.accompanimentPart === false)
+    f.push(ja.queue.paramsAccompanimentOff);
   if (params.tempoBpm != null) f.push(ja.queue.paramsTempo(params.tempoBpm));
   if (params.meter) f.push(params.meter);
   if (params.keyHint) f.push(ja.queue.paramsKey(params.keyHint));

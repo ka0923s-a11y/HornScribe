@@ -88,4 +88,13 @@ describe("queueParamSummary (#59)", () => {
       queueParamSummary({ vocalIsolationQuality: "precision" }),
     ).toBe("");
   });
+
+  it("#203: accompaniment opt-out echoes, default stays silent", () => {
+    expect(queueParamSummary({ accompanimentPart: false })).toBe(
+      ja.queue.paramsAccompanimentOff,
+    );
+    // Explicit true and absence both mean the engine default — silent.
+    expect(queueParamSummary({ accompanimentPart: true })).toBe("");
+    expect(queueParamSummary({})).toBe("");
+  });
 });
