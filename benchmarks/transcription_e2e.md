@@ -17,7 +17,7 @@
 | jpop-mix-vocal | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | 1.0 (56/0/0) | 1.0 (1.0/1.0) | 128.0 (1.0) | 4/4 (True) | 5.6 | same mix + vocalIsolation — center-extraction payoff |
 | jpop-mix-hard-raw | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | 0.9873 (117/0/3) | 0.9789 (0.991/0.967) | 128.0 (1.0) | 4/4 (True) | 9.2 | hard mix without separation — contrast row |
 | jpop-mix-hard-vocal | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | 0.9873 (117/0/3) | 0.9789 (0.991/0.967) | 128.0 (1.0) | 4/4 (True) | 6.6 | vibrato lead + same-octave strum — the hard JPOP case |
-| jpop-pad8th-vocal | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | 0.9887 (219/0/5) | 0.9887 (1.0/0.978) | 128.0 (1.0) | 4/4 (True) | 6.1 | #171: eighth-note pad ostinato — every strike is truth |
+| jpop-pad8th-vocal | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | 0.991 (220/0/4) | 0.991 (1.0/0.982) | 128.0 (1.0) | 4/4 (True) | 8.2 | #171: eighth-note pad ostinato — every strike is truth |
 | auto-4-4-96 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | - | - | 96.25 (1.003) | 4/4 (True) | 4.7 | unhinted: meter + tempo estimated |
 | auto-3-4-132 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | - | - | 132.19 (1.001) | 3/4 (True) | 5.0 | unhinted waltz — triple-meter estimation |
 | auto-6-8-143 | 1.0 | 0 | 0/0 | 1.0 | 0.0 | 0.0 | - | - | 142.87 (0.999) | 6/8 (True) | 5.0 | unhinted compound meter |
