@@ -5139,14 +5139,21 @@ class TestFoldAccompSlivers:
     neighbours is detector boundary noise — fold it into the
     predecessor rather than printing a phantom 32nd."""
 
-    def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
+    def _ev(
+        self,
+        midi: float,
+        onset: float,
+        offset: float,
+        i: int,
+        conf: float | None = 0.8,
+    ) -> RawNoteEvent:
         return RawNoteEvent(
             id=RawNoteEventId(f"rne-f{i:06d}"),
             transcription_revision=_REV,
             pitch_midi=midi,
             onset_sec=onset,
             offset_sec=offset,
-            confidence=0.8,
+            confidence=conf,
             source="test",
         )
 
@@ -5193,6 +5200,50 @@ class TestFoldAccompSlivers:
         ev = (self._ev(45.0, 0.0, 0.05, 1), self._ev(45.0, 0.05, 0.5, 2))
         out, n = _fold_accomp_slivers(ev)
         assert n == 0 and len(out) == 2
+
+    def test_weak_sliver_below_neighbour_confidence_folds(self) -> None:
+        # #195: the 93 ms early false fire on jpop-mix-hard-vocal m45 —
+        # above the 90 ms cap but weaker than both real strikes.
+        ev = (
+            self._ev(45.0, 0.476, 0.859, 1, conf=0.72),
+            self._ev(45.0, 0.859, 0.952, 2, conf=0.54),
+            self._ev(45.0, 0.952, 1.405, 3, conf=0.67),
+        )
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 1 and len(out) == 2
+        assert out[0].offset_sec == pytest.approx(0.952)
+        assert out[1].onset_sec == pytest.approx(0.952)
+
+    def test_weak_sliver_strong_confidence_kept(self) -> None:
+        # A sandwiched note in the 90-110 ms band that out-confidences
+        # a neighbour is a real articulation — keep it.
+        ev = (
+            self._ev(45.0, 0.0, 0.4, 1, conf=0.60),
+            self._ev(45.0, 0.4, 0.495, 2, conf=0.78),
+            self._ev(45.0, 0.495, 0.9, 3, conf=0.62),
+        )
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 0 and len(out) == 3
+
+    def test_weak_sliver_missing_confidence_kept(self) -> None:
+        # No confidence to judge by — the weak path stays out and the
+        # over-90 ms island survives.
+        ev = (
+            self._ev(45.0, 0.0, 0.4, 1, conf=0.72),
+            self._ev(45.0, 0.4, 0.495, 2, conf=None),
+            self._ev(45.0, 0.495, 0.9, 3, conf=0.67),
+        )
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 0 and len(out) == 3
+
+    def test_over_weak_max_never_folds(self) -> None:
+        ev = (
+            self._ev(45.0, 0.0, 0.4, 1, conf=0.72),
+            self._ev(45.0, 0.4, 0.515, 2, conf=0.40),  # 115 ms island
+            self._ev(45.0, 0.515, 0.9, 3, conf=0.67),
+        )
+        out, n = _fold_accomp_slivers(ev)
+        assert n == 0 and len(out) == 3
 
 
 class TestBackdateAccompOnsets:
