@@ -332,7 +332,6 @@ describe("TranscriptionSession", () => {
     // retry hits JOB_ALREADY_RUNNING. The session must escalate to
     // the terminate+restart fallback so the next start lands on a
     // clean worker.
-    let n = 0;
     const ports: MockSidecarPort[] = [];
     const session = new TranscriptionSession({
       portFactory: () => {
