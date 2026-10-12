@@ -4333,6 +4333,19 @@ class TestAccompTrainCompletion:
                     out = max(out, r)
             return out
 
+        def band_neighbor_reattack(
+            self, midi: float, onset_sec: float
+        ) -> float:
+            m = int(round(midi))
+            best = 0.0
+            for mm in range(m - 3, m + 4):
+                if mm == m:
+                    continue
+                r = self.band_reattack(mm, onset_sec)
+                if r is not None and r > best:
+                    best = r
+            return best
+
     def _ev(self, midi: float, onset: float, offset: float, i: int) -> RawNoteEvent:
         return RawNoteEvent(
             id=RawNoteEventId(f"rne-b{i:06d}"),
@@ -4374,19 +4387,19 @@ class TestAccompTrainCompletion:
             _REV,
             evidence=[(72, 0.232, 1.858)],
         )
-        assert len(out) == 1
-        assert out[0].onset_sec == pytest.approx(1.66, abs=0.13)
-        assert out[0].source == "train-completion"
-        assert int(round(out[0].pitch_midi)) == 72
+        minted = [
+            e for c in out for e in c.events
+            if e.source == "train-completion"
+        ]
+        assert len(minted) == 1
+        assert minted[0].onset_sec == pytest.approx(1.66, abs=0.13)
+        assert int(round(minted[0].pitch_midi)) == 72
 
     def test_no_evidence_mints_nothing(self) -> None:
         bands = self._FakeBands({72: [(1.55, 1.80, 7.0)]})
-        assert (
-            _accomp_train_completion(
-                [self._train_voice()], bands, _REV
-            )
-            == ()
-        )
+        voice = self._train_voice()
+        out = _accomp_train_completion([voice], bands, _REV)
+        assert [e for c in out for e in c.events] == list(voice.events)
 
     def test_candidate_outside_cover_refused(self) -> None:
         # The predicted 2.14 point is past the dead cover's end —
@@ -4399,7 +4412,10 @@ class TestAccompTrainCompletion:
             _REV,
             evidence=[(72, 0.232, 1.858)],
         )
-        assert out == ()
+        assert not [
+            e for c in out for e in c.events
+            if e.source == "train-completion"
+        ]
 
     def test_no_rise_at_covered_candidate_refused(self) -> None:
         # Covered by a dead cover but the band stayed flat through
@@ -4411,7 +4427,63 @@ class TestAccompTrainCompletion:
             _REV,
             evidence=[(72, 0.232, 1.858)],
         )
-        assert out == ()
+        assert not [
+            e for c in out for e in c.events
+            if e.source == "train-completion"
+        ]
+
+    def test_merged_pair_long_event_splits(self) -> None:
+        # #193 (hard-vocal m41): the 9.374-10.328 event spans exactly
+        # 2x the bass train's period — two strikes the detector
+        # merged. The low band saturates (own rise ~0) but the
+        # strike's thump still rises the +-3-semitone neighborhood.
+        voice = self._voice(
+            self._ev(41.0, 1.892, 2.346, 1),
+            self._ev(41.0, 2.346, 2.823, 2),
+            self._ev(41.0, 2.823, 3.275, 3),
+            self._ev(41.0, 3.275, 3.740, 4),
+            self._ev(41.0, 9.374, 10.328, 5),
+            self._ev(41.0, 10.328, 10.780, 6),
+            self._ev(41.0, 10.780, 11.245, 7),
+        )
+        bands = self._FakeBands({44: [(9.80, 9.95, 3.2)]})
+        out = _accomp_train_completion(
+            [voice], bands, _REV,
+            evidence=[(72, 0.2, 1.9)],
+        )
+        evs = sorted(
+            (e.onset_sec, e.offset_sec)
+            for c in out for e in c.events
+            if int(round(e.pitch_midi)) == 41
+        )
+        pieces = [x for x in evs if x[0] >= 9.0]
+        assert pieces[0] == pytest.approx((9.374, 9.85), abs=0.13)
+        assert pieces[1][0] == pytest.approx(9.85, abs=0.13)
+        assert pieces[1][1] == pytest.approx(10.328)
+
+    def test_long_event_without_attack_not_split(self) -> None:
+        # The same 2-slot span with a flat envelope is a real held
+        # note — no neighbor thump, no split.
+        voice = self._voice(
+            self._ev(41.0, 1.892, 2.346, 1),
+            self._ev(41.0, 2.346, 2.823, 2),
+            self._ev(41.0, 2.823, 3.275, 3),
+            self._ev(41.0, 3.275, 3.740, 4),
+            self._ev(41.0, 9.374, 10.328, 5),
+            self._ev(41.0, 10.328, 10.780, 6),
+            self._ev(41.0, 10.780, 11.245, 7),
+        )
+        bands = self._FakeBands({})
+        out = _accomp_train_completion(
+            [voice], bands, _REV,
+            evidence=[(72, 0.2, 1.9)],
+        )
+        m41 = sorted(
+            e.onset_sec
+            for c in out for e in c.events
+            if int(round(e.pitch_midi)) == 41 and e.onset_sec >= 9.0
+        )
+        assert m41 == pytest.approx([9.374, 10.328, 10.780])
 
 
 class TestAccompPadCompletion:
