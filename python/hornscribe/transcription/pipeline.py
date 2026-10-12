@@ -5468,7 +5468,14 @@ def run_transcription_job(
         # cannot decide — surfaced for review instead of guessed.
         issues.extend(
             _spelling_issues(
-                tuple(n for p in built.payload.parts for n in p.notes),
+                # #205: horn staff only — accompaniment notes carry the
+                # one provenance marker, not per-note review flags (#249).
+                tuple(
+                    n
+                    for p in built.payload.parts
+                    if p.transposing
+                    for n in p.notes
+                ),
                 payload.key_signature.fifths,
                 payload.key_changes,
                 built.note_onset_sec,
@@ -5544,7 +5551,14 @@ def run_transcription_job(
         issues.extend(
             _chord_issues(
                 chord_map,
-                tuple(n for p in built.payload.parts for n in p.notes),
+                # #205: same restriction — the chord context informs the
+                # horn staff spelling/rhythm, never the accompaniment.
+                tuple(
+                    n
+                    for p in built.payload.parts
+                    if p.transposing
+                    for n in p.notes
+                ),
                 estimate.warp,
                 beat_ql,
                 score_revision,
