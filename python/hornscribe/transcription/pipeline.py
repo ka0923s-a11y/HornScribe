@@ -32,6 +32,7 @@ import contextlib
 import hashlib
 import math
 import os
+import statistics
 import tempfile
 import threading
 import time
@@ -446,10 +447,25 @@ _ACCOMP_UNISON_TOL_SEC = 0.03
 _ACCOMP_UNISON_REATTACK_MIN_RISE = 1.0
 _ACCOMP_UNISON_REATTACK_WIN_SEC = 0.16
 
+# #191: a same-pitch strike train mints the hits the detector
+# under-fired. The lattice needs at least three strikes before a
+# period can be read at all, half the gaps must agree with the
+# median before the pitch counts as periodic, a gap or the tail
+# walks at most four predicted hits, and every minted hit must
+# carry the same band-envelope rise that convicts a strike train
+# (#189) — the lattice only proposes positions; the envelope
+# decides. 0.12 s is the argmax half-window around each predicted
+# onset, matching the lattice align tolerance.
+_ACCOMP_TRAIN_MIN_EVENTS = 3
+_ACCOMP_TRAIN_TAIL_MAX_STEPS = 4
+_ACCOMP_TRAIN_GAP_MAX_STEPS = 4
+_ACCOMP_TRAIN_ALIGN_SEC = 0.12
+
 
 def _dedup_accomp_unison(
     accomp_cleaned: list[CleanedEvents],
     bands: _AccompBands | None = None,
+    report: dict[str, Any] | None = None,
 ) -> list[CleanedEvents]:
     """Drop same-pitch events fully contained in a longer one (#155).
 
@@ -548,6 +564,12 @@ def _dedup_accomp_unison(
             strike_cover.add(j)
             strike_member.update(contained)
     drop.update(strike_cover)
+    if report is not None:
+        report["strike_covers"] = [
+            (int(round(events[j].pitch_midi)), events[j].onset_sec,
+             events[j].offset_sec)
+            for j in strike_cover
+        ]
     for i, e in enumerate(events):
         if i in strike_member:
             continue
@@ -616,6 +638,149 @@ def _dedup_accomp_unison(
         if c.events:
             out.append(c)
     return out
+
+
+def _accomp_train_completion(
+    accomp_cleaned: list[CleanedEvents],
+    bands: _AccompBands,
+    revision: TranscriptionRevisionId,
+    evidence: list[tuple[int, float, float]] | None = None,
+) -> tuple[RawNoteEvent, ...]:
+    """Mint strikes a periodic same-pitch train under-fired (#191).
+
+    A strummed/arpeggiated member restruck on a steady grid forms a
+    clean IOI lattice — and the backend occasionally drops one hit
+    of it (hard-vocal m72: strikes detected at 0.244/0.708/1.184,
+    truth restruck at 1.641 where the detector stayed silent).
+
+    Free-field minting is a false-positive machine — a dense mix
+    rises every band at every chord hit whether or not the pitch is
+    a member (probe: 51 phantom mints at rise >= 1.0). The bound
+    that works is the detector's own competing hypothesis: a strike
+    train killed by the unison dedup (#189) leaves behind a dead
+    cover span that proves SOMETHING sounded across the lattice
+    points inside it. The 'evidence' argument carries those spans;
+    a candidate must sit inside one AND carry the band-envelope
+    rise at the predicted point (the same sawtooth that convicted
+    the cover) — lattice proposes, dead cover bounds, envelope
+    confirms. A surviving cover is off-limits on purpose: dedup
+    judged it a held tone, and minting inside it would resurrect
+    exactly the phantom re-fires the dedup cleaned.
+
+    Minted hits get source 'train-completion': they read as
+    detected attacks to rhythm pools (they are) while staying
+    visible as mined notes in the event dump.
+    """
+    if not evidence:
+        return ()
+    ev_spans: dict[int, list[tuple[float, float]]] = {}
+    for p, s, e in evidence:
+        ev_spans.setdefault(p, []).append((s, e))
+    by_pitch: dict[int, list[RawNoteEvent]] = {}
+    for c in accomp_cleaned:
+        for e in c.events:
+            if e.source != "pad-completion":
+                by_pitch.setdefault(int(round(e.pitch_midi)), []).append(e)
+    minted: list[RawNoteEvent] = []
+    for pitch, evs in by_pitch.items():
+        if len(evs) < _ACCOMP_TRAIN_MIN_EVENTS:
+            continue
+        evs.sort(key=lambda e: e.onset_sec)
+        iois = [
+            b.onset_sec - a.onset_sec for a, b in zip(evs, evs[1:])
+        ]
+        period = statistics.median(iois)
+        if period <= 0.0:
+            continue
+        support = sum(
+            1 for g in iois if 0.7 * period <= g <= 1.3 * period
+        )
+        if support < max(2, math.ceil(0.5 * len(iois))):
+            continue
+        med_dur = statistics.median(
+            e.offset_sec - e.onset_sec for e in evs
+        )
+        onsets = [e.onset_sec for e in evs]
+        spans = [(e.onset_sec, e.offset_sec) for e in evs]
+
+        def blocked(t: float) -> bool:
+            return any(
+                s <= t < e or abs(t - s) <= _ACCOMP_TRAIN_ALIGN_SEC
+                for s, e in spans
+            )
+
+        def covered(pos: float) -> bool:
+            # The dead cover's span bounds where a hit may mint: the
+            # detector's merged hypothesis is the proof that energy
+            # actually ran under the lattice point.
+            return any(
+                s - _ACCOMP_TRAIN_ALIGN_SEC <= pos <= e + 0.05
+                for s, e in ev_spans.get(pitch, ())
+            )
+
+        def try_mint(pos: float) -> float | None:
+            # Scan the align window at frame resolution and mint at
+            # the observed rise argmax — the lattice's proposal is a
+            # neighborhood, the envelope's peak is the onset.
+            if not covered(pos):
+                return None
+            best_t: float | None = None
+            best_rise = _ACCOMP_UNISON_REATTACK_MIN_RISE
+            lo = pos - _ACCOMP_TRAIN_ALIGN_SEC
+            steps = 2 * max(1, round(_ACCOMP_TRAIN_ALIGN_SEC / bands._spf))
+            for k in range(steps + 1):
+                t = lo + k * bands._spf
+                rise = bands.band_reattack(pitch, t)
+                if rise is not None and rise > best_rise:
+                    best_rise, best_t = rise, t
+            if (
+                best_t is None
+                or blocked(best_t)
+                or not covered(best_t)
+            ):
+                return None
+            nxt = min(
+                (o for o in onsets if o > best_t + _ACCOMP_TRAIN_ALIGN_SEC),
+                default=best_t + med_dur,
+            )
+            minted.append(
+                RawNoteEvent(
+                    id=RawNoteEventId(f"rne-t{len(minted) + 1:06d}"),
+                    transcription_revision=revision,
+                    pitch_midi=float(pitch),
+                    onset_sec=best_t,
+                    offset_sec=min(
+                        best_t + med_dur, max(best_t + 0.05, nxt - 0.01)
+                    ),
+                    confidence=None,
+                    source="train-completion",
+                )
+            )
+            onsets.append(best_t)
+            spans.append((best_t, best_t + med_dur))
+            return best_t
+
+        # Interior gaps: every predicted lattice point inside a dead
+        # cover is judged on its own rise — the gap is bounded by
+        # real anchors so one missing hit must not stop the walk.
+        for a, b in zip(evs, evs[1:]):
+            steps = int((b.onset_sec - a.onset_sec) / period + 0.5)
+            if steps < 2:
+                continue
+            for m in range(1, min(steps, _ACCOMP_TRAIN_GAP_MAX_STEPS + 1)):
+                pos = a.onset_sec + m * period
+                if pos >= b.onset_sec - _ACCOMP_TRAIN_ALIGN_SEC:
+                    break
+                try_mint(pos)
+        # Tail: the dead cover may run past the last detected hit —
+        # keep walking inside it while the envelope still answers,
+        # stopping at the first refusal or the cover's edge
+        # (#187's note-level twin).
+        last = evs[-1].onset_sec
+        for step in range(1, _ACCOMP_TRAIN_TAIL_MAX_STEPS + 1):
+            if try_mint(last + step * period) is None:
+                break
+    return tuple(minted)
 
 
 def _pad_event_voices(
@@ -4069,10 +4234,26 @@ def run_transcription_job(
         # unions a tracker/miner pair that split one held tone at a
         # mid-sustain detection.
         _accomp_pre_dedup = sum(len(c.events) for c in accomp_cleaned)
-        accomp_cleaned = _dedup_accomp_unison(accomp_cleaned, accomp_bands)
+        _dedup_report: dict[str, Any] = {}
+        accomp_cleaned = _dedup_accomp_unison(
+            accomp_cleaned, accomp_bands, report=_dedup_report
+        )
         accomp_unison_dropped = _accomp_pre_dedup - sum(
             len(c.events) for c in accomp_cleaned
         )
+        # #191: a periodic same-pitch train mints the strikes the
+        # detector under-fired — the deduped lattice establishes the
+        # period, the killed covers bound where hits may land, and
+        # the band envelope confirms each predicted hit.
+        if accomp_bands is not None:
+            train_extra = _accomp_train_completion(
+                accomp_cleaned,
+                accomp_bands,
+                revision,
+                evidence=_dedup_report.get("strike_covers"),
+            )
+            if train_extra:
+                accomp_cleaned.extend(_pad_event_voices(train_extra))
         # #236: the lead track keeps only notes the accompaniment stem
         # does NOT explain -- sub-register bleed lands in the 伴奏 part
         # where it belongs instead of dragging the melody into bass
