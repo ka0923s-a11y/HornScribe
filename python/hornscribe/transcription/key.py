@@ -18,6 +18,8 @@ from typing import Any
 
 from hornscribe.domain.score import KeyChange, KeySignature
 
+from .chord import LOW_CONFIDENCE as _CHORD_MIN_CONFIDENCE
+
 # Krumhansl-Kessler probe profiles (pitch-class C..B order).
 _MAJOR = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
 _MINOR = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
@@ -568,6 +570,17 @@ def refine_key_with_harmony(
     """
     hist = _histogram(pitches, durations_ql)
     if hist is None or not chords:
+        return None
+    # Only chords the estimator would stand behind count as
+    # corroborating evidence — a call below the chord_uncertain
+    # confidence floor is template noise (silence returns diatonic-
+    # bonus-only matches around 0.03) and must not displace the
+    # melodic winner. Otherwise a noise-floor "C" could arbitrate a
+    # real ambiguity into a fabricated harmony_override (#204).
+    chords = tuple(
+        c for c in chords if float(c.confidence) >= _CHORD_MIN_CONFIDENCE
+    )
+    if not chords:
         return None
     chord_weight = [0.0] * 12
     total_cw = 0.0
