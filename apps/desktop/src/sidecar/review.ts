@@ -15,18 +15,24 @@ export const REVIEW_REASONS = [
   "very_short_detection",
   "overlapping_candidates",
   "quantization_ambiguous",
+  "possible_triplet",
   "pitch_spelling_ambiguous",
   "outside_preferred_horn_range",
   "structural_measure_conflict",
   "meter_conflict",
   "swing_feel",
   "monophonic_backend",
+  // #188: auto tempo looks like a half/double pick — carries a
+  // suggested correction the review bar can apply.
+  "tempo_uncertain",
   // #187: vocal-isolation provenance — applied or reported unavailable.
   "vocal_isolation_applied",
   "vocal_isolation_unavailable",
   // #212: separation-derived accompaniment staff — one informational
   // provenance marker for the whole part.
   "accompaniment_part",
+  // #352: auto-estimated key the evidence cannot justify.
+  "key_uncertain",
   // #358: auto-estimated anacrusis the evidence cannot justify.
   "pickup_uncertain",
   // #423: audio-evidence boundary re-scoring (merge/split/uncertain).
