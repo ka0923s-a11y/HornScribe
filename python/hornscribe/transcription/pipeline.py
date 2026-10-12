@@ -437,6 +437,14 @@ def _accomp_confidence_floor(
 # covering event's edges describes the same physical tone — the two
 # detections are not a performable unison.
 _ACCOMP_UNISON_TOL_SEC = 0.03
+# #189: a strictly interior same-pitch detection only counts as a
+# strike-train member when the band's log-energy (log1p(e*1e4),
+# matching _reattack_peaks' scale) rises this much inside the
+# ~0.16 s lookback into its onset. Real restruck members saw up +6
+# le per hit on a masked stem; a smooth sustain stays flat through
+# its phantom re-fires (~0), so 1.0 separates with room to spare.
+_ACCOMP_UNISON_REATTACK_MIN_RISE = 1.0
+_ACCOMP_UNISON_REATTACK_WIN_SEC = 0.16
 
 
 def _dedup_accomp_unison(
@@ -467,16 +475,85 @@ def _dedup_accomp_unison(
     it) is kept: the miner's own run boundary is a re-attack
     signature, and a detector+detector overlap cannot be told from a
     real re-attack at all.
+
+    One containment shape is exempt: a cover holding two or more
+    strictly interior same-pitch detector events at distinct attack
+    times WITH a band-confirmed re-attack rise is not one held tone —
+    it is the backend's merged hypothesis of a strike train (#189).
+    The rise check is what separates the train from a real sustain:
+    a held tone collects phantom re-fires too, but its band energy
+    decays smoothly through them while a restruck band saws up at
+    every hit (hard-vocal m72: +6 le per strike vs m53: ~0 at the
+    phantom onsets). The strikes are the real notes, so the cover
+    dies first and every event it contained becomes a strike member
+    immune to the pairwise pass no matter which other cover claims
+    it. Mined fragments do not count as train evidence — the miner
+    can split one held tone across a mask dip (#172) — and a lone
+    interior event still dies as a duplicate: two independent attack
+    times are what separate a train from a doubled tone. Without
+    band evidence the count alone decides — two interior detector
+    re-fires at distinct times already defy a held-tone reading.
     """
     events = [e for c in accomp_cleaned for e in c.events]
     if len(events) < 2:
         return accomp_cleaned
     drop: set[int] = set()
     grown: dict[int, RawNoteEvent] = {}
+    strike_cover: set[int] = set()
+    strike_member: set[int] = set()
+    for j, o in enumerate(events):
+        inner: list[int] = []
+        contained: list[int] = []
+        for i, e in enumerate(events):
+            if i == j or int(round(e.pitch_midi)) != int(
+                round(o.pitch_midi)
+            ):
+                continue
+            if (
+                e.onset_sec > o.onset_sec + _ACCOMP_UNISON_TOL_SEC
+                and e.offset_sec < o.offset_sec - _ACCOMP_UNISON_TOL_SEC
+            ):
+                inner.append(i)
+            if (
+                o.onset_sec <= e.onset_sec + _ACCOMP_UNISON_TOL_SEC
+                and o.offset_sec >= e.offset_sec - _ACCOMP_UNISON_TOL_SEC
+            ):
+                contained.append(i)
+        inner_det = [
+            i for i in inner if events[i].source != "pad-completion"
+        ]
+        if bands is not None:
+            train_onsets = sorted(
+                events[i].onset_sec
+                for i in inner_det
+                if (
+                    bands.band_reattack(
+                        events[i].pitch_midi, events[i].onset_sec
+                    )
+                    or 0.0
+                )
+                >= _ACCOMP_UNISON_REATTACK_MIN_RISE
+            )
+        else:
+            train_onsets = sorted(
+                events[i].onset_sec for i in inner_det
+            )
+        distinct_attacks = sum(
+            1
+            for k, t in enumerate(train_onsets)
+            if k == 0
+            or t - train_onsets[k - 1] > _ACCOMP_UNISON_TOL_SEC
+        )
+        if distinct_attacks >= 2:
+            strike_cover.add(j)
+            strike_member.update(contained)
+    drop.update(strike_cover)
     for i, e in enumerate(events):
+        if i in strike_member:
+            continue
         e_len = e.offset_sec - e.onset_sec
         for j, o in enumerate(events):
-            if i == j:
+            if i == j or j in strike_cover:
                 continue
             if int(round(o.pitch_midi)) != int(round(e.pitch_midi)):
                 continue
@@ -1408,6 +1485,32 @@ class _AccompBands:
         if later:
             rs = max(later)
         return rs + self._offset
+
+    def band_reattack(
+        self, midi: float, onset_sec: float
+    ) -> float | None:
+        """Log-energy rise into onset_sec in this pitch's band (#189).
+
+        A restruck band saws up at every hit even when the hot mask
+        holds through the release — the mask decides run membership,
+        the ENVELOPE decides attacks. The rise is measured against
+        the deepest point inside a ~0.16 s lookback so the full ramp
+        of a fast strike counts, not just the last frame's step.
+        Returns None when the band offers no evidence (pitch outside
+        the mined range or onset outside the stem span).
+        """
+        m = int(round(midi))
+        if m < self._mids[0] or m > self._mids[-1]:
+            return None
+        j = int((onset_sec - self._offset) / self._spf)
+        if not 0 <= j < self._frames:
+            return None
+        import numpy as np  # noqa: PLC0415 - lazy optional dependency
+
+        le = np.log1p(self._band_e[m - self._mids[0]] * 1e4)
+        r = max(1, round(_ACCOMP_UNISON_REATTACK_WIN_SEC / self._spf))
+        lo = max(0, j - r)
+        return float(le[j] - le[lo : j + 1].min())
 
     def _mask_dropout(self, cold_lo: int, cold_hi: int) -> bool:
         """True when a cold stretch is the vocal mask eating the stem.
