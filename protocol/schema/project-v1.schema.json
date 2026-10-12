@@ -97,6 +97,18 @@
       "type": ["string", "null"],
       "description": "Derived cache: Horn in F written-pitch MusicXML 4.0 body; re-renderable from scoreDocument."
     },
+    "musicXmlBFlat": {
+      "type": ["string", "null"],
+      "description": "Derived cache: B-flat written-pitch MusicXML 4.0 body (#156); re-renderable from scoreDocument."
+    },
+    "omittedReviewIssues": {
+      "type": "array",
+      "description": "Cap-omitted review issues kept verbatim (#360) so reopening a project never loses issues the severity cap deferred."
+    },
+    "regionLabels": {
+      "type": "array",
+      "description": "User region labels restored on reopen (#12)."
+    },
     "meta": {
       "type": ["object", "null"],
       "description": "Job-result metadata (title, settings, diagnostics) carried for restore UX; non-authoritative."

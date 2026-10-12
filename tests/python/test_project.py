@@ -279,5 +279,16 @@ def test_saved_project_keys_match_published_schema() -> None:
             "meta": None,
         }
     )
+    # #217: the desktop also emits musicXmlBFlat (#156),
+    # omittedReviewIssues (#360) and regionLabels (#12) — the extras
+    # set must cover everything the writer can produce, or the guard
+    # silently stops checking real output.
+    saved.update(
+        {
+            "musicXmlBFlat": None,
+            "omittedReviewIssues": [],
+            "regionLabels": [],
+        }
+    )
     undeclared = set(saved) - declared
     assert not undeclared, f"saved keys missing from schema: {undeclared}"
