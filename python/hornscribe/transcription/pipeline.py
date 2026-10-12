@@ -485,8 +485,15 @@ def _dedup_accomp_unison(
                 or o.offset_sec < e.offset_sec - _ACCOMP_UNISON_TOL_SEC
             ):
                 continue
-            longer = (o.offset_sec - o.onset_sec) > e_len
-            if longer or j < i:
+            # The cover must be a strictly better representative:
+            # longer always wins; exact twins keep the first entry.
+            # The old 'longer or j < i' dropped BOTH members of a
+            # mutual-tolerance pair -- each found the other a legal
+            # killer (the shorter via 'longer', the longer via 'first
+            # listed') -- and two covers of one strike died together
+            # (#185, mined 14.512-15.0 vs backdated det 14.533-14.986).
+            o_len = o.offset_sec - o.onset_sec
+            if o_len > e_len or (o_len == e_len and j < i):
                 drop.add(i)
                 break
     if bands is not None:
