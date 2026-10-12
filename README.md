@@ -15,7 +15,23 @@ HornScribe is a personal, local-first application for transcribing audio into re
 
 ## Current status
 
-Planning / architecture validation.
+Shipping. Pre-release installers and portable builds publish under
+[Releases](https://github.com/aaw123m/horn/releases) (currently v0.2.x).
+
+Implemented end to end:
+
+- Transcription from audio files, microphone recording, and PC
+  (loopback) audio capture.
+- Concert-pitch score plus Horn in F and B-flat written-pitch views
+  and exports (MusicXML 4.0, PDF print path, MIDI).
+- Automatic JPOP-mix handling: vocal isolation (built-in center
+  extraction, optional free demucs add-on tiers), a separation-
+  derived accompaniment staff, melody/accompaniment review.
+- Interactive score review workspace — engine-flagged review issues
+  with one-click remedies, source A-B-loop audition, score playback,
+  editing (split/merge/transpose/delete notes, pickup/meter/key
+  properties).
+- Local-only operation: no account, no cloud, no paid service.
 
 ### Source-of-truth documents
 
@@ -50,7 +66,8 @@ This prevents double-transposition errors and keeps transcription backends indep
 
 ## Proposed architecture
 
-The music/transcription engine remains Python-based, while the desktop UI architecture is validated separately.
+The music/transcription engine is Python-based (sidecar worker); the
+desktop UI architecture below is what shipped.
 
 ### Desktop / UI
 
@@ -71,6 +88,7 @@ The music/transcription engine remains Python-based, while the desktop UI archit
 - MuseScore Studio CLI for final PDF export
 - pytest
 
-The desktop stack becomes final only after the architecture spikes pass. Qt Quick/QML remains the documented fallback.
+The desktop stack shipped as listed above. Qt Quick/QML remains the
+documented fallback.
 
 See the Master Plan for the current critical path and decision gates.
