@@ -60,6 +60,34 @@ def test_pinned_or_short_track_single_segment() -> None:
     assert segs[0].bpm == 100.0
 
 
+def test_auto_fallback_rounds_to_integer_bpm() -> None:
+    """#249: the no-track auto fallback printed 151.39-style marks —
+    every other path already emits integer BPM."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    est = TempoEstimate(
+        warp=TimeWarp.fixed_bpm(151.39),
+        beat_times_sec=(),
+        median_bpm=151.39,
+        auto=True,
+    )
+    segs = tempo_map_from_estimate(est, meter)
+    assert segs[0].bpm == 151.0
+
+
+def test_manual_tempo_prints_as_entered() -> None:
+    """#249: a pinned manual tempo is the user's word — verbatim, not
+    rounded (the UI sends integers; a stored decimal stays exact)."""
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    est = TempoEstimate(
+        warp=TimeWarp.fixed_bpm(97.5),
+        beat_times_sec=(),
+        median_bpm=97.5,
+        auto=False,
+    )
+    segs = tempo_map_from_estimate(est, meter)
+    assert segs[0].bpm == 97.5
+
+
 def test_steady_tempo_jitter_does_not_emit_marks() -> None:
     """±1 % inter-beat jitter inside a measure must not print tempo marks."""
     meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
