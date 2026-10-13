@@ -3,6 +3,7 @@
  * フェイクセッションで job ライフサイクルをスクリプト化する。
  */
 import { describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { TranscriptionQueue, type QueueSession } from "./controller";
 import type { SessionSnapshot } from "../sidecar/session";
 import type { JobView } from "../sidecar/jobView";
@@ -26,7 +27,11 @@ function jobView(phase: JobView["phase"], extra: Partial<JobView> = {}): JobView
   };
 }
 
-interface FakeSession extends QueueSession {
+interface FakeSession extends Omit<QueueSession, "startTranscription" | "cancelTranscription"> {
+  // vi.fn fakes keep the Mock surface (mockImplementationOnce & co.)
+  // — a plain QueueSession signature would hide it from tsc.
+  startTranscription: Mock<(params: unknown) => Promise<void>>;
+  cancelTranscription: Mock<() => Promise<void>>;
   snap: SessionSnapshot;
   emit(): void;
   complete(result: unknown): void;
