@@ -170,6 +170,29 @@ class TestEstimate:
         )
         assert est[0].label(prefer_flats=True) == "Bb"
 
+    def test_dim_triad_and_dim7_are_distinct(self, monkeypatch) -> None:
+        """#246: the diminished triad reports 'dim'; the same tones
+        plus the diminished seventh report 'dim7' - the old single
+        'dim' template was a dim7 shape, so a real dim7 exported as a
+        diminished triad."""
+        dim7_chroma = np.zeros(12)
+        for pc in (0, 3, 6, 9):
+            dim7_chroma[pc] = 1.0
+        dim7_chroma /= np.linalg.norm(dim7_chroma)
+        dim_triad = np.zeros(12)
+        for pc in (0, 3, 6):
+            dim_triad[pc] = 1.0
+        dim_triad /= np.linalg.norm(dim_triad)
+        monkeypatch.setattr(
+            chord_mod,
+            "_segment_chroma",
+            _fake_chroma([dim7_chroma, dim_triad]),
+        )
+        est = estimate_chords(
+            [0.0], _SR, ((0.0, 2.0), (2.0, 4.0))
+        )
+        assert [e.label() for e in est] == ["Cdim7", "Cdim"]
+
 
 class TestChordIssues:
     """Flags -> ReviewIssue mapping: only segments with actual note
