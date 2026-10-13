@@ -359,6 +359,8 @@ def _run_with_source_level(
     source_level: float,
     estimate_rms: float | None,
     method: str,
+    backend=None,
+    loader=None,
 ):
     """Run the job with a non-silent source and a stubbed isolation
     estimate whose RMS is controllable — the #191 low-lead issue keys
@@ -383,14 +385,54 @@ def _run_with_source_level(
         params=params,
         emit=emit,
         cancel=threading.Event(),
-        backend=lambda _p: _events(),
-        loader=lambda _p: (
-            array("f", [source_level] * (22050 * 5)),
-            22050,
+        backend=backend or (lambda _p: _events()),
+        loader=loader
+        or (
+            lambda _p: (
+                array("f", [source_level] * (22050 * 5)),
+                22050,
+            )
         ),
     )
     assert collected[-1]["phase"] == "completed", collected
     return collected[-1]["result"]
+
+
+def _comb_events(pitch: int = 72, count: int = 9) -> tuple[RawNoteEvent, ...]:
+    """A plausible melody long enough for the #214 comb gate — nine
+    evenly spaced notes at one pitch."""
+    rev = TranscriptionRevisionId("tr-000002")
+    return tuple(
+        RawNoteEvent(
+            id=RawNoteEventId(f"rne-c{i:05d}"),
+            transcription_revision=rev,
+            pitch_midi=float(pitch),
+            onset_sec=i * 0.4,
+            offset_sec=i * 0.4 + 0.35,
+            confidence=0.9,
+            velocity=80,
+            source="test",
+        )
+        for i in range(count)
+    )
+
+
+def _sine_loader(freq_hz: float, amp: float = 0.5):
+    """Loader returning a held pure tone at *freq_hz* — the comb gate's
+    controlled spectrum."""
+    import math
+
+    sr = 22050
+    return lambda _p: (
+        array(
+            "f",
+            (
+                amp * math.sin(2.0 * math.pi * freq_hz * i / sr)
+                for i in range(sr * 4)
+            ),
+        ),
+        sr,
+    )
 
 
 def _stub_isolation(monkeypatch, estimate_rms, method):
@@ -539,6 +581,78 @@ def test_low_lead_level_addon_hint_when_demucs_absent(
     assert ev["method"] == "center_extraction"
     assert ev["demucsAvailable"] is False
     assert ev["suggestPrecisionIsolation"] is False
+
+
+def test_low_lead_level_comb_gate_fires_on_buried_center_lead(
+    tmp_path, monkeypatch
+) -> None:
+    """#214: the free path's RMS gate is blind to a buried lead — the
+    stem stays loud on accompaniment bleed.  The comb gate convicts
+    from the source: nine claimed melody notes whose own harmonics
+    barely sound in the mix."""
+    _stub_isolation(
+        monkeypatch, estimate_rms=0.30, method="center_extraction"
+    )
+    monkeypatch.setattr(pipeline, "demucs_available", lambda: False)
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True},
+        source_level=0.5,
+        estimate_rms=0.30,
+        method="center_extraction",
+        backend=lambda _p: _comb_events(),
+        # A held tone a semitone off the claimed pitch — its harmonics
+        # dodge every comb band, so the "lead" owns ~0% of its spans.
+        loader=_sine_loader(440.0 * 2.0 ** ((73 - 69) / 12.0)),
+    )
+    issues = {i["reason"]: i for i in result["reviewIssues"]}
+    assert "low_lead_level" in issues
+    ev = issues["low_lead_level"]["evidence"]
+    assert ev["method"] == "center_extraction"
+    assert ev["leadCombShare"] is not None
+    assert ev["leadCombShare"] < 0.10
+
+
+def test_low_lead_level_comb_gate_silent_when_lead_owns_spans(
+    tmp_path, monkeypatch
+) -> None:
+    """#214: no false alarm when the detected melody actually sounds —
+    a clean tone at the claimed pitch saturates its own comb."""
+    _stub_isolation(
+        monkeypatch, estimate_rms=0.30, method="center_extraction"
+    )
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True},
+        source_level=0.5,
+        estimate_rms=0.30,
+        method="center_extraction",
+        backend=lambda _p: _comb_events(),
+        loader=_sine_loader(440.0 * 2.0 ** ((72 - 69) / 12.0)),
+    )
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "low_lead_level" not in reasons
+
+
+def test_low_lead_level_comb_gate_needs_enough_notes(
+    tmp_path, monkeypatch
+) -> None:
+    """#214: under the minimum-note bar the median is noise — the gate
+    stays silent rather than guess."""
+    _stub_isolation(
+        monkeypatch, estimate_rms=0.30, method="center_extraction"
+    )
+    result = _run_with_source_level(
+        tmp_path,
+        {"vocalIsolation": True},
+        source_level=0.5,
+        estimate_rms=0.30,
+        method="center_extraction",
+        backend=lambda _p: _comb_events(count=4),
+        loader=_sine_loader(440.0 * 2.0 ** ((73 - 69) / 12.0)),
+    )
+    reasons = {i["reason"] for i in result["reviewIssues"]}
+    assert "low_lead_level" not in reasons
 
 
 def _collect(tmp_path, payload_extra, monkeypatch):

@@ -87,8 +87,12 @@ class ReviewReason(Enum):
     # the source's energy — the melody is buried and undetected notes
     # may remain even after isolation. Honest uncertainty at the
     # product boundary: a missed note cannot appear as its own review
-    # item, so the possibility itself is surfaced. Evidence carries
-    # source/estimate RMS + the ratio in dB.
+    # item, so the possibility itself is surfaced.
+    # #214: on the free center-extraction path the estimate RMS stays
+    # high on accompaniment bleed, so the RMS test is blind there —
+    # the lead's own harmonic-comb share of the source convicts it
+    # instead. Evidence carries source/estimate RMS + ratio dB + the
+    # comb share (leadCombShare).
     LOW_LEAD_LEVEL = "low_lead_level"
     # #212: an accompaniment staff was generated from the separation
     # stem — the detection there is necessarily rougher than the lead
