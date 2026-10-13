@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TauriExportPort } from "./tauriPort";
 import { createFixtureScoreDocument } from "../score/fixtureDocument";
+import type { ScoreDocumentPort } from "../score/document";
 
 const invokeMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
@@ -344,3 +345,143 @@ describe("TauriExportPort MIDI resilience (#390)", () => {
     expect((await docless.capabilities()).playbackMidi).toBe("unavailable");
   });
 });
+
+
+/* #236: file exports must mirror the visible part subset — the same
+ * filterScorePartsXml the view and the print path apply. A hidden
+ * staff must not reappear in MusicXML/PDF artifacts or in the
+ * MuseScore hand-off. */
+const THREE_PART_XML =
+  '<?xml version="1.0"?>' +
+  '<score-partwise version="4.0">' +
+  "<part-list>" +
+  '<score-part id="P1"><part-name>Horn in F</part-name></score-part>' +
+  '<score-part id="P2"><part-name>伴奏</part-name></score-part>' +
+  '<score-part id="P3"><part-name>伴奏 2</part-name></score-part>' +
+  "</part-list>" +
+  '<part id="P1"><measure number="1"><note id="hs-sn-000001-1"/></measure></part>' +
+  '<part id="P2"><measure number="1"><note id="hs-sn-000010-1"/></measure></part>' +
+  '<part id="P3"><measure number="1"><note id="hs-sn-000020-1"/></measure></part>' +
+  "</score-partwise>";
+
+function threePartDoc(): ScoreDocumentPort {
+  return {
+    revisionId: "rev-parts",
+    editVersion: 0,
+    meta: {
+      title: "three",
+      composer: null,
+      arranger: null,
+      tempoBpm: null,
+      meter: null,
+      pickupBeats: null,
+      keyFifths: null,
+      keyChanges: [],
+      tempoChanges: [],
+      keyMode: null,
+      swingFeel: false,
+      omittedIssueCount: 0,
+      measureCount: 0,
+      noteCount: 0,
+    },
+    musicXml: () => THREE_PART_XML,
+    reviewIssues: () => [],
+    recordReviewDecision: () => undefined,
+    noteEdits: () => new Map(),
+    setNoteEdit: () => undefined,
+  };
+}
+
+function decodeXml(b64: string): string {
+  return new TextDecoder().decode(
+    Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)),
+  );
+}
+
+describe("TauriExportPort part-visibility filter (#236)", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "export_check_existing") return [];
+      if (cmd === "export_run") {
+        return ["C:\\out\\take1_concert.musicxml"];
+      }
+      if (cmd === "detect_tools") {
+        return {
+          museScore: { status: "found", path: "D:\\ms.exe" },
+          ffmpeg: { status: "missing" },
+        };
+      }
+      if (cmd === "open_in_musescore") return "C:\\tmp\\score.musicxml";
+      throw new Error("unexpected invoke " + cmd);
+    });
+  });
+
+  it("MusicXML export drops hidden staves like view and print do", async () => {
+    const p = new TauriExportPort(() => ({
+      doc: threePartDoc(),
+      basename: "take1",
+      audioPath: null,
+      audioName: null,
+      partVisible: [true, false, false],
+    }));
+    await p.export({
+      formats: ["concertMusicxml"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    const run = invokeMock.mock.calls.find((c) => c[0] === "export_run");
+    const files = (run?.[1] as { files: { dataBase64: string }[] }).files;
+    const xml = decodeXml(files[0].dataBase64);
+    expect(xml).toContain("hs-sn-000001-1");
+    expect(xml).not.toContain("hs-sn-000010-1");
+    expect(xml).not.toContain("hs-sn-000020-1");
+    expect((xml.match(/<score-part id=/g) ?? []).length).toBe(1);
+  });
+
+  it("all-visible and absent masks export the document untouched", async () => {
+    for (const partVisible of [[true, true, true], undefined] as const) {
+      const p = new TauriExportPort(() => ({
+        doc: threePartDoc(),
+        basename: "take1",
+        audioPath: null,
+        audioName: null,
+        partVisible,
+      }));
+      await p.export({
+        formats: ["concertMusicxml"],
+        destination: "C:\\out",
+        basename: "take1",
+      });
+    }
+    const runs = invokeMock.mock.calls.filter(
+      (c) => c[0] === "export_run",
+    );
+    expect(runs.length).toBe(2);
+    for (const run of runs) {
+      const files = (run[1] as { files: { dataBase64: string }[] }).files;
+      const xml = decodeXml(files[0].dataBase64);
+      expect(xml).toContain("hs-sn-000010-1");
+    }
+  });
+
+  it("openInMuseScore hands over the visible subset too", async () => {
+    const p = new TauriExportPort(() => ({
+      doc: threePartDoc(),
+      basename: "take1",
+      audioPath: null,
+      audioName: null,
+      partVisible: [true, false, true],
+    }));
+    await p.openInMuseScore("hornF");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "open_in_musescore",
+    );
+    const xml = (call?.[1] as { musicXml: string }).musicXml;
+    expect(xml).toContain("hs-sn-000001-1");
+    expect(xml).not.toContain("hs-sn-000010-1");
+    expect(xml).toContain("hs-sn-000020-1");
+  });
+});
+
+
