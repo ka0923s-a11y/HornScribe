@@ -2298,6 +2298,11 @@ export const ja = {
       "エンジンに接続できないため、再生用MIDIは簡易版になります（ベロシティ・ピッチベンド・スイングは含まれません）。",
     midiDegradedDone:
       "再生用MIDIは簡易版で書き出しました（ベロシティ・ピッチベンド・スイングは含まれません）。",
+    /* #236: a mixer-hidden staff stays out of MusicXML/PDF artifacts
+       (same subset the print path emits) — disclosed so the WYSIWYG
+       filter is never a silent exclusion. */
+    hiddenPartsNote:
+      "ミキサーで非表示にしたパートは書き出しに含まれません（MIDIは全パートを含みます）。",
     pdfDisabledTooltip:
       "MuseScoreが見つからないためPDF形式は無効です（アプリ内印刷なら作成できます）",
     audioDisabledTooltip: "元の音声がディスク上にないため同梱できません",

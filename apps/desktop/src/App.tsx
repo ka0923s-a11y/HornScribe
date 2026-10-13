@@ -728,6 +728,15 @@ export default function App() {
     if (importState.audio == null) transport.unload();
   }, [importState.audio, transport]);
 
+  // #236: file exports mirror the view/print part subset — scoreState
+  // .partMix is a stable array reference between mixer edits, so this
+  // memo (and the source effect below) does not re-fire on playback
+  // state ticks.
+  const partMixVisible = useMemo(
+    () => scoreState?.partMix?.map((m) => m.visible) ?? null,
+    [scoreState?.partMix],
+  );
+
   // #99: keep the export port's source getter current — the doc plus a
   // basename derived from the loaded audio's file name (extension
   // stripped), matching the ENG-001 `<basename>_<artifact>` policy.
@@ -749,9 +758,10 @@ export default function App() {
           basename: stem || scoreDocument.meta.title,
           audioPath,
           audioName: audioPath ? fileName || null : null,
+          partVisible: partMixVisible ?? undefined,
         }
       : null;
-  }, [scoreDocument, importState.audio]);
+  }, [scoreDocument, importState.audio, partMixVisible]);
 
   // #156: a document swap while the B♭ view is active must not strand
   // the renderer on a projection the document lacks (legacy projects
@@ -3758,6 +3768,11 @@ export default function App() {
             }
             toolOverrides={toolOverrides}
             bFlatAvailable={snapshot.bFlatAvailable}
+            /* #236: disclosure for the WYSIWYG part filter — hidden
+               mixer parts stay out of MusicXML/PDF artifacts. */
+            hiddenParts={
+              scoreState?.partMix?.filter((m) => !m.visible).length ?? 0
+            }
             // #102: the no-MuseScore PDF path — close the dialog and
             // let the workspace print the paged score surface. #112:
             //  the chooser opens so the blocked PDF user can print a

@@ -18,6 +18,7 @@ import {
   resolveToolWithOverride,
 } from "../diagnostics/toolProbe";
 import type { ScoreDocumentPort } from "../score/document";
+import { filterScorePartsXml } from "../score/partFilter";
 import { buildMidiFile } from "./midi";
 import {
   ExportError,
@@ -55,6 +56,13 @@ export interface ExportSource {
    readonly audioPath: string | null;
   /** Original audio file name (extension kept) for the bundle copy. */
    readonly audioName: string | null;
+  /** #236: per-part visibility from the mixer eye-toggle. Score
+   *  artifacts (MusicXML / PDF / MuseScore hand-off) export what the
+   *  user sees — the same filter the score view and the one-click
+   *  print path already apply. playbackMidi is exempt on purpose:
+   *  visibility is display-only (a hidden staff still sounds), so a
+   *  listening-reference file keeps every part. */
+  readonly partVisible?: readonly boolean[];
 }
 
 /** UTF-8-safe base64 (btoa chokes on multibyte; chunk to stay under the
@@ -324,11 +332,11 @@ export class TauriExportPort implements ExportPort {
       const name = names.get(format);
       if (!name) continue;
       if (format === "concertMusicxml") {
-        batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("concert")) });
+        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(source.doc.musicXml("concert"), source.partVisible ?? [])) });
       } else if (format === "hornMusicxml") {
-        batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("hornF")) });
+        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(source.doc.musicXml("hornF"), source.partVisible ?? [])) });
       } else if (format === "bFlatMusicxml") {
-        batch.push({ name, dataBase64: textToBase64(source.doc.musicXml("bFlat")) });
+        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(source.doc.musicXml("bFlat"), source.partVisible ?? [])) });
       } else if (format === "playbackMidi") {
         // #256/#390: prefer the engine's canonical exporter (velocity /
         // bend / swing / tempo map survive). A dead or failing engine
@@ -371,12 +379,15 @@ export class TauriExportPort implements ExportPort {
       ) {
         pdfPayloads.push({
           name,
-          musicXml: source.doc.musicXml(
+          musicXml: filterScorePartsXml(
+            source.doc.musicXml(
             format === "hornPdf"
               ? "hornF"
               : format === "bFlatPdf"
                 ? "bFlat"
                 : "concert",
+            ),
+            source.partVisible ?? [],
           ),
         });
       }
@@ -461,7 +472,10 @@ export class TauriExportPort implements ExportPort {
     try {
       return await invoke<string>("open_in_musescore", {
         musescorePath: exe,
-        musicXml: source.doc.musicXml(view),
+        musicXml: filterScorePartsXml(
+          source.doc.musicXml(view),
+          source.partVisible ?? [],
+        ),
         basename: source.basename || source.doc.meta.title,
       });
     } catch (err) {
