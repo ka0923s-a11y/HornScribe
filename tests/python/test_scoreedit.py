@@ -1699,6 +1699,20 @@ class TestScaleTempo:
             assert sum(a.duration_beats for a in n.atoms) == n.duration_beats
         assert out.revision != doc.revision
 
+    def test_half_rescale_on_odd_bpm_prints_integer(self) -> None:
+        """#249: 151 * 1/2 = 75.5 — the scaled mark still prints an
+        integer BPM like every other tempo-map producer."""
+        doc = _doc([_note(1, 60, "0", "2"), _note(2, 62, "2", "2")])
+        doc = replace(
+            doc,
+            payload=replace(
+                doc.payload,
+                tempo_map=(TempoSegment(start_beat=Fraction(0), bpm=151.0),),
+            ),
+        )
+        out = apply_score_edit(doc, _edit("scaleTempo", "", factor="1/2"))
+        assert out.payload.tempo_map[0].bpm == 76.0
+
     def test_double_rescales_notes_and_bpm(self) -> None:
         # Tracked half tempo (60 for a real 120): eighth-note melody
         # written as quarters. factor=2 doubles BPM AND values.

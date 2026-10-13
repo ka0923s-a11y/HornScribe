@@ -651,7 +651,19 @@ def tempo_map_from_estimate(
     frame quantisation alone and used to spam a mark per bar.
     """
     if not estimate.auto or len(estimate.beat_times_sec) < 2:
-        return (TempoSegment(start_beat=Fraction(0), bpm=round(estimate.median_bpm, 2)),)
+        # #249: tracked tempo prints as an integer mark like every
+        # other path (false precision otherwise); a pinned manual
+        # tempo is the user's own word and prints as entered.
+        return (
+            TempoSegment(
+                start_beat=Fraction(0),
+                bpm=(
+                    float(round(estimate.median_bpm))
+                    if estimate.auto
+                    else float(estimate.median_bpm)
+                ),
+            ),
+        )
 
     # The exported BPM must be in primary-beat units (midi.py divides
     # by meter.beat_unit): the ql-space rate below converts directly
@@ -788,7 +800,8 @@ def tempo_map_from_estimate(
     if not indices:
         return (
             TempoSegment(
-                start_beat=Fraction(0), bpm=round(estimate.median_bpm, 2)
+                # #249: same integer-mark contract as the main path.
+                start_beat=Fraction(0), bpm=float(round(estimate.median_bpm))
             ),
         )
     # #202: median-3 smooth the per-measure series before emitting —

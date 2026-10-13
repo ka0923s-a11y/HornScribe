@@ -1892,7 +1892,9 @@ def _apply_scale_tempo(
             replace(
                 seg,
                 start_beat=seg.start_beat * factor,
-                bpm=seg.bpm * float(factor),
+                # #249: tempo marks are integer BPM — a x0.5 rescale on
+                # an odd mark must not print a '.5' metronome value.
+                bpm=float(round(seg.bpm * float(factor))),
             )
             for seg in payload.tempo_map
         ),
