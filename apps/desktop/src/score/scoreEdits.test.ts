@@ -179,6 +179,98 @@ describe("applyNoteEdits", () => {
     expect(notes[0].querySelector("chord")).toBeNull();
     expect(notes[1].querySelector("pitch step")!.textContent).toBe("D");
   });
+
+  /* #232: the engine's toggleTie creates ties between DIFFERENT
+   * canonical ids — deleting or respelling one side must not leave a
+   * dangling arc (Verovio draws a stub + warns "ties left open"). */
+
+  const tiedXml = `<?xml version="1.0"?><score-partwise><part><measure number="1">
+    <note id="hs-sn-000001"><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration>
+      <tie type="start"/><notations><tied type="start"/></notations></note>
+    <note id="hs-sn-000002"><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration>
+      <tie type="stop"/><notations><tied type="stop"/></notations></note>
+    <note id="hs-sn-000003"><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note>
+  </measure></part></score-partwise>`;
+
+  it("deleting the tie's stop side strips the start side", () => {
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000002", { pitchDelta: 0, deleted: true }],
+    ]);
+    const after = applyNoteEdits(tiedXml, edits);
+    const start = noteXml(after, "hs-sn-000001")!;
+    expect(start.querySelectorAll("tie")).toHaveLength(0);
+    expect(start.querySelectorAll("tied")).toHaveLength(0);
+    // The emptied <notations> wrapper goes with it.
+    expect(start.querySelector("notations")).toBeNull();
+    const stop = noteXml(after, "hs-sn-000002")!;
+    expect(stop.querySelector("rest")).not.toBeNull();
+    expect(stop.querySelectorAll("tie")).toHaveLength(0);
+  });
+
+  it("deleting the tie's start side strips the stop side", () => {
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000001", { pitchDelta: 0, deleted: true }],
+    ]);
+    const after = applyNoteEdits(tiedXml, edits);
+    const stop = noteXml(after, "hs-sn-000002")!;
+    expect(stop.querySelectorAll("tie")).toHaveLength(0);
+    expect(stop.querySelectorAll("tied")).toHaveLength(0);
+    expect(stop.querySelector("pitch step")!.textContent).toBe("C");
+  });
+
+  it("pitch-shifting a tied note severs the pair (pitches differ)", () => {
+    // C4 -> C#4 can no longer tie into the C4 stop: both ends strip.
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000001", { pitchDelta: 1, deleted: false }],
+    ]);
+    const after = applyNoteEdits(tiedXml, edits);
+    expect(
+      noteXml(after, "hs-sn-000001")!.querySelectorAll("tie"),
+    ).toHaveLength(0);
+    expect(
+      noteXml(after, "hs-sn-000002")!.querySelectorAll("tie"),
+    ).toHaveLength(0);
+  });
+
+  it("a valid tie pair survives deleting an unrelated note", () => {
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000003", { pitchDelta: 0, deleted: true }],
+    ]);
+    const after = applyNoteEdits(tiedXml, edits);
+    expect(noteXml(after, "hs-sn-000001")!.querySelector("tie")).not.toBeNull();
+    expect(noteXml(after, "hs-sn-000002")!.querySelector("tie")).not.toBeNull();
+  });
+
+  it("another voice's onsets never kill an open tie", () => {
+    // v1's C4 tie spans into measure 2 while v2 plays in between —
+    // the open start must wait for ITS voice's next onset.
+    const voices = `<?xml version="1.0"?><score-partwise><part>
+      <measure number="1">
+        <note id="hs-sn-000001"><pitch><step>C</step><octave>4</octave></pitch>
+          <duration>8</duration><voice>1</voice>
+          <tie type="start"/><notations><tied type="start"/></notations></note>
+        <backup><duration>8</duration></backup>
+        <note id="hs-sn-000004"><pitch><step>G</step><octave>3</octave></pitch>
+          <duration>4</duration><voice>2</voice></note>
+        <note id="hs-sn-000005"><pitch><step>F</step><octave>3</octave></pitch>
+          <duration>4</duration><voice>2</voice></note>
+      </measure>
+      <measure number="2">
+        <note id="hs-sn-000002"><pitch><step>C</step><octave>4</octave></pitch>
+          <duration>4</duration><voice>1</voice>
+          <tie type="stop"/><notations><tied type="stop"/></notations></note>
+      </measure>
+    </part></score-partwise>`;
+    const edits = new Map<string, ScoreNoteEdit>([
+      ["sn-000005", { pitchDelta: 0, deleted: true }],
+    ]);
+    const after = applyNoteEdits(voices, edits);
+    // The unrelated v2 deletion still triggers the dangling sweep…
+    expect(noteXml(after, "hs-sn-000005")!.querySelector("rest")).not.toBeNull();
+    // …but the cross-measure v1 tie pair stays intact.
+    expect(noteXml(after, "hs-sn-000001")!.querySelector("tie")).not.toBeNull();
+    expect(noteXml(after, "hs-sn-000002")!.querySelector("tie")).not.toBeNull();
+  });
 });
 
 describe("enharmonicRespell", () => {
