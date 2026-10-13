@@ -403,7 +403,7 @@ class ChordSymbol:
     """Concert pitch class 0-11 (C=0)."""
     quality: str
     """Quality key matching transcription.chord's template set
-    (maj / min / 7 / maj7 / m7 / m7b5 / dim / aug / sus4)."""
+    (maj / min / 7 / maj7 / m7 / m7b5 / dim / dim7 / aug / sus4)."""
     confidence: float
     margin: float
     label: str
