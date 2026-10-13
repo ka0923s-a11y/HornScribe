@@ -90,7 +90,7 @@ def test_frame_level_jitter_collapses_to_single_mark() -> None:
     # Sanity: the per-measure instantaneous rate really does swing
     # beyond +-8 % — the collapse must come from the anchor test,
     # not from the jitter being small.
-    intervals = [b - a for a, b in zip(times, times[1:])]
+    intervals = [b - a for a, b in zip(times, times[1:], strict=False)]
     lo, hi = min(intervals), max(intervals)
     assert (hi - lo) / lo > 0.10
     anchors = tuple(

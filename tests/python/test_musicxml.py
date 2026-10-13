@@ -12,9 +12,9 @@ from music21 import converter
 
 from conftest import make_score
 from hornscribe.domain.ids import (
+    ScoreNoteId,
     canonical_note_id_from_musicxml,
     is_musicxml_layout_rest_id,
-    ScoreNoteId,
 )
 from hornscribe.domain.score import (
     KeyChange,
