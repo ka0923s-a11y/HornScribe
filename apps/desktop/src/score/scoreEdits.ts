@@ -355,6 +355,110 @@ function normalizeChords(doc: XMLDocument): void {
  * XML string. Unedited input short-circuits to the original string so the
  * render path can tell "no change" apart cheaply.
  */
+/* #232: after deletions/respells, strip ties whose partner is gone.
+ * A tie binds CONSECUTIVE onsets in the same voice+staff at the same
+ * pitch — so when the note carrying the <tie type="stop"/> is
+ * deleted, the previous onset's <tie type="start"/> dangles and
+ * renders a stub arc (Verovio: "There are N ties left open"), and
+ * a pitch shift breaks the pair the same way by desyncing the keys.
+ * Walk each part's onsets — a note plus its <chord/> members — in
+ * document order:
+ * - each onset's stop-ties consume pitch-matched open starts;
+ * - open starts left unmatched at the next onset of the same voice
+ *   are dangling (a tie can never skip an onset) — strip them;
+ * - a stop with no open start is dangling too — strip it;
+ * - a rest is an onset with no ties: it closes every open start in
+ *   its voice (that is exactly the deleted-tie-partner case).
+ * <tie>/<tied> types other than start/stop are left alone. */
+function stripDanglingTies(doc: XMLDocument): void {
+  const strip = (noteEl: Element, type: "start" | "stop"): void => {
+    for (const el of Array.from(noteEl.querySelectorAll(":scope > tie"))) {
+      if (el.getAttribute("type") === type) el.remove();
+    }
+    for (const not of Array.from(
+      noteEl.querySelectorAll(":scope > notations"),
+    )) {
+      for (const tied of Array.from(
+        not.querySelectorAll(":scope > tied"),
+      )) {
+        if (tied.getAttribute("type") === type) tied.remove();
+      }
+      if (not.childElementCount === 0) not.remove();
+    }
+  };
+  const voiceKey = (el: Element): string =>
+    (el.querySelector(":scope > voice")?.textContent ?? "1") +
+    "|" +
+    (el.querySelector(":scope > staff")?.textContent ?? "");
+  const pitchKey = (el: Element): string => {
+    const step =
+      el.querySelector(":scope > pitch > step")?.textContent ?? "";
+    const alter =
+      el.querySelector(":scope > pitch > alter")?.textContent ?? "0";
+    const octave =
+      el.querySelector(":scope > pitch > octave")?.textContent ?? "";
+    return `${step}|${alter}|${octave}`;
+  };
+  const hasTie = (el: Element, type: string): boolean =>
+    Array.from(el.querySelectorAll(":scope > tie")).some(
+      (t) => t.getAttribute("type") === type,
+    );
+
+  for (const part of Array.from(doc.querySelectorAll("part"))) {
+    // voice|staff|pitch -> note elements holding an open tie start.
+    const open = new Map<string, Element[]>();
+    // Onsets arrive in document order; <chord/> members belong to the
+    // onset the preceding non-chord note opened.
+    let onset: Element[] = [];
+    const flushOnset = (): void => {
+      if (onset.length === 0) return;
+      const onsetVoice = voiceKey(onset[0]);
+      // 1. this onset's stops consume pitch-matched open starts
+      for (const el of onset) {
+        if (!hasTie(el, "stop")) continue;
+        const key = voiceKey(el) + "|" + pitchKey(el);
+        const list = open.get(key);
+        if (list && list.length > 0) {
+          list.pop();
+          if (list.length === 0) open.delete(key);
+        } else {
+          strip(el, "stop");
+        }
+      }
+      // 2. opens of THIS voice that remain are dangling — a tie can
+      //    only bind the very next onset of its own voice.
+      for (const [key, els] of open) {
+        if (!key.startsWith(onsetVoice + "|")) continue;
+        for (const el of els) strip(el, "start");
+        open.delete(key);
+      }
+      // 3. register this onset's starts as the new opens
+      for (const el of onset) {
+        if (!hasTie(el, "start")) continue;
+        const key = voiceKey(el) + "|" + pitchKey(el);
+        const list = open.get(key) ?? [];
+        list.push(el);
+        open.set(key, list);
+      }
+      onset = [];
+    };
+    for (const noteEl of Array.from(part.querySelectorAll("note"))) {
+      if (noteEl.querySelector(":scope > chord") !== null) {
+        onset.push(noteEl);
+      } else {
+        flushOnset();
+        onset = [noteEl];
+      }
+    }
+    flushOnset();
+    // Part end: opens that never met their stop are dangling.
+    for (const [, els] of open) {
+      for (const el of els) strip(el, "start");
+    }
+    open.clear();
+  }
+}
+
 export function applyNoteEdits(
   xml: string,
   edits: ReadonlyMap<string, ScoreNoteEdit>,
@@ -406,5 +510,8 @@ export function applyNoteEdits(
   }
   if (!changed) return xml;
   normalizeChords(doc);
+  // #232: normalizeChords can also orphan a tie's partner (a deleted
+  // chord member), so the dangling sweep runs after it, not before.
+  stripDanglingTies(doc);
   return new XMLSerializer().serializeToString(doc);
 }
