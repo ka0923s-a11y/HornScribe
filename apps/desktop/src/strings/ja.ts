@@ -1791,12 +1791,27 @@ export const ja = {
     // exists, or listen-and-edit when precision already ran).
     lowLeadLevel: (p: {
       readonly ratioDb: number | null;
+      readonly gate?: "rms" | "comb";
+      readonly combShare?: number | null;
       readonly remedy: "addon" | "precision" | "listen";
     }) => {
       const clauses = [
         "元の音源に対して主旋律の音量がかなり小さいため、検出されなかった音符が残っている可能性があります",
       ];
-      if (p.ratioDb != null) {
+      if (p.gate === "comb") {
+        // #214: the free path's estimate stays loud on accompaniment
+        // bleed, so a comb conviction cannot quote a volume gap —
+        // it quotes how little of the written melody's own harmonics
+        // actually sound in the source.
+        clauses.push(
+          "検出した旋律の音が、元の音源の同じ区間でほとんど確認できません" +
+            (p.combShare != null
+              ? "(旋律成分の占有割合 約" +
+                Math.round(p.combShare * 100) +
+                "%)"
+              : ""),
+        );
+      } else if (p.ratioDb != null) {
         clauses.push(
           "推定された音量差は約" +
             Math.abs(Math.round(p.ratioDb)) +
