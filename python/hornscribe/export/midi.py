@@ -26,6 +26,15 @@ DEFAULT_TICKS_PER_BEAT = 480
 GM_PROGRAM_HORN = 60
 """General MIDI program number (0-based) for French Horn (GM #61)."""
 
+GM_PROGRAM_PIANO = 0
+"""General MIDI program number (0-based) for Acoustic Grand Piano (GM #1).
+
+#227: a non-transposing part is the separation-derived accompaniment
+staff (#203) — the MusicXML export declares it Piano, so playback.mid
+honours the same timbre split instead of playing the backing lines on
+the lead's horn program.
+"""
+
 _DEFAULT_VELOCITY = 64
 
 # MIDI pitch-bend is a 14-bit value centered at 8192; mido exposes it
@@ -50,6 +59,7 @@ def _any_overlap(
 
 def _assign_channels(
     parts: tuple,
+    part_programs: tuple[int, ...] | None = None,
 ) -> tuple[list[int], list[dict[int, int]], list[set[int]]]:
     """Per-note channel assignment for the whole file (#333).
 
@@ -78,9 +88,36 @@ def _assign_channels(
     # Skip the GM drum channel for part homes — a horn part landing on
     # channel 9 would play as percussion (part 10+ hit this before).
     bases = [_FREE_CHANNELS[min(i, len(_FREE_CHANNELS) - 1)] for i in range(len(parts))]
-    others = [
-        [c for c in _FREE_CHANNELS if c != base] for base in bases
-    ]
+    programs = list(part_programs) if part_programs is not None else None
+    if programs is None or len(parts) <= 1 or len(set(programs)) <= 1:
+        others = [
+            [c for c in _FREE_CHANNELS if c != base] for base in bases
+        ]
+    else:
+        # #227: distinct programs -> disjoint channels per program
+        # group. SMF channel state is file-global, so a note landing
+        # on a channel another program-group owns would steal that
+        # group's timbre. A part's pool is its group-mates' home
+        # channels plus the group's share of the spares, round-robin
+        # split so every part keeps low channels for bends.
+        prog_group: dict[int, int] = {}
+        group_of_part: dict[int, int] = {}
+        group_bases: dict[int, set[int]] = {}
+        for pi, prog in enumerate(programs):
+            g = prog_group.setdefault(prog, len(prog_group))
+            group_of_part[pi] = g
+            group_bases.setdefault(g, set()).add(bases[pi])
+        spare = [c for c in _FREE_CHANNELS if c not in bases]
+        group_spare = {
+            g: spare[g :: len(prog_group)] for g in range(len(prog_group))
+        }
+        others = []
+        for pi in range(len(parts)):
+            g = group_of_part[pi]
+            allowed = group_bases[g] | set(group_spare[g])
+            others.append(
+                [c for c in _FREE_CHANNELS if c != bases[pi] and c in allowed]
+            )
     channels: list[dict[int, int]] = [dict() for _ in parts]
     drops: list[set[int]] = [set() for _ in parts]
 
@@ -237,7 +274,12 @@ def playback_midi_bytes(
     ts = payload.time_signature
     swing_warp = _swing_warper(payload.swing_feel)
 
-    mid = mido.MidiFile(type=1, ticks_per_beat=ticks_per_beat)
+    # #228: track_name carries the part display name verbatim — the
+    # accompaniment staff is literally named 伴奏, and mido latin-1
+    # default raises UnicodeEncodeError at save. SMF text has no
+    # declared charset, so utf-8 keeps the real name in a still-valid
+    # file (a latin-1-only reader degrades to mojibake, never a crash).
+    mid = mido.MidiFile(type=1, ticks_per_beat=ticks_per_beat, charset="utf-8")
 
     # Track 0: conductor track with meter / key / tempo map.
     conductor = mido.MidiTrack()
@@ -278,7 +320,16 @@ def playback_midi_bytes(
 
     # #333: channel-scoped bends need exclusivity — assign real
     # channels before emitting so a bend never detunes a neighbour.
-    bases, note_channels, bend_drops = _assign_channels(payload.parts)
+    # #227: the assignment also sees the per-part programs so parts
+    # with different timbres partition the channel space — sharing a
+    # channel would fight over its program_change.
+    part_programs = tuple(
+        gm_program if part.transposing else GM_PROGRAM_PIANO
+        for part in payload.parts
+    )
+    bases, note_channels, bend_drops = _assign_channels(
+        payload.parts, part_programs
+    )
     for part_index, part in enumerate(payload.parts):
         track = mido.MidiTrack()
         mid.tracks.append(track)
@@ -291,7 +342,7 @@ def playback_midi_bytes(
                     0,
                     0,
                     mido.Message(
-                        "program_change", channel=ch, program=gm_program
+                        "program_change", channel=ch, program=part_programs[part_index]
                     ),
                 )
             )

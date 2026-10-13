@@ -315,3 +315,76 @@ def test_straight_score_bytes_unchanged_by_swing_path() -> None:
     score = make_score([(60, 0, "1/2"), (62, "1/2", "1/2"), (64, 1, 1)])
     mid = _parse(playback_midi_bytes(score))
     assert _abs_note_ons(mid) == [0, 240, 480]
+
+
+def test_accompaniment_part_exports_piano_program() -> None:
+    """#227: the non-transposing accompaniment staff declares Piano in
+    the MusicXML export — playback.mid must honour the same timbre
+    instead of playing the backing lines on the lead's horn program."""
+    from dataclasses import replace
+
+    from hornscribe.domain.score import Part
+
+    score = make_score([(60, 0, 1)])
+    accomp_note = score.payload.parts[0].notes[0]
+    score = replace(
+        score,
+        payload=replace(
+            score.payload,
+            parts=(
+                score.payload.parts[0],
+                Part(
+                    id="part-2",
+                    name="accompaniment",
+                    notes=(accomp_note,),
+                    transposing=False,
+                ),
+            ),
+        ),
+    )
+    mid = _parse(playback_midi_bytes(score))
+    lead_progs = {
+        m.program for m in mid.tracks[1] if m.type == "program_change"
+    }
+    acc_progs = {
+        m.program for m in mid.tracks[2] if m.type == "program_change"
+    }
+    assert lead_progs == {60}
+    assert acc_progs == {0}
+
+
+def test_different_programs_partition_channels() -> None:
+    """#227: SMF channel state is file-global — two parts with
+    different programs must never share a channel, or one part's
+    program_change would steal the other's timbre."""
+    from dataclasses import replace
+
+    from hornscribe.domain.score import Part
+
+    score = make_score([(60, 0, 1), (62, 1, 1), (64, 2, 1)])
+    acc_notes = tuple(score.payload.parts[0].notes)
+    score = replace(
+        score,
+        payload=replace(
+            score.payload,
+            parts=(
+                score.payload.parts[0],
+                Part(
+                    id="part-2",
+                    name="accompaniment",
+                    notes=acc_notes,
+                    transposing=False,
+                ),
+            ),
+        ),
+    )
+    mid = _parse(playback_midi_bytes(score))
+    lead_chs = {
+        m.channel for m in mid.tracks[1] if m.type == "note_on" and m.velocity > 0
+    }
+    acc_chs = {
+        m.channel for m in mid.tracks[2] if m.type == "note_on" and m.velocity > 0
+    }
+    assert lead_chs
+    assert acc_chs
+    assert lead_chs.isdisjoint(acc_chs)
