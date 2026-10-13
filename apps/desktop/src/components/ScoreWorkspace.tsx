@@ -17,6 +17,7 @@ import type {
 import type { RhythmEditInvoker } from "../score/rhythmEdits";
 import type { ScoreViewMode } from "../score/verovio";
 import type { PitchView } from "./PitchSegmented";
+import type { SettingsCategory } from "../settings/store";
 
 /* #115: engine rhythm edits swap a document's content in place — its
  * revisionId changes without the workspace needing a remount (a remount
@@ -97,6 +98,7 @@ export function ScoreWorkspace({
   onRetranscribeVocalIsolation,
   onRetranscribeBasicPitch,
   onOpenProperties,
+  onOpenSettings,
   banner = null,
 }: {
   screen: ScreenState;
@@ -154,6 +156,9 @@ export function ScoreWorkspace({
   /** #209: review-bar action — open the properties panel so the
    *  meter-conflict issue can reach the meter select. */
   onOpenProperties?(): void;
+  /** #243: review-bar action - open the settings screen focused on a
+   *  category (the demucs-less buried-lead issue links to tools). */
+  onOpenSettings?(category: SettingsCategory): void;
   /** #219: persistent notice strip rendered above the score region
    *  content (SOURCE_MISSING over a restored score). */
   banner?: ReactNode;
@@ -236,6 +241,7 @@ export function ScoreWorkspace({
             onRetranscribeVocalIsolation={onRetranscribeVocalIsolation}
             onRetranscribeBasicPitch={onRetranscribeBasicPitch}
             onOpenProperties={onOpenProperties}
+            onOpenSettings={onOpenSettings}
           />
         ) : (
           <div className="hs-score-paper" aria-hidden="true">

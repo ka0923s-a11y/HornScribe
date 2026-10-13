@@ -22,6 +22,7 @@
 import { ja } from "../strings/ja";
 import type { RhythmEditOp } from "./rhythmEdits";
 import type { ScoreReviewIssue } from "./review";
+import type { SettingsCategory } from "../settings/store";
 
 export interface ReviewPrimaryAction {
   readonly label: string;
@@ -42,6 +43,9 @@ export interface ReviewActionHandlers {
   retranscribeBasicPitch?(): void;
   /** #209: open the properties panel (meter select lives there). */
   openProperties?(): void;
+  /** #243: open the settings screen focused on a category; the
+   *  demucs-less buried-lead issue links straight to tools. */
+  openSettings?(category: SettingsCategory): void;
   /** #176/#204: flip the selected note's enharmonic spelling. */
   toggleEnharmonic?(): boolean;
   /** Engine score.edit invoker: op + feedback + on-applied hook. */
@@ -90,7 +94,9 @@ export function buildReviewAction(
 
   // #222: a buried lead under the standard demucs tier still has a
   // stronger tier to try — the vocal-isolation retry pins precision.
-  // demucs-less installs emit no flag (the remedy there is the addon).
+  // demucs-less installs emit no precision flag - their remedy is the
+  // addon (the #243 action below), though the issue itself can still
+  // fire via the #214 comb gate on the center-extraction path.
   if (
     issue.reason === "low_lead_level" &&
     issue.evidence["suggestPrecisionIsolation"] === true &&
@@ -100,6 +106,23 @@ export function buildReviewAction(
       label: r.retranscribePrecisionIsolation,
       tooltip: r.retranscribePrecisionIsolationTip,
       run: () => handlers.retranscribeVocalIsolation?.(),
+    };
+  }
+
+  // #243: a buried lead on a demucs-less install has no stronger tier
+  // left to retry - the remedy is the separation addon itself, so the
+  // issue links straight to Settings/tools instead of naming a
+  // destination the user then has to find by hand.
+  if (
+    issue.reason === "low_lead_level" &&
+    issue.evidence["method"] === "center_extraction" &&
+    issue.evidence["demucsAvailable"] === false &&
+    handlers.openSettings
+  ) {
+    return {
+      label: r.openAddonSettings,
+      tooltip: r.openAddonSettingsTip,
+      run: () => handlers.openSettings?.("tools"),
     };
   }
 

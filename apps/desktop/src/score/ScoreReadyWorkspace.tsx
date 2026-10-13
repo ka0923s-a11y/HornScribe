@@ -28,6 +28,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Checkbox, Radio, RadioGroup } from "@fluentui/react-components";
 import { ja } from "../strings/ja";
 import type { PitchViewSetting, PrintScope } from "../commands/types";
+import type { SettingsCategory } from "../settings/store";
 import { isTauriRuntime } from "../tauri/bridge";
 import type { ScoreDocumentPort } from "./document";
 import { ScoreView } from "./ScoreView";
@@ -215,6 +216,9 @@ interface Props {
   /** #209: open the properties panel — offered on the meter-conflict
    *  issue so the user finds the meter select without hunting. */
   onOpenProperties?(): void;
+  /** #243: open the settings screen on a category - the demucs-less
+   *  buried-lead issue links straight to the tools section. */
+  onOpenSettings?(category: SettingsCategory): void;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -512,6 +516,7 @@ export function ScoreReadyWorkspace({
   onRetranscribeVocalIsolation,
   onRetranscribeBasicPitch,
   onOpenProperties,
+  onOpenSettings,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<ScoreRenderer | null>(null);
@@ -3139,6 +3144,7 @@ const setKey = useCallback(
             retranscribeVocalIsolation: onRetranscribeVocalIsolation,
             retranscribeBasicPitch: onRetranscribeBasicPitch,
             openProperties: onOpenProperties,
+            openSettings: onOpenSettings,
             toggleEnharmonic: toggleSelectedEnharmonic,
             deleteNote: reviewDeleteNote,
             // Engine-backed remedies need the edit channel - without it

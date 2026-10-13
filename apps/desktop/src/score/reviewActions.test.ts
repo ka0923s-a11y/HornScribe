@@ -502,6 +502,67 @@ describe("buildReviewAction", () => {
     ).toBeNull();
   });
 
+  it("#243: demucs-less buried lead links straight to Settings tools", () => {
+    const h = handlers({ openSettings: vi.fn() });
+    const a = buildReviewAction(
+      issue({
+        reason: "low_lead_level",
+        canonicalNoteIds: [],
+        evidence: {
+          method: "center_extraction",
+          demucsAvailable: false,
+        },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.openAddonSettings);
+    expect(a?.tooltip).toBe(ja.review.openAddonSettingsTip);
+    a?.run();
+    expect(h.openSettings).toHaveBeenCalledWith("tools");
+  });
+
+  it("#243: addon link hides without the handler or when demucs exists", () => {
+    expect(
+      buildReviewAction(
+        issue({
+          reason: "low_lead_level",
+          canonicalNoteIds: [],
+          evidence: {
+            method: "center_extraction",
+            demucsAvailable: false,
+          },
+        }),
+        handlers(),
+      ),
+    ).toBeNull();
+    expect(
+      buildReviewAction(
+        issue({
+          reason: "low_lead_level",
+          canonicalNoteIds: [],
+          evidence: { method: "demucs", demucsAvailable: true },
+        }),
+        handlers({ openSettings: vi.fn() }),
+      ),
+    ).toBeNull();
+  });
+
+  it("#243: precision retry wins over the addon link", () => {
+    const h = handlers({ openSettings: vi.fn() });
+    const a = buildReviewAction(
+      issue({
+        reason: "low_lead_level",
+        canonicalNoteIds: [],
+        evidence: { suggestPrecisionIsolation: true },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.retranscribePrecisionIsolation);
+    a?.run();
+    expect(h.retranscribeVocalIsolation).toHaveBeenCalledOnce();
+    expect(h.openSettings).not.toHaveBeenCalled();
+  });
+
   it("#80-3: low-confidence / very-short flags lead with delete", () => {
     const h = handlers({ deleteNote: vi.fn() });
     for (const reason of [

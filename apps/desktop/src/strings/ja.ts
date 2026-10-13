@@ -2176,6 +2176,12 @@ export const ja = {
       "推定された弱起を修正します（全ての小節線が直り、音符の長さは変わりません）",
     openPickupEditorTip:
       "プロパティパネルを開いて弱起を選び直します",
+    /** #243: the buried-lead issue on a demucs-less install used to
+     *  say "install the separation addon in Settings/tools" with no
+     *  way there - this action links straight to that category. */
+    openAddonSettings: "分離アドオン設定を開く",
+    openAddonSettingsTip:
+      "設定のツール画面を開いて分離アドオン(demucs)を導入します",
     /** #423: boundary_uncertain remedies — mergeNotes for a phantom
      *  edge, splitNote at the heard onset for a missed re-articulation. */
     mergeBoundary: "2音を1つにまとめる",
