@@ -193,6 +193,18 @@ AUTO_TEXTURE_OVERLAP_RATIO = 0.05
 # healthy lead (side-channel loss + soft mask), so its bar is lower.
 _LOW_LEAD_RMS_RATIO = {"demucs": 0.30}
 _LOW_LEAD_RMS_RATIO_DEFAULT = 0.20
+# #214: the RMS gate is blind on the free path — the center mask
+# attenuates even a healthy lead, so a buried voice and a merely
+# attenuated one read the same ~0.7 est/src ratio.  The comb share
+# measures the detected line against the SOURCE, which the mask
+# cannot flatten: what fraction of each note's span spectrum sits
+# on that note's own harmonic comb (+-3% of f0*h)?  A lead owning
+# its spans reads ~0.4-0.7 on a JPOP mix (~0.25+ on real vocal
+# stems); the -9.5 dB lead of very-quiet-lead reads 0.08 while the
+# quiet-but-heard quiet-lead-mix reads 0.15.  The bar sits between.
+_LOW_LEAD_COMB_SHARE = 0.10
+# Below this many measurable notes the median is noise, not signal.
+_LOW_LEAD_COMB_MIN_NOTES = 8
 
 EventEmitter = Callable[..., None]
 NoteBackend = Callable[[str], tuple[RawNoteEvent, ...]]
@@ -3170,6 +3182,56 @@ def _samples_rms(samples: Any) -> float:
     return float(np.sqrt(np.mean(arr * arr)))
 
 
+def _lead_comb_share(
+    samples: Any,
+    sample_rate: int,
+    events: tuple[RawNoteEvent, ...],
+) -> float | None:
+    """Median share of each note's harmonic comb in its span (#214).
+
+    Per lead event, FFT the note's core span and divide the energy
+    inside +-3% bands around f0*1..8 by the span's total spectral
+    energy — how much of the mix, while the melody claims to sound,
+    is actually that melody.  Needs >= _LOW_LEAD_COMB_MIN_NOTES
+    measurable notes for a stable median; returns None below it so
+    the gate stays silent rather than guess on a two-note piece.
+    """
+    try:
+        import numpy as np  # noqa: PLC0415
+    except Exception:
+        return None
+    arr = np.asarray(samples, dtype=np.float64)
+    if arr.size == 0 or sample_rate <= 0:
+        return None
+    shares: list[float] = []
+    for e in events:
+        i0 = int(e.onset_sec * sample_rate)
+        i1 = int(e.offset_sec * sample_rate)
+        seg = arr[max(0, i0) : min(arr.size, i1)]
+        n = int(seg.shape[0])
+        if n < 256:
+            continue
+        inset = int(n * 0.15)
+        core = seg[inset : n - inset] if n - 2 * inset >= 128 else seg
+        win = core * np.hanning(core.shape[0])
+        spec = np.abs(np.fft.rfft(win)) ** 2
+        freqs = np.fft.rfftfreq(core.shape[0], 1.0 / sample_rate)
+        f0 = 440.0 * 2.0 ** ((e.pitch_midi - 69) / 12.0)
+        total = float(spec.sum())
+        comb = 0.0
+        for h in range(1, 9):
+            fh = f0 * h
+            if fh > sample_rate / 2:
+                break
+            band = (freqs >= fh * 0.97) & (freqs <= fh * 1.03)
+            comb += float(spec[band].sum())
+        if total > 0:
+            shares.append(min(1.0, comb / total))
+    if len(shares) < _LOW_LEAD_COMB_MIN_NOTES:
+        return None
+    return float(statistics.median(shares))
+
+
 def _stage_selection_wav(samples: Any, sample_rate: int) -> str | None:
     """Write *samples* to a temp PCM16 WAV; return its path or None.
 
@@ -5794,7 +5856,19 @@ def run_transcription_job(
                 if estimate_rms is not None and source_rms > 0:
                     ratio = estimate_rms / source_rms
                     threshold = _LOW_LEAD_RMS_RATIO.get(vocal_method, _LOW_LEAD_RMS_RATIO_DEFAULT)
-                    if ratio < threshold:
+                    # #214: the RMS gate is blind on the free path —
+                    # the center mask inflates the estimate with
+                    # accompaniment bleed, so a buried lead and a
+                    # healthy one read the same ratio.  The comb
+                    # share convicts the buried case against the
+                    # source, which the mask cannot flatten.
+                    comb = _lead_comb_share(
+                        samples, sample_rate, cleaned.events
+                    )
+                    if ratio < threshold or (
+                        comb is not None
+                        and comb < _LOW_LEAD_COMB_SHARE
+                    ):
                         issues.append(
                             ReviewIssue(
                                 id="",
@@ -5808,6 +5882,11 @@ def run_transcription_job(
                                     "vocalRms": round(estimate_rms, 5),
                                     "ratioDb": round(20.0 * math.log10(ratio), 1),
                                     "method": vocal_method or "center_extraction",
+                                    "leadCombShare": (
+                                        round(comb, 3)
+                                        if comb is not None
+                                        else None
+                                    ),
                                     # #222: the remedy depends on what
                                     # already ran — the requested demucs
                                     # tier + engine-side availability let
