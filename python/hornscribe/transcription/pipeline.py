@@ -5882,6 +5882,18 @@ def run_transcription_job(
                                     "vocalRms": round(estimate_rms, 5),
                                     "ratioDb": round(20.0 * math.log10(ratio), 1),
                                     "method": vocal_method or "center_extraction",
+                                    # Which gate convicted — the UI
+                                    # phrases the measured deficit
+                                    # differently per gate: an RMS
+                                    # conviction can name a volume
+                                    # gap, a comb conviction cannot
+                                    # (the stem can be loud while the
+                                    # lead inside it is not).
+                                    "gate": (
+                                        "rms"
+                                        if ratio < threshold
+                                        else "comb"
+                                    ),
                                     "leadCombShare": (
                                         round(comb, 3)
                                         if comb is not None

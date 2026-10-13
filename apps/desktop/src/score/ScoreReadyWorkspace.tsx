@@ -459,6 +459,12 @@ function inspectorCopy(): InspectorCopy {
             const tier = issue.evidence["tier"];
             return ja.reviewEvidence.lowLeadLevel({
               ratioDb: numEvidence(issue, "ratioDb"),
+              // #214: a comb conviction cannot name a volume gap —
+              // the stem stays loud on bleed while the lead inside
+              // it does not sound. Older engines carry no gate and
+              // keep the RMS phrasing.
+              gate: issue.evidence["gate"] === "comb" ? "comb" : "rms",
+              combShare: numEvidence(issue, "leadCombShare"),
               remedy:
                 method === "center_extraction" &&
                 demucsAvailable === false
