@@ -4996,7 +4996,7 @@ class TestAccompPadCompletion:
         y = np.zeros_like(t)
         # Six bands (dense texture) ringing, silenced mid-piece by a
         # hard drop then all restarting together — mask recovery.
-        for i, m in enumerate((48, 53, 57, 60, 64, 67)):
+        for m in (48, 53, 57, 60, 64, 67):
             f = 440.0 * 2 ** ((m - 69) / 12)
             seg = (t < 1.0) | (t >= 1.35)
             y[seg] += 0.15 * np.sin(2 * np.pi * f * t[seg])
