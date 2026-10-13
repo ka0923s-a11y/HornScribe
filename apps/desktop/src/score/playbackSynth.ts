@@ -326,8 +326,19 @@ export class ScorePlaybackSynth {
   private countInRemainingMs = 0;
   private countInPattern: CountInClick[] = [];
 
-  /** 事前スケジュールの先読み幅(ms 相当の score 時間)。 */
-  private readonly LOOKAHEAD_MS = 400;
+  /* #230: lookahead must exceed the WORST tick interval, not the
+   * normal 80ms one — Chromium throttles hidden-page setTimeout to
+   * ~1 Hz (a minimized WebView2 included; playing audio exempts the
+   * page from the harsher intensive bucket but not the 1 Hz floor).
+   * At 400ms a throttled tick skipped every note in the ~600ms
+   * between windows — a minimized score chopped once per second. */
+  private readonly LOOKAHEAD_MS = 1500;
+  /* #230: an onset that slips behind the cursor by less than this
+   * much REAL time still fires (late beats dropped — the loop head
+   * right after a wrap tick is exactly this case); anything older is
+   * skipped so a long stall cannot burst a backlog of voices at once.
+   * Scheduled in score-ms, so the grace scales by rate. */
+  private readonly CATCHUP_MS = 250;
   /** スケジュールの走査間隔。 */
   private readonly TICK_MS = 80;
 
@@ -576,10 +587,22 @@ export class ScorePlaybackSynth {
       (this.countingIn ? this.countInRemainingMs / this.rate / 1000 : 0);
     const rate = this.rate;
     const windowStart = this.cursorMs;
-    const windowEnd = windowStart + this.LOOKAHEAD_MS * rate;
-    // ティック毎にウィンドウが重なるので、既にスケジュール済みの範囲
-    // (scheduledUntilMs 以前)は二度鳴らさない。
-    const scheduleFrom = Math.max(windowStart, this.scheduledUntilMs);
+    let windowEnd = windowStart + this.LOOKAHEAD_MS * rate;
+    /* #230: never schedule past an armed loop's end — an unclamped
+     * window leaks the post-loop notes over the restarted loop head
+     * (up to LOOKAHEAD worth of wrong audio). The wrap tick reschedules
+     * from loopStart through the catch-up window instead. */
+    const loop = this.loopRangeMs;
+    if (loop && windowStart >= loop.startMs && windowStart < loop.endMs) {
+      windowEnd = Math.min(windowEnd, loop.endMs);
+    }
+    /* #230: keep coverage contiguous from the watermark and allow a
+     * small catch-up window behind the cursor — an onset that slipped
+     * <CATCHUP real-ms fires immediately rather than dropping. */
+    const scheduleFrom = Math.max(
+      windowStart - this.CATCHUP_MS * rate,
+      this.scheduledUntilMs,
+    );
 
     if (this.enabled) {
       for (const note of this.notes) {
@@ -610,7 +633,10 @@ export class ScorePlaybackSynth {
     // カウントイン中も発射されると、保留終了 = 小節頭の拍で続く拍子の
     // グリッドにそのまま繋がる。
     if (this.metronomeOn && this.clicks.length > 0) {
-      const clickFrom = Math.max(windowStart, this.clickUntilMs);
+      const clickFrom = Math.max(
+        windowStart - this.CATCHUP_MS * rate,
+        this.clickUntilMs,
+      );
       for (const click of this.clicks) {
         if (click.startMs >= windowEnd) break;
         if (click.startMs < clickFrom) continue;
@@ -621,18 +647,19 @@ export class ScorePlaybackSynth {
     }
     this.lastTickAt = performance.now();
 
-    // ループ: 範囲の終わりに近づいたらループ先頭から再スケジュール。
+    // ループ: 折り返しのすぐ後にティックを1回置き、次周先頭の音符が
+    // 追いつき猶予の内側に収まるようにする(遅れても一拍が落ちない)。
     if (this.loopRangeMs) {
       const { startMs, endMs } = this.loopRangeMs;
       if (this.cursorMs >= startMs && this.cursorMs < endMs) {
-        const untilLoopEnd = (endMs - this.cursorMs) / rate;
-        // ループ末尾の少し前に次周の先読みを仕掛ける。
-        const nextTickMs = Math.max(
-          this.TICK_MS,
-          Math.min(untilLoopEnd * 1000 - 150, this.TICK_MS),
-        );
-        this.scheduleTimer = setTimeout(() => this.onTick(), nextTickMs);
-        return;
+        const untilLoopEndMs = ((endMs - this.cursorMs) / rate) * 1000;
+        if (untilLoopEndMs < this.TICK_MS) {
+          this.scheduleTimer = setTimeout(
+            () => this.onTick(),
+            Math.max(0, untilLoopEndMs) + 20,
+          );
+          return;
+        }
       }
     }
     this.scheduleTimer = setTimeout(() => this.onTick(), this.TICK_MS);
@@ -655,9 +682,11 @@ export class ScorePlaybackSynth {
         if (this.cursorMs >= endMs) {
           const span = endMs - startMs;
           this.cursorMs = startMs + ((this.cursorMs - startMs) % span);
-          // ループ折り返し: 先読み済み範囲を巻き戻して再スケジュール。
-          this.scheduledUntilMs = this.cursorMs;
-          this.clickUntilMs = this.cursorMs;
+          /* #230: rewind the watermarks to the loop START (not the
+           * wrapped cursor) so the catch-up window can still fire the
+           * loop-head onsets this wrap tick already passed. */
+          this.scheduledUntilMs = startMs;
+          this.clickUntilMs = startMs;
         }
       }
     }

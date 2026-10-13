@@ -484,8 +484,11 @@ describe("ScorePlaybackSynth click layer (#101)", () => {
     ]);
     synth.setMetronome(true);
     synth.sync(0, true, 1);
-    // LOOKAHEAD 400ms: the 0ms + 300ms clicks schedule, 900ms waits.
-    expect(clickOscs(oscs).map((o) => o.startedAt)).toEqual([0.06, 0.36]);
+    // #230: LOOKAHEAD is 1500ms now (throttle-proof) — all three
+    // clicks schedule in the first window.
+    expect(clickOscs(oscs).map((o) => o.startedAt)).toEqual([
+      0.06, 0.36, 0.96,
+    ]);
     // Audition stays off — the note inside the window stays silent.
     expect(noteOscs(oscs)).toHaveLength(0);
     synth.dispose();
@@ -510,6 +513,80 @@ describe("ScorePlaybackSynth click layer (#101)", () => {
     const notes = noteOscs(oscs);
     expect(notes).toHaveLength(2); // triangle + sub-octave
     expect(notes[0].startedAt).toBeCloseTo(1.06);
+    synth.dispose();
+  });
+
+  /* ---- #230: throttle-proof scheduling ---- */
+
+  it("schedules 1500ms ahead so a 1 Hz hidden tick leaves no gap", () => {
+    const { ctx, oscs } = fakeAudio();
+    const synth = new ScorePlaybackSynth({ audioContext: ctx });
+    synth.load(
+      table([seg(0, 1200, ["sn-1"]), seg(1200, 2400, ["sn-2"])]),
+      new Map([
+        ["sn-1", [note("C", 4)]],
+        ["sn-2", [note("E", 4)]],
+      ]),
+    );
+    synth.setEnabled(true);
+    synth.sync(0, true, 1);
+    // The 1200ms onset is already scheduled — under LOOKAHEAD=400 it
+    // waited for a later tick a throttled (minimized) page may get
+    // only once per second, leaving ~600ms of silence per second.
+    const starts = noteOscs(oscs)
+      .map((o) => o.startedAt)
+      .filter((v): v is number => v !== null);
+    expect([...new Set(starts)].sort((a, b) => a - b)).toEqual([
+      0.06, 1.26,
+    ]);
+    synth.dispose();
+  });
+
+  it("never schedules past an armed loop end — no post-loop bleed", () => {
+    const { ctx, oscs } = fakeAudio();
+    const synth = new ScorePlaybackSynth({ audioContext: ctx });
+    synth.load(
+      table([seg(0, 500, ["sn-1"]), seg(500, 1000, ["sn-2"])]),
+      new Map([
+        ["sn-1", [note("C", 4)]],
+        ["sn-2", [note("E", 4)]],
+      ]),
+    );
+    synth.setEnabled(true);
+    synth.setLoop({ startMs: 0, endMs: 500 });
+    synth.sync(0, true, 1);
+    // LOOKAHEAD=1500 would reach the 500ms note — the clamp holds it
+    // back, so only the in-loop note's two oscillators exist.
+    expect(noteOscs(oscs)).toHaveLength(2);
+    synth.dispose();
+  });
+
+  it("the wrap tick reschedules the loop head through catch-up", () => {
+    const { ctx, oscs } = fakeAudio();
+    const synth = new ScorePlaybackSynth({ audioContext: ctx });
+    synth.load(
+      table([seg(0, 500, ["sn-1"]), seg(500, 1000, ["sn-2"])]),
+      new Map([
+        ["sn-1", [note("C", 4)]],
+        ["sn-2", [note("E", 4)]],
+      ]),
+    );
+    synth.setEnabled(true);
+    synth.setLoop({ startMs: 0, endMs: 500 });
+    synth.sync(0, true, 1);
+    expect(noteOscs(oscs)).toHaveLength(2);
+    // Simulate the wrap tick landing ~100ms past the loop end: the
+    // head note is only ~100ms late, inside the 250ms catch-up grace,
+    // so it must fire (a silent loop seam was the old failure).
+    const inner = synth as unknown as {
+      cursorMs: number;
+      lastTickAt: number;
+      onTick(): void;
+    };
+    inner.cursorMs = 600;
+    inner.lastTickAt = performance.now();
+    inner.onTick();
+    expect(noteOscs(oscs)).toHaveLength(4);
     synth.dispose();
   });
 
