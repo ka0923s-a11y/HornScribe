@@ -72,8 +72,15 @@ BUNDLED_CONF = SRC_TAURI / "tauri.bundled.json"
 MERGED_CONF = SRC_TAURI / "target" / "tauri.release.merged.json"
 WEBVIEW2_LOADER = SRC_TAURI / "target" / "release" / "WebView2Loader.dll"
 NSIS_DIR = SRC_TAURI / "target" / "release" / "bundle" / "nsis"
+DIST_DIR = REPO / "dist"
 RELEASE_NOTES = REPO / ".github" / "RELEASE_NOTES.md"
 MIN_ASSET_BYTES = 50 * 1024 * 1024  # engine-bundled artifacts are >50 MB
+# #234: the demucs vocal-separation addon is opt-in (kept out of the
+# installer on size grounds) — but the docs promise it as a release
+# asset, so a built zip under dist/ rides the publish step whenever
+# one is staged. Absent = skipped silently; the addon never blocks
+# the two primary artifacts.
+ADDON_GLOB = "HornScribe-demucs-addon-*-win64.zip"
 
 # #193: the NSIS must carry the onedir engine — 7-Zip lists installer
 # contents so the check is structural, not just "the exe is big".
@@ -491,6 +498,15 @@ def main() -> int:
     )
     portable_zip = _find_portable(version)
 
+    # #234: the newest staged demucs addon zip joins the release when
+    # present — detected up front so it appears in the verify print
+    # and the publish confirmation, not as a surprise at gh time.
+    addon_zips = sorted(
+        DIST_DIR.glob(ADDON_GLOB),
+        key=lambda p: p.stat().st_mtime,
+    )
+    addon_zip = addon_zips[-1] if addon_zips else None
+
     # -- 6. verify -----------------------------------------------------------
     for asset in (setup_exe, portable_zip):
         size = asset.stat().st_size
@@ -515,6 +531,8 @@ def main() -> int:
     print("\nassets verified:")
     for asset in (setup_exe, portable_zip):
         print(f"  {asset.name}  {asset.stat().st_size / 1e6:,.1f} MB")
+    if addon_zip is not None:
+        print(f"  {addon_zip.name}  {addon_zip.stat().st_size / 1e6:,.1f} MB (opt-in addon)")
 
     if args.dry_run:
         print("\n--dry-run: stopping before tag + GitHub Release")
@@ -536,13 +554,18 @@ def main() -> int:
             what=f"tag {tag}",
         )
     _run(["git", "push", "origin", f"refs/tags/{tag}"], cwd=REPO, what="push tag")
+    # PRODUCT_BOUNDARY.md/#165 promised the addon as a release asset;
+    # without this attachment the docs and the shipped releases
+    # disagree (#234).
+    assets = [str(setup_exe), str(portable_zip)]
+    if addon_zip is not None:
+        assets.append(str(addon_zip))
     gh_args = [
         "gh",
         "release",
         "create",
         tag,
-        str(setup_exe),
-        str(portable_zip),
+        *assets,
         "--prerelease",
         "--title",
         f"HornScribe {tag}",
