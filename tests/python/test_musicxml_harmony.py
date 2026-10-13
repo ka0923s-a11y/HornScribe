@@ -110,6 +110,17 @@ def test_jpop_kind_text_overrides_default_glyph() -> None:
     assert _kind_of(h) == ("half-diminished", "m7-5")
 
 
+def test_dim7_exports_diminished_seventh_not_triad() -> None:
+    """#246: a detected dim7 is a four-note chord - the old 'dim'
+    label exported it as <kind>diminished</kind> (a triad)."""
+    doc = _doc_with(
+        [(60, 0, 4)], (_sym(0, 4, 1, "dim7", label="C#dim7"),)
+    )
+    (h,) = _harmonies(export_concert_musicxml(doc))
+    assert _root_of(h) == ("C", 1)
+    assert _kind_of(h) == ("diminished-seventh", "dim7")
+
+
 def test_flats_and_sharps_root_spelling() -> None:
     """The flat/sharp policy follows the head key signature, matching
     the pipeline's own prefer_flats choice."""

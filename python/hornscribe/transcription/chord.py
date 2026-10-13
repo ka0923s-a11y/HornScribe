@@ -24,6 +24,10 @@ from typing import Any
 # above-root (semitones) to a template weight; the seventh sits at
 # 0.9 and the dim7 extension at 0.7 because real mixes voice them
 # more weakly than triad tones.
+# #246: 'dim' is the plain triad (0,3,6) and 'dim7' the full
+# diminished seventh (0,3,6,9) - the old single 'dim' template was a
+# dim7 shape labelled 'dim', so a detected dim7 exported as a
+# diminished TRIAD. Splitting lets the match name what it heard.
 _QUALITIES: dict[str, tuple[tuple[int, float], ...]] = {
     "maj": ((0, 1.0), (4, 1.0), (7, 1.0)),
     "min": ((0, 1.0), (3, 1.0), (7, 1.0)),
@@ -31,7 +35,8 @@ _QUALITIES: dict[str, tuple[tuple[int, float], ...]] = {
     "maj7": ((0, 1.0), (4, 1.0), (7, 1.0), (11, 0.9)),
     "m7": ((0, 1.0), (3, 1.0), (7, 1.0), (10, 0.9)),
     "m7b5": ((0, 1.0), (3, 1.0), (6, 1.0), (10, 0.9)),
-    "dim": ((0, 1.0), (3, 1.0), (6, 1.0), (9, 0.7)),
+    "dim": ((0, 1.0), (3, 1.0), (6, 1.0)),
+    "dim7": ((0, 1.0), (3, 1.0), (6, 1.0), (9, 0.7)),
     "aug": ((0, 1.0), (4, 1.0), (8, 1.0)),
     "sus4": ((0, 1.0), (5, 1.0), (7, 1.0)),
 }
@@ -45,6 +50,7 @@ _QUALITY_SUFFIX = {
     "m7": "m7",
     "m7b5": "m7-5",
     "dim": "dim",
+    "dim7": "dim7",
     "aug": "aug",
     "sus4": "sus4",
 }

@@ -262,6 +262,7 @@ _QUALITY_KIND: dict[str, tuple[str, str]] = {
     "m7": ("minor-seventh", "m7"),
     "m7b5": ("half-diminished", "m7-5"),
     "dim": ("diminished", "dim"),
+    "dim7": ("diminished-seventh", "dim7"),
     "aug": ("augmented", "aug"),
     "sus4": ("suspended-fourth", "sus4"),
 }
