@@ -3281,6 +3281,10 @@ export default function App() {
                       : undefined
                   }
                   onOpenProperties={() => layout.setPropertiesOpen(true)}
+                  onOpenSettings={(category) => {
+                    setSettingsFocus(category);
+                    setView("settings");
+                  }}
                   banner={
                     importState.sourceMissing ? (
                       <div className="hs-source-missing-banner" role="alert">
