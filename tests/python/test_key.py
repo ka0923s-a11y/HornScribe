@@ -117,3 +117,65 @@ def test_mixed_confidence_uses_only_strong_chords():
     # assertion that matters is that the noise segment was ignored,
     # i.e. no crash/override driven by the 0.03 call alone.
     assert refined is None or refined.key.fifths == 0
+
+
+# #260: a JPOP piece very often opens/closes on a *tensioned* tonic —
+# Cmaj7, Cadd9, C6. The tonic arbiter must read those as tonic
+# evidence, not only bare "maj"/"min" triads. The melody below sits
+# inside a dead relative-major/minor tie (A minor wins the melodic
+# K-S by ~0.002), so the chord vote is what decides the signature.
+_TIED_MELODY = (60, 64, 65, 67, 64, 60, 64, 60, 69)
+
+
+def test_tensioned_tonic_arbitrates_relative_pair():
+    pitches = _TIED_MELODY
+    durs = tuple(F(2) for _ in pitches)
+    head = estimate_key_detailed(pitches, durs)
+    # Fixture sanity: the melodic vote really is the Am/C tie the
+    # arbiter exists for.
+    assert head.key.fifths == 0 and head.key.mode == "minor"
+    chords = _chords(
+        (0, "maj7"), (5, "maj"), (7, "maj"), (0, "maj7"),
+    )
+    refined = refine_key_with_harmony(pitches, durs, chords)
+    assert refined is not None
+    assert refined.key.fifths == 0 and refined.key.mode == "major"
+    # The displaced melodic winner stays visible as the runner-up.
+    assert refined.runner_up is not None
+    assert refined.runner_up.mode == "minor"
+
+
+def test_tensioned_tonic_variants_arbitrate():
+    # add9 and 6 are the same tonic-function sonorities — both must
+    # earn the first/last-chord bonus.
+    pitches = _TIED_MELODY
+    durs = tuple(F(2) for _ in pitches)
+    chords = _chords(
+        (0, "add9"), (5, "maj"), (7, "maj"), (0, "6"),
+    )
+    refined = refine_key_with_harmony(pitches, durs, chords)
+    assert refined is not None
+    assert refined.key.fifths == 0 and refined.key.mode == "major"
+
+
+def test_minor_tonic_tensions_reinforce_correct_answer():
+    # Am7 cadences are the minor-side tensioned tonic: the bonus keeps
+    # the already-correct A-minor head instead of letting C major
+    # edge past on a near tie.
+    pitches = _TIED_MELODY
+    durs = tuple(F(2) for _ in pitches)
+    chords = _chords(
+        (9, "m7"), (5, "maj"), (7, "maj"), (9, "m7"),
+    )
+    assert refine_key_with_harmony(pitches, durs, chords) is None
+
+
+def test_sus_chords_are_not_tonic_evidence():
+    # A sus4 on the tonic degree is an unresolved sonority, not a
+    # tonic call — it must not claim the bonus and overturn the tie.
+    pitches = _TIED_MELODY
+    durs = tuple(F(2) for _ in pitches)
+    chords = _chords(
+        (0, "sus4"), (5, "maj"), (7, "maj"), (0, "sus4"),
+    )
+    assert refine_key_with_harmony(pitches, durs, chords) is None

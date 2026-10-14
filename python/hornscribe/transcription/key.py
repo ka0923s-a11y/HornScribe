@@ -531,6 +531,15 @@ _TONIC_BONUS_MARGIN = 0.12
 _FIRST_TONIC_BONUS = 0.10
 _LAST_TONIC_BONUS = 0.05
 
+# #260: tonic-function qualities per mode family. A JPOP opening or
+# closing chord is very often a *tensioned* tonic — Cmaj7, C6, Cadd9,
+# Am7 — and an exact "maj"/"min" match silently zeroes the bonus on
+# exactly the corpus this arbitration exists for. Sus and dominant
+# shapes stay out on purpose: a sus4 or 7 on the tonic degree is an
+# unstable sonority, not tonic evidence.
+_MAJOR_TONIC_QUALITIES = frozenset({"maj", "maj7", "6", "add9"})
+_MINOR_TONIC_QUALITIES = frozenset({"min", "m7", "m6", "mMaj7"})
+
 
 def _signature_pcs(fifths: int) -> set[int]:
     """Pitch-class collection of a signature — shared by the relative
@@ -618,11 +627,15 @@ def refine_key_with_harmony(
         if corr < best_corr - _TONIC_BONUS_MARGIN:
             return 0.0
         tonic = _tonic_pc(key)
-        want_q = "min" if key.mode == "minor" else "maj"
+        want_q = (
+            _MINOR_TONIC_QUALITIES
+            if key.mode == "minor"
+            else _MAJOR_TONIC_QUALITIES
+        )
         bonus = 0.0
-        if first.root_pc % 12 == tonic and first.quality == want_q:
+        if first.root_pc % 12 == tonic and first.quality in want_q:
             bonus += _FIRST_TONIC_BONUS
-        if last.root_pc % 12 == tonic and last.quality == want_q:
+        if last.root_pc % 12 == tonic and last.quality in want_q:
             bonus += _LAST_TONIC_BONUS
         return bonus
 
