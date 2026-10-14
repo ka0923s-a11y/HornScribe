@@ -500,6 +500,55 @@ class TestSetMeter:
                 }
             )
 
+    def test_pickup_too_long_for_new_meter_is_an_edit_error(self) -> None:
+        """#254: a 3-quarter pickup survives a unit change as an
+        absolute span - under 2/4 it exceeds the measure, which the
+        payload invariant rejects with a bare ValueError. The user
+        caused this with a parameter choice, so it must surface as a
+        ScoreEditError (ERR_INVALID_PARAMS), not a job failure."""
+        doc = _doc([_note(1, 60, "0", "1")])
+        doc = replace(
+            doc,
+            payload=replace(doc.payload, pickup_beats=Fraction(3)),
+        )
+        with pytest.raises(ScoreEditError, match="pickup"):
+            apply_score_edit(
+                doc,
+                _edit("setMeter", "", beatsPerMeasure=2, beatUnit=4),
+            )
+
+
+class TestDomainValidation:
+    """#254: hand-edited or torn project JSON must not smuggle
+    invalid musical values past from_dict - the invariants live on
+    the domain classes, same as pickup_beats."""
+
+    def test_tempo_segment_rejects_nonpositive_bpm(self) -> None:
+        with pytest.raises(ValueError, match="bpm"):
+            TempoSegment(start_beat=Fraction(0), bpm=0.0)
+        with pytest.raises(ValueError, match="bpm"):
+            TempoSegment(start_beat=Fraction(0), bpm=-30.0)
+        with pytest.raises(ValueError, match="bpm"):
+            TempoSegment(start_beat=Fraction(0), bpm=float("inf"))
+
+    def test_tempo_segment_rejects_negative_start(self) -> None:
+        with pytest.raises(ValueError, match="start_beat"):
+            TempoSegment(start_beat=Fraction(-1), bpm=120.0)
+
+    def test_time_signature_rejects_degenerate_meters(self) -> None:
+        with pytest.raises(ValueError, match="beats_per_measure"):
+            TimeSignature(beats_per_measure=0, beat_unit=4)
+        with pytest.raises(ValueError, match="beat_unit"):
+            TimeSignature(beats_per_measure=4, beat_unit=3)
+        with pytest.raises(ValueError, match="beat_unit"):
+            TimeSignature(beats_per_measure=4, beat_unit=128)
+
+    def test_valid_values_still_construct(self) -> None:
+        assert TempoSegment(start_beat=Fraction(0), bpm=120.0).bpm == 120.0
+        assert TimeSignature(
+            beats_per_measure=6, beat_unit=8
+        ).beat_unit == 8
+
 
 class TestSetPickup:
     """#358: setPickup — user-corrected anacrusis. Every barline

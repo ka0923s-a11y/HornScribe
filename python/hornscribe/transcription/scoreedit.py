@@ -1211,6 +1211,18 @@ def _apply_set_meter(
     profile = _profile_from_settings(payload.quantization_settings)
     pickup_ql = payload.pickup_beats * old_beat_ql
     measure_ql = Fraction(ts.beats_per_measure) * new_beat_ql
+    new_pickup_beats = pickup_ql / new_beat_ql
+    if new_pickup_beats >= ts.beats_per_measure:
+        # #254: the pickup keeps its absolute span under a unit change,
+        # so a 3-quarter pickup cannot survive a move to 2/4 - the
+        # payload invariant would raise a bare ValueError, which the
+        # worker maps to a generic job failure instead of the clean
+        # parameter error _apply_set_pickup reports. Same constraint,
+        # same error channel.
+        raise ScoreEditError(
+            f"a {pickup_ql}-ql pickup does not fit inside a "
+            f"{ts.beats_per_measure}/{ts.beat_unit} measure"
+        )
     phase_ql = (measure_ql - pickup_ql) % measure_ql if pickup_ql else Fraction(0)
     meter_map = MeterMap(
         (
@@ -1283,7 +1295,7 @@ def _apply_set_meter(
     return replace(
         payload,
         time_signature=ts,
-        pickup_beats=pickup_ql / new_beat_ql,
+        pickup_beats=new_pickup_beats,
         meter_changes=(),
         tempo_map=tempo_map,
         key_changes=key_changes,
