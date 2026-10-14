@@ -5373,6 +5373,7 @@ def run_transcription_job(
                     confidence=est.confidence,
                     margin=est.margin,
                     label=est.label(prefer_flats),
+                    bass_pc=est.bass_pc,
                 )
                 for (lo_b, hi_b), est in zip(seg_beats, chord_map, strict=True)
             )

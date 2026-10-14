@@ -404,12 +404,17 @@ class ChordSymbol:
     quality: str
     """Quality key matching transcription.chord's template set
     (maj / min / 7 / maj7 / m7 / m7b5 / dim / dim7 / aug /
-    sus4 / sus2 / add9 / 7sus4)."""
+    sus4 / sus2 / add9 / 7sus4 / 6 / m6 / mMaj7)."""
     confidence: float
     margin: float
     label: str
     """Concert-space display label (e.g. ``Bbm7-5``) - informational;
     the exporter respells root/kind itself."""
+    bass_pc: int | None = None
+    """Concert bass pitch class for an inversion/slash symbol
+    (``C/E``); ``None`` for root position. Absent in score JSON
+    written before slash symbols existed - ``from_dict`` tolerates
+    the missing key."""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
@@ -421,6 +426,15 @@ class ChordSymbol:
                 f"chord symbol span must be positive, got "
                 f"{self.start_beat}..{self.end_beat}"
             )
+        if self.bass_pc is not None:
+            if not (0 <= self.bass_pc <= 11):
+                raise ValueError(
+                    f"bass_pc must be in 0..11, got {self.bass_pc}"
+                )
+            if self.bass_pc == self.root_pc:
+                # "C/C" is root position - normalize the slash away
+                # rather than carry a meaningless bass mark.
+                object.__setattr__(self, "bass_pc", None)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -431,6 +445,7 @@ class ChordSymbol:
             "confidence": round(self.confidence, 3),
             "margin": round(self.margin, 3),
             "label": self.label,
+            "bassPc": self.bass_pc,
         }
 
     @classmethod
@@ -443,6 +458,9 @@ class ChordSymbol:
             confidence=float(data.get("confidence", 0.0)),
             margin=float(data.get("margin", 0.0)),
             label=str(data.get("label", "")),
+            bass_pc=(
+                None if data.get("bassPc") is None else int(data["bassPc"])
+            ),
         )
 
 

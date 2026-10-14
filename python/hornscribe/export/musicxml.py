@@ -273,6 +273,12 @@ _QUALITY_KIND: dict[str, tuple[str, str]] = {
     # 7sus4 = suspended-fourth + <degree>add b7 - a dominant sus
     # resolves the same way a dominant seventh does.
     "7sus4": ("suspended-fourth", "7sus4"),
+    # Sixth and minor-major kinds exist natively in the schema;
+    # major-minor is MusicXML's name for a minor triad with a major
+    # seventh (mMaj7).
+    "6": ("major-sixth", "6"),
+    "m6": ("minor-sixth", "m6"),
+    "mMaj7": ("major-minor", "mMaj7"),
 }
 
 # quality key -> <degree> children emitted after <kind>
@@ -346,6 +352,7 @@ def _insert_harmony_symbols(
             print_spans
             and print_spans[-1][1].root_pc == sym.root_pc
             and print_spans[-1][1].quality == sym.quality
+            and print_spans[-1][1].bass_pc == sym.bass_pc
             and print_spans[-1][1].end_beat == sym.start_beat
         ):
             prev = print_spans[-1][1]
@@ -447,6 +454,16 @@ def _harmony_element(
     if text_attr:
         kind_el.set("text", text_attr)
     kind_el.text = kind
+    # <bass> sits between kind and degree in the harmony schema; its
+    # presence is what renders the slash - readers print "C/E" from
+    # root+kind+bass alone. The bass respells under the same
+    # transposition/sharp policy as the root.
+    if sym.bass_pc is not None:
+        bstep, balter = names[(sym.bass_pc + shift) % 12]
+        bass_el = ET.SubElement(harmony, "bass")
+        ET.SubElement(bass_el, "bass-step").text = bstep
+        if balter:
+            ET.SubElement(bass_el, "bass-alter").text = str(balter)
     for value, alter, dtype in _QUALITY_DEGREES.get(sym.quality, ()):  # #247
         deg = ET.SubElement(harmony, "degree")
         ET.SubElement(deg, "degree-value").text = str(value)
