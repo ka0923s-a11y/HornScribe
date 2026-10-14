@@ -5995,6 +5995,7 @@ def run_transcription_job(
                         "swingOnsets": swing_est.swing,
                         "tripletOnsets": swing_est.triplet,
                         "straightOnsets": swing_est.straight,
+                        "dottedOnsets": swing_est.dotted,
                         "swingRatio": round(swing_est.swing_ratio, 3),
                     },
                 )

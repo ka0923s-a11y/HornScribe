@@ -2289,6 +2289,65 @@ class TestSwing:
         assert not est.detected
         assert est.triplet == 24
 
+    def test_dotted_figures_not_swing(self) -> None:
+        # #256: dotted-8th+16th pairs land the offbeat at phase 0.75 —
+        # binary-figure evidence, never a swing vote. A piece full of
+        # them must not print a <swing> direction over dotted rhythm.
+        onsets = [
+            Fraction(i) + Fraction(3, 4) if i % 2 else Fraction(i)
+            for i in range(40)
+        ]
+        est = detect_swing(tuple(onsets))
+        assert not est.detected
+        assert est.offbeats == 20
+        assert est.dotted == 20
+        assert est.swing == 0
+
+    def test_mixed_dotted_and_swing_not_detected(self) -> None:
+        # Half the offbeats are dotted-16th figures — the dotted share
+        # dilutes the swing ratio below the detection floor rather
+        # than letting a swing mark sit over written dotted rhythm.
+        onsets = []
+        for b in range(16):
+            onsets.append(Fraction(b))
+            onsets.append(
+                Fraction(b) + (Fraction(3, 4) if b % 2 else Fraction(2, 3))
+            )
+        est = detect_swing(tuple(onsets))
+        assert not est.detected
+        assert est.swing == 8
+        assert est.dotted == 8
+
+    def test_early_straight_eighth_votes_straight(self) -> None:
+        # #256: nearest-landmark voting — an eighth played early
+        # (phase ~0.45, closer to the straight 1/2 than the triplet
+        # 1/3) is straight evidence, not a phantom triplet vote.
+        onsets = [
+            Fraction(i) + Fraction(9, 20) if i % 2 else Fraction(i)
+            for i in range(40)
+        ]
+        est = detect_swing(tuple(onsets))
+        assert not est.detected
+        assert est.straight == 20
+        assert est.triplet == 0
+
+    def test_pipeline_dotted_no_swing_notation(
+        self, tmp_path: Path
+    ) -> None:
+        # #256: a dotted-figure line must not earn swingFeel — the
+        # notation would double-mark the figure (swing direction over
+        # written dotted rhythm).
+        onsets = [
+            i * 0.5 + 0.75 * 0.5 if i % 2 else i * 0.5
+            for i in range(40)
+        ]
+        log = run(tmp_path, self._events(onsets))
+        result = log[-1]["result"]
+        assert "swingFeel" not in result["scoreDocument"]["content"]
+        assert "<swing>" not in result["musicXmlConcert"]
+        reasons = {i["reason"] for i in result["reviewIssues"]}
+        assert "swing_feel" not in reasons
+
     def test_pipeline_emits_swing_issue(self, tmp_path: Path) -> None:
         # 120bpm -> 0.5s per quarter beat; offbeats at 2/3 of the beat.
         onsets = [
