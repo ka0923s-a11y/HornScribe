@@ -375,8 +375,13 @@ export class CaptureController {
         ? `PCの音_${timestampForFile()}.wav`
         : `録音_${timestampForFile()}.wav`;
       // #100: 対象アプリ指定時は pid を再解決してプロセスループバックへ。
-      const targetPid =
-        source === "loopback" ? await this.resolveTargetPid() : undefined;
+      // #262: 選択済みだが解決できなかった対象を覚えておく — 全ミックス
+      // へのフォールバックは録音開始の告知と併せて必ずアナウンスする。
+      const wantedTarget =
+        source === "loopback" ? this.selectedTargetApp() : null;
+      const targetPid = wantedTarget
+        ? await this.resolveTargetPid()
+        : undefined;
       const info = await this.port.start(source, {
         deviceId: this.deviceIds[source] ?? undefined,
         suggestedName: fileName,
@@ -415,6 +420,11 @@ export class CaptureController {
           ? ja.capture.startedLoopback
           : ja.capture.startedMic,
       );
+      if (wantedTarget && !targetPid) {
+        this.events.announce(
+          ja.capture.loopbackTargetMissing(wantedTarget.name),
+        );
+      }
       this.startTimer();
     } catch (e) {
       const issue = classifyError(e, source);
@@ -620,8 +630,11 @@ export class CaptureController {
     try {
       // #100: ループバックのモニターも対象アプリフィルタに従う —
       // 録るものと同じ信号を事前に聴ける。
-      const targetPid =
-        source === "loopback" ? await this.resolveTargetPid() : undefined;
+      const wantedTarget =
+        source === "loopback" ? this.selectedTargetApp() : null;
+      const targetPid = wantedTarget
+        ? await this.resolveTargetPid()
+        : undefined;
       await this.port.start(source, {
         deviceId: deviceId ?? undefined,
         monitorOnly: true,
@@ -632,6 +645,13 @@ export class CaptureController {
         monitor: { source, deviceId, level: null },
       });
       this.startMonitorTimer();
+      // #262: モニターも全ミックスへフォールバックした時は告げる —
+      // ユーザーが「このアプリの音」を聴いているつもりの表示にしない。
+      if (wantedTarget && !targetPid) {
+        this.events.announce(
+          ja.capture.loopbackTargetMissing(wantedTarget.name),
+        );
+      }
     } catch (e) {
       this.setState({ ...this.state, monitor: null });
       this.events.announce(issueText(classifyError(e, source)));

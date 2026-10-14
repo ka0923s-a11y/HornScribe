@@ -733,6 +733,43 @@ describe("starting phase (pre-session)", () => {
     },
   );
 
+  it("#262: an unresolved target app announces the whole-mix fallback",
+    async () => {
+      const port = makePort({
+        listAudioSessions: vi.fn(async () => []),
+      });
+      const { events, announced } = makeEvents();
+      const c = new CaptureController(port, events);
+      c.selectTargetApp({ pid: 4242, name: "gone.exe", active: true });
+      await c.start("loopback");
+      expect(announced.at(-1)).toContain("gone.exe");
+      expect(announced.at(-1)).toContain("すべての音");
+    },
+  );
+
+  it("#262: no warning when the selected target resolves", async () => {
+    const port = makePort({
+      listAudioSessions: vi.fn(async () => [
+        { pid: 4242, name: "music.exe", active: true },
+      ]),
+    });
+    const { events, announced } = makeEvents();
+    const c = new CaptureController(port, events);
+    c.selectTargetApp({ pid: 4242, name: "music.exe", active: true });
+    await c.start("loopback");
+    expect(announced.at(-1)).not.toContain("すべての音");
+  });
+
+  it("#262: no warning when nothing was selected", async () => {
+    const port = makePort({
+      listAudioSessions: vi.fn(async () => []),
+    });
+    const { events, announced } = makeEvents();
+    const c = new CaptureController(port, events);
+    await c.start("loopback");
+    expect(announced.at(-1)).not.toContain("すべての音");
+  });
+
   it("#100: selecting null returns to whole-mix capture", async () => {
     const port = makePort({
       listAudioSessions: vi.fn(async () => [
