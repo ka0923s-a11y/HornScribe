@@ -9,11 +9,16 @@ classifies the offbeat onsets:
     triplet  ~1/3 of a beat   (real triplets also land at 2/3, so a
     straight  ~1/2             triplet reading needs BOTH clusters)
     swing    ~2/3
+    dotted   >~0.708           (the dotted-8th+16th offbeat — binary
+                               figure evidence, NEVER a swing vote;
+                               #256)
 
 A piece reads as swung when the 2/3 cluster dominates the 1/2 cluster
 AND the 1/3 cluster stays quiet — that second condition separates a
-shuffle from genuine triplet writing. The result only feeds a review
-issue; the score itself is left alone.
+shuffle from genuine triplet writing. The result feeds both the
+review issue and the payload's swingFeel direction, so a false
+positive prints a wrong marking on the score — the census must be
+conservative about what counts as swing evidence.
 """
 
 from __future__ import annotations
@@ -27,9 +32,11 @@ _TRIPLET_PHASE = 1.0 / 3.0
 _STRAIGHT_PHASE = 0.5
 _SWING_PHASE = 2.0 / 3.0
 
-# An onset counts toward a landmark when it sits within this window —
-# wide enough to catch humanized timing, narrow enough that the three
-# clusters cannot overlap (1/3..2/3 span is 0.167 wide each side).
+# An onset votes for its NEAREST landmark when within this window —
+# wide enough to catch humanized timing. The windows do overlap
+# (0.38..0.45 sits in both triplet and straight reach), so assignment
+# is nearest-landmark rather than first-match: an early-played
+# straight eighth is straight evidence, not a phantom triplet vote.
 _PHASE_WINDOW = 0.12
 
 # Only offbeat onsets carry feel information; on-beats can't tell a
@@ -48,6 +55,11 @@ _MAX_TRIPLET_RATIO = 0.25
 SWING_SNAP_PHASE_LO = 0.55
 SWING_SNAP_PHASE_HI = (2.0 / 3.0 + 0.75) / 2.0  # ~0.708
 
+# #256: the same midpoint caps the swing *census* — a dotted-figure
+# offbeat (phase ~0.75) must not vote for the very swing reading that
+# would print a contradicting <swing> direction over written dotted
+# rhythm. Onsets past the boundary count as dotted evidence instead.
+
 
 @dataclass(frozen=True)
 class SwingEstimate:
@@ -57,6 +69,10 @@ class SwingEstimate:
     swing: int
     triplet: int
     straight: int
+    dotted: int = 0
+    """Onsets past the swing/dotted midpoint — binary-figure evidence
+    (dotted-8th+16th writing). They dilute the swing ratio through
+    the offbeats denominator but never vote for it."""
     mean_phase: Fraction | None = None
     """Mean phase (fraction of a beat) of the onsets that landed in the
     swing cluster — the detected swing amount, e.g. 2/3 for a hard
@@ -87,7 +103,7 @@ def detect_swing(
     post-warp). beat_ql is the quarterLength of one notated beat so the
     phase math stays correct under compound meters (6/8: beat = 3/2).
     """
-    offbeats = swing = triplet = straight = 0
+    offbeats = swing = triplet = straight = dotted = 0
     unit = float(beat_ql)
     swing_phases: list[Fraction] = []
     for onset in onsets_ql:
@@ -98,22 +114,32 @@ def detect_swing(
         if phase < 0.12:
             continue  # on the beat — no feel information
         offbeats += 1
-        if abs(phase - _SWING_PHASE) <= _PHASE_WINDOW:
+        if phase > SWING_SNAP_PHASE_HI:
+            # Dotted-figure territory (#256): a phase past the
+            # swing-third/dotted-16th midpoint is binary-figure
+            # evidence — the same boundary the snap band honours —
+            # and never a swing vote.
+            dotted += 1
+            continue
+        d_swing = abs(phase - _SWING_PHASE)
+        d_straight = abs(phase - _STRAIGHT_PHASE)
+        d_triplet = abs(phase - _TRIPLET_PHASE)
+        nearest = min(d_swing, d_straight, d_triplet)
+        if nearest > _PHASE_WINDOW:
+            continue
+        if nearest == d_swing:
             swing += 1
             swing_phases.append(Fraction(phase).limit_denominator(24))
-        elif abs(phase - _TRIPLET_PHASE) <= _PHASE_WINDOW:
+        elif nearest == d_triplet:
             triplet += 1
-        elif abs(phase - _STRAIGHT_PHASE) <= _PHASE_WINDOW:
+        else:
             straight += 1
-    mean_phase = (
-        sum(swing_phases, Fraction(0)) / len(swing_phases)
-        if swing_phases
-        else None
-    )
+    mean_phase = sum(swing_phases, Fraction(0)) / len(swing_phases) if swing_phases else None
     return SwingEstimate(
         offbeats=offbeats,
         swing=swing,
         triplet=triplet,
         straight=straight,
+        dotted=dotted,
         mean_phase=mean_phase,
     )
