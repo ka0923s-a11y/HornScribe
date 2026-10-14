@@ -1155,6 +1155,31 @@ class TestEditParsing:
         with pytest.raises(ScoreEditError, match="not found"):
             apply_score_edit(doc, _edit("toggleTie", "sn-999999"))
 
+    def test_numeric_beats_parse_as_decimal(self) -> None:
+        # #258: a JSON *number* beat value parses as the decimal the
+        # client sent, not the binary float — same rule as
+        # factor/pickupBeats.
+        e = ScoreEdit.from_dict(
+            {"kind": "applyTriplet", "noteId": "", "startBeat": 0.5}
+        )
+        assert e.start_beat == Fraction(1, 2)
+        e2 = ScoreEdit.from_dict(
+            {"kind": "tempoChangeAt", "noteId": "", "bpm": 90.0,
+             "startBeat": 0.1}
+        )
+        assert e2.start_beat == Fraction(1, 10)
+        e3 = ScoreEdit.from_dict(
+            {"kind": "setDuration", "noteId": "sn-1",
+             "durationBeats": 0.25}
+        )
+        assert e3.duration_beats == Fraction(1, 4)
+
+    def test_string_beats_still_exact(self) -> None:
+        e = ScoreEdit.from_dict(
+            {"kind": "applyTriplet", "noteId": "", "startBeat": "1/3"}
+        )
+        assert e.start_beat == Fraction(1, 3)
+
 
 class TestSetKey:
     """#145: key edits — setKey / keyChangeAt / removeKeyChange."""

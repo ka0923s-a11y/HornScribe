@@ -227,7 +227,10 @@ class ScoreEdit:
         start_beat: Fraction | None = None
         if start_beat_raw is not None:
             try:
-                start_beat = Fraction(start_beat_raw)
+                # str() first: Fraction(0.1) would capture the binary
+                # float, not the decimal the client sent (#258 — same
+                # rule as factor/pickupBeats below).
+                start_beat = Fraction(str(start_beat_raw))
                 if isinstance(start_beat_raw, bool):
                     raise ValueError("bool")
             except (TypeError, ValueError, ZeroDivisionError) as exc:
@@ -243,7 +246,7 @@ class ScoreEdit:
         end_beat: Fraction | None = None
         if end_beat_raw is not None:
             try:
-                end_beat = Fraction(end_beat_raw)
+                end_beat = Fraction(str(end_beat_raw))
                 if isinstance(end_beat_raw, bool):
                     raise ValueError("bool")
             except (TypeError, ValueError, ZeroDivisionError) as exc:
@@ -310,7 +313,7 @@ class ScoreEdit:
         duration = data.get("durationBeats")
         try:
             duration_beats = (
-                Fraction(duration) if duration is not None else None
+                Fraction(str(duration)) if duration is not None else None
             )
             if isinstance(duration, bool):
                 raise ValueError("bool")
