@@ -461,6 +461,20 @@ def test_overlapping_notes_render_as_voices() -> None:
     assert "<voice>" in xml
 
 
+def test_fragment_tie_check_sees_nonconsecutive_fragments() -> None:
+    """#263: another voice's notes may sit between a note's fragments -
+    the tie-linkage check must group by canonical id globally, not
+    consecutively, or a broken tie in a multi-voice part passes."""
+    score = make_score([(60, 0, 8), (62, 0, 4), (64, 4, 4)])
+    xml = export_concert_musicxml(score)
+    # sn-000001's two fragments really are separated by voice-2 notes.
+    assert "<backup>" in xml
+    assert '<tie type="stop" />' in xml
+    broken = xml.replace('<tie type="stop" />', "", 1)
+    problems = verify_rhythm_roundtrip(score, broken)
+    assert any("lacks incoming tie" in p for p in problems)
+
+
 def test_simultaneous_notes_render_as_chord() -> None:
     """#155: notes sharing (start, duration, atoms) merge into <chord/>."""
     score = make_score([(60, 0, 1), (64, 0, 1), (67, 0, 1)])
