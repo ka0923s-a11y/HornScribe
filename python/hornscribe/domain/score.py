@@ -10,6 +10,7 @@ provenance layer.
 
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -265,6 +266,23 @@ class TempoSegment:
     start_beat: Fraction
     bpm: float
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
+        if self.start_beat < 0:
+            raise ValueError(
+                f"tempo segment start_beat must be >= 0, got {self.start_beat}"
+            )
+        # No __post_init__ existed before #254: a hand-edited or torn
+        # project JSON could inject bpm=0/-30 and sail through to the
+        # playback path's 60/bpm division. The domain invariant is the
+        # weak one (finite, positive) - the 20-400 band stays an
+        # edit-surface rule.
+        if not math.isfinite(self.bpm) or self.bpm <= 0:
+            raise ValueError(
+                f"tempo segment bpm must be a positive finite number, "
+                f"got {self.bpm!r}"
+            )
+
     def to_dict(self) -> dict[str, Any]:
         return {"startBeat": _frac(self.start_beat), "bpm": self.bpm}
 
@@ -277,6 +295,18 @@ class TempoSegment:
 class TimeSignature:
     beats_per_measure: int
     beat_unit: int
+
+    def __post_init__(self) -> None:
+        if self.beats_per_measure < 1:
+            raise ValueError(
+                f"beats_per_measure must be >= 1, got {self.beats_per_measure}"
+            )
+        # Same vocabulary the edit surface accepts (scoreedit #254):
+        # the realizer's binary lattice only speaks power-of-two units.
+        if self.beat_unit not in (1, 2, 4, 8, 16, 32, 64):
+            raise ValueError(
+                f"beat_unit must be a power of two (1-64), got {self.beat_unit}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {"beatsPerMeasure": self.beats_per_measure, "beatUnit": self.beat_unit}
