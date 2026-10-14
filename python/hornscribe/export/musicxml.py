@@ -30,7 +30,6 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
 from fractions import Fraction
-from itertools import groupby
 from pathlib import Path
 
 from music21.musicxml.m21ToXml import GeneralObjectExporter
@@ -1107,17 +1106,25 @@ def verify_rhythm_roundtrip(
 
     # Fragment linkage: every split of a canonical note must be tie-joined.
     flat = [el for m in measures for el in m.elements if el.kind == "note"]
-    for _cid, group in groupby(flat, key=lambda e: e.canonical_id):
-        g = list(group)
+    # #263: group globally, not consecutively — in multi-voice parts a
+    # canonical note's fragments can sit apart (another voice's notes
+    # interleave between them), and consecutive None keys must never be
+    # mistaken for one note's fragments.
+    fragment_groups: dict[ScoreNoteId, list[ReloadedElement]] = {}
+    for el in flat:
+        if el.canonical_id is None:
+            continue
+        fragment_groups.setdefault(el.canonical_id, []).append(el)
+    for cid, g in fragment_groups.items():
         for i, el in enumerate(g):
             if i < len(g) - 1 and not el.tie_start:
                 problems.append(
-                    f"{el.canonical_id}: interior fragment at "
+                    f"{cid}: interior fragment at "
                     f"{el.onset_beats} lacks outgoing tie"
                 )
             if i > 0 and not el.tie_stop:
                 problems.append(
-                    f"{el.canonical_id}: interior fragment at "
+                    f"{cid}: interior fragment at "
                     f"{el.onset_beats} lacks incoming tie"
                 )
     return problems
