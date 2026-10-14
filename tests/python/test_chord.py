@@ -193,6 +193,28 @@ class TestEstimate:
         )
         assert [e.label() for e in est] == ["Cdim7", "Cdim"]
 
+    def test_jpop_colour_qualities_resolve(self, monkeypatch) -> None:
+        """#247: sus2 / add9 / 7sus4 chroma each resolves to its own
+        label — the colour voicings JPOP actually uses."""
+        def chroma(*pcs: int) -> np.ndarray:
+            v = np.zeros(12)
+            for pc in pcs:
+                v[pc] = 1.0
+            return v / np.linalg.norm(v)
+
+        rows = [
+            chroma(0, 2, 7),        # Csus2
+            chroma(0, 2, 4, 7),     # Cadd9
+            chroma(0, 5, 7, 10),    # C7sus4
+        ]
+        monkeypatch.setattr(
+            chord_mod, "_segment_chroma", _fake_chroma(rows)
+        )
+        est = estimate_chords(
+            [0.0], _SR, ((0.0, 2.0), (2.0, 4.0), (4.0, 6.0))
+        )
+        assert [e.label() for e in est] == ["Csus2", "Cadd9", "C7sus4"]
+
 
 class TestChordIssues:
     """Flags -> ReviewIssue mapping: only segments with actual note

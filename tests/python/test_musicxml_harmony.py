@@ -121,6 +121,44 @@ def test_dim7_exports_diminished_seventh_not_triad() -> None:
     assert _kind_of(h) == ("diminished-seventh", "dim7")
 
 
+def test_sus2_kind() -> None:
+    """#247: sus2 is a first-class MusicXML kind."""
+    doc = _doc_with(
+        [(60, 0, 4)], (_sym(0, 4, 0, "sus2", label="Csus2"),)
+    )
+    (h,) = _harmonies(export_concert_musicxml(doc))
+    assert _kind_of(h) == ("suspended-second", "sus2")
+
+
+def test_add9_carries_degree_add9() -> None:
+    """#247: add9 = kind major + <degree>add 9 (the canonical
+    MusicXML encoding - there is no dedicated add9 kind)."""
+    doc = _doc_with(
+        [(60, 0, 4)], (_sym(0, 4, 0, "add9", label="Cadd9"),)
+    )
+    (h,) = _harmonies(export_concert_musicxml(doc))
+    assert _kind_of(h) == ("major", "add9")
+    deg = h.find("degree")
+    assert deg is not None
+    assert deg.findtext("degree-value") == "9"
+    assert deg.findtext("degree-alter") == "0"
+    assert deg.findtext("degree-type") == "add"
+
+
+def test_7sus4_carries_degree_flat7() -> None:
+    """#247: 7sus4 = suspended-fourth + <degree>add b7."""
+    doc = _doc_with(
+        [(60, 0, 4)], (_sym(0, 4, 7, "7sus4", label="G7sus4"),)
+    )
+    (h,) = _harmonies(export_concert_musicxml(doc))
+    assert _kind_of(h) == ("suspended-fourth", "7sus4")
+    deg = h.find("degree")
+    assert deg is not None
+    assert deg.findtext("degree-value") == "7"
+    assert deg.findtext("degree-alter") == "-1"
+    assert deg.findtext("degree-type") == "add"
+
+
 def test_flats_and_sharps_root_spelling() -> None:
     """The flat/sharp policy follows the head key signature, matching
     the pipeline's own prefer_flats choice."""
