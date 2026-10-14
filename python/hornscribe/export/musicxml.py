@@ -265,6 +265,22 @@ _QUALITY_KIND: dict[str, tuple[str, str]] = {
     "dim7": ("diminished-seventh", "dim7"),
     "aug": ("augmented", "aug"),
     "sus4": ("suspended-fourth", "sus4"),
+    "sus2": ("suspended-second", "sus2"),
+    # #247: add9 has no dedicated <kind> - the canonical encoding is
+    # kind=major plus a <degree>add 9 (MusicXML harmony schema); the
+    # text override keeps the JPOP spelling on the staff.
+    "add9": ("major", "add9"),
+    # 7sus4 = suspended-fourth + <degree>add b7 - a dominant sus
+    # resolves the same way a dominant seventh does.
+    "7sus4": ("suspended-fourth", "7sus4"),
+}
+
+# quality key -> <degree> children emitted after <kind>
+# (value, alter, type). Degrees are measured against the major scale,
+# so a dominant b7 is (7, -1, "add") and an add9 is (9, 0, "add").
+_QUALITY_DEGREES: dict[str, tuple[tuple[int, int, str], ...]] = {
+    "add9": ((9, 0, "add"),),
+    "7sus4": ((7, -1, "add"),),
 }
 
 # pitch class -> (root-step, root-alter), keyed by spelling policy.
@@ -431,6 +447,11 @@ def _harmony_element(
     if text_attr:
         kind_el.set("text", text_attr)
     kind_el.text = kind
+    for value, alter, dtype in _QUALITY_DEGREES.get(sym.quality, ()):  # #247
+        deg = ET.SubElement(harmony, "degree")
+        ET.SubElement(deg, "degree-value").text = str(value)
+        ET.SubElement(deg, "degree-alter").text = str(alter)
+        ET.SubElement(deg, "degree-type").text = dtype
     if offset_div:
         off = ET.SubElement(harmony, "offset")
         off.text = (

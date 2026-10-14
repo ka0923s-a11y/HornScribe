@@ -39,6 +39,14 @@ _QUALITIES: dict[str, tuple[tuple[int, float], ...]] = {
     "dim7": ((0, 1.0), (3, 1.0), (6, 1.0), (9, 0.7)),
     "aug": ((0, 1.0), (4, 1.0), (8, 1.0)),
     "sus4": ((0, 1.0), (5, 1.0), (7, 1.0)),
+    # #247: JPOP color chords. sus2 shares two tones with sus4 and
+    # maj but resolves cleanly on the 2nd; add9 is the dominant
+    # colour voicing of ballad writing (the 9th sits at 0.8 - real
+    # mixes voice it under the triad); 7sus4 is the dominant sus
+    # actually played (a bare sus4 over a dominant function is rare).
+    "sus2": ((0, 1.0), (2, 1.0), (7, 1.0)),
+    "add9": ((0, 1.0), (4, 1.0), (7, 1.0), (2, 0.8)),
+    "7sus4": ((0, 1.0), (5, 1.0), (7, 1.0), (10, 0.9)),
 }
 
 # JPOP-faithful symbol spelling (m7b5 renders as m7-5).
@@ -53,6 +61,9 @@ _QUALITY_SUFFIX = {
     "dim7": "dim7",
     "aug": "aug",
     "sus4": "sus4",
+    "sus2": "sus2",
+    "add9": "add9",
+    "7sus4": "7sus4",
 }
 
 _ROOT_SHARP = (
@@ -162,7 +173,7 @@ def diatonic_chords(fifths: int, mode: str) -> set[tuple[int, str]]:
 
 
 def _templates() -> tuple[tuple[tuple[int, str], ...], Any]:
-    """108 (root, quality) states + their 12-dim weight vectors."""
+    """132 (root, quality) states + their 12-dim weight vectors."""
     import numpy as np
 
     states: list[tuple[int, str]] = []
