@@ -29,6 +29,7 @@ def _sym(
     confidence: float = 0.9,
     margin: float = 0.5,
     label: str = "",
+    bass_pc: int | None = None,
 ) -> ChordSymbol:
     return ChordSymbol(
         start_beat=Fraction(start),
@@ -38,6 +39,7 @@ def _sym(
         confidence=confidence,
         margin=margin,
         label=label or quality,
+        bass_pc=bass_pc,
     )
 
 
@@ -157,6 +159,82 @@ def test_7sus4_carries_degree_flat7() -> None:
     assert deg.findtext("degree-value") == "7"
     assert deg.findtext("degree-alter") == "-1"
     assert deg.findtext("degree-type") == "add"
+
+
+def test_sixth_and_minor_major_kinds() -> None:
+    """#247: sixth chords and mMaj7 have native MusicXML kinds -
+    major-minor is the schema's name for a minor triad carrying a
+    major seventh."""
+    doc = _doc_with(
+        [(60, 0, 4), (64, 4, 4), (67, 8, 4)],
+        (
+            _sym(0, 4, 0, "6", label="C6"),
+            _sym(4, 8, 0, "m6", label="Cm6"),
+            _sym(8, 12, 0, "mMaj7", label="CmMaj7"),
+        ),
+    )
+    kinds = [_kind_of(h) for h in _harmonies(export_concert_musicxml(doc))]
+    assert kinds == [
+        ("major-sixth", "6"),
+        ("minor-sixth", "m6"),
+        ("major-minor", "mMaj7"),
+    ]
+
+
+def test_slash_bass_emits_bass_element() -> None:
+    """An inversion carries <bass> between <kind> and <degree> -
+    the ordering the harmony schema requires."""
+    doc = _doc_with(
+        [(60, 0, 4)],
+        (_sym(0, 4, 0, "maj", label="C/E", bass_pc=4),),
+    )
+    (h,) = _harmonies(export_concert_musicxml(doc))
+    bass = h.find("bass")
+    assert bass is not None
+    assert bass.findtext("bass-step") == "E"
+    assert bass.find("bass-alter") is None
+    assert [c.tag for c in h][:3] == ["root", "kind", "bass"]
+
+
+def test_slash_bass_respells_in_flat_keys() -> None:
+    doc = _doc_with(
+        [(60, 0, 4)],
+        (_sym(0, 4, 0, "min", label="Cm/Eb", bass_pc=3),),
+        fifths=-2,
+    )
+    (h,) = _harmonies(export_concert_musicxml(doc))
+    bass = h.find("bass")
+    assert bass is not None
+    assert bass.findtext("bass-step") == "E"
+    assert bass.findtext("bass-alter") == "-1"
+
+
+def test_same_chord_with_different_bass_does_not_merge() -> None:
+    """C then C/E are different symbols - a walk-down bass must not
+    collapse into one print span."""
+    doc = _doc_with(
+        [(60, 0, 8)],
+        (
+            _sym(0, 4, 0, "maj"),
+            _sym(4, 8, 0, "maj", bass_pc=4),
+        ),
+    )
+    per_measure = _measure_harmonies(export_concert_musicxml(doc))
+    assert [len(hs) for hs in per_measure] == [1, 1]
+
+
+def test_bass_pc_survives_document_round_trip() -> None:
+    sym = _sym(0, 4, 0, "maj", label="C/E", bass_pc=4)
+    doc = _doc_with([(60, 0, 4)], (sym,))
+    restored = ScoreDocument.from_dict(doc.to_dict())
+    assert restored.chord_symbols[0].bass_pc == 4
+    assert restored.chord_symbols[0].label == "C/E"
+    # Score JSON written before slash symbols lacks the key - loads
+    # as plain root position.
+    data = doc.to_dict()
+    del data["chordSymbols"][0]["bassPc"]
+    legacy = ScoreDocument.from_dict(data)
+    assert legacy.chord_symbols[0].bass_pc is None
 
 
 def test_flats_and_sharps_root_spelling() -> None:

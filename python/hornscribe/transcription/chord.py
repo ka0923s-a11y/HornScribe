@@ -47,6 +47,15 @@ _QUALITIES: dict[str, tuple[tuple[int, float], ...]] = {
     "sus2": ((0, 1.0), (2, 1.0), (7, 1.0)),
     "add9": ((0, 1.0), (4, 1.0), (7, 1.0), (2, 0.8)),
     "7sus4": ((0, 1.0), (5, 1.0), (7, 1.0), (10, 0.9)),
+    # Sixth chords and minor-major. C6/Am7 and Cm6/Am7-5 share all
+    # their pitch classes - the bass vote picks the spelling (a tonic
+    # sixth ending reads as 6, the relative minor as m7, matching
+    # JPOP usage). The sixth sits at 0.85 like the other colour
+    # extensions. mMaj7 is the melodic-minor tonic colour of ballad
+    # writing; it has no enharmonic twin in the set.
+    "6": ((0, 1.0), (4, 1.0), (7, 1.0), (9, 0.85)),
+    "m6": ((0, 1.0), (3, 1.0), (7, 1.0), (9, 0.85)),
+    "mMaj7": ((0, 1.0), (3, 1.0), (7, 1.0), (11, 0.9)),
 }
 
 # JPOP-faithful symbol spelling (m7b5 renders as m7-5).
@@ -64,6 +73,9 @@ _QUALITY_SUFFIX = {
     "sus2": "sus2",
     "add9": "add9",
     "7sus4": "7sus4",
+    "6": "6",
+    "m6": "m6",
+    "mMaj7": "mMaj7",
 }
 
 _ROOT_SHARP = (
@@ -103,6 +115,12 @@ _DIATONIC_BONUS = 0.03
 # (Bm7 vs Dmaj7, F#m7 vs A7) - full-band mean chroma cannot tell
 # them apart (#259).
 _BASS_ROOT_WEIGHT = 0.30
+# ...but only inside a near-tie. The vote exists to arbitrate states
+# the chroma itself cannot rank (same pitch-class sets like C6/Am7);
+# it must never overturn real chroma evidence. A strong E bass under
+# C,E,G is C/E, not Em - unconditioned the vote flipped exactly that
+# case, and it also nudged F/C toward C (#247).
+_BASS_VOTE_TIE = 0.06
 
 _CHROMA_HOP = 1024
 # Bass register for the root vote: A1 (55 Hz) up three octaves
@@ -110,6 +128,14 @@ _CHROMA_HOP = 1024
 # vocal band.
 _BASS_FMIN_MIDI = 33
 _BASS_N_OCTAVES = 3
+
+# Inversion gate: a slash bass is named only when a chord tone other
+# than the root clearly dominates the bass register. The floor sits
+# above a diffuse (uniform) L2-normalized chroma (~0.29); the margin
+# keeps a strong root fundamental's own harmonics - a C bass leaks
+# onto G and E - from printing "C/G" over plain root position.
+_BASS_INV_MIN = 0.34
+_BASS_INV_MARGIN = 0.05
 
 @dataclass(frozen=True)
 class ChordEstimate:
@@ -122,10 +148,17 @@ class ChordEstimate:
     confidence: float
     margin: float
     runner_up: str | None = None
+    # Bass pitch class when the segment is an inversion (the bass
+    # voice sits on a chord tone other than the root); None for root
+    # position. Rendered as a slash suffix - C/E.
+    bass_pc: int | None = None
 
     def label(self, prefer_flats: bool = False) -> str:
         names = _ROOT_FLAT if prefer_flats else _ROOT_SHARP
-        return names[self.root_pc % 12] + _QUALITY_SUFFIX[self.quality]
+        base = names[self.root_pc % 12] + _QUALITY_SUFFIX[self.quality]
+        if self.bass_pc is not None and self.bass_pc != self.root_pc:
+            return base + "/" + names[self.bass_pc % 12]
+        return base
 
     def chord_tones(self) -> tuple[int, ...]:
         return tuple(
@@ -142,6 +175,7 @@ class ChordEstimate:
             "confidence": round(self.confidence, 3),
             "margin": round(self.margin, 3),
             "runnerUp": self.runner_up,
+            "bassPc": self.bass_pc,
         }
 
 
@@ -173,7 +207,8 @@ def diatonic_chords(fifths: int, mode: str) -> set[tuple[int, str]]:
 
 
 def _templates() -> tuple[tuple[tuple[int, str], ...], Any]:
-    """132 (root, quality) states + their 12-dim weight vectors."""
+    """(root, quality) states x their 12-dim weight vectors - 16
+    qualities over 12 roots."""
     import numpy as np
 
     states: list[tuple[int, str]] = []
@@ -272,7 +307,13 @@ def estimate_chords(
         # A monkeypatched extractor that predates the pair contract
         # degrades to no bass vote rather than failing the job.
         bass = np.zeros_like(chroma)
-    sims = sims + _BASS_ROOT_WEIGHT * bass[:, roots_arr]
+    # The vote arbitrates near-ties only: candidates already beaten by
+    # the chroma beyond _BASS_VOTE_TIE get no bass help, so a doubled
+    # bass tone can never relabel a chord the chroma clearly heard.
+    tie_band = sims >= (sims.max(axis=1, keepdims=True) - _BASS_VOTE_TIE)
+    sims = np.where(
+        tie_band, sims + _BASS_ROOT_WEIGHT * bass[:, roots_arr], sims
+    )
     if diatonic:
         bonus = np.array(
             [
@@ -318,6 +359,23 @@ def estimate_chords(
         r_root, r_quality = states[second]
         best_sim = float(sims[t, best])
         second_sim = float(sims[t, second])
+        # Inversion: the smoothed root is settled; now read the bass
+        # voice. A chord tone other than the root dominating the bass
+        # register names a slash chord (C/E, G/B) - the walk-up bass
+        # lines JPOP verses lean on. The margin keeps root harmonics
+        # from fabricating inversions over root position.
+        bass_pc: int | None = None
+        bass_row = bass[t]
+        if bass_row.any():
+            bass_arg = int(np.argmax(bass_row))
+            if (
+                bass_arg != root
+                and bass_arg
+                in {(root + iv) % 12 for iv, _w in _QUALITIES[quality]}
+                and bass_row[bass_arg] >= _BASS_INV_MIN
+                and bass_row[bass_arg] - bass_row[root] >= _BASS_INV_MARGIN
+            ):
+                bass_pc = bass_arg
         estimates.append(
             ChordEstimate(
                 start_sec=lo,
@@ -333,6 +391,7 @@ def estimate_chords(
                     if second != best
                     else None
                 ),
+                bass_pc=bass_pc,
             )
         )
     return tuple(estimates)

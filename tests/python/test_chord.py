@@ -40,9 +40,17 @@ def _template_vec(root: int, quality: str) -> np.ndarray:
     return vecs[states.index((root, quality))]
 
 
-def _fake_chroma(rows: list[np.ndarray]):
+def _fake_chroma(
+    rows: list[np.ndarray],
+    bass_rows: list[np.ndarray] | None = None,
+):
     def fake(samples, sr, segments):
-        return np.array(rows), np.zeros((len(rows), 12))
+        bass = (
+            np.array(bass_rows)
+            if bass_rows is not None
+            else np.zeros((len(rows), 12))
+        )
+        return np.array(rows), bass
 
     return fake
 
@@ -136,9 +144,14 @@ class TestEstimate:
     def test_switch_cost_sticks_through_weak_evidence(
         self, monkeypatch
     ) -> None:
-        # Seg1 slightly favors F over C (shared C tone makes the sims
-        # nearly tied) - the fifths-distance switch cost keeps the
-        # smoother call on C rather than flicker to F and back.
+        # Seg2 mixes F over C. Since #247's colour templates exist,
+        # that mixture's honest read is C6 (it literally contains C,E,
+        # G,A) - and the interesting part: Am7 shares every pitch
+        # class AND scores higher raw similarity, but switching
+        # C -> Am7 costs a 3-step fifths move while C -> C6 is a
+        # same-root half-price hop. The smoother routes through the
+        # same-root colour, which is the musically right answer for
+        # a passing-tone smear inside a I-major region.
         c_vec = _template_vec(0, "maj")
         f_vec = _template_vec(5, "maj")
         mixed = f_vec + 0.98 * c_vec
@@ -150,7 +163,10 @@ class TestEstimate:
         est = estimate_chords(
             [0.0], _SR, ((0.0, 2.0), (2.0, 4.0), (4.0, 6.0))
         )
-        assert [e.label() for e in est] == ["C", "C", "C"]
+        assert [e.label() for e in est] == ["C", "C6", "C"]
+        # The root never flickered cross-fifths - the read stayed
+        # inside the tonic region throughout.
+        assert [e.root_pc for e in est] == [0, 0, 0]
 
     def test_strong_change_switches(self, monkeypatch) -> None:
         rows = [_template_vec(0, "maj"), _template_vec(5, "maj")]
@@ -214,6 +230,72 @@ class TestEstimate:
             [0.0], _SR, ((0.0, 2.0), (2.0, 4.0), (4.0, 6.0))
         )
         assert [e.label() for e in est] == ["Csus2", "Cadd9", "C7sus4"]
+
+    def test_sixth_spelling_follows_the_bass(self, monkeypatch) -> None:
+        """#247: C6 and Am7 are the same pitch classes - identical
+        full chroma - so the bass register decides the spelling."""
+
+        def chroma(*pcs: int) -> np.ndarray:
+            v = np.zeros(12)
+            for pc in pcs:
+                v[pc] = 1.0
+            return v / np.linalg.norm(v)
+
+        def bass(pc: int) -> np.ndarray:
+            v = np.full(12, 0.05)
+            v[pc] = 0.9
+            return v / np.linalg.norm(v)
+
+        monkeypatch.setattr(
+            chord_mod,
+            "_segment_chroma",
+            _fake_chroma(
+                [chroma(0, 4, 7, 9), chroma(0, 4, 7, 9)],
+                [bass(0), bass(9)],
+            ),
+        )
+        est = estimate_chords(
+            [0.0], _SR, ((0.0, 2.0), (2.0, 4.0))
+        )
+        assert [e.label() for e in est] == ["C6", "Am7"]
+
+    def test_inversion_names_the_bass_voice(self, monkeypatch) -> None:
+        """A chord tone other than the root dominating the bass
+        register prints the slash - C/E."""
+
+        def bass(pc: int) -> np.ndarray:
+            v = np.full(12, 0.05)
+            v[pc] = 0.9
+            return v / np.linalg.norm(v)
+
+        monkeypatch.setattr(
+            chord_mod,
+            "_segment_chroma",
+            _fake_chroma([_template_vec(0, "maj")], [bass(4)]),
+        )
+        (est,) = estimate_chords([0.0], _SR, ((0.0, 2.0),))
+        assert est.root_pc == 0
+        assert est.bass_pc == 4
+        assert est.label() == "C/E"
+        assert est.label(prefer_flats=True) == "C/E"
+
+    def test_weak_bass_stays_root_position(self, monkeypatch) -> None:
+        """Diffuse bass (under the floor) must not fabricate a slash
+        - the margin also keeps a root's own harmonics from printing
+        "C/G" over root position."""
+        root_heavy = np.full(12, 0.28)
+        root_heavy[0] = 0.6  # strong root, harmonics spread thin
+        root_heavy[7] = 0.3  # 3rd-harmonic leakage below the margin
+        monkeypatch.setattr(
+            chord_mod,
+            "_segment_chroma",
+            _fake_chroma(
+                [_template_vec(0, "maj")], [root_heavy]
+            ),
+        )
+        (est,) = estimate_chords([0.0], _SR, ((0.0, 2.0),))
+        assert est.bass_pc is None
+        assert est.label() == "C"
 
 
 class TestChordIssues:
