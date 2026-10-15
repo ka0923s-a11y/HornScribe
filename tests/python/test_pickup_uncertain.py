@@ -355,3 +355,70 @@ class TestAccompanimentPhaseEvidence:
         scores = {c["pickupBeats"]: c["accompScore"] for c in ev["candidates"]}
         assert scores[1] is not None and scores[1] >= 3.9
         assert scores[0] == 0.0
+
+
+class TestCanonicalBeatUnits:
+    """#276: inferred/suggested beats are CANONICAL ScoreEdit beats
+    (4/denominator), not tracked-pulse or meter-beat units — the
+    one-tap remedy writes exactly the anacrusis the evidence names."""
+
+    def test_compound_meter_pulse_suggests_canonical_beats(self) -> None:
+        # 6/8 tracked on the dotted-quarter pulse: phase 1 reads as
+        # the downbeat, implying a one-compound-beat anacrusis. In
+        # canonical beats (eighths) that is 3 — reporting the pulse
+        # count (1) would make setPickup write one eighth instead.
+        beats = tuple(i * 0.75 for i in range(12))
+        strengths = (0.2, 0.9) * 6  # phase-1 accents
+        est = _estimate(
+            beats,
+            first_onset_sec=0.0,
+            beat_strengths=strengths,
+            pulse_unit_ql=Fraction(3, 2),
+            numerator=6,
+            denominator=8,
+        )
+        assert est.pickup_len_ql == 0
+        ev = pickup_uncertainty(est)
+        assert ev is not None
+        assert "downbeat_phase_mismatch" in ev["flags"]
+        assert ev["suggestedPickupBeats"] == 3
+
+    def test_eighth_pulse_fractional_pickup_reports_canonical(
+        self,
+    ) -> None:
+        # 6/8 tracked on eighths, onset a hairline before beat 0: a
+        # one-eighth pickup is written — 1 canonical beat. Meter-beat
+        # units (1/3) int-truncated to 0, which hid the written pickup
+        # AND suppressed the hairline flag entirely.
+        beats = tuple(i * 0.3 for i in range(18))
+        est = _estimate(
+            beats,
+            first_onset_sec=-0.005,
+            pulse_unit_ql=Fraction(1, 2),
+            numerator=6,
+            denominator=8,
+        )
+        assert est.pickup_len_ql == Fraction(1, 2)
+        ev = pickup_uncertainty(est)
+        assert ev is not None
+        assert ev["inferredPickupBeats"] == 1
+        assert ev["flags"] == ["hairline_onset"]
+        assert ev["suggestedPickupBeats"] == 0
+
+    def test_simple_meter_eighth_pulse_suggests_half_beat(self) -> None:
+        # 4/4 tracked on the eighth level: phase 1 reads as the
+        # downbeat, implying a one-EIGHTH anacrusis — 1/2 canonical
+        # beat. The suggestion must carry the fraction through.
+        beats = tuple(i * 0.3 for i in range(16))
+        strengths = (0.2, 0.9) * 8
+        est = _estimate(
+            beats,
+            first_onset_sec=0.0,
+            beat_strengths=strengths,
+            pulse_unit_ql=Fraction(1, 2),
+        )
+        assert est.pickup_len_ql == 0
+        ev = pickup_uncertainty(est)
+        assert ev is not None
+        assert "downbeat_phase_mismatch" in ev["flags"]
+        assert ev["suggestedPickupBeats"] == 0.5

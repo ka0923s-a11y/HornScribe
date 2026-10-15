@@ -133,13 +133,17 @@ class PickupCandidate:
 
     ``pickup_beats`` counts tracked-pulse units before beat 0 (the
     first tracked beat stays the first downbeat under every
-    candidate). ``downbeat_score`` is the mean normalized onset
+    candidate) — the phase-grid index, internal bookkeeping only.
+    ``pickup_ql`` is the implied anacrusis length in exact quarter
+    units: the unit-safe form for comparisons and for the setPickup
+    remedy (#276). ``downbeat_score`` is the mean normalized onset
     strength at the beats that phase would make barlines; without
     beat strengths every candidate reports the neutral 0.5 and the
     margin logic stays silent.
     """
 
     pickup_beats: int
+    pickup_ql: Fraction
     downbeat_score: float
     accomp_score: float | None = None
     """#150: normalized onset-mass share of the separated
@@ -163,6 +167,9 @@ class PickupAnalysis:
     inferred_pickup_ql: Fraction
     inferred_pickup_beats: Fraction
     """Same span in canonical beat units (the ScoreEdit unit)."""
+    canonical_beat_ql: Fraction
+    """#276: the ScoreEdit beat unit (4/denominator) — the unit
+    inferred/suggested beats are reported and applied in."""
     first_onset_sec: float | None
     first_beat_sec: float | None
     """First tracked beat (before leading-beat synthesis)."""
@@ -379,7 +386,10 @@ def estimate_tempo(
         first_ql=first_ql,
         beat_unit_ql=beat_unit_ql,
         measure_ql=measure_ql,
-        meter_beat_ql=meter.beat_unit_ql,
+        # #276: canonical ScoreEdit beats (4/denominator) are the
+        # report/apply unit — the tracked pulse can sit a level
+        # below (eighths under a compound-beat meter read).
+        canonical_beat_ql=Fraction(4, meter.denominator),
         inferred_pickup_ql=pickup_len,
     )
     return TempoEstimate(
@@ -406,6 +416,19 @@ _ONSET_MID_BEAT_HI = 0.75
 # wandering melodic line stays near the uniform floor.
 _ACCOMP_PHASE_MIN_SCORE = 1.5
 _ACCOMP_PHASE_MIN_MARGIN = 0.5
+
+
+def _beats_num(beats: Fraction) -> int | float:
+    """Beat count as a JSON-friendly number — int when whole, float
+    for fractional (half-beat) spans (#276)."""
+    return int(beats) if beats.denominator == 1 else float(beats)
+
+
+def _canonical_num(
+    candidate: PickupCandidate, analysis: PickupAnalysis
+) -> int | float:
+    """A candidate's implied anacrusis in canonical ScoreEdit beats."""
+    return _beats_num(candidate.pickup_ql / analysis.canonical_beat_ql)
 
 
 def _phase_accent_mass(
@@ -449,7 +472,7 @@ def _build_pickup_analysis(
     first_ql: Fraction | None,
     beat_unit_ql: Fraction,
     measure_ql: Fraction,
-    meter_beat_ql: Fraction,
+    canonical_beat_ql: Fraction,
     inferred_pickup_ql: Fraction,
 ) -> PickupAnalysis:
     """Score the downbeat-phase candidates behind the inferred pickup.
@@ -487,9 +510,11 @@ def _build_pickup_analysis(
                 )
             else:
                 score = 0.5
+            beats_j = (inferred_beats + j) % mb
             candidates.append(
                 PickupCandidate(
-                    pickup_beats=(inferred_beats + j) % mb,
+                    pickup_beats=beats_j,
+                    pickup_ql=Fraction(beats_j) * beat_unit_ql,
                     downbeat_score=round(score, 4),
                     accomp_score=(
                         round(acc_mass[j], 4)
@@ -502,7 +527,10 @@ def _build_pickup_analysis(
         strength_available = False
     return PickupAnalysis(
         inferred_pickup_ql=inferred_pickup_ql,
-        inferred_pickup_beats=Fraction(inferred_pickup_ql / meter_beat_ql),
+        inferred_pickup_beats=Fraction(
+            inferred_pickup_ql / canonical_beat_ql
+        ),
+        canonical_beat_ql=canonical_beat_ql,
         first_onset_sec=first_onset_sec,
         first_beat_sec=first_tracked_beat_sec,
         median_interval_sec=median_interval_sec,
@@ -521,18 +549,23 @@ def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
     phase candidates tie, when a hairline-early onset forced a
     whole-beat pickup, or when the first onset lands mid-beat (the
     anacrusis/offbeat-entrance readings cannot be told apart).
+
+    #276: all beats reported/applied here are CANONICAL ScoreEdit
+    beats (4/denominator) — the tracked pulse can sit a level below
+    (eighths under a compound-meter read), and comparing or applying
+    pulse counts directly wrote the wrong pickup length.
     """
     a = estimate.pickup_analysis
     if a is None:
         return None
-    inferred_beats = int(a.inferred_pickup_beats)
+    inferred_ql = a.inferred_pickup_ql
     flags: list[str] = []
-    suggested: int | None = None
+    suggested: int | float | None = None
     ranked = sorted(
         a.candidates, key=lambda c: -c.downbeat_score
     )
     current = next(
-        (c for c in a.candidates if c.pickup_beats == inferred_beats),
+        (c for c in a.candidates if c.pickup_ql == inferred_ql),
         None,
     )
     # #150: the accompaniment part's onset phase is a second, much
@@ -554,7 +587,7 @@ def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
         ):
             acc_pick = best_acc
     if acc_pick is not None:
-        if acc_pick.pickup_beats != inferred_beats:
+        if acc_pick.pickup_ql != inferred_ql:
             env_pick: PickupCandidate | None = None
             if (
                 a.strength_available
@@ -565,14 +598,14 @@ def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
                 env_pick = ranked[0]
             if (
                 env_pick is not None
-                and env_pick.pickup_beats != acc_pick.pickup_beats
+                and env_pick.pickup_ql != acc_pick.pickup_ql
             ):
                 # Two strong sources prefer two different phases —
                 # genuinely undecidable; report the stronger guess.
                 flags.append("downbeat_phase_ambiguous")
             else:
                 flags.append("downbeat_phase_mismatch")
-            suggested = acc_pick.pickup_beats
+            suggested = _canonical_num(acc_pick, a)
         # When the stronger channel confirms the written phase the
         # flat envelope's read is noise, not a conflict — stay silent.
     elif a.strength_available and len(ranked) >= 2:
@@ -580,19 +613,19 @@ def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
         margin = best.downbeat_score - runner_up.downbeat_score
         current_score = current.downbeat_score if current else 0.0
         if (
-            best.pickup_beats != inferred_beats
+            best.pickup_ql != inferred_ql
             and best.downbeat_score - current_score >= _PICKUP_PHASE_MARGIN
         ):
             flags.append("downbeat_phase_mismatch")
-            suggested = best.pickup_beats
+            suggested = _canonical_num(best, a)
         elif margin < _PICKUP_PHASE_MARGIN:
             flags.append("downbeat_phase_ambiguous")
-            if best.pickup_beats != inferred_beats:
-                suggested = best.pickup_beats
-    # A hairline-early onset producing a whole-beat pickup is the
-    # classic phantom anacrusis — tracker jitter is just as plausible.
+            if best.pickup_ql != inferred_ql:
+                suggested = _canonical_num(best, a)
+    # A hairline-early onset producing a pickup is the classic
+    # phantom anacrusis — tracker jitter is just as plausible.
     if (
-        inferred_beats > 0
+        inferred_ql > 0
         and a.onset_phase_in_beat is not None
         and a.onset_phase_in_beat >= _ONSET_JITTER_PHASE
     ):
@@ -608,12 +641,16 @@ def pickup_uncertainty(estimate: TempoEstimate) -> dict[str, Any] | None:
     if not flags:
         return None
     return {
-        "inferredPickupBeats": inferred_beats,
+        "inferredPickupBeats": _beats_num(a.inferred_pickup_beats),
         "suggestedPickupBeats": suggested,
         "flags": flags,
         "candidates": [
             {
-                "pickupBeats": c.pickup_beats,
+                # Canonical beats — the unit the pickup field and
+                # setPickup speak (#276).
+                "pickupBeats": _beats_num(
+                    c.pickup_ql / a.canonical_beat_ql
+                ),
                 "downbeatScore": c.downbeat_score,
                 "accompScore": c.accomp_score,
             }
