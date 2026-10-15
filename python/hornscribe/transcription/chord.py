@@ -188,9 +188,11 @@ def diatonic_chords(fifths: int, mode: str) -> set[tuple[int, str]]:
     """(root_pc, quality) pairs diatonic to the estimated key.
 
     Major: I ii iii IV V7 vi vii half-dim. Natural minor: i ii half-dim
-    III iv v VI VII7. The dominant 7th is included because real JPOP
-    voices V as V7 constantly; matching it should not read as a
-    chromatic surprise.
+    III iv v VI VII7 - plus the harmonic-minor dominants V7 and
+    vii dim7, the chords a minor-key cadence actually resolves on
+    (#272). The dominant 7th is included because real JPOP voices V
+    as V7 constantly; matching it should not read as a chromatic
+    surprise.
     """
     _TONIC_BY_FIFTHS = (0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5)
     tonic = _TONIC_BY_FIFTHS[fifths % 12]
@@ -198,8 +200,13 @@ def diatonic_chords(fifths: int, mode: str) -> set[tuple[int, str]]:
         # Fifths name the relative MAJOR signature - the minor
         # tonic sits a minor third below it (+9 semitones).
         tonic = (tonic + 9) % 12
-        pcs = (0, 2, 3, 5, 7, 8, 10)  # natural minor degrees
-        quals = ("min", "m7b5", "maj", "min", "min", "maj", "7")
+        # The dominant degree carries two entries: the natural-minor
+        # v keeps its seat for modal writing, while the harmonic-minor
+        # V7 (E7 in Am) and the leading-tone vii dim7 (G#dim7) join -
+        # without them the prior leaned toward the rarely-played v
+        # exactly where a real minor-key song cadences on V7.
+        pcs = (0, 2, 3, 5, 7, 7, 8, 10, 11)
+        quals = ("min", "m7b5", "maj", "min", "min", "7", "maj", "7", "dim7")
     else:
         pcs = (0, 2, 4, 5, 7, 9, 11)  # major degrees
         quals = ("maj", "min", "min", "maj", "7", "min", "m7b5")

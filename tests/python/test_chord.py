@@ -120,6 +120,12 @@ class TestDiatonic:
         assert (0, "maj") in chords  # III
         assert (7, "7") in chords  # VII7
         assert (11, "m7b5") in chords  # ii half-dim
+        # #272: harmonic-minor dominants - V7 (E7) and vii dim7
+        # (G#dim7) are where a minor-key song cadences, so the prior
+        # must not treat them as chromatic while v (Em) gets the nod.
+        assert (4, "7") in chords  # V7
+        assert (8, "dim7") in chords  # vii dim7
+        assert (4, "min") in chords  # v keeps its modal seat
 
 
 class TestEstimate:
@@ -371,3 +377,25 @@ class TestChordIssues:
         # The merged confidence keeps the WEAKEST span - a smooth
         # run must not hide its least-certain segment.
         assert merged[0]["confidence"] == 0.7
+
+    def test_merged_dicts_keep_slash_moves(self) -> None:
+        # #272: C -> C/E is a bass walk, not a repeat - the merged
+        # progression must keep the inversion or the walk-up read
+        # collapses to "C | F".
+        merged = _merged_chord_dicts(
+            (
+                _est(0.0, 2.0, 0, "maj", 0.9, 0.4),
+                ChordEstimate(
+                    start_sec=2.0,
+                    end_sec=4.0,
+                    root_pc=0,
+                    quality="maj",
+                    confidence=0.9,
+                    margin=0.4,
+                    bass_pc=4,
+                ),
+                _est(4.0, 6.0, 5, "maj", 0.9, 0.4),
+            ),
+            prefer_flats=False,
+        )
+        assert [m["label"] for m in merged] == ["C", "C/E", "F"]
