@@ -1017,7 +1017,11 @@ def _drop_interruption_blips(
             if 0 < extension <= BLIP_EXTEND_MAX_SEC:
                 out[-1] = _replace_offset(prev, nxt.onset_sec)
         k += 1
-    out.append(events[-1])
+    # The absorb path (k += 2) may have consumed events[-1] into the
+    # extended survivor — appending it again writes a same-pitch
+    # duplicate that survives to the score (#274).
+    if k < len(events):
+        out.append(events[-1])
     return out, dropped
 
 

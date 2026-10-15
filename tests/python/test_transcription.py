@@ -680,6 +680,42 @@ class TestClean:
         assert len(out.events) == 2
         assert out.merged == 0
 
+    def test_blip_absorb_at_tail_does_not_duplicate_last(self) -> None:
+        # #274: a blip sitting second-to-last between same-pitch
+        # neighbours was both absorbed into the survivor AND re-
+        # appended by the trailing out.append(events[-1]) — a
+        # same-pitch duplicate reaching the score.
+        head = RawNoteEvent(
+            id=RawNoteEventId("rne-000001"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=0.0,
+            offset_sec=1.0,
+            confidence=0.9,
+        )
+        blip = RawNoteEvent(
+            id=RawNoteEventId("rne-000002"),
+            transcription_revision=_REV,
+            pitch_midi=72,  # octave-scale deviation, no conf test needed
+            onset_sec=1.0,
+            offset_sec=1.05,
+            confidence=0.4,
+        )
+        tail = RawNoteEvent(
+            id=RawNoteEventId("rne-000003"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=1.05,
+            offset_sec=2.0,
+            confidence=0.9,
+        )
+        out = clean_monophonic((head, blip, tail), prefer="top")
+        assert len(out.events) == 1
+        assert out.events[0].pitch_midi == 60
+        assert out.events[0].onset_sec == pytest.approx(0.0)
+        assert out.events[0].offset_sec == pytest.approx(2.0)
+        assert out.interruption_dropped == 1
+
     def test_onset_prefer_keeps_fragment_behaviour(self) -> None:
         # prefer="onset" (mono solos): a confident interleaved lower
         # note stays real content — only weak FULLY-CONTAINED lowers are
