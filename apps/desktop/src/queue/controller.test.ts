@@ -355,4 +355,58 @@ describe("TranscriptionQueue", () => {
     expect(announces.length).toBeGreaterThan(0);
     q.dispose();
   });
+
+  it("retry resets a failed entry to pending and reruns with the same params", async () => {
+    const sess = makeSession();
+    const { events } = makeEvents();
+    const q = new TranscriptionQueue(sess, events);
+    q.enqueue({ label: "bad.wav", params: entryParams });
+    const run = q.start();
+    await tick();
+    sess.fail("decode blew up");
+    await run;
+    const failed = q.getSnapshot().entries[0];
+    expect(failed.status).toBe("failed");
+    expect(q.retry(failed.id)).toBe(true);
+    const retried = q.getSnapshot().entries[0];
+    expect(retried.status).toBe("pending");
+    expect(retried.error).toBeNull();
+    expect(retried.result).toBeNull();
+    expect(retried.reviewIssueCount).toBe(0);
+    // enqueue 時の params がそのまま再投入される。
+    const run2 = q.start();
+    await tick();
+    expect(sess.startTranscription).toHaveBeenLastCalledWith(entryParams);
+    sess.complete({ musicXml: "<a/>" });
+    await run2;
+    expect(q.getSnapshot().entries[0].status).toBe("done");
+    q.dispose();
+  });
+
+  it("retry requeues a cancelled entry", async () => {
+    const sess = makeSession();
+    const { events } = makeEvents();
+    const q = new TranscriptionQueue(sess, events);
+    const a = q.enqueue({ label: "a.wav", params: entryParams });
+    await q.cancel(a.id);
+    expect(q.retry(a.id)).toBe(true);
+    expect(q.getSnapshot().entries[0].status).toBe("pending");
+    q.dispose();
+  });
+
+  it("retry is a no-op for pending/running/done entries", async () => {
+    const sess = makeSession();
+    const { events } = makeEvents();
+    const q = new TranscriptionQueue(sess, events);
+    const a = q.enqueue({ label: "a.wav", params: entryParams });
+    expect(q.retry(a.id)).toBe(false); // pending は対象外
+    const run = q.start();
+    await tick();
+    expect(q.retry(a.id)).toBe(false); // running も対象外
+    sess.complete({});
+    await run;
+    expect(q.retry(a.id)).toBe(false); // done も対象外
+    expect(q.getSnapshot().entries[0].status).toBe("done");
+    q.dispose();
+  });
 });

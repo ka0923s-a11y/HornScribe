@@ -119,6 +119,23 @@ export class TranscriptionQueue {
     return true;
   }
 
+  /** failed/cancelled エントリを pending に戻す(#266)。params/ref/
+   *  identity は enqueue 時のまま保持されるので再設定は要らない。
+   *  次の runLoop パス(あるいは呼び出し側の start())で拾われる。 */
+  retry(id: string): boolean {
+    const e = this.entries.find((x) => x.id === id);
+    if (!e) return false;
+    if (e.status !== "failed" && e.status !== "cancelled") return false;
+    this.patch(id, {
+      status: "pending",
+      progress: null,
+      error: null,
+      result: null,
+      reviewIssueCount: 0,
+    });
+    return true;
+  }
+
   /** pending エントリの並び替え(±1)。 */
   move(id: string, delta: -1 | 1): boolean {
     const idx = this.entries.findIndex((x) => x.id === id);

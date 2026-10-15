@@ -4,6 +4,7 @@
  * 見える)。行アクションは IconButton + ステータス行テキストのみ。
  */
 import {
+  ArrowClockwise24Regular,
   ArrowDown24Regular,
   ArrowUp24Regular,
   Delete24Regular,
@@ -44,6 +45,7 @@ export function QueuePanel({
   onMove,
   onRemove,
   onCancelEntry,
+  onRetryEntry,
   onOpenResult,
   onClearFinished,
 }: {
@@ -56,6 +58,7 @@ export function QueuePanel({
   onMove(id: string, delta: -1 | 1): void;
   onRemove(id: string): void;
   onCancelEntry(id: string): void;
+  onRetryEntry(id: string): void;
   onOpenResult(entry: QueueEntry): void;
   onClearFinished(): void;
 }) {
@@ -161,6 +164,14 @@ export function QueuePanel({
                     icon={<Dismiss24Regular />}
                     size="small"
                     onClick={() => void onCancelEntry(e.id)}
+                  />
+                ) : null}
+                {e.status === "failed" || e.status === "cancelled" ? (
+                  <HsIconButton
+                    label={ja.queue.retry}
+                    icon={<ArrowClockwise24Regular />}
+                    size="small"
+                    onClick={() => onRetryEntry(e.id)}
                   />
                 ) : null}
                 {e.status === "done" ? (
