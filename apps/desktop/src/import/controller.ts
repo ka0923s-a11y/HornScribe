@@ -20,7 +20,12 @@
 import type { ScreenState } from "../workspace/screen";
 import { ja } from "../strings/ja";
 import { type ImportPorts } from "./ports";
-import { audioFormatOf, baseName, projectDisplayName } from "./formats";
+import {
+  PROJECT_FILE_SUFFIX,
+  audioFormatOf,
+  baseName,
+  projectDisplayName,
+} from "./formats";
 import {
   markAutoOpenFailed,
   recordRecentProject,
@@ -187,7 +192,12 @@ export class ImportController {
     }
     // A dropped/picked .hornscribe.json is a project open, not an audio
     // import — the dialog's "all files" escape hatch can hand one over.
-    const projRef = refs.find((r) => r.name.endsWith(".hornscribe.json"));
+    // #270: case-insensitive like projectDisplayName/audioFormatOf —
+    // Windows renames and foreign tools produce .HORNSCRIBE.JSON, and
+    // it must not fall through to the unsupported-format error.
+    const projRef = refs.find((r) =>
+      r.name.toLowerCase().endsWith(PROJECT_FILE_SUFFIX),
+    );
     if (projRef) {
       const bytes = projRef.kind === "file" ? projRef.file : undefined;
       await this.openProject(

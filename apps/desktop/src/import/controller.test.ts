@@ -456,6 +456,18 @@ describe("openProject — source verification (store.py contract)", () => {
     expect(h.recents).toHaveLength(0);
   });
 
+  it("an uppercase .HORNSCRIBE.JSON opens as a project too (#270)", async () => {
+    const h = makeHarness();
+    const file = new File(
+      [await projectJson().text()],
+      "ETUDE.HORNSCRIBE.JSON",
+    );
+    await h.controller.importRefs([{ kind: "file", file, name: file.name }]);
+    const s = h.controller.getState();
+    expect(s.phase).toBe("sourceMissing");
+    expect(s.sourceMissing?.project.name).toBe("ETUDE");
+  });
+
   it("saved score extras → onProjectScoreReady restores without re-transcribing (#106)", async () => {
     const h = makeHarness();
     h.store.set(entry.path, projectJson({
