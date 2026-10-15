@@ -224,7 +224,12 @@ export function buildReviewAction(
             () => ({
               kind: "setPickup",
               noteId: "",
-              pickupBeats: `${suggested}/1`,
+              // #276: canonical beats, possibly fractional — "1/1"
+              // stays the integer form; "0.5" parses as 1/2 while
+              // "0.5/1" would not parse at all.
+              pickupBeats: Number.isInteger(suggested)
+                ? `${suggested}/1`
+                : String(suggested),
             }),
             ja.commandFeedback.pickupChanged,
             () => handlers.markFixed?.(issue.id),
