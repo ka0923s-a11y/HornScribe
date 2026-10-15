@@ -3389,13 +3389,20 @@ export default function App() {
                       : undefined
                   }
                   onCycleRate={() => {
-                    const idx = SUPPORTED_RATES.findIndex(
-                      (r) => r === transportSnap?.rate,
-                    );
+                    /* #268: メディアが正時計なら従来通り transport へ —
+                       スコアだけの再生(音源欠落/キュー結果のみ)では
+                       スコアクロックの rate を回し、自動演奏の速度確認を
+                       効かせる。 */
+                    const cur = mediaLive
+                      ? (transportSnap?.rate ?? 1)
+                      : (scoreState?.rate ?? 1);
+                    const idx = SUPPORTED_RATES.findIndex((r) => r === cur);
                     const next =
                       SUPPORTED_RATES[(idx + 1) % SUPPORTED_RATES.length] ?? 1;
-                    transport.setRate(next);
+                    if (mediaLive) transport.setRate(next);
+                    else scoreCtlRef.current?.setRate?.(next);
                   }}
+                  scoreRate={scoreState?.rate}
                   timeLabel={
                     !mediaLive && scoreState
                       ? `${formatScoreTimecode(scoreState.positionMs)} / ${formatScoreTimecode(scoreState.durationMs)}`
