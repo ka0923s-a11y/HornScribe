@@ -3993,7 +3993,15 @@ def _merged_chord_dicts(
     the meta progression reads "C | G | C", not sixteen half-bars."""
     out: list[dict[str, Any]] = []
     for est in chord_map:
-        if out and out[-1]["rootPc"] == est.root_pc and out[-1]["quality"] == est.quality:
+        if (
+            out
+            and out[-1]["rootPc"] == est.root_pc
+            and out[-1]["quality"] == est.quality
+            # #272: a slash bass is part of the chord's identity -
+            # C -> C/E is a bass walk, not a repeat, and must not
+            # collapse into one span.
+            and out[-1]["bassPc"] == est.bass_pc
+        ):
             out[-1]["endSec"] = round(est.end_sec, 3)
             out[-1]["confidence"] = round(min(out[-1]["confidence"], est.confidence), 3)
             continue
