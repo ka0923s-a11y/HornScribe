@@ -62,6 +62,7 @@ export function TransportBar({
   countInEnabled,
   loopArmed,
   mixer,
+  scoreRate,
 }: {
   commands: CommandSurface;
   live?: {
@@ -82,6 +83,9 @@ export function TransportBar({
   /** [UI-030] Manual scroll suspended follow — button resumes it. */
   followSuspended?: boolean;
   onToggleFollow?(): void;
+  /** #268: score-clock rate — lets the rate button show/drive audition
+   *  speed when no media transport is live (score-only playback). */
+  scoreRate?: number;
   /** FEAT-001 (#60): 楽譜の自動演奏がオンか(score clock がある時のみ)。 */
   auditionEnabled?: boolean;
   /** #101: メトロノーム/カウントインの押下状態。 */
@@ -116,10 +120,9 @@ export function TransportBar({
     readonly click?: { volume: number; onVolume(v: number): void } | null;
   };
 }) {
-  // #366: play/stop/seek/loop now reach the score clock too — the
-  // rate and follow controls stay audio-only, so they key off the
-  // still-hasAudio toggleSourceMute gate instead of playPause.
-  const audioOnly = commands.isEnabled("transport.toggleSourceMute");
+  // #366: play/stop/seek/loop reach the score clock too — and since
+  // #268 so do rate (scoreRate mirror) and follow (score-clock state);
+  // nothing keys off the audio flag anymore.
   const [mixerOpen, setMixerOpen] = useState(false);
   const mixerAvailable =
     mixer !== undefined &&
@@ -130,7 +133,11 @@ export function TransportBar({
   const duration = live
     ? formatTimecode(live.durationSec)
     : (timeLabel?.split(" / ")[1] ?? ja.time.zeroTotal);
-  const rateLabel = live ? `${live.rate}×` : "1.0×";
+  const rateLabel = live
+    ? `${live.rate}×`
+    : scoreRate != null
+      ? `${scoreRate}×`
+      : "1.0×";
   return (
     <Toolbar
       className="hs-transport"
@@ -243,7 +250,9 @@ export function TransportBar({
       >
         <ToolbarButton
           aria-label={`${ja.transport.rate} ${rateLabel}`}
-          disabled={!audioOnly}
+          /* #268: media が無くてもスコアクロックがあれば速度は届く —
+             どちらも無い時だけ無効。 */
+          disabled={live == null && scoreRate == null}
           onClick={onCycleRate}
         >
           {rateLabel}
@@ -277,7 +286,9 @@ export function TransportBar({
             followSuspended ? ja.scoreView.resumeFollow : ja.transport.follow
           }
           aria-pressed={followEnabled === true && !followSuspended}
-          disabled={!audioOnly}
+          /* #268: 追従はスコアクロックの機能 — スコアが無い audioReady
+             で有効な死にボタンにしない。 */
+          disabled={followEnabled === undefined}
           onClick={onToggleFollow}
         />
       </Tooltip>

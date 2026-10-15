@@ -2698,6 +2698,9 @@ const setKey = useCallback(
       // #113: expose the armed loop so the app can mirror it onto the
       // media transport (audio loops together with the score marks).
       loopRange: () => clockRef.current?.loopRange() ?? null,
+      // #268: score-clock rate — the transport bar drives this when no
+      // media transport is live (score-only audition).
+      setRate: (rate: number) => clockRef.current?.setRate(rate),
       resumeFollow: () => resumeFollow(),
       setFollowEnabled: (on) => {
         if (on) resumeFollow();
@@ -2901,6 +2904,7 @@ const setKey = useCallback(
       loopEnabled: clockSnap.loop !== null,
       positionMs: clockSnap.positionMs,
       durationMs: clockSnap.durationMs,
+      rate: clockSnap.rate,
       followEnabled,
       followSuspended,
       reviewOpen,

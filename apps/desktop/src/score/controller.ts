@@ -114,6 +114,9 @@ export interface ScoreWorkspaceController {
   /** #113: armed A-B loop range (ms), or null - lets the app mirror the
    *  score loop onto the media transport so audio loops too. */
   loopRange?(): { startMs: number; endMs: number } | null;
+  /** #268: score-clock rate — used by the transport bar when no media
+   *  transport is live so score-only audition can still slow down. */
+  setRate?(rate: number): void;
 
   // ---- follow (§11) ----
   resumeFollow(): void;
@@ -209,6 +212,9 @@ export interface ScoreWorkspaceState {
   readonly loopEnabled: boolean;
   readonly positionMs: number;
   readonly durationMs: number;
+  /** #268: score-clock rate mirror — lets the transport bar show/drive
+   *  audition speed when the media transport is not live. */
+  readonly rate: number;
   readonly followEnabled: boolean;
   readonly followSuspended: boolean;
   readonly reviewOpen: boolean;
