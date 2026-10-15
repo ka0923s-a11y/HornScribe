@@ -2565,6 +2565,8 @@ export const ja = {
     remove: "削除",
     cancelEntry: "キャンセル",
     openResult: "開く",
+    /* #266: failed/cancelled 行を pending に戻して再実行する行アクション。 */
+    retry: "再試行",
     entryDone: "{name} の採譜が完了しました",
    runFinished: "キューの採譜が終了しました",
     addedToQueue: "{name} をキューに追加しました",

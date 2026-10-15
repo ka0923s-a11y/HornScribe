@@ -3844,6 +3844,12 @@ export default function App() {
             onMove={(id, d) => void queue.move(id, d)}
             onRemove={(id) => void queue.remove(id)}
             onCancelEntry={(id) => void queue.cancel(id)}
+            onRetryEntry={(id) => {
+              /* #266: pending に戻せたら即ランを起動 — 「再試行」が
+                 実行まで届くワンクリック動作にする(ラン中や
+                 pending 無しなら start() は安全に no-op)。 */
+              if (queue.retry(id)) void queue.start();
+            }}
             onOpenResult={openQueueResult}
             onClearFinished={() => queue.clearFinished()}
           />
