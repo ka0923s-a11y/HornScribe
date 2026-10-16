@@ -367,16 +367,35 @@ def estimate_alignment_shift(
         eligible = []
     if eligible:
         candidates = [best, *eligible]
+        strengths = {d: strong_hits(d) for d in candidates}
         by_strength = sorted(
             candidates,
-            key=lambda d: (-strong_hits(d), abs(d), d),
+            key=lambda d: (-strengths[d], abs(d), d),
         )
         lead, second = by_strength[0], by_strength[1]
-        if (
-            strong_hits(lead) - strong_hits(second)
+        decisive = (
+            strengths[lead] - strengths[second]
             >= ALIGNMENT_STRONG_MARGIN * total_weight
-            and strong_hits(lead) >= ALIGNMENT_STRONG_EVIDENCE * total_weight
-        ):
+            and strengths[lead] >= ALIGNMENT_STRONG_EVIDENCE * total_weight
+        )
+        if not decisive:
+            # #278: whole-subdivision aliases — when the detection bias
+            # sits near a subdivision boundary, two phases exactly one
+            # notatable step apart put the SAME onsets on the strong
+            # grid (one column earlier/later), so the margin gate can
+            # never separate them. Among genuine strong-grid phases the
+            # smallest correction is the honest reading: a systematic
+            # detection bias is milliseconds, not a beat. Weak phases
+            # (everything on odd sixteenths) stay ambiguous as before.
+            pool = [
+                d
+                for d in candidates
+                if strengths[d] >= ALIGNMENT_STRONG_EVIDENCE * total_weight
+            ]
+            if pool:
+                lead = min(pool, key=lambda d: (abs(d), d))
+                decisive = True
+        if decisive:
             if abs(lead - best) > fine_step_sec:
                 # The strength-preferred phase is a competing minimum —
                 # refine it on the lattice score inside its own basin

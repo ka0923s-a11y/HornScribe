@@ -361,6 +361,58 @@ def test_leading_beats_walk_back_on_local_interval() -> None:
     assert float(warp.seconds_to_ql(1.03)) == pytest.approx(2.0, abs=0.02)
 
 
+def test_steady_anchor_jitter_snaps_to_lsq_grid() -> None:
+    """#278: on a metronomic track, +-1-hop envelope-peak jitter is pure
+    noise the warp should not follow — under a jittered anchor row a
+    straight eighth run printed sixteenth syncopation. The anchors
+    snap onto their LSQ line (the same steadiness test that collapses
+    the tempo map), so the seconds->ql axis is perfectly uniform."""
+    from hornscribe.transcription.tempo import estimate_tempo
+
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    jitter = (
+        0.0, -0.012, 0.018, -0.006, 0.014, -0.019,
+        0.008, -0.015, 0.011, -0.004, 0.017, -0.009,
+    )
+    times = tuple(0.5 * i + jitter[i] for i in range(12))
+    est = estimate_tempo(
+        None,
+        22050,
+        meter,
+        tempo_bpm=None,
+        first_onset_sec=times[0],
+        beat_times=times,
+    )
+    snapped = est.beat_times_sec
+    intervals = {
+        round(b - a, 6)
+        for a, b in zip(snapped, snapped[1:], strict=False)
+    }
+    assert len(intervals) == 1  # one uniform grid
+    assert abs(intervals.pop() - 0.5) < 0.01
+
+
+def test_drifting_anchors_keep_measured_times() -> None:
+    """#278 guard: a genuine rit./accel. IS tempo information — the
+    steadiness test must reject it so the warp keeps tracking the
+    per-beat anchors (rubato-4-4 class)."""
+    from hornscribe.transcription.tempo import estimate_tempo
+
+    meter = MeterSegment(start_ql=Fraction(0), numerator=4, denominator=4)
+    times = [0.0]
+    for d in (0.50, 0.51, 0.52, 0.53, 0.55, 0.58, 0.60, 0.63, 0.66, 0.70):
+        times.append(times[-1] + d)
+    est = estimate_tempo(
+        None,
+        22050,
+        meter,
+        tempo_bpm=None,
+        first_onset_sec=0.0,
+        beat_times=tuple(times),
+    )
+    assert est.beat_times_sec == tuple(times)
+
+
 _DYN_FRAME_SEC = 512.0 / 22050.0
 
 

@@ -107,6 +107,44 @@ def _anchor_slope_sec(times: tuple[float, ...]) -> float | None:
     return slope if slope > 0 else None
 
 
+def _steady_anchor_fit(times: tuple[float, ...]) -> tuple[float, float] | None:
+    """LSQ ``(intercept, slope_sec)`` when the anchor row is metronomic.
+
+    The one shared steadiness test: mean and max LSQ residuals inside
+    the tracker's own noise floor mean the anchor spacing carried no
+    musical tempo information — only sub-frame refinement jitter — so
+    the caller may take the fitted line exactly (estimate_tempo snaps
+    the warp anchors onto it, tempo_map collapses to one mark). A
+    drifting or stepped track fails and keeps its measured anchors
+    (rubato-4-4, tempo-step-4-4).
+    """
+    if len(times) < _STEADY_MIN_ANCHORS:
+        return None
+    slope = _anchor_slope_sec(times)
+    if slope is None:
+        return None
+    xbar = (len(times) - 1) / 2.0
+    ybar = sum(times) / len(times)
+    intercept = ybar - slope * xbar
+    residuals = [
+        abs(t - (intercept + slope * i)) for i, t in enumerate(times)
+    ]
+    intervals = [
+        b - a for a, b in zip(times, times[1:], strict=False) if b > a
+    ]
+    if not intervals:
+        return None
+    med = sorted(intervals)[len(intervals) // 2]
+    if med <= 0:
+        return None
+    if (
+        sum(residuals) / len(residuals) <= _STEADY_MEAN_RESID_FRAC * med
+        and max(residuals) <= _STEADY_MAX_RESID_FRAC * med
+    ):
+        return intercept, slope
+    return None
+
+
 @dataclass(frozen=True)
 class TempoEstimate:
     """Warp + estimated tempo facts for one transcription run."""
@@ -302,6 +340,26 @@ def estimate_tempo(
                     leading_beats.append(
                         float(first_onset_sec) + (n_missing - k) * local_sec
                     )
+    # #278: on a metronomic track the per-anchor envelope-peak
+    # refinement contributes only +-1 hop of non-uniform jitter, which
+    # the piecewise-linear warp then bakes into the seconds->ql axis
+    # (a straight eighth run printed as sixteenth syncopation). When
+    # the TRACKED anchors hug one straight line — the same steadiness
+    # test the tempo map's one-mark collapse applies — snap them onto
+    # their own LSQ grid; residual *bias* is the alignment-shift
+    # stage's job, not the warp's. Only the tracked portion is
+    # regularized: synthesized leading beats carry onset-phase
+    # evidence the pickup analysis reads, and a row that mixes two
+    # phases must not be averaged into a third, wronger one. Real
+    # drift and tempo steps fail the test and keep measured anchors
+    # (rubato-4-4, tempo-step-4-4).
+    fit = _steady_anchor_fit(beat_times)
+    if fit is not None:
+        grid_intercept, grid_slope = fit
+        beat_times = tuple(
+            grid_intercept + grid_slope * i for i in range(len(beat_times))
+        )
+
     all_beats = tuple(leading_beats) + beat_times
     neutral_strength = (
         sorted(strengths)[len(strengths) // 2] if strengths else 0.5
@@ -713,32 +771,14 @@ def tempo_map_from_estimate(
     # measure rates. LSQ residuals at the beat level stay inside the
     # tracker's own noise floor on a metronomic song; anything that
     # drifts or steps leaves far bigger residuals.
-    slope = _anchor_slope_sec(times)
-    if slope is not None and len(times) >= _STEADY_MIN_ANCHORS:
-        xbar = (len(times) - 1) / 2.0
-        ybar = sum(times) / len(times)
-        intercept = ybar - slope * xbar
-        residuals = [
-            abs(t - (intercept + slope * i)) for i, t in enumerate(times)
-        ]
-        intervals_sec = [
-            b - a for a, b in zip(times, times[1:], strict=False) if b > a
-        ]
-        if intervals_sec:
-            med = sorted(intervals_sec)[len(intervals_sec) // 2]
-            mean_resid = sum(residuals) / len(residuals)
-            if (
-                med > 0
-                and mean_resid <= _STEADY_MEAN_RESID_FRAC * med
-                and max(residuals) <= _STEADY_MAX_RESID_FRAC * med
-            ):
-                # Marks read like a conductor's metronome — integer BPM.
-                return (
-                    TempoSegment(
-                        start_beat=Fraction(0),
-                        bpm=float(round(estimate.median_bpm)),
-                    ),
-                )
+    if _steady_anchor_fit(times) is not None:
+        # Marks read like a conductor's metronome — integer BPM.
+        return (
+            TempoSegment(
+                start_beat=Fraction(0),
+                bpm=float(round(estimate.median_bpm)),
+            ),
+        )
     # #248: aggregate instantaneous tempo per MEASURE before emitting —
     # beat-tracker jitter inside a measure is not a tempo change. The
     # pickup measure is index 0 (span [0, pickup)); full measures tile
