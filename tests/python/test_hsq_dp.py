@@ -12,6 +12,9 @@ import pytest
 import rhythm_fixtures as fx
 from hornscribe.domain.ids import RawNoteEventId
 from hornscribe.rhythm import (
+    BeatAnchor,
+    BeatMap,
+    BeatSource,
     MeterMap,
     MeterSegment,
     NormalizedNote,
@@ -162,6 +165,59 @@ def test_alignment_prefers_strong_boundary_phase() -> None:
         meter_map,
         QuantizationProfile(),
     )
+    assert _onsets(alts[0]) == [
+        Fraction(i, 2) for i in range(len(onsets_sec))
+    ]
+
+
+def test_whole_step_alias_resolves_to_minimal_correction() -> None:
+    """#278: a bias sitting on a sixteenth boundary makes phases one
+    whole notatable step apart BOTH land the run on the strong grid.
+
+    Real tracker anchors + Basic Pitch onsets from the auto-6-8-143
+    bench fixture: the detection bias (~-0.11 ql) puts every onset one
+    sixteenth off an eighth position, so four phases a sixteenth apart
+    tie on the lattice score — and two of them (-0.11 s and +0.03 s)
+    are equivalent *strong-grid* readings a whole eighth step apart.
+    The strength margin cannot separate an on-grid phase from the same
+    on-grid phase shifted one column, so the estimate used to stay
+    uncertain and apply 0 — every onset sat half an eighth early and
+    the score printed sixteenth syncopation. The fix resolves toward
+    the smallest correction among genuine strong-grid phases.
+    """
+    meter_map = MeterMap((MeterSegment(Fraction(0), 6, 8),))
+    warp = TimeWarp.from_beat_map(
+        BeatMap(
+            tuple(
+                BeatAnchor(
+                    time_sec=t,
+                    score_pos_ql=Fraction(q),
+                    source=BeatSource.BEAT_TRACKER,
+                )
+                for t, q in (
+                    (0.0116, 0.0), (0.4317, 1.5), (0.8656, 3.0),
+                    (1.2824, 4.5), (1.7025, 6.0), (2.1325, 7.5),
+                    (2.5499, 9.0), (2.9678, 10.5), (3.3870, 12.0),
+                    (3.8062, 13.5), (4.2259, 15.0), (4.6424, 16.5),
+                )
+            )
+        )
+    )
+    onsets_sec = (
+        0.0116, 0.1393, 0.2786, 0.4063, 0.5573, 0.6966, 0.8359, 0.9636,
+        1.1029, 1.2539, 1.3932, 1.5325, 1.6834, 1.8228, 1.9621, 2.0911,
+        2.2304, 2.3697, 2.5090, 2.6367, 2.7761, 2.9270, 3.0779, 3.2056,
+        3.3566, 3.5075, 3.6352, 3.7745, 3.9255, 4.0312, 4.1938, 4.3331,
+        4.4608, 4.6001, 4.7510, 4.8788,
+    )
+    events = fx.make_events(onsets_sec)
+    est = estimate_alignment_shift(
+        events, warp, QuantizationProfile(), meter_map=meter_map
+    )
+    assert not est.uncertain
+    assert est.meter_resolved
+    assert est.shift_sec == pytest.approx(0.03, abs=0.01)
+    alts = quantize_events(events, warp, meter_map)
     assert _onsets(alts[0]) == [
         Fraction(i, 2) for i in range(len(onsets_sec))
     ]
