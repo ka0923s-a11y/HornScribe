@@ -6017,3 +6017,79 @@ class TestAccompDetectedEvents:
 
     def test_empty_yields_nothing(self) -> None:
         assert list(_accomp_detected_events(())) == []
+
+
+class TestPitchBendCentering:
+    """#325: document pitchBends oscillate around the written pitch.
+
+    basic_pitch's bend readout quantizes to contour bins and lands
+    ~+1 bin (1/3 semitone) above the written pitch on clean tones —
+    a detector artifact, not expression. ``_collect_pitch_bends``
+    subtracts the assembled curve's median so the canonical note's
+    curve centers on the written pitch (the score's committed
+    center); consumers audition, overlay, and MIDI-export the
+    normalized curve.
+    """
+
+    def _ev(
+        self,
+        onset: float,
+        offset: float,
+        bends: tuple[float, ...],
+        num: int = 1,
+    ) -> RawNoteEvent:
+        bend = PitchBendPoint
+        return RawNoteEvent(
+            id=RawNoteEventId(f"rne-{num:06d}"),
+            transcription_revision=_REV,
+            pitch_midi=60,
+            onset_sec=onset,
+            offset_sec=offset,
+            confidence=0.9,
+            pitch_bends=tuple(
+                bend(onset + (offset - onset) * k / max(1, len(bends) - 1), s)
+                for k, s in enumerate(bends)
+            ),
+        )
+
+    def test_removes_constant_dc_offset(self) -> None:
+        from hornscribe.transcription.scorebuild import _collect_pitch_bends
+
+        out = _collect_pitch_bends([self._ev(1.0, 2.0, tuple(0.33 for _ in range(10)))])
+        assert len(out) == 10
+        assert all(b.bend_semitones == pytest.approx(0.0) for b in out)
+
+    def test_vibrato_shape_survives(self) -> None:
+        from hornscribe.transcription.scorebuild import _collect_pitch_bends
+
+        # +0.33 DC riding a +-0.4 st vibrato: after recentering the
+        # curve oscillates symmetrically around the written pitch.
+        semis = (0.13, 0.73, 0.33, -0.07, 0.33, 0.73, 0.13, 0.33)
+        out = _collect_pitch_bends([self._ev(0.0, 0.7, semis)])
+        got = [b.bend_semitones for b in out]
+        assert max(got) == pytest.approx(0.4)
+        assert min(got) == pytest.approx(-0.4)
+        # positions normalize into the note span
+        assert out[0].time_sec == pytest.approx(0.0)
+        assert out[-1].time_sec == pytest.approx(1.0)
+
+    def test_merged_segments_share_one_center(self) -> None:
+        from hornscribe.transcription.scorebuild import _collect_pitch_bends
+
+        # Two source events merged into one canonical note — the
+        # union span hosts one curve with one median.
+        out = _collect_pitch_bends(
+            [
+                self._ev(0.0, 0.5, (0.3,) * 5, num=1),
+                self._ev(0.5, 1.0, (0.4,) * 5, num=2),
+            ]
+        )
+        assert len(out) == 10
+        vals = sorted(b.bend_semitones for b in out)
+        assert vals[0] == pytest.approx(-0.05)
+        assert vals[-1] == pytest.approx(0.05)
+
+    def test_no_bends_still_empty(self) -> None:
+        from hornscribe.transcription.scorebuild import _collect_pitch_bends
+
+        assert _collect_pitch_bends([self._ev(0.0, 1.0, ())]) == ()
