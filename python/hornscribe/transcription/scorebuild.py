@@ -365,7 +365,38 @@ def _collect_pitch_bends(
                 )
             )
     out.sort(key=lambda b: b.time_sec)
-    return tuple(out)
+    # #325: basic_pitch's bend readout quantizes to contour bins and
+    # lands ~+1 bin (1/3 semitone) above the written pitch on clean
+    # tones — a detector artifact, not performed expression. Since
+    # the written pitch IS the note's committed center, the document
+    # curve must oscillate around zero: subtract the curve's own
+    # median (robust against brief attack scoops / release falls)
+    # before consumers audition, overlay, or export it. The raw
+    # evidence events keep their uncentered values.
+    center = _median_bend(out)
+    return tuple(
+        PitchBendPoint(
+            time_sec=b.time_sec,
+            bend_semitones=b.bend_semitones - center,
+        )
+        for b in out
+    )
+
+
+def _median_bend(points: list[PitchBendPoint]) -> float:
+    """Robust center of a note's bend curve (#325).
+
+    The median tracks the sustained level — the portion of the note
+    the quantizer actually heard as this pitch — while a short scoop
+    or fall only shifts the middle sample, not the whole median the
+    way a mean would.
+    """
+    vals = sorted(b.bend_semitones for b in points)
+    n = len(vals)
+    mid = n // 2
+    if n % 2:
+        return vals[mid]
+    return (vals[mid - 1] + vals[mid]) / 2
 
 
 def _part_content(
