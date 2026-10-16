@@ -16,7 +16,7 @@ HornScribe is a personal, local-first application for transcribing audio into re
 ## Current status
 
 Shipping. Pre-release installers and portable builds publish under
-[Releases](https://github.com/aaw123m/horn/releases) (currently v0.2.x).
+[Releases](https://github.com/ka0923s-a11y/HornScribe/releases) (currently v0.2.x).
 
 Implemented end to end:
 
