@@ -209,9 +209,12 @@ payload below).
 - `musicXmlConcert` / `musicXmlHornF` — MusicXML 4.0 bodies for the
   concert-pitch and written-F管 presentations (identical `hs-sn-*` ids);
 - `meta` — backend/version, duration, tempo (auto flag), meter,
-  meter estimate (`meter`, `meterEstimated`, `meterConfidence` —
-  accent-based auto estimation; weak evidence falls back to 4/4 and
-  emits a `meter_conflict` review issue), key estimate
+  meter estimate (`meter`, `meterEstimated`, `meterConfidence`,
+  `meterEstimatedLabel` — accent-based auto estimation; weak
+  evidence falls back to 4/4 and emits a `meter_conflict` review
+  issue. `meterEstimatedLabel` names the rejected candidate, or is
+  `null` when the estimator refused outright — an undecidable read,
+  not a low-confidence one), key estimate
   (fifths/mode/confidence), note count, pickup beats, alignment shift,
   review reasons, cleaning stats (incl. `octaveCorrected`), echoed
   settings.

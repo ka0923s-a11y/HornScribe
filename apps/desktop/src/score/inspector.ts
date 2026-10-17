@@ -155,10 +155,11 @@ export interface InspectorCopy {
   key(fifths: number, mode?: KeyMode | null): string;
   /** #358: anacrusis label — beatsLabel null means 弱起なし. */
   pickup(beatsLabel: string | null): string;
-  /** #80-4: meter-provenance hint — uncertain=true when the
+  /** #80-4/#264-4: meter-provenance hint — "uncertain" when the
    *  estimator's margin sat below its own threshold (a meter_conflict
-   *  issue flags the same). */
-  meterEstimate(uncertain: boolean): string;
+   *  issue flags the same); "undecidable" when the estimator refused
+   *  every candidate and the written 4/4 is the bare fallback. */
+  meterEstimate(kind: "estimated" | "uncertain" | "undecidable"): string;
 }
 
 const FIFTHS_JA: Record<string, string> = {
@@ -290,8 +291,20 @@ export function buildScoreInspector(
     meterLabel: meta.meter,
     meterBeats: meter?.beats ?? null,
     meterUnit: meter?.unit ?? null,
+    // #264-4: three provenance states, not two -- a refused estimate
+    //  (label key present and null) is "undecidable", not "low
+    //  confidence". Legacy docs lack the key and keep the confidence
+    //  threshold; a pinned meter reports no marker at all.
     meterEstimateLabel:
-      meta.meterEstimated === true ? copy.meterEstimate(meterUncertain) : null,
+      meta.meterEstimated === true
+        ? copy.meterEstimate(
+            meta.meterEstimatedLabel === null
+              ? "undecidable"
+              : meterUncertain
+                ? "uncertain"
+                : "estimated",
+          )
+        : null,
     // #358: canonical pickup — "0/1" still shows 弱起なし so the
     // user can tell an explicit no-pickup apart from an unknown one
     // (payload-less docs leave null and hide the row).

@@ -621,5 +621,31 @@ describe("XmlScoreDocument omitted-issue expansion (#360)", () => {
     });
     expect(legacy?.meterEstimated).toBeUndefined();
     expect(legacy?.meterConfidence).toBeUndefined();
+    expect(legacy?.meterEstimatedLabel).toBeUndefined();
+  });
+
+  it("#264-4: meterEstimatedLabel lifts null (refusal) vs string", () => {
+    const refused = engineDocumentFromResult({
+      musicXmlConcert: XML,
+      musicXmlHornF: XML,
+      scoreRevision: "sr-x",
+      meta: {
+        meterEstimated: true,
+        meterConfidence: 0.0,
+        meterEstimatedLabel: null,
+      },
+    });
+    expect(refused?.meterEstimatedLabel).toBeNull();
+    const guessed = engineDocumentFromResult({
+      musicXmlConcert: XML,
+      musicXmlHornF: XML,
+      scoreRevision: "sr-x",
+      meta: {
+        meterEstimated: true,
+        meterConfidence: 0.0,
+        meterEstimatedLabel: "2/4",
+      },
+    });
+    expect(guessed?.meterEstimatedLabel).toBe("2/4");
   });
 });
