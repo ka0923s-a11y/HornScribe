@@ -36,8 +36,10 @@ from hornscribe.domain.score import (
     TempoSegment,
     TimeSignature,
 )
+from hornscribe.rhythm.profile import QuantizationProfile
 from hornscribe.rhythm.timewarp import TimeWarp
 from hornscribe.transcription.boundary import (
+    BoundaryFlag,
     boundary_flags,
     compute_envelopes,
     low_octave_evidence,
@@ -331,6 +333,7 @@ class TestBoundaryIssues:
             Fraction(1),
             ScoreRevisionId("rev-test"),
             0.0,
+            QuantizationProfile.standard(),
         )
         merges = [
             i for i in issues
@@ -360,6 +363,7 @@ class TestBoundaryIssues:
             Fraction(1),
             ScoreRevisionId("rev-test"),
             0.0,
+            QuantizationProfile.standard(),
         )
         assert [
             i for i in issues
@@ -380,6 +384,7 @@ class TestBoundaryIssues:
             Fraction(1),
             ScoreRevisionId("rev-test"),
             0.0,
+            QuantizationProfile.standard(),
         )
         splits = [
             i for i in issues
@@ -410,11 +415,86 @@ class TestBoundaryIssues:
             Fraction(1),
             ScoreRevisionId("rev-test"),
             0.0,
+            QuantizationProfile.standard(),
         )
         assert [
             i for i in issues
             if i.evidence.get("suggestedKind") == "split"
         ] == []
+
+    def test_split_flag_snapped_off_note_edge_is_dropped(
+        self, monkeypatch
+    ) -> None:
+        # #339: a heard onset at beat 0.1 of a beat-0-anchored note
+        # snaps onto the note's own start edge on the 16th grid —
+        # splitNote would fail at apply time, so the issue must not
+        # be emitted at all (the fix contract: only applicable
+        # remedies become issues).
+        e = _ev(1, 60, 0.0, 2.0)
+        n = _note(1, 60, "0", "1", (e.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        flag = BoundaryFlag(
+            kind="split",
+            event_ids=(str(e.id),),
+            boundary_sec=0.05,  # 120bpm -> ql 0.1 -> beat 0.1
+            score=0.8,
+        )
+        monkeypatch.setattr(
+            "hornscribe.transcription.pipeline.boundary_flags",
+            lambda *a, **k: [flag],
+        )
+        issues = _boundary_issues(
+            _held_tone(),
+            _SR,
+            (_cleaned(e),),
+            (part,),
+            {e.id: e},
+            TimeWarp.fixed_bpm(120.0),
+            Fraction(1),
+            ScoreRevisionId("rev-test"),
+            0.0,
+            QuantizationProfile.standard(),
+        )
+        assert issues == []
+
+    def test_split_issue_reports_the_snapped_position(
+        self, monkeypatch
+    ) -> None:
+        # #339: suggestedSplitBeat must be the position splitNote
+        # will actually apply (grid-snapped), not the raw heard
+        # onset fraction.
+        e = _ev(1, 60, 0.0, 2.0)
+        n = _note(1, 60, "0", "1", (e.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        flag = BoundaryFlag(
+            kind="split",
+            event_ids=(str(e.id),),
+            boundary_sec=0.15,  # 120bpm -> ql 0.3 -> beat 0.3
+            score=0.8,
+        )
+        monkeypatch.setattr(
+            "hornscribe.transcription.pipeline.boundary_flags",
+            lambda *a, **k: [flag],
+        )
+        issues = _boundary_issues(
+            _held_tone(),
+            _SR,
+            (_cleaned(e),),
+            (part,),
+            {e.id: e},
+            TimeWarp.fixed_bpm(120.0),
+            Fraction(1),
+            ScoreRevisionId("rev-test"),
+            0.0,
+            QuantizationProfile.standard(),
+        )
+        splits = [
+            i for i in issues
+            if i.evidence.get("suggestedKind") == "split"
+        ]
+        assert len(splits) == 1
+        # 0.3 beats snaps to the 16th grid -> 1/4.
+        assert Fraction(splits[0].evidence["suggestedSplitBeat"]) == Fraction(1, 4)
 
     def test_uncertain_is_info(self) -> None:
         a, b = _ev(1, 60, 0.0, 1.0), _ev(2, 61, 1.0, 2.0)
@@ -431,6 +511,7 @@ class TestBoundaryIssues:
             Fraction(1),
             ScoreRevisionId("rev-test"),
             0.0,
+            QuantizationProfile.standard(),
         )
         unc = [
             i for i in issues
