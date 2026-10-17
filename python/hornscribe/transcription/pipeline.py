@@ -75,6 +75,7 @@ from hornscribe.instruments.horn_f import HornRangeStatus, sounding_range_status
 from hornscribe.notation.tone_spelling import fifths_at_beat, is_diatonic
 from hornscribe.rhythm.issues import generate_review_issues
 from hornscribe.rhythm.meter import MeterMap, MeterSegment, UnsupportedMeterError
+from hornscribe.rhythm.profile import QuantizationProfile
 from hornscribe.rhythm.quantizer import quantize_events
 from hornscribe.rhythm.timewarp import (
     TimeWarp,
@@ -3476,6 +3477,7 @@ def _boundary_issues(
     beat_ql: Fraction,
     score_revision: ScoreRevisionId,
     time_offset_sec: float,
+    profile: QuantizationProfile,
 ) -> list[ReviewIssue]:
     """Audio-evidence second opinion on note edges (#423).
 
@@ -3519,6 +3521,16 @@ def _boundary_issues(
                 if n is None or n.deleted:
                     continue
                 split_beat = warp.seconds_to_ql(flag.boundary_sec) / beat_ql
+                # #339: validate + report the GRID-SNAPPED position, not
+                # the raw heard onset. splitNote snaps the suggestion
+                # to min_note_value_ql at apply time, so a flag whose
+                # raw point sits inside the note can still snap onto
+                # its edge and error on click -- which would break the
+                # 'only emit fixes that can apply' contract. boundarySec
+                # keeps the heard second, so nothing is lost.
+                grid = profile.min_note_value_ql
+                mid_ql = split_beat * beat_ql
+                split_beat = ((mid_ql + grid / 2) // grid) * grid / beat_ql
                 if not (n.start_beat < split_beat < n.end_beat):
                     continue
                 evidence["suggestedSplitBeat"] = str(split_beat)
@@ -4131,7 +4143,7 @@ def _chord_issues(
     # seg_beats is zipped 1:1 with chord_map upstream (#44) -- the
     # beat span names the document's chord symbol so the setChord
     # remedy can hit it (#335).
-    for est, (lo_b, _hi_b) in zip(chord_map, seg_beats):
+    for est, (lo_b, _hi_b) in zip(chord_map, seg_beats, strict=True):
         if est.confidence >= CHORD_LOW_CONFIDENCE and (est.margin >= CHORD_LOW_MARGIN):
             continue
         ids = tuple(nid for sec, nid in note_secs if est.start_sec <= sec < est.end_sec)[:6]
@@ -5861,6 +5873,7 @@ def run_transcription_job(
                 beat_ql,
                 score_revision,
                 selection_offset_sec,
+                profile,
             )
         )
         # #264: pitch suspects were detected pre-revision so the
