@@ -1931,10 +1931,11 @@ body {
 .hs-score-pages g.hs-loop .notehead use {
   fill: var(--hs-status-success);
 }
-/* Current-measure wash: subtle background under the active measure. */
-.hs-score-pages g.hs-measure-active {
-  fill: none;
-}
+/* Current-measure wash: subtle background under the active measure.
+   #347: no fill rule on the measure <g> itself — fill inherits, so
+   fill:none here stripped the tempo/direction <text> of its inherited
+   fill and left it invisible inside the active measure. A <g> never
+   paints on its own; only the wash rect needs a fill. */
 .hs-score-pages g.hs-measure-active > rect.hs-measure-wash {
   fill: var(--hs-score-current-measure);
 }
