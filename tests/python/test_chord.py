@@ -316,6 +316,12 @@ class TestChordIssues:
         part = Part(id="part-1", name="Horn in F", notes=notes)
         return _chord_issues(
             chord_map,
+            # #335: one canonical-beat span per estimate -- 4 beats
+            #  per 2 s segment at 120 bpm (beat_ql = 1).
+            tuple(
+                (Fraction(i * 4), Fraction((i + 1) * 4))
+                for i in range(len(chord_map))
+            ),
             tuple(n for p in (part,) for n in p.notes),
             TimeWarp.fixed_bpm(120.0),
             Fraction(1),
@@ -336,6 +342,9 @@ class TestChordIssues:
         assert issue.severity is Severity.INFO
         assert issue.evidence["suggestedChord"] == "C"
         assert issue.evidence["runnerUpChord"] == "F"
+        # #335: the setChord remedy targets the symbol by its span
+        #  start -- the evidence must carry the canonical beat.
+        assert issue.evidence["startBeat"] == "0"
         assert issue.canonical_note_ids == (
             ScoreNoteId("sn-000001"),
         )

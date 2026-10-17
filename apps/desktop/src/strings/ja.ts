@@ -666,6 +666,7 @@ export const ja = {
     meterChanged: "拍子を変更しました",
     // #358: user-corrected anacrusis via the properties pickup field.
     pickupChanged: "弱起を変更しました",
+    chordChanged: "コードを変更しました",
     keyChanged: "調を変更しました",
     keyChangeRemoved: "転調を削除しました",
     metadataChanged: "譜面情報を更新しました",
@@ -2172,6 +2173,8 @@ export const ja = {
     applyAlternative: "別の解釈に切り替え",
     /** #212: rewrite the flagged beat as triplets. */
     applyTriplet: "三連符に直す",
+    /** #335: chord_uncertain — adopt the runner-up harmony label. */
+    applyChordCandidate: (label: string) => `${label} に変更`,
     /** #261: the range issue's octave fix — direction comes from the
      *  pitch evidence (high → down, low → up); the copy makes the
      *  real-pitch change explicit. */
@@ -2188,6 +2191,8 @@ export const ja = {
       "プロパティパネルを開いて調を選び直します",
     applyPickupSuggestionTip:
       "推定された弱起を修正します（全ての小節線が直り、音符の長さは変わりません）",
+    applyChordCandidateTip:
+      "候補のコード名をこの区間に適用します（譜面のコード表記が変わります）",
     openPickupEditorTip:
       "プロパティパネルを開いて弱起を選び直します",
     /** #243: the buried-lead issue on a demucs-less install used to

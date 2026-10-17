@@ -113,6 +113,11 @@ class ScoreEdit:
     # #358: setPickup — the anacrusis length in canonical beats
     # (0 = no pickup; must be < beats_per_measure).
     pickup_beats: Fraction | None = None
+    # #335: setChord — the replacement chord label (e.g. "Fmaj7",
+    # "D7sus4/G"), parsed by transcription.chord.parse_chord_label.
+    # Document-level metadata edit like setMetadata: the payload
+    # (and revision) is untouched.
+    chord_label: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreEdit:
@@ -140,6 +145,7 @@ class ScoreEdit:
             "transposeRange",
             "setPickup",
             "collapseToMelody",
+            "setChord",
         ):
             raise ScoreEditError(
                 "edit.kind must be setDuration/shiftOnset/toggleTie/"
@@ -148,7 +154,7 @@ class ScoreEdit:
                 "tempoChangeAt/removeTempoChange/"
                 "scaleTempo/applyAlternative/applyTriplet/setMetadata/"
                 "transposeNote/transposeRange/setPickup/"
-                "collapseToMelody, "
+                "collapseToMelody/setChord, "
                 f"got {kind!r}"
             )
         note_id = data.get("noteId")
@@ -169,6 +175,7 @@ class ScoreEdit:
             "transposeRange",
             "setPickup",
             "collapseToMelody",
+            "setChord",
         ):
             note_id = note_id if isinstance(note_id, str) else ""
         elif not isinstance(note_id, str) or not note_id:
@@ -406,6 +413,20 @@ class ScoreEdit:
                 ) from exc
         if kind == "setPickup" and pickup_beats is None:
             raise ScoreEditError("setPickup requires pickupBeats")
+        chord_label_raw = data.get("chordLabel")
+        chord_label: str | None = None
+        if chord_label_raw is not None:
+            if not isinstance(chord_label_raw, str) or not chord_label_raw:
+                raise ScoreEditError(
+                    f"edit.chordLabel must be a non-empty string, "
+                    f"got {chord_label_raw!r}"
+                )
+            chord_label = chord_label_raw
+        if kind == "setChord":
+            if start_beat is None:
+                raise ScoreEditError("setChord requires startBeat")
+            if chord_label is None:
+                raise ScoreEditError("setChord requires chordLabel")
         return cls(
             kind=kind,
             note_id=ScoreNoteId(note_id),
@@ -427,6 +448,7 @@ class ScoreEdit:
             metadata=metadata,
             pickup_beats=pickup_beats,
             semitones=semitones,
+            chord_label=chord_label,
         )
 
 
@@ -2375,6 +2397,43 @@ def _edit_boundary_beat(
     )
 
 
+def _apply_set_chord(
+    document: ScoreDocument, start_beat: Fraction, label: str
+) -> ScoreDocument:
+    """Replace the chord symbol at ``start_beat`` (#335).
+
+    Chord symbols are document-level analysis metadata like
+    ``composer`` -- outside the payload, outside the revision, so this
+    mirrors ``setMetadata``: the written chord is exported as
+    ``<harmony>`` and the user attestation lands verbatim.
+    """
+    from hornscribe.transcription.chord import (  # noqa: PLC0415
+        parse_chord_label,
+    )
+    parsed = parse_chord_label(label)
+    if parsed is None:
+        raise ScoreEditError(f"unparseable chord label: {label!r}")
+    root_pc, quality, bass_pc = parsed
+    symbols = list(document.chord_symbols)
+    for i, sym in enumerate(symbols):
+        if sym.start_beat == start_beat:
+            symbols[i] = replace(
+                sym,
+                root_pc=root_pc,
+                quality=quality,
+                bass_pc=bass_pc,
+                label=label,
+                # A user-chosen label is attested, not estimated --
+                # the confidence fields stop claiming uncertainty.
+                confidence=1.0,
+                margin=1.0,
+            )
+            return replace(document, chord_symbols=tuple(symbols))
+    raise ScoreEditError(
+        f"no chord symbol at beat {start_beat}"
+    )
+
+
 def apply_score_edit(
     document: ScoreDocument,
     edit: ScoreEdit,
@@ -2486,6 +2545,16 @@ def apply_score_edit(
         if "arranger" in edit.metadata:
             updates["arranger"] = edit.metadata["arranger"] or None
         return replace(document, **updates)
+    if edit.kind == "setChord":
+        if edit.start_beat is None or edit.chord_label is None:
+            raise ScoreEditError(
+                "setChord requires startBeat and chordLabel"
+            )
+        # #335: document-level metadata like setMetadata -- the
+        # payload/revision are untouched.
+        return _apply_set_chord(
+            document, edit.start_beat, edit.chord_label
+        )
     if edit.kind == "transposeRange":
         if edit.semitones is None:
             raise ScoreEditError("transposeRange requires semitones")

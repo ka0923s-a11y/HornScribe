@@ -291,6 +291,46 @@ describe("buildReviewAction", () => {
     });
   });
 
+  it("#335 chord_uncertain: setChord op adopts the runner-up label", () => {
+    const applyEdit = vi.fn();
+    const h = handlers({ applyEdit });
+    const a = buildReviewAction(
+      issue({
+        reason: "chord_uncertain",
+        evidence: {
+          suggestedChord: "F",
+          runnerUpChord: "Fmaj7",
+          startBeat: "8/1",
+        },
+      }),
+      h,
+    );
+    expect(a?.label).toBe(ja.review.applyChordCandidate("Fmaj7"));
+    expect(a?.tooltip).toBe(ja.review.applyChordCandidateTip);
+    a?.run();
+    const [op] = applyEdit.mock.calls[0];
+    expect(op()).toEqual({
+      kind: "setChord",
+      noteId: "",
+      startBeat: "8/1",
+      chordLabel: "Fmaj7",
+    });
+  });
+
+  it("#335 chord_uncertain without a beat anchor shows no dead button", () => {
+    // Legacy issues predate the startBeat evidence -- there is no
+    //  symbol to aim the edit at, so the bar must not offer one.
+    const applyEdit = vi.fn();
+    const a = buildReviewAction(
+      issue({
+        reason: "chord_uncertain",
+        evidence: { suggestedChord: "F", runnerUpChord: "Fmaj7" },
+      }),
+      handlers({ applyEdit }),
+    );
+    expect(a).toBeNull();
+  });
+
   it("range issue: octave direction follows the pitch evidence", () => {
     const applyEdit = vi.fn();
     const h = handlers({ applyEdit });

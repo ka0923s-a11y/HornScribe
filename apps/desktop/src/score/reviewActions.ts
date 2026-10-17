@@ -438,6 +438,36 @@ export function buildReviewAction(
     }
   }
 
+  /* #335: chord_uncertain -- the estimator named a runner-up harmony
+   *  for the flagged span; the remedy rewrites the written chord
+   *  symbol in place via the engine's setChord op (document metadata,
+   *  so the score revision is stable). The startBeat evidence names
+   *  the symbol; without it (legacy issues) there is no safe target. */
+  if (
+    issue.reason === "chord_uncertain" &&
+    typeof issue.evidence["runnerUpChord"] === "string" &&
+    typeof issue.evidence["startBeat"] === "string" &&
+    handlers.applyEdit
+  ) {
+    const label = issue.evidence["runnerUpChord"] as string;
+    const startBeat = issue.evidence["startBeat"] as string;
+    return {
+      label: r.applyChordCandidate(label),
+      tooltip: r.applyChordCandidateTip,
+      run: () =>
+        handlers.applyEdit?.(
+          () => ({
+            kind: "setChord",
+            noteId: "",
+            startBeat,
+            chordLabel: label,
+          }),
+          ja.commandFeedback.chordChanged,
+          () => handlers.markFixed?.(issue.id),
+        ),
+    };
+  }
+
   return null;
 }
 
