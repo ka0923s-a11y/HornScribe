@@ -49,6 +49,17 @@ import type {
 } from "../capture/types";
 import { formatTimecode } from "../import/format";
 
+/** #349: every pitch view maps to its own command id — the old ternary
+ *  collapsed "bFlat" into "view.hornF", so the B♭ segment silently
+ *  re-selected F. commands.invoke still honours isEnabled, so a disabled
+ *  bFlat stays a no-op like before. Exported for the registry-pinned
+ *  regression test (commands/pitchViewCommands.test.ts). */
+export const PITCH_COMMAND: Record<PitchView, string> = {
+  concert: "view.concertPitch",
+  hornF: "view.hornF",
+  bFlat: "view.bFlat",
+};
+
 /** 録音経過の短い表示(0:00 形式)。 */
 function formatElapsed(seconds: number): string {
   return formatTimecode(seconds);
@@ -165,8 +176,7 @@ export function CommandBar({
     ? retranscribeId
     : transcribeId;
 
-  const onPitch = (v: PitchView) =>
-    commands.invoke(v === "concert" ? "view.concertPitch" : "view.hornF");
+  const onPitch = (v: PitchView) => commands.invoke(PITCH_COMMAND[v]);
 
   // EMPTY and the import error states (§3/§20) keep the command bar to
   // shell actions only — no score/audio commands without a live context.
