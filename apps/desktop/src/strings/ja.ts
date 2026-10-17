@@ -1770,6 +1770,13 @@ export const ja = {
      *  the user what was recovered and ask for a listen check. */
     stemAdmitted:
       "分離した主旋律の周波数成分と一致したため、見落とされていた候補から復元した音です。元の音源と聴き比べて確認してください",
+    /** #264: pitch fixes the engine already applied — the issue is
+     *  FIXED, so the detail must not ask the user to apply the remedy
+     *  again; it names the delta and the undo path instead. */
+    autoAppliedPitchFix: (semitones: number) =>
+      "検出音の周波数・周期解析から記譜ピッチの誤りが確認されたため、" +
+      (Math.abs(semitones) === 12 ? "1オクターブ" : "半音") +
+      "自動で修正しました。元に戻すには音符を選択してピッチを変更してください",
     swingFeel: (offbeats: number, swing: number) =>
       "裏拍の音 " +
       offbeats +

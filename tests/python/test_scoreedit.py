@@ -1049,6 +1049,25 @@ class TestRequantizeEvidence:
         # Real source ids — not positional placeholders.
         assert out.payload.parts[0].notes[1].source_event_ids
 
+    def test_pitch_corrections_replay(self) -> None:
+        # #264: a pipeline-convicted pitch fix persists on the evidence
+        # doc — a requantize replays the corrected pitch, not the raw
+        # tracker's octave/semitone slip.
+        doc = self._evidence_doc([_note(1, 72, "0", "4")])
+        evidence = dict(doc.raw_evidence)
+        evidence["pitchCorrections"] = {"rne-000001": 72}
+        doc = replace(doc, raw_evidence=evidence)
+        out = apply_score_edit(
+            doc,
+            _edit("requantize", "", settings={"minDurationQl": "1/8"}),
+        )
+        onsets = sorted(
+            (n.start_beat, n.pitch_midi)
+            for n in out.payload.parts[0].notes
+        )
+        assert len(onsets) == 3
+        assert onsets[0][1] == 72
+
     def test_polyphonic_part_requantizes_as_voices(self) -> None:
         # #218: a merged part's evidence holds simultaneous events —
         # requantize must re-split voices and re-merge them instead of

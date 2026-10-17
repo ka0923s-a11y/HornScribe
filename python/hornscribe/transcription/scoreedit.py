@@ -1470,6 +1470,22 @@ def _events_from_evidence(
             out.append([RawNoteEvent.from_dict(e) for e in events_raw])
     except (KeyError, TypeError, ValueError):
         return None
+    # #264: pipeline-convicted pitch corrections replay verbatim — the
+    # auto-fixed score survives a requantize instead of regressing to
+    # the raw tracker's octave/semitone slips.
+    corrections = raw.get("pitchCorrections")
+    if isinstance(corrections, dict) and corrections:
+        out = [
+            [
+                (
+                    replace(e, pitch_midi=float(corrections[str(e.id)]))
+                    if str(e.id) in corrections
+                    else e
+                )
+                for e in events
+            ]
+            for events in out
+        ]
     return out
 
 

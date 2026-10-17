@@ -39,7 +39,7 @@ import time
 import wave
 from array import array
 from collections.abc import Callable, Iterable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from itertools import pairwise
 from pathlib import Path
@@ -54,6 +54,7 @@ from hornscribe.domain.ids import (
 )
 from hornscribe.domain.review import (
     IssueIdAllocator,
+    IssueStatus,
     ReviewIssue,
     ReviewReason,
     Severity,
@@ -3602,19 +3603,126 @@ ARBITER_OCTAVE_MAX_ST = 13.5
 _CONTEXT_ARBITER_NEIGHBORS = 3
 
 
-def _octave_issues(
+@dataclass(frozen=True)
+class _PitchSuspect:
+    """One suspected/convicted written-pitch error on a canonical note.
+
+    ``auto`` marks conviction-grade evidence — the suspect is auto-
+    corrected on the monophonic lead staff (where an octave-doubled or
+    harmonically-real alternative cannot hide inside a single line) and
+    then reported as a FIXED issue; everywhere else it stays an OPEN
+    review flag with the same evidence (#264).
+    """
+
+    note_id: ScoreNoteId
+    pitch_midi: int
+    suggested_midi: int
+    # "lowOctave" | "arbiter" | "context" | "semitoneDip"
+    detector: str
+    time_range: TimeRange
+    evidence: dict[str, Any]
+    auto: bool
+
+
+_SUSPECT_REASON = {
+    "lowOctave": ReviewReason.OCTAVE_UNCERTAIN,
+    "arbiter": ReviewReason.OCTAVE_UNCERTAIN,
+    "context": ReviewReason.OCTAVE_UNCERTAIN,
+    "semitoneDip": ReviewReason.PITCH_UNCERTAIN,
+}
+
+
+def _pitch_suspect_issues(
+    suspects: Iterable[_PitchSuspect],
+    applied: frozenset[ScoreNoteId],
+    score_revision: ScoreRevisionId,
+) -> list[ReviewIssue]:
+    """Format detected pitch suspects as review issues.
+
+    A suspect whose fix the score already carries is emitted FIXED —
+    the record stays discoverable in the navigator (and reversible via
+    a manual transpose) but offers no remedy that would double-apply.
+    """
+    issues = [
+        ReviewIssue(
+            id="",
+            score_revision=score_revision,
+            canonical_note_ids=(s.note_id,),
+            time_range=s.time_range,
+            reason=_SUSPECT_REASON[s.detector],
+            severity=Severity.CAUTION,
+            evidence=(
+                {**s.evidence, "autoApplied": True}
+                if s.note_id in applied
+                else dict(s.evidence)
+            ),
+            status=(
+                IssueStatus.FIXED if s.note_id in applied else IssueStatus.OPEN
+            ),
+        )
+        for s in suspects
+    ]
+    issues.sort(key=lambda i: i.time_range.start_sec)
+    return issues[:MAX_BOUNDARY_ISSUES]
+
+
+def _auto_pitch_fixes(
+    suspects: Iterable[_PitchSuspect],
+    parts: tuple[Any, ...],
+    *,
+    allow_auto: bool,
+) -> dict[ScoreNoteId, int]:
+    """note -> corrected pitch for conviction-grade suspects (#264).
+
+    Auto-apply is scoped to notes on transposing (melody) staves: on a
+    monophonic lead the suspect's spectral + independent evidence is a
+    tracker error, while on the accompaniment staff or the merged
+    ``chords`` texture an octave-doubled or harmonically-real pitch is
+    indistinguishable — those keep the flag-only treatment.
+    """
+    if not allow_auto:
+        return {}
+    lead_ids = {n.id for p in parts if p.transposing for n in p.notes}
+    fixes: dict[ScoreNoteId, int] = {}
+    for s in suspects:
+        if s.auto and s.note_id in lead_ids and s.note_id not in fixes:
+            fixes[s.note_id] = int(s.suggested_midi)
+    return fixes
+
+
+def _pitch_fixed_payload(
+    payload: Any, fixes: dict[ScoreNoteId, int]
+) -> Any:
+    """Payload with convicted note pitches rewritten in place."""
+    return replace(
+        payload,
+        parts=tuple(
+            replace(
+                part,
+                notes=tuple(
+                    replace(n, pitch_midi=fixes[n.id])
+                    if n.id in fixes
+                    else n
+                    for n in part.notes
+                ),
+            )
+            for part in payload.parts
+        ),
+    )
+
+
+def _octave_suspects(
     samples: Any,
     sample_rate: int,
     warp: Any,
     beat_ql: Fraction,
     cleaneds: tuple[CleanedEvents, ...],
     parts: tuple[Any, ...],
-    score_revision: ScoreRevisionId,
     time_offset_sec: float,
     arbiter_events: tuple[RawNoteEvent, ...] = (),
     arbiter_backend: str = "",
-) -> list[ReviewIssue]:
-    """Low-octave audit (#264) — flag-only second opinion on pitch.
+) -> list[_PitchSuspect]:
+    """Low-octave audit (#264) — second-opinion pitch suspects.
 
     A tracker that locks onto the 2nd harmonic writes the note an
     octave too high. Two independent readings must agree before a
@@ -3642,10 +3750,14 @@ def _octave_issues(
     never measured there. Octave truth on the accompaniment stem is
     a different, polyphonic-instrument question (#264).
 
-    Flag-only by design: an octave-doubled backing voice is
-    spectrally indistinguishable from a tracking error, so the score
-    keeps the detected pitch and the issue carries the suggested
-    -12 fix the review bar can apply after the user listens.
+    Every suspect here already carries conviction-grade evidence (the
+    periodicity conviction, an arbiter disagreement, or a context
+    outlier — each gated by the note's own spectrum), so ``auto=True``
+    marks them all: on the monophonic lead staff an octave-doubled
+    second voice cannot hide inside the line, and the caller auto-
+    applies + reports them FIXED. The accompaniment staff and the
+    merged ``chords`` texture still keep the flag-only treatment —
+    there a real doubled voice is indistinguishable from the error.
 
     Deleted notes are skipped — the score no longer carries that
     pitch.
@@ -3653,7 +3765,7 @@ def _octave_issues(
     audited_events: set[RawNoteEventId] = {
         ev.id for c in cleaneds for ev in c.events
     }
-    issues: list[ReviewIssue] = []
+    suspects: list[_PitchSuspect] = []
     flagged: set[ScoreNoteId] = set()
     for part in parts:
         for n in part.notes:
@@ -3674,14 +3786,13 @@ def _octave_issues(
             if not low_octave_suspected(evidence):
                 continue
             flagged.add(n.id)
-            issues.append(
-                ReviewIssue(
-                    id="",
-                    score_revision=score_revision,
-                    canonical_note_ids=(n.id,),
+            suspects.append(
+                _PitchSuspect(
+                    note_id=n.id,
+                    pitch_midi=int(n.pitch_midi),
+                    suggested_midi=int(n.pitch_midi) - 12,
+                    detector="lowOctave",
                     time_range=TimeRange(start_sec=lo_sec, end_sec=hi_sec),
-                    reason=ReviewReason.OCTAVE_UNCERTAIN,
-                    severity=Severity.CAUTION,
                     evidence={
                         "pitchMidi": int(n.pitch_midi),
                         "suggestedMidi": int(n.pitch_midi) - 12,
@@ -3690,6 +3801,7 @@ def _octave_issues(
                         "lowPeriodScore": round(evidence.low_period_score, 3),
                         "highPeriodScore": round(evidence.high_period_score, 3),
                     },
+                    auto=True,
                 )
             )
     # #80: second-track arbitration — the lead gate's losing engine is
@@ -3730,14 +3842,13 @@ def _octave_issues(
                     time_offset_sec=time_offset_sec,
                 ):
                     continue  # spectrum keeps the written pitch
-                issues.append(
-                    ReviewIssue(
-                        id="",
-                        score_revision=score_revision,
-                        canonical_note_ids=(n.id,),
+                suspects.append(
+                    _PitchSuspect(
+                        note_id=n.id,
+                        pitch_midi=int(n.pitch_midi),
+                        suggested_midi=suggested,
+                        detector="arbiter",
                         time_range=TimeRange(start_sec=lo_sec, end_sec=hi_sec),
-                        reason=ReviewReason.OCTAVE_UNCERTAIN,
-                        severity=Severity.CAUTION,
                         evidence={
                             "pitchMidi": int(n.pitch_midi),
                             "suggestedMidi": suggested,
@@ -3746,6 +3857,7 @@ def _octave_issues(
                             "arbiterMidi": round(median, 1),
                             "arbiterBackend": arbiter_backend or None,
                         },
+                        auto=True,
                     ),
                 )
     # #103: melodic-context arbitration — a second opinion that costs
@@ -3806,14 +3918,13 @@ def _octave_issues(
             ):
                 continue  # a real leap — the spectrum stands by the jump
             flagged.add(n.id)
-            issues.append(
-                ReviewIssue(
-                    id="",
-                    score_revision=score_revision,
-                    canonical_note_ids=(n.id,),
+            suspects.append(
+                _PitchSuspect(
+                    note_id=n.id,
+                    pitch_midi=int(n.pitch_midi),
+                    suggested_midi=suggested,
+                    detector="context",
                     time_range=TimeRange(start_sec=lo_sec, end_sec=hi_sec),
-                    reason=ReviewReason.OCTAVE_UNCERTAIN,
-                    severity=Severity.CAUTION,
                     evidence={
                         "pitchMidi": int(n.pitch_midi),
                         "suggestedMidi": suggested,
@@ -3822,23 +3933,53 @@ def _octave_issues(
                         "contextMedian": round(median, 1),
                         "contextNoteCount": len(ctx),
                     },
+                    auto=True,
                 ),
             )
-    issues.sort(key=lambda i: i.time_range.start_sec)
-    return issues[:MAX_BOUNDARY_ISSUES]
+    suspects.sort(key=lambda s: s.time_range.start_sec)
+    return suspects[:MAX_BOUNDARY_ISSUES]
 
 
-def _pitch_dip_issues(
+def _octave_issues(
+    samples: Any,
+    sample_rate: int,
+    warp: Any,
+    beat_ql: Fraction,
+    cleaneds: tuple[CleanedEvents, ...],
+    parts: tuple[Any, ...],
+    score_revision: ScoreRevisionId,
+    time_offset_sec: float,
+    arbiter_events: tuple[RawNoteEvent, ...] = (),
+    arbiter_backend: str = "",
+) -> list[ReviewIssue]:
+    """All-open octave flags — the callers that do not auto-apply."""
+    return _pitch_suspect_issues(
+        _octave_suspects(
+            samples,
+            sample_rate,
+            warp,
+            beat_ql,
+            cleaneds,
+            parts,
+            time_offset_sec,
+            arbiter_events=arbiter_events,
+            arbiter_backend=arbiter_backend,
+        ),
+        frozenset(),
+        score_revision,
+    )
+
+
+def _pitch_dip_suspects(
     samples: Any,
     sample_rate: int,
     cleaneds: tuple[CleanedEvents, ...],
     parts: tuple[Any, ...],
     head_fifths: int,
     key_changes: tuple[KeyChange, ...],
-    score_revision: ScoreRevisionId,
     time_offset_sec: float,
-) -> list[ReviewIssue]:
-    """Isolated semitone dips (#264) — flag-only second opinion.
+) -> list[_PitchSuspect]:
+    """Isolated semitone dips (#264) — second-opinion pitch suspects.
 
     A sub-280 ms note exactly one semitone off a diatonic neighbour,
     chromatic under the local key while the line around it stays
@@ -3849,16 +3990,17 @@ def _pitch_dip_issues(
     note's own spectrum arbitrates (suggested band dominant = the
     dip is audio-verified).
 
-    Flag-only: chromatic passing tones do exist, so the score keeps
-    the detected pitch and the issue offers the semitone fix after
-    the user listens.
+    The spectrum-confirmed dips (``spectralSupport`` true) are
+    audio-verified bin-snaps — ``auto=True`` lets the lead-staff
+    caller correct them and report FIXED; unconfirmed dips stay
+    flag-only because deliberate chromatic passing tones do exist.
     """
     canon_by_event: dict[RawNoteEventId, QuantizedNote] = {}
     for part in parts:
         for n in part.notes:
             for e in n.source_event_ids:
                 canon_by_event.setdefault(e, n)
-    issues: list[ReviewIssue] = []
+    suspects: list[_PitchSuspect] = []
     seen: set[ScoreNoteId] = set()
     for c in cleaneds:
         events = c.events
@@ -3904,16 +4046,15 @@ def _pitch_dip_issues(
                     time_offset_sec=time_offset_sec,
                 )
             seen.add(n.id)
-            issues.append(
-                ReviewIssue(
-                    id="",
-                    score_revision=score_revision,
-                    canonical_note_ids=(n.id,),
+            suspects.append(
+                _PitchSuspect(
+                    note_id=n.id,
+                    pitch_midi=pitch,
+                    suggested_midi=suggested,
+                    detector="semitoneDip",
                     time_range=TimeRange(
                         start_sec=ev.onset_sec, end_sec=ev.offset_sec
                     ),
-                    reason=ReviewReason.PITCH_UNCERTAIN,
-                    severity=Severity.CAUTION,
                     evidence={
                         "pitchMidi": pitch,
                         "suggestedMidi": suggested,
@@ -3925,10 +4066,40 @@ def _pitch_dip_issues(
                             else {}
                         ),
                     },
+                    # Only an audio-verified dip is conviction-grade —
+                    # a short chromatic passing tone the spectrum
+                    # cannot read stays a flag.
+                    auto=spectral is True,
                 )
             )
-    issues.sort(key=lambda i: i.time_range.start_sec)
-    return issues[:MAX_BOUNDARY_ISSUES]
+    suspects.sort(key=lambda s: s.time_range.start_sec)
+    return suspects[:MAX_BOUNDARY_ISSUES]
+
+
+def _pitch_dip_issues(
+    samples: Any,
+    sample_rate: int,
+    cleaneds: tuple[CleanedEvents, ...],
+    parts: tuple[Any, ...],
+    head_fifths: int,
+    key_changes: tuple[KeyChange, ...],
+    score_revision: ScoreRevisionId,
+    time_offset_sec: float,
+) -> list[ReviewIssue]:
+    """All-open semitone-dip flags — the callers that do not auto-apply."""
+    return _pitch_suspect_issues(
+        _pitch_dip_suspects(
+            samples,
+            sample_rate,
+            cleaneds,
+            parts,
+            head_fifths,
+            key_changes,
+            time_offset_sec,
+        ),
+        frozenset(),
+        score_revision,
+    )
 
 
 def _chord_issues(
@@ -5500,13 +5671,14 @@ def run_transcription_job(
                     key=lambda e: (e.onset_sec, e.pitch_midi, str(e.id)),
                 )
             )
+        raw_evidence_doc: dict[str, Any] = {
+            "transcriptionRevision": str(revision),
+            "warp": _warp_evidence(estimate.warp),
+            "parts": [{"events": [e.to_dict() for e in evs]} for evs in evidence_parts],
+        }
         document = replace(
             built.document,
-            raw_evidence={
-                "transcriptionRevision": str(revision),
-                "warp": _warp_evidence(estimate.warp),
-                "parts": [{"events": [e.to_dict() for e in evs]} for evs in evidence_parts],
-            },
+            raw_evidence=raw_evidence_doc,
             # #44: the chord map rides along as document-level
             # analysis - MusicXML export renders it as <harmony>.
             chord_symbols=chord_symbols,
@@ -5514,6 +5686,73 @@ def run_transcription_job(
         build_done += 1
         step(5, build_done, build_total)
         payload = built.payload
+        # #264: pitch-error convictions land BEFORE the revision id is
+        # minted — the corrected score is the shipped score, and each
+        # applied fix is still reported as a FIXED review issue (with
+        # pitchCorrections persisted on the evidence so a requantize
+        # replay reproduces the same pitches). Suspect detection itself
+        # is unchanged: the spectral audits already convict; only the
+        # score-keeping decision moved.
+        pitch_suspects = (
+            *_octave_suspects(
+                *(
+                    lead_evidence
+                    if lead_evidence is not None
+                    else (samples, sample_rate)
+                ),
+                estimate.warp,
+                beat_ql,
+                (cleaned, *cleaned_lowers),
+                payload.parts,
+                selection_offset_sec,
+                arbiter_events=arbiter_events,
+                arbiter_backend=arbiter_backend,
+            ),
+            *_pitch_dip_suspects(
+                *(
+                    lead_evidence
+                    if lead_evidence is not None
+                    else (samples, sample_rate)
+                ),
+                (cleaned, *cleaned_lowers),
+                payload.parts,
+                payload.key_signature.fifths,
+                payload.key_changes,
+                selection_offset_sec,
+            ),
+        )
+        # A note the octave audit already suspects cannot also be a
+        # semitone dip — the dip flag would describe a stale pitch.
+        _octave_ids = {
+            s.note_id for s in pitch_suspects if s.detector != "semitoneDip"
+        }
+        pitch_suspects = tuple(
+            s
+            for s in pitch_suspects
+            if s.detector != "semitoneDip" or s.note_id not in _octave_ids
+        )
+        auto_fixes = _auto_pitch_fixes(
+            pitch_suspects,
+            payload.parts,
+            # The merged-voices chords texture keeps every suspect
+            # flag-only — its simultaneous notes make a real doubled
+            # voice indistinguishable from a tracking error.
+            allow_auto=params.texture != "chords",
+        )
+        if auto_fixes:
+            payload = _pitch_fixed_payload(payload, auto_fixes)
+            note_by_id = {
+                n.id: n for part in built.payload.parts for n in part.notes
+            }
+            raw_evidence_doc["pitchCorrections"] = {
+                str(eid): fixes_midi
+                for nid, fixes_midi in auto_fixes.items()
+                for eid in note_by_id[nid].source_event_ids
+            }
+            document = replace(
+                document, payload=payload, raw_evidence=raw_evidence_doc
+            )
+            built = replace(built, payload=payload, document=document)
         score_revision = payload.revision_id()
 
         # Review issues: quantizer reasons + confidence/range/length.
@@ -5617,45 +5856,22 @@ def run_transcription_job(
                 selection_offset_sec,
             )
         )
-        # #264: low-octave audit — the same detected-on stem evidence.
-        # A tracker that locked onto the 2nd harmonic left the note an
-        # octave too high; the spectrum proves it (real fundamental +
-        # odd harmonic at -12), but octave doubling is identical so the
-        # score keeps the pitch and the flag carries the -12 remedy.
+        # #264: pitch suspects were detected pre-revision so the
+        # convicted ones already ship corrected; emit them as FIXED
+        # issues, the rest stay OPEN with the same evidence.
+        applied_ids = frozenset(auto_fixes)
         issues.extend(
-            _octave_issues(
-                *(
-                    lead_evidence
-                    if lead_evidence is not None
-                    else (samples, sample_rate)
-                ),
-                estimate.warp,
-                beat_ql,
-                (cleaned, *cleaned_lowers),
-                built.payload.parts,
+            _pitch_suspect_issues(
+                (s for s in pitch_suspects if s.detector != "semitoneDip"),
+                applied_ids,
                 score_revision,
-                selection_offset_sec,
-                arbiter_events=arbiter_events,
-                arbiter_backend=arbiter_backend,
             )
         )
-        # #264: isolated semitone dips — a short chromatic note one
-        # semitone off a diatonic neighbour, inside a diatonic line,
-        # is a tracker bin-snap until proven sung. Same detected-on
-        # stem buffer arbitrates when the span allows a reading.
         issues.extend(
-            _pitch_dip_issues(
-                *(
-                    lead_evidence
-                    if lead_evidence is not None
-                    else (samples, sample_rate)
-                ),
-                (cleaned, *cleaned_lowers),
-                built.payload.parts,
-                payload.key_signature.fifths,
-                payload.key_changes,
+            _pitch_suspect_issues(
+                (s for s in pitch_suspects if s.detector == "semitoneDip"),
+                applied_ids,
                 score_revision,
-                selection_offset_sec,
             )
         )
         # #419: chord segments whose chroma the estimator cannot

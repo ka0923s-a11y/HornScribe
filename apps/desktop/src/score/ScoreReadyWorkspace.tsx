@@ -257,6 +257,21 @@ function inspectorCopy(): InspectorCopy {
       // uses the same fallback policy).
       reasonTitle: (r) => (REASON_DECK[r] ?? ja.reviewReasons.other).title,
       reasonDetail: (issue: ScoreReviewIssue) => {
+        /* #264: an auto-applied pitch fix is already on the score —
+         *  the generic 'listen and fix' copy would ask the user to
+         *  re-apply a change that already shipped. */
+        if (
+          issue.status === "fixed" &&
+          issue.evidence["autoApplied"] === true
+        ) {
+          const detected = numEvidence(issue, "pitchMidi");
+          const corrected = numEvidence(issue, "suggestedMidi");
+          if (detected != null && corrected != null) {
+            return ja.reviewEvidence.autoAppliedPitchFix(
+              corrected - detected,
+            );
+          }
+        }
         // #85 voices texture: surface the split counts the engine put in
         // evidence — "kept N notes as a second voice, dropped M beyond
         // two voices" — instead of the generic overlap copy.

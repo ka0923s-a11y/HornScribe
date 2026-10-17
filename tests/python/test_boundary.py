@@ -22,8 +22,20 @@ from hornscribe.domain.ids import (
     ScoreRevisionId,
     TranscriptionRevisionId,
 )
-from hornscribe.domain.review import ReviewReason, Severity
-from hornscribe.domain.score import Part, QuantizedNote
+from hornscribe.domain.review import (
+    IssueStatus,
+    ReviewReason,
+    Severity,
+    TimeRange,
+)
+from hornscribe.domain.score import (
+    KeySignature,
+    Part,
+    QuantizedNote,
+    ScoreRevisionPayload,
+    TempoSegment,
+    TimeSignature,
+)
 from hornscribe.rhythm.timewarp import TimeWarp
 from hornscribe.transcription.boundary import (
     boundary_flags,
@@ -35,9 +47,13 @@ from hornscribe.transcription.boundary import (
 )
 from hornscribe.transcription.clean import CleanedEvents
 from hornscribe.transcription.pipeline import (
+    _auto_pitch_fixes,
     _boundary_issues,
     _octave_issues,
     _pitch_dip_issues,
+    _pitch_fixed_payload,
+    _pitch_suspect_issues,
+    _PitchSuspect,
 )
 
 _SR = 22050
@@ -1026,3 +1042,99 @@ class TestPitchDipAudit:
             _ev(3, 61, 0.5, 0.9),
         )
         assert self._issues((a, b, c), _note(1, 54, "1", "1", (b.id,))) == []
+
+
+class TestAutoPitchCorrections:
+    """#264: conviction-grade suspects auto-apply on the monophonic
+    lead staff and report FIXED — everything else stays an open flag.
+    """
+
+    def _suspect(
+        self,
+        note: QuantizedNote,
+        *,
+        detector: str = "arbiter",
+        auto: bool = True,
+        suggested: int | None = None,
+    ) -> _PitchSuspect:
+        tgt = note.pitch_midi + 12 if suggested is None else suggested
+        return _PitchSuspect(
+            note_id=note.id,
+            pitch_midi=note.pitch_midi,
+            suggested_midi=tgt,
+            detector=detector,
+            time_range=TimeRange(0.0, 1.0),
+            evidence={"pitchMidi": note.pitch_midi, "suggestedMidi": tgt},
+            auto=auto,
+        )
+
+    def test_auto_suspect_fixes_lead_note(self) -> None:
+        n = _note(1, 64, "0", "1", ())
+        parts = (Part(id="p1", name="Horn in F", notes=(n,)),)
+        assert _auto_pitch_fixes([self._suspect(n)], parts, allow_auto=True) == {
+            n.id: 76,
+        }
+
+    def test_chords_texture_disables_auto(self) -> None:
+        n = _note(1, 64, "0", "1", ())
+        parts = (Part(id="p1", name="Horn in F", notes=(n,)),)
+        assert (
+            _auto_pitch_fixes([self._suspect(n)], parts, allow_auto=False)
+            == {}
+        )
+
+    def test_accompaniment_part_stays_flag_only(self) -> None:
+        n = _note(1, 64, "0", "1", ())
+        parts = (
+            Part(id="p1", name="accomp", notes=(n,), transposing=False),
+        )
+        assert (
+            _auto_pitch_fixes([self._suspect(n)], parts, allow_auto=True)
+            == {}
+        )
+
+    def test_unconfirmed_dip_stays_flag_only(self) -> None:
+        n = _note(1, 53, "0", "1", ())
+        s = self._suspect(
+            n, detector="semitoneDip", auto=False, suggested=54
+        )
+        parts = (Part(id="p1", name="Horn in F", notes=(n,)),)
+        assert _auto_pitch_fixes([s], parts, allow_auto=True) == {}
+
+    def test_fixed_issue_reports_auto_applied(self) -> None:
+        n = _note(1, 64, "0", "1", ())
+        issues = _pitch_suspect_issues(
+            [self._suspect(n)],
+            frozenset({n.id}),
+            ScoreRevisionId("rev-test"),
+        )
+        assert issues[0].status is IssueStatus.FIXED
+        assert issues[0].evidence["autoApplied"] is True
+        assert issues[0].reason is ReviewReason.OCTAVE_UNCERTAIN
+        assert issues[0].canonical_note_ids == (n.id,)
+
+    def test_open_issue_keeps_no_auto_marker(self) -> None:
+        n = _note(1, 64, "0", "1", ())
+        issues = _pitch_suspect_issues(
+            [self._suspect(n)],
+            frozenset(),
+            ScoreRevisionId("rev-test"),
+        )
+        assert issues[0].status is IssueStatus.OPEN
+        assert "autoApplied" not in issues[0].evidence
+
+    def test_payload_rewrite_changes_revision(self) -> None:
+        n = _note(1, 64, "0", "1", ())
+        payload = ScoreRevisionPayload(
+            tempo_map=(TempoSegment(Fraction(0), 120.0),),
+            time_signature=TimeSignature(4, 4),
+            key_signature=KeySignature(2),
+            pickup_beats=Fraction(0),
+            parts=(Part(id="p1", name="Horn in F", notes=(n,)),),
+            quantization_settings={},
+        )
+        fixed = _pitch_fixed_payload(payload, {n.id: 76})
+        assert fixed.parts[0].notes[0].pitch_midi == 76
+        # Content-derived revision ids must move with the fix — an
+        # issue from the pre-fix revision must not look current.
+        assert fixed.revision_id() != payload.revision_id()

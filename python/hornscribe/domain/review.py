@@ -103,18 +103,22 @@ class ReviewReason(Enum):
     # #264: the note's own spectrum suggests it sits an octave too
     # high — energy at the -12 fundamental AND at its odd harmonic
     # (1.5x the written pitch) that no harmonic of the written pitch
-    # explains. Flag-only: a real octave doubling is spectrally
-    # identical, so the score keeps the detected pitch and the
-    # one-click remedy is transposeNote -12 after listening.
+    # explains. On the monophonic lead staff a convicted suspect is
+    # auto-corrected and reported FIXED (autoApplied in evidence); on
+    # the accompaniment staff / chords texture an octave doubling is
+    # spectrally identical, so those stay OPEN flags whose one-click
+    # remedy is transposeNote ±12 after listening.
     # Evidence carries detected pitchMidi, suggestedMidi, and the
-    # two band ratios.
+    # detector's readings (band ratios / arbiter or context median).
     OCTAVE_UNCERTAIN = "octave_uncertain"
     # #264: an isolated sub-280ms note one semitone off a diatonic
     # neighbour, chromatic under the local key while the surrounding
     # line is diatonic — a tracker bin-snap more often than a sung
-    # semitone. Evidence carries detected pitchMidi, the diatonic
-    # suggestedMidi, and spectral support when the span allowed a
-    # reading. Remedy: transposeNote by the suggested delta.
+    # semitone. A spectrum-confirmed dip on the lead staff is auto-
+    # corrected (FIXED); unconfirmed dips stay OPEN. Evidence carries
+    # detected pitchMidi, the diatonic suggestedMidi, and spectral
+    # support when the span allowed a reading. Remedy: transposeNote
+    # by the suggested delta.
     PITCH_UNCERTAIN = "pitch_uncertain"
 
 
