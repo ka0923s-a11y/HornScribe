@@ -1802,6 +1802,10 @@ export default function App() {
    * guard. 保存して閉じる exits only on a real write. */
   const confirmCloseDiscard = useCallback(() => {
     setPendingClose(null);
+    /* #351: deliberate discard also retires the recovery snapshot —
+     * otherwise the next launch re-offers to restore the exact work the
+     * user just threw away. clear is idempotent (no snapshot = no-op). */
+    void invoke("project_autosave_clear").catch(() => undefined);
     requestAppExit();
   }, []);
   const confirmCloseSave = useCallback(() => {
@@ -1852,6 +1856,9 @@ export default function App() {
    * recording. */
   const confirmCloseDiscardAll = useCallback(() => {
     setPendingClose(null);
+    // #351: same discard-close contract — the take and the snapshot go
+    // together; a zombie recovery prompt must not outlive them.
+    void invoke("project_autosave_clear").catch(() => undefined);
     void capture.cancel().catch(() => undefined);
     requestAppExit();
   }, [capture]);
