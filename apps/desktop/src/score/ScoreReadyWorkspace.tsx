@@ -511,7 +511,7 @@ function inspectorCopy(): InspectorCopy {
     pickup: (label) =>
       label == null ? ja.inspector.pickupNone : ja.inspector.pickupLabel(label),
     // #80-4: meter-provenance hint under the meter row.
-    meterEstimate: (uncertain) => ja.inspector.meterEstimate(uncertain),
+    meterEstimate: (kind) => ja.inspector.meterEstimate(kind),
   };
 }
 

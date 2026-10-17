@@ -1511,8 +1511,15 @@ export const ja = {
      *  the 要確認 marker when its margin sat below the engine's own
      *  uncertain threshold (a meter_conflict issue flags the same
      *  span, so the two signals agree). */
-    meterEstimate: (uncertain: boolean) =>
-      uncertain ? "自動推定（確度が低いため要確認）" : "自動推定",
+    meterEstimate: (kind: "estimated" | "uncertain" | "undecidable") =>
+      // #264-4: a refusal is not a low-confidence estimate -- the
+      //  engine named NO candidate, so the written 4/4 is a bare
+      //  fallback, and the hint says so instead of '要確認'.
+      kind === "undecidable"
+        ? "拍子を確定できませんでした（4/4 として記譜）"
+        : kind === "uncertain"
+          ? "自動推定（確度が低いため要確認）"
+          : "自動推定",
     /** #145: key-map editor — one row per detected boundary plus an
      *  "add" row; the head row edits the piece key without collapsing
      *  the map (keyChangeAt at beat 0). */

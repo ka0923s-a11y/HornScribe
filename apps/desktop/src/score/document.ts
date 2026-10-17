@@ -73,6 +73,13 @@ export interface ScoreDocumentMeta {
    *  meter is a 4/4 fallback the review list also flags — the UI reads
    *  "確定不能" (0) vs "推定したが確度低" apart only through this. */
   readonly meterConfidence?: number;
+  /* #264-4: the label the auto-estimator actually picked (e.g.
+  *  "2/4"), or null when it REFUSED — no candidate survived and the
+  *  written signature is the bare 4/4 fallback. "Low-confidence
+  *  estimate" and "undecidable" are different states the inspector
+  *  must not collapse. Absent on legacy results: fall back to the
+  *  confidence threshold. Meaningful only when meterEstimated. */
+  readonly meterEstimatedLabel?: string | null;
 }
 
 export interface ScoreDocumentPort {

@@ -6376,6 +6376,13 @@ def run_transcription_job(
                     "meter": f"{meter.numerator}/{meter.denominator}",
                     "meterEstimated": meter_estimated,
                     "meterConfidence": round(meter_confidence, 3),
+                    # #264-4: null = the auto estimate REFUSED (the
+                    # written signature is the 4/4 fallback, not a
+                    # rejected candidate) -- the inspector must not
+                    # call that "low-confidence estimate". Absent on
+                    # legacy results; null also when the meter was
+                    # pinned (meterEstimated is then False anyway).
+                    "meterEstimatedLabel": meter_est_label,
                     "keyFifths": key.fifths,
                     "keyMode": key.mode,
                     "keyConfidence": round(key_confidence, 3),

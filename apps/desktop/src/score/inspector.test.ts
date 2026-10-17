@@ -30,8 +30,12 @@ const copy: InspectorCopy = {
   openIssues: (n) => `${n} 件`,
   key: (fifths, mode) => keyLabelJa(fifths, mode),
   pickup: (l) => (l == null ? "弱起なし" : `弱起${l}拍`),
-  meterEstimate: (uncertain) =>
-    uncertain ? "自動推定（要確認）" : "自動推定",
+  meterEstimate: (kind) =>
+    kind === "undecidable"
+      ? "拍子を確定できませんでした"
+      : kind === "uncertain"
+        ? "自動推定（要確認）"
+        : "自動推定",
 };
 
 const note = (over: Partial<ParsedNote>): ParsedNote => ({
@@ -121,6 +125,33 @@ tempoChanges: [],
         copy,
       ).meterEstimateLabel,
     ).toBeNull();
+    // #264-4: estimator refusal (label null) is "undecidable", not
+    //  "low-confidence" -- same confidence 0.0, different wording.
+    expect(
+      buildScoreInspector(
+        {
+          ...base,
+          meterEstimated: true,
+          meterConfidence: 0.0,
+          meterEstimatedLabel: null,
+        },
+        0,
+        copy,
+      ).meterEstimateLabel,
+    ).toBe("拍子を確定できませんでした");
+    // A rejected candidate still flows through the confidence wording.
+    expect(
+      buildScoreInspector(
+        {
+          ...base,
+          meterEstimated: true,
+          meterConfidence: 0.0,
+          meterEstimatedLabel: "2/4",
+        },
+        0,
+        copy,
+      ).meterEstimateLabel,
+    ).toBe("自動推定（要確認）");
   });
 
   it("shows key transitions when the piece modulates (#146)", () => {

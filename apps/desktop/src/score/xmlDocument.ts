@@ -45,6 +45,9 @@ export interface XmlScoreDocumentSources {
    *  meta.meterEstimated / meta.meterConfidence. */
   readonly meterEstimated?: boolean;
   readonly meterConfidence?: number;
+  /* #264-4: null = the estimator refused (bare 4/4 fallback, not a
+  *  rejected candidate) -- distinct from a low-confidence estimate. */
+  readonly meterEstimatedLabel?: string | null;
 }
 
 export class XmlScoreDocument implements ScoreDocumentPort {
@@ -123,6 +126,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       //  no provenance — fixture/foreign docs say nothing).
       meterEstimated: src.meterEstimated,
       meterConfidence: src.meterConfidence,
+      meterEstimatedLabel: src.meterEstimatedLabel,
     };
   }
 
@@ -410,6 +414,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
     const prevMeter = this._meta.meter;
     const prevEstimated = this._meta.meterEstimated;
     const prevConfidence = this._meta.meterConfidence;
+    const prevEstLabel = this._meta.meterEstimatedLabel;
     this._meta = XmlScoreDocument.computeMeta(next.concertXml);
     this._meta = {
       ...this._meta,
@@ -423,6 +428,8 @@ export class XmlScoreDocument implements ScoreDocumentPort {
         this._meta.meter === prevMeter ? prevEstimated : undefined,
       meterConfidence:
         this._meta.meter === prevMeter ? prevConfidence : undefined,
+      meterEstimatedLabel:
+        this._meta.meter === prevMeter ? prevEstLabel : undefined,
     };
     this.editCounter += 1;
   }
@@ -559,6 +566,7 @@ export interface EngineScoreDocumentInput {
   //  flag plus the estimator's margin.
   readonly meterEstimated?: boolean;
   readonly meterConfidence?: number;
+  readonly meterEstimatedLabel?: string | null;
 }
 
 /**
@@ -582,6 +590,7 @@ export function createEngineScoreDocument(
       omittedIssues: input.omittedIssues,
       meterEstimated: input.meterEstimated,
       meterConfidence: input.meterConfidence,
+      meterEstimatedLabel: input.meterEstimatedLabel,
     });
   } catch {
     // parseScoreDoc throws on malformed MusicXML — a corrupt engine
@@ -640,6 +649,16 @@ export function engineDocumentFromResult(
       const meta = r.meta as Record<string, unknown> | undefined;
       return typeof meta?.meterConfidence === "number"
         ? meta.meterConfidence
+        : undefined;
+    })(),
+    // #264-4: null (refusal) and absent (legacy) parse differently --
+    //  null flows through as refused, undefined keeps the inspector on
+    //  the old confidence-only wording.
+    meterEstimatedLabel: (() => {
+      const meta = r.meta as Record<string, unknown> | undefined;
+      if (meta?.meterEstimatedLabel === null) return null;
+      return typeof meta?.meterEstimatedLabel === "string"
+        ? meta.meterEstimatedLabel
         : undefined;
     })(),
   };
