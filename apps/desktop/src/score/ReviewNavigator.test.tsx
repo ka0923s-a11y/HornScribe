@@ -147,6 +147,40 @@ describe("ReviewNavigator (#361)", () => {
     expect(list[0].textContent).toContain(ja.reviewSeverity.warning);
   });
 
+  it("#264-6: filter options carry faceted counts", async () => {
+    await mount(props());
+    const selects = document.querySelectorAll("select");
+    const sevOpts = [...selects[0].querySelectorAll("option")].map(
+      (o) => o.textContent,
+    );
+    const reaOpts = [...selects[1].querySelectorAll("option")].map(
+      (o) => o.textContent,
+    );
+    // openOnly is on by default: the accepted possible_triplet does
+    //  not count toward its reason/severity rows.
+    expect(sevOpts[0]).toBe(`${ja.review.nav.all}（2）`);
+    expect(sevOpts.join(" ")).toContain(`${ja.reviewSeverity.warning}（1）`);
+    expect(sevOpts.join(" ")).toContain(`${ja.reviewSeverity.caution}（1）`);
+    expect(sevOpts.join(" ")).toContain(`${ja.reviewSeverity.info}（0）`);
+    expect(reaOpts[0]).toBe(`${ja.review.nav.all}（2）`);
+    expect(reaOpts.join(" ")).toContain("（1）");
+    expect(reaOpts.join(" ")).toContain("（0）");
+    // Faceted: picking severity=warning recounts reasons inside it --
+    //  each reason option now counts only warning rows.
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(selects[0] as HTMLSelectElement, "warning");
+      selects[0].dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const reaOpts2 = [...selects[1].querySelectorAll("option")].map(
+      (o) => o.textContent,
+    );
+    expect(reaOpts2[0]).toBe(`${ja.review.nav.all}（1）`);
+  });
+
   it("reason filter narrows the list", async () => {
     await mount(props({ activeIndex: 1 }));
     const selects = document.querySelectorAll("select");
