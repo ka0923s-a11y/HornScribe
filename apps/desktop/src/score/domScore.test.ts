@@ -251,6 +251,36 @@ describe("markReviewMarkers system-band grouping (#237)", () => {
     ).toBe(2);
   });
 
+  it("caps the badge radius and keeps the disc above the note box (#337)", () => {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      "<svg>",
+      '<g class="system"><g class="measure"><g class="staff">',
+      '<g class="note" id="hs-sn-000001"><g class="notehead"><use/></g></g>',
+      '<g class="note" id="hs-sn-000002"><g class="notehead"><use/></g></g>',
+      "</g></g></g>",
+      "</svg>",
+    ].join("");
+    // Tall boxes (chord/ledger spans) used to inflate the badge
+    // without bound — the disc then swallowed staff regions.
+    Object.defineProperty(root.querySelector("#hs-sn-000001"), "getBBox", {
+      value: () => ({ x: 0, y: 50, width: 20, height: 200 }),
+    });
+    Object.defineProperty(root.querySelector("#hs-sn-000002"), "getBBox", {
+      value: () => ({ x: 40, y: 50, width: 20, height: 30 }),
+    });
+    const idx = buildElementIndex(root);
+    markReviewMarkers(root, idx, new Set(["sn-000001", "sn-000002"]));
+    const badge = root.querySelector(
+      "." + REVIEW_MARK_CLASS + "__badge",
+    ) as SVGCircleElement;
+    const radius = parseFloat(badge.getAttribute("r")!);
+    const cy = parseFloat(badge.getAttribute("cy")!);
+    expect(radius).toBeLessThanOrEqual(12);
+    // The disc's bottom edge clears the flagged note's top edge.
+    expect(cy + radius).toBeLessThanOrEqual(50);
+  });
+
   it("clears stale marks before regrouping", () => {
     const root = scoreDom();
     withBboxes(root);
