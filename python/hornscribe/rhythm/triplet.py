@@ -300,11 +300,21 @@ def triplet_flag_worthy(
     not 20 ms of phrasing noise). Single weak fits and onsets floating
     between the grids are suppressed — on a laid-back vocal
     line they produced a hundred flags nobody could act on (#262).
+    #264: the lone-onset case further requires the region to hold a
+    second onset — a beat with exactly one onset cannot distinguish
+    triplet placement from a laid-back pickup, and its one-note tuplet
+    remedy is degenerate notation anyway.
     """
     return (
         ev.relevant_onsets >= profile.triplet_gate_min_relevant_onsets
         or (
             ev.relevant_onsets >= 1
+            # #264: a region holding only ONE onset cannot support the
+            # call at all — a lone third-position hit is equally a
+            # laid-back pickup, and its remedy writes a degenerate
+            # one-note tuplet. The figure-level flag (2+ onsets, one
+            # landing on a third) keeps the reviewable case.
+            and ev.onset_count >= 2
             and ev.binary_cost - ev.triplet_cost >= TRIPLET_FLAG_MARGIN_QL
             and ev.relevant_triplet_cost
             <= TRIPLET_LONE_FLAG_GRID_TOL_QL * ev.relevant_onsets

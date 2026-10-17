@@ -366,6 +366,24 @@ def test_possible_triplet_suppressed_for_between_grid_onset() -> None:
     assert not [i for i in issues if i.reason is ReviewReason.POSSIBLE_TRIPLET]
 
 
+def test_possible_triplet_suppressed_for_lone_onset() -> None:
+    """#264: a beat holding exactly ONE onset cannot be a triplet call.
+
+    The 2.668 ql pickup sits dead on the second third -- grid membership
+    alone flagged it before #264 -- but with no second onset in the
+    region there is nothing to compare it against (a laid-back pickup
+    reads identically), and the remedy would write a one-note tuplet.
+    The figure-level case (isolated_third_note, 2 onsets) stays flagged.
+    """
+    fixture = fx.lone_third_pickup()
+    notes = normalize_to_score_time(fixture.events, fixture.warp)
+    alts = quantize_normalized(notes, fixture.meter_map)
+    issues = generate_review_issues(
+        alts, notes, fixture.meter_map, PROFILE, score_revision=REVISION, warp=fixture.warp
+    )
+    assert not [i for i in issues if i.reason is ReviewReason.POSSIBLE_TRIPLET]
+
+
 def test_issue_ids_deterministic() -> None:
     """ri-000001... ids allocated in (start_sec, reason) order — reproducible."""
     fixture = fx.isolated_third_note()
