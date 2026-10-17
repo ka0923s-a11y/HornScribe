@@ -726,6 +726,40 @@ def isolated_third_note() -> RhythmFixture:
     )
 
 
+def lone_third_pickup() -> RhythmFixture:
+    """Like isolated_third_note, but beat 2 carries NO downbeat onset --
+    the only event in region [2, 3) is the 2.668 ql pickup.
+
+    One onset alone cannot distinguish triplet placement from a
+    laid-back pickup, and the applyTriplet remedy would write a
+    degenerate one-note tuplet -- #264 suppresses the flag. On real
+    JPOP vocals this was 21 of 28 possible_triplet issues.
+    """
+    return straight_fixture(
+        "lone_third_pickup",
+        [
+            Fraction(0),
+            Fraction(1, 2),
+            Fraction(1),
+            Fraction(3, 2),
+            Fraction(667, 250),  # 2.668 -- dead on the 2/3 third, alone
+            Fraction(3),
+            Fraction(7, 2),
+        ],
+        expected_ql=[
+            Fraction(0),
+            Fraction(1, 2),
+            Fraction(1),
+            Fraction(3, 2),
+            Fraction(11, 4),  # nearest sixteenth point is 2.75, not 2.5
+            Fraction(3),
+            Fraction(7, 2),
+        ],
+        duration_ql=Fraction(2, 5),
+        layer="triplet",
+    )
+
+
 def triplet_run_jittered() -> RhythmFixture:
     """AMT-jittered 8th-triplet run (#88): every beat shows triplet
     evidence but most regions see only one relevant onset — the
@@ -980,6 +1014,7 @@ ALL_FIXTURES: tuple[Callable[[], RhythmFixture], ...] = (
     eighths_jitter_straight,
     isolated_late_note,
     isolated_third_note,
+    lone_third_pickup,
     binary_triplet_binary,
     horn_repeated_tongued,
     horn_sustained_whole,
