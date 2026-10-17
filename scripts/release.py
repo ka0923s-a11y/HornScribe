@@ -94,7 +94,7 @@ GNU_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
 GNU_RUSTFLAGS = "-C linker=rust-lld -C link-self-contained=yes"
 GNU_HOST_TRIPLE = "x86_64-pc-windows-gnu"
 _VSWHERE = (
-    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+    Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"))
     / "Microsoft Visual Studio"
     / "Installer"
     / "vswhere.exe"
@@ -436,7 +436,7 @@ def main() -> int:
         except OSError:
             raise _die(
                 f"{exe} is locked - close the running app before releasing"
-            )
+            ) from None
 
     rust_env = _resolve_rust_env(args.toolchain)
 
@@ -455,6 +455,23 @@ def main() -> int:
             [str(_test_venv()), "-m", "pytest", "-x", "-q"],
             cwd=REPO,
             what="python engine tests",
+        )
+        # #341: docs/RELEASE.md's gate lists ruff but this script
+        # skipped it — a B905 violation shipped via PR before anyone
+        # noticed. mypy stays out for now: the tree carries ~43
+        # pre-existing errors and gating it would block every release.
+        _run(
+            [
+                str(_test_venv()),
+                "-m",
+                "ruff",
+                "check",
+                "python/hornscribe",
+                "tests/python",
+                "scripts",
+            ],
+            cwd=REPO,
+            what="python lint (ruff: hornscribe/tests/scripts)",
         )
 
     # -- 3. engine ----------------------------------------------------------
