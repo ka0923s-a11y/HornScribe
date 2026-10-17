@@ -110,6 +110,30 @@ export function ReviewNavigator({
     return out;
   }, [issues, openOnly, severity, reason, sort]);
 
+  /* #264-6: faceted counts on the filter options -- a 100+ flag list
+   *  needs an answer to "which reason dominates the open queue" before
+   *  the user commits to a filter. Counts respect the OTHER active
+   *  dimension (severity options count within the reason pick and vice
+   *  versa) so the dropdown previews what each choice leaves. */
+  const facetCounts = useMemo(() => {
+    const perReason = new Map<string, number>();
+    const perSeverity = new Map<ReviewSeverity, number>();
+    let reasonAll = 0;
+    let severityAll = 0;
+    for (const i of issues) {
+      if (openOnly && i.status !== "open") continue;
+      if (severity === "all" || i.severity === severity) {
+        perReason.set(i.reason, (perReason.get(i.reason) ?? 0) + 1);
+        reasonAll += 1;
+      }
+      if (reason === "all" || i.reason === reason) {
+        perSeverity.set(i.severity, (perSeverity.get(i.severity) ?? 0) + 1);
+        severityAll += 1;
+      }
+    }
+    return { perReason, perSeverity, reasonAll, severityAll };
+  }, [issues, openOnly, severity, reason]);
+
   // The roaming listbox focus (aria-activedescendant — real DOM focus
   // stays on the <ul> so ↑↓ never leaves the list). Initialize on the
   // issue the review cursor is on when it survives the filter.
@@ -192,10 +216,10 @@ export function ReviewNavigator({
               resetFocus();
             }}
           >
-            <option value="all">{t.all}</option>
+            <option value="all">{`${t.all}（${facetCounts.severityAll}）`}</option>
             {SEVERITIES.map((s) => (
               <option key={s} value={s}>
-                {copy.severityLabel(s)}
+                {`${copy.severityLabel(s)}（${facetCounts.perSeverity.get(s) ?? 0}）`}
               </option>
             ))}
           </Select>
@@ -211,10 +235,10 @@ export function ReviewNavigator({
               resetFocus();
             }}
           >
-            <option value="all">{t.all}</option>
+            <option value="all">{`${t.all}（${facetCounts.reasonAll}）`}</option>
             {reasons.map((r) => (
               <option key={r} value={r}>
-                {copy.reasonTitle(r)}
+                {`${copy.reasonTitle(r)}（${facetCounts.perReason.get(r) ?? 0}）`}
               </option>
             ))}
           </Select>
