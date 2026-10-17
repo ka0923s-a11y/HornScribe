@@ -308,17 +308,25 @@ export function markReviewMarkers(
       mark.appendChild(line);
 
       if (i === 0) {
-        const r = Math.max(10, box.height * 0.3);
+        // #337: cap the badge — a flagged chord/tuplet/ledger-line span
+        // can have a 100+-unit bbox, and an uncapped 0.3x scale drew
+        // circles that swallowed whole staff regions. 9-12 units stays
+        // legible at every score zoom without covering notation.
+        const r = Math.min(12, Math.max(9, box.height * 0.25));
+        const badgeCx = box.x + box.width + padX + r;
+        // Center the disc fully above the note box (0.25r clearance)
+        // instead of overlapping its top edge.
+        const badgeCy = box.y - r * 1.25;
         const badge = document.createElementNS(SVG_NS, "circle");
-        badge.setAttribute("cx", String(box.x + box.width + padX + r));
-        badge.setAttribute("cy", String(box.y - r * 0.6));
+        badge.setAttribute("cx", String(badgeCx));
+        badge.setAttribute("cy", String(badgeCy));
         badge.setAttribute("r", String(r));
         badge.setAttribute("class", REVIEW_MARK_CLASS + "__badge");
         mark.appendChild(badge);
 
         const glyph = document.createElementNS(SVG_NS, "text");
-        glyph.setAttribute("x", String(box.x + box.width + padX + r));
-        glyph.setAttribute("y", String(box.y - r * 0.6 + r * 0.42));
+        glyph.setAttribute("x", String(badgeCx));
+        glyph.setAttribute("y", String(badgeCy + r * 0.42));
         glyph.setAttribute("text-anchor", "middle");
         glyph.setAttribute(
           "font-size",
