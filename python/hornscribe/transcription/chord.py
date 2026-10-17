@@ -184,6 +184,51 @@ def chord_label(root_pc: int, quality: str, prefer_flats: bool = False) -> str:
     return names[root_pc % 12] + _QUALITY_SUFFIX[quality]
 
 
+_ROOT_PC = {
+    "C": 0, "C#": 1, "Db": 1,
+    "D": 2, "D#": 3, "Eb": 3,
+    "E": 4, "Fb": 4, "E#": 5,
+    "F": 5, "F#": 6, "Gb": 6,
+    "G": 7, "G#": 8, "Ab": 8,
+    "A": 9, "A#": 10, "Bb": 10,
+    "B": 11, "Cb": 11,
+}
+
+# Invert the suffix table: label suffix -> quality key.
+_SUFFIX_QUALITY = {v: k for k, v in _QUALITY_SUFFIX.items()}
+
+def parse_chord_label(label: str) -> tuple[int, str, int | None] | None:
+    """Parse an emitted chord label back to (root_pc, quality, bass_pc).
+
+    Accepts the engine's own spellings (sharp or flat roots, the
+    _QUALITY_SUFFIX suffixes, an optional "/bass" inversion). Returns
+    None for anything outside that vocabulary -- callers treat the
+    label as unparseable rather than guessing.
+    """
+    if not isinstance(label, str) or not label:
+        return None
+    body, slash, bass = label.partition("/")
+    bass_pc: int | None = None
+    if slash:
+        bass_pc = _ROOT_PC.get(bass)
+        if bass_pc is None:
+            return None
+    if len(body) < 1 or body[0] not in "ABCDEFG":
+        return None
+    root = body[0]
+    rest = body[1:]
+    if rest[:1] in ("#", "b"):
+        root += rest[0]
+        rest = rest[1:]
+    root_pc = _ROOT_PC.get(root)
+    if root_pc is None:
+        return None
+    quality = _SUFFIX_QUALITY.get(rest)
+    if quality is None:
+        return None
+    return (root_pc, quality, bass_pc)
+
+
 def diatonic_chords(fifths: int, mode: str) -> set[tuple[int, str]]:
     """(root_pc, quality) pairs diatonic to the estimated key.
 

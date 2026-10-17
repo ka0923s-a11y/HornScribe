@@ -15,6 +15,7 @@ import pytest
 from hornscribe.domain.events import RawNoteEvent
 from hornscribe.domain.ids import ProjectId, RawNoteEventId, ScoreNoteId, TranscriptionRevisionId
 from hornscribe.domain.score import (
+    ChordSymbol,
     KeyChange,
     KeySignature,
     MeterChange,
@@ -2383,3 +2384,79 @@ class TestCollapseToMelody:
     def test_kind_rejects_garbage_still(self) -> None:
         with pytest.raises(ScoreEditError):
             ScoreEdit.from_dict({"kind": "collapseMelody", "noteId": ""})
+
+
+class TestSetChord:
+    """#335: setChord relabels one document chord symbol -- metadata,
+    not payload, so the content-derived revision must not move."""
+
+    def _doc_with_chords(self) -> ScoreDocument:
+        doc = _doc([_note(1, 60, "0", "1")])
+        return replace(
+            doc,
+            chord_symbols=(
+                ChordSymbol(
+                    start_beat=Fraction(0),
+                    end_beat=Fraction(2),
+                    root_pc=5,
+                    quality="maj",
+                    confidence=0.4,
+                    margin=0.02,
+                    label="F",
+                ),
+                ChordSymbol(
+                    start_beat=Fraction(2),
+                    end_beat=Fraction(4),
+                    root_pc=7,
+                    quality="7",
+                    confidence=0.8,
+                    margin=0.1,
+                    label="G7",
+                ),
+            ),
+        )
+
+    def test_relabels_span_and_keeps_revision(self) -> None:
+        doc = self._doc_with_chords()
+        out = apply_score_edit(
+            doc, _edit("setChord", "", startBeat="0", chordLabel="Fmaj7")
+        )
+        sym = out.chord_symbols[0]
+        assert (sym.root_pc, sym.quality, sym.label) == (5, "maj7", "Fmaj7")
+        assert sym.bass_pc is None
+        # A user-attested label stops claiming estimator uncertainty.
+        assert sym.confidence == 1.0
+        # The second symbol is untouched.
+        assert out.chord_symbols[1].label == "G7"
+        # Document metadata is outside the revision derivation --
+        # open issues and note edits stay anchored.
+        assert out.revision == doc.revision
+
+    def test_slash_label_sets_bass(self) -> None:
+        doc = self._doc_with_chords()
+        out = apply_score_edit(
+            doc, _edit("setChord", "", startBeat="2", chordLabel="D7sus4/G")
+        )
+        sym = out.chord_symbols[1]
+        assert (sym.root_pc, sym.quality, sym.bass_pc) == (2, "7sus4", 7)
+        assert sym.label == "D7sus4/G"
+
+    def test_unknown_beat_rejected(self) -> None:
+        doc = self._doc_with_chords()
+        with pytest.raises(ScoreEditError, match="no chord symbol"):
+            apply_score_edit(
+                doc, _edit("setChord", "", startBeat="8", chordLabel="C")
+            )
+
+    def test_unparseable_label_rejected(self) -> None:
+        doc = self._doc_with_chords()
+        with pytest.raises(ScoreEditError, match="unparseable"):
+            apply_score_edit(
+                doc, _edit("setChord", "", startBeat="0", chordLabel="H9")
+            )
+
+    def test_missing_params_rejected(self) -> None:
+        with pytest.raises(ScoreEditError, match="chordLabel"):
+            ScoreEdit.from_dict({"kind": "setChord", "startBeat": "0"})
+        with pytest.raises(ScoreEditError, match="startBeat"):
+            ScoreEdit.from_dict({"kind": "setChord", "chordLabel": "C"})

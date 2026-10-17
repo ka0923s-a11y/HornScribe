@@ -36,7 +36,8 @@ export type RhythmEditKind =
   | "transposeNote"
   | "transposeRange"
   | "setPickup"
-  | "collapseToMelody";
+  | "collapseToMelody"
+  | "setChord";
 
 /** One rhythm edit request — mirrors ScoreEdit.from_dict on the engine. */
 export interface RhythmEditOp {
@@ -103,6 +104,11 @@ export interface RhythmEditOp {
   // fraction in canonical beats (0 = no pickup). The engine re-tiles
   // every barline under the new measure phase — no AMT re-run.
   readonly pickupBeats?: string;
+  /** setChord only (#335): the replacement chord label (engine's own
+   *  spelling vocabulary, e.g. "Fmaj7", "D7sus4/G"). startBeat names
+   *  the symbol's span start; document-level metadata, so the score
+   *  revision is untouched. */
+  readonly chordLabel?: string;
 }
 
 /** What score.edit returns — the rebuilt canonical payload + fresh XML. */

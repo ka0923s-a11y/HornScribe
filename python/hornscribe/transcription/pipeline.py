@@ -4104,6 +4104,7 @@ def _pitch_dip_issues(
 
 def _chord_issues(
     chord_map: tuple[ChordEstimate, ...],
+    seg_beats: tuple[tuple[Fraction, Fraction], ...],
     canonical_notes: tuple[QuantizedNote, ...],
     warp: TimeWarp,
     beat_ql: Fraction,
@@ -4127,7 +4128,10 @@ def _chord_issues(
         for n in canonical_notes
         if not n.deleted
     )
-    for est in chord_map:
+    # seg_beats is zipped 1:1 with chord_map upstream (#44) -- the
+    # beat span names the document's chord symbol so the setChord
+    # remedy can hit it (#335).
+    for est, (lo_b, _hi_b) in zip(chord_map, seg_beats):
         if est.confidence >= CHORD_LOW_CONFIDENCE and (est.margin >= CHORD_LOW_MARGIN):
             continue
         ids = tuple(nid for sec, nid in note_secs if est.start_sec <= sec < est.end_sec)[:6]
@@ -4149,6 +4153,9 @@ def _chord_issues(
                     "runnerUpChord": est.runner_up,
                     "chordConfidence": round(est.confidence, 3),
                     "chordMargin": round(est.margin, 3),
+                    # #335: the document chord symbol's canonical beat --
+                    # the setChord remedy edits by span start.
+                    "startBeat": str(lo_b),
                 },
             )
         )
@@ -5477,6 +5484,7 @@ def run_transcription_job(
         prefer_flats = key.fifths < 0
         chord_map: tuple[ChordEstimate, ...] = ()
         chord_symbols: tuple[ChordSymbol, ...] = ()
+        seg_beats: list[tuple[Fraction, Fraction]] = []
         try:
             half_beats = measure_len_ql / (2 * beat_ql)
             bounds: set[Fraction] = {Fraction(0)}
@@ -5488,7 +5496,6 @@ def run_transcription_job(
             # audio seconds - estimate_chords consumes the seconds,
             # and the beat bounds tag the returned estimates one-to-
             # one as ScoreDocument chord symbols (#44).
-            seg_beats: list[tuple[Fraction, Fraction]] = []
             seg_secs: list[tuple[float, float]] = []
             for lo_b, hi_b in pairwise(ordered_bounds):
                 lo_s = estimate.warp.ql_to_seconds(lo_b * beat_ql) - selection_offset_sec
@@ -5880,6 +5887,7 @@ def run_transcription_job(
         issues.extend(
             _chord_issues(
                 chord_map,
+                tuple(seg_beats),
                 # #205: same restriction — the chord context informs the
                 # horn staff spelling/rhythm, never the accompaniment.
                 tuple(
