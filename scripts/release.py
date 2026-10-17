@@ -133,6 +133,35 @@ def _out(cmd: list[str], *, cwd: Path | None = None) -> str:
     r = subprocess.run(cmd, cwd=cwd or REPO, capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else ""
 
+_DIRTY_SCAN_PATHS = ("apps", "scripts", "docs", "python")
+
+
+def _dirty_entries(porcelain: str) -> tuple[list[str], int]:
+    """Split `git status --porcelain` output into (tracked-change
+    lines, untracked count) (#343).
+
+    The release build reads worktree sources directly (PyInstaller
+    packs python/, vite packs apps/desktop/src), so only tracked
+    changes can drift the artifacts away from the tag — untracked
+    scratch files are noise and are counted, not listed.
+    """
+    tracked: list[str] = []
+    untracked = 0
+    for line in porcelain.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("??"):
+            untracked += 1
+        else:
+            tracked.append(line)
+    return tracked, untracked
+
+
+def _dirty_state() -> tuple[list[str], int]:
+    return _dirty_entries(
+        _out(["git", "status", "--porcelain", "--", *_DIRTY_SCAN_PATHS])
+    )
+
 
 def _versions() -> tuple[str, str]:
     pkg = json.loads(PKG_JSON.read_text(encoding="utf-8")).get("version")
@@ -382,6 +411,12 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="stop before tag + gh release")
     ap.add_argument("--yes", "-y", action="store_true", help="skip publish confirmation")
     ap.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="allow uncommitted changes to build inputs (the pre-publish "
+        "race check still applies) (#343)",
+    )
+    ap.add_argument(
         "--toolchain",
         choices=("auto", "gnu"),
         default="auto",
@@ -418,9 +453,21 @@ def main() -> int:
         tagged = _out(["git", "rev-list", "-n", "1", tag])
         if tagged and tagged != head:
             raise _die(f"tag {tag} already points at {tagged[:8]} != HEAD {head[:8]}")
-    dirty = _out(["git", "status", "--porcelain", "--", "apps", "scripts", "docs", "python"])
-    if dirty:
-        print(f"release: warning: tracked changes under apps/scripts/docs/python:\n{dirty}")
+    # #343: tracked edits to build inputs reach the shipped binaries
+    # (PyInstaller packs python/, vite packs apps/desktop/src) while
+    # the tag only records HEAD — a hard failure, not a warning.
+    # Untracked scratch files cannot enter the bundle; count only.
+    tracked_dirty, untracked_count = _dirty_state()
+    if tracked_dirty and not args.allow_dirty:
+        raise _die(
+            "uncommitted changes to build inputs - commit or stash first "
+            "(or pass --allow-dirty):\n" + "\n".join(tracked_dirty)
+        )
+    if untracked_count:
+        print(
+            f"release: {untracked_count} untracked files under "
+            f"{'/'.join(_DIRTY_SCAN_PATHS)} (ignored)"
+        )
     if head != _out(["git", "rev-parse", "--verify", "origin/main"]):
         print(
             "release: warning: HEAD != origin/main - the tag will point at a "
@@ -550,6 +597,20 @@ def main() -> int:
         print(f"  {asset.name}  {asset.stat().st_size / 1e6:,.1f} MB")
     if addon_zip is not None:
         print(f"  {addon_zip.name}  {addon_zip.stat().st_size / 1e6:,.1f} MB (opt-in addon)")
+
+    # #343: the build reads live worktree sources — an edit landing
+    # mid-build silently drifts the binaries away from HEAD (a real
+    # v0.2.29 build picked up a half-applied edit; the engine smoke
+    # caught it only because it happened to crash). Re-check before
+    # tagging: the artifacts stay on disk, so --skip-* re-runs the
+    # publish quickly. --allow-dirty waives preflight, not this race.
+    tracked_now, _ = _dirty_state()
+    if sorted(tracked_now) != sorted(tracked_dirty):
+        raise _die(
+            "build inputs changed while the release ran - the artifacts "
+            "may not match the tag; commit and re-run (or --allow-dirty):\n"
+            + "\n".join(tracked_now)
+        )
 
     if args.dry_run:
         print("\n--dry-run: stopping before tag + GitHub Release")
