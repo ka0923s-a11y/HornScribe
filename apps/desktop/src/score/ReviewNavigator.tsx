@@ -23,7 +23,12 @@ import { Checkbox, Select } from "@fluentui/react-components";
 import { ja } from "../strings/ja";
 import { HsButton } from "../components/primitives/Button";
 import type { ReviewCopy } from "./inspector";
-import type { ReviewSeverity, ScoreReviewIssue } from "./review";
+import {
+  issueConfidence,
+  numEvidence,
+  type ReviewSeverity,
+  type ScoreReviewIssue,
+} from "./review";
 
 export interface ReviewNavigatorProps {
   readonly issues: readonly ScoreReviewIssue[];
@@ -82,7 +87,9 @@ export function ReviewNavigator({
   );
   const [severity, setSeverity] = useState("all");
   const [reason, setReason] = useState("all");
-  const [sort, setSort] = useState<"severity" | "position">("severity");
+  const [sort, setSort] = useState<"severity" | "position" | "confidence">(
+    "severity",
+  );
 
   // Reason options follow first-appearance order in the issue list —
   // chronological beats alphabetical for spotting problem passages.
@@ -106,6 +113,15 @@ export function ReviewNavigator({
         (a, b) =>
           SEVERITY_RANK[a.issue.severity] - SEVERITY_RANK[b.issue.severity],
       );
+    } else if (sort === "confidence") {
+      /* #355: ascending suspicion -- the engine's own low-confidence
+       *  marks are the most likely real errors, so they sort first.
+       *  chord_uncertain carries chordConfidence rather than the
+       *  generic confidence key; flag-only issues (no numeric signal)
+       *  tail the list. Stable: ties keep score position. */
+      const conf = (i: ScoreReviewIssue): number =>
+        issueConfidence(i) ?? numEvidence(i, "chordConfidence") ?? Infinity;
+      out.sort((a, b) => conf(a.issue) - conf(b.issue));
     }
     return out;
   }, [issues, openOnly, severity, reason, sort]);
@@ -250,12 +266,19 @@ export function ReviewNavigator({
             value={sort}
             aria-label={t.sortLabel}
             onChange={(_, d) => {
-              setSort(d.value === "position" ? "position" : "severity");
+              setSort(
+                d.value === "position"
+                  ? "position"
+                  : d.value === "confidence"
+                    ? "confidence"
+                    : "severity",
+              );
               resetFocus();
             }}
           >
             <option value="severity">{t.sortSeverity}</option>
             <option value="position">{t.sortPosition}</option>
+            <option value="confidence">{t.sortConfidence}</option>
           </Select>
         </label>
         <span className="hs-reviewnav__count" aria-live="polite">
