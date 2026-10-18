@@ -104,3 +104,63 @@ describe("reviewEvidence.meterConflict", () => {
     expect(text).toContain("次点: 2/4");
   });
 });
+
+describe("reviewEvidence.pitchUncertain", () => {
+  /* #361: the three-way spectralVerdict distinguishes "detected
+   * dominant" (a likely false flag the reviewer can dismiss) from
+   * "ambiguous" — the legacy bool collapsed both into false. */
+  it("detected-dominant says the written pitch probably stands", () => {
+    const text = ja.reviewEvidence.pitchUncertain({
+      fromMidi: 53,
+      toMidi: 54,
+      spectral: false,
+      verdict: "detected",
+    });
+    expect(text).toContain("検出側の音が優勢");
+    expect(text).not.toContain("判定が付きませんでした");
+  });
+
+  it("suggested-dominant keeps the proposal-supporting copy", () => {
+    const text = ja.reviewEvidence.pitchUncertain({
+      fromMidi: 53,
+      toMidi: 54,
+      spectral: true,
+      verdict: "suggested",
+    });
+    expect(text).toContain("提案側の音が優勢");
+  });
+
+  it("ambiguous keeps the undecidable copy", () => {
+    const text = ja.reviewEvidence.pitchUncertain({
+      fromMidi: 53,
+      toMidi: 54,
+      spectral: false,
+      verdict: "ambiguous",
+    });
+    expect(text).toContain("判定が付きませんでした");
+  });
+
+  it("a legacy issue without a verdict falls back to the bool", () => {
+    expect(
+      ja.reviewEvidence.pitchUncertain({
+        fromMidi: 53,
+        toMidi: 54,
+        spectral: true,
+      }),
+    ).toContain("提案側の音が優勢");
+    expect(
+      ja.reviewEvidence.pitchUncertain({
+        fromMidi: 53,
+        toMidi: 54,
+        spectral: false,
+      }),
+    ).toContain("判定が付きませんでした");
+    expect(
+      ja.reviewEvidence.pitchUncertain({
+        fromMidi: 53,
+        toMidi: 54,
+        spectral: null,
+      }),
+    ).toContain("スペクトル判定は行っていません");
+  });
+});
