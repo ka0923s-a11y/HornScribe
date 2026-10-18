@@ -26,6 +26,7 @@ from hornscribe.transcription.chord import (
     chord_label,
     diatonic_chords,
     estimate_chords,
+    rerank_chords_with_melody,
 )
 from hornscribe.transcription.pipeline import (
     _chord_issues,
@@ -408,3 +409,58 @@ class TestChordIssues:
             prefer_flats=False,
         )
         assert [m["label"] for m in merged] == ["C", "C/E", "F"]
+
+
+class TestMelodyRerank:
+    """#357: coin-flip chord segments re-scored by lead-line fit."""
+
+    def test_runner_up_wins_when_it_explains_the_melody(self) -> None:
+        # Written C (tones C,E,G); runner-up Am (A,C,E). Melody pcs
+        # {A,C,E} -> Am covers 3/3, C covers 2/3 -> swap fires.
+        ests = (_est(0.0, 2.0, 0, "maj", 0.5, 0.02, runner_up="Am"),)
+        melody = (
+            (0.1, 0.4, 69),  # A
+            (0.5, 0.9, 72),  # C
+            (1.0, 1.4, 76),  # E
+            (1.5, 1.9, 69),  # A
+        )
+        out = rerank_chords_with_melody(ests, melody)
+        assert out[0].root_pc == 9
+        assert out[0].quality == "min"
+        assert out[0].runner_up == "C"
+
+    def test_confident_segment_never_swaps(self) -> None:
+        # margin >= LOW_MARGIN skips the melody read entirely.
+        ests = (_est(0.0, 2.0, 0, "maj", 0.9, 0.4, runner_up="Am"),)
+        melody = (
+            (0.1, 0.4, 69),
+            (0.5, 0.9, 69),
+            (1.0, 1.4, 76),
+            (1.5, 1.9, 57),  # A3 too
+        )
+        out = rerank_chords_with_melody(ests, melody)
+        assert out[0].root_pc == 0
+
+    def test_thin_melody_never_swaps(self) -> None:
+        # 2 distinct pcs cannot break a tie - RERANK_MIN_PCS guard.
+        ests = (_est(0.0, 2.0, 0, "maj", 0.5, 0.02, runner_up="Am"),)
+        melody = (
+            (0.1, 0.9, 69),
+            (1.0, 1.9, 76),
+        )
+        out = rerank_chords_with_melody(ests, melody)
+        assert out[0].root_pc == 0
+
+    def test_two_bad_reads_never_trade(self) -> None:
+        # Runner-up covers <0.5 of the melody: swap would trade a bad
+        # read for a slightly-less-bad one - not evidence.
+        ests = (_est(0.0, 2.0, 0, "maj", 0.4, 0.02, runner_up="F#dim7"),)
+        melody = (
+            (0.1, 0.4, 62),  # D  - neither C nor F#dim7
+            (0.5, 0.9, 63),  # D#
+            (1.0, 1.4, 65),  # F
+            (1.3, 1.6, 68),  # G#
+            (1.6, 1.9, 69),  # A  - F#dim7 tone
+        )
+        out = rerank_chords_with_melody(ests, melody)
+        assert out[0].root_pc == 0

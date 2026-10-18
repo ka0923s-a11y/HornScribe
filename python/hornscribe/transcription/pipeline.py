@@ -121,6 +121,7 @@ from .chord import (
     ChordEstimate,
     diatonic_chords,
     estimate_chords,
+    rerank_chords_with_melody,
 )
 from .clean import (
     MERGE_GAP_SEC,
@@ -5539,6 +5540,20 @@ def run_transcription_job(
                     diatonic=diatonic_chords(key.fifths, key.mode),
                     prefer_flats=prefer_flats,
                 )
+            )
+            # #357: melody-agreement re-rank. Chroma+Viterbi leaves
+            # near-tied segments as coin flips; the lead line breaks
+            # them - a chord whose tones the melody mostly avoids is
+            # a wrong read. Swaps happen inside the map so symbols,
+            # the key self-check and the issue evidence all see the
+            # resolved call.
+            chord_map = rerank_chords_with_melody(
+                chord_map,
+                tuple(
+                    (e.onset_sec, e.offset_sec, e.pitch_midi)
+                    for e in cleaned.events
+                ),
+                prefer_flats=prefer_flats,
             )
             # #145: harmony self-check — the melodic K-S estimate can
             # pick a signature the detected chord set contradicts (an
