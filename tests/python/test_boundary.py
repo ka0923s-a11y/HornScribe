@@ -39,11 +39,13 @@ from hornscribe.domain.score import (
 from hornscribe.rhythm.profile import QuantizationProfile
 from hornscribe.rhythm.timewarp import TimeWarp
 from hornscribe.transcription.boundary import (
+    OCTAVE_SNAP_ENERGY_RATIO,
     BoundaryFlag,
     boundary_flags,
     compute_envelopes,
     low_octave_evidence,
     low_octave_suspected,
+    octave_band_ratio,
     octave_prefers,
     seam_evidence,
 )
@@ -561,6 +563,49 @@ class TestOctavePrefers:
         assert not octave_prefers(
             sig, _SR, 0.0, 0.08, detected_midi=72.0, target_midi=60.0
         )
+
+    def test_band_ratio_target_dominant(self) -> None:
+        # #361: the raw ratio quantifies the verdict the bool flattens.
+        sig = _tone(0.5, 261.63)
+        r = octave_band_ratio(
+            sig, _SR, 0.0, 0.5, detected_midi=72.0, target_midi=60.0
+        )
+        assert r is not None and r > OCTAVE_SNAP_ENERGY_RATIO
+
+    def test_band_ratio_detected_dominant(self) -> None:
+        # A real C5 leaves the C4 band empty — the ratio lands on the
+        # detected side, distinguishable from a genuinely tied read.
+        sig = _tone(0.5, 523.25)
+        r = octave_band_ratio(
+            sig, _SR, 0.0, 0.5, detected_midi=72.0, target_midi=60.0
+        )
+        assert r is not None and r < 1.0 / OCTAVE_SNAP_ENERGY_RATIO
+
+    def test_band_ratio_short_span_abstains(self) -> None:
+        sig = _tone(0.08, 261.63)
+        assert (
+            octave_band_ratio(
+                sig, _SR, 0.0, 0.08, detected_midi=72.0, target_midi=60.0
+            )
+            is None
+        )
+
+    def test_band_ratio_consistent_with_prefers(self) -> None:
+        # The bool is a thin threshold over the ratio — they must never
+        # disagree on the same measurement.
+        for freq, det, tgt in (
+            (261.63, 72.0, 60.0),
+            (523.25, 72.0, 60.0),
+            (440.0, 60.0, 72.0),
+        ):
+            sig = _tone(0.5, freq)
+            r = octave_band_ratio(
+                sig, _SR, 0.0, 0.5, detected_midi=det, target_midi=tgt
+            )
+            assert r is not None
+            assert octave_prefers(
+                sig, _SR, 0.0, 0.5, detected_midi=det, target_midi=tgt
+            ) == (r > OCTAVE_SNAP_ENERGY_RATIO)
 
 
 class TestLowOctaveAudit:
@@ -1123,6 +1168,37 @@ class TestPitchDipAudit:
             _ev(3, 61, 0.5, 0.9),
         )
         assert self._issues((a, b, c), _note(1, 54, "1", "1", (b.id,))) == []
+
+    def test_dip_carries_spectral_verdict(self) -> None:
+        # #361: a measurable dip (>= 120 ms) reports the three-way
+        # verdict next to the legacy bool so the UI can tell "detected
+        # dominant" apart from "ambiguous".
+        a, b, c = (
+            _ev(1, 54, 0.0, 0.4),
+            _ev(2, 53, 0.4, 0.55),
+            _ev(3, 61, 0.55, 0.9),
+        )
+        issues = self._issues((a, b, c), _note(1, 53, "1", "1", (b.id,)))
+        assert len(issues) == 1
+        ev = issues[0].evidence
+        assert ev["spectralVerdict"] in ("suggested", "detected", "ambiguous")
+        assert isinstance(ev["spectralSupport"], bool)
+        assert (ev["spectralVerdict"] == "suggested") == (
+            ev["spectralSupport"] is True
+        )
+
+    def test_short_dip_omits_spectral_verdict(self) -> None:
+        # Under the measurement floor the keys stay absent — the UI
+        # shows the "not measured" copy, not a guessed verdict.
+        a, b, c = (
+            _ev(1, 54, 0.0, 0.4),
+            _ev(2, 53, 0.4, 0.5),
+            _ev(3, 61, 0.5, 0.9),
+        )
+        issues = self._issues((a, b, c), _note(1, 53, "1", "1", (b.id,)))
+        assert len(issues) == 1
+        assert "spectralVerdict" not in issues[0].evidence
+        assert "spectralSupport" not in issues[0].evidence
 
 
 class TestAutoPitchCorrections:

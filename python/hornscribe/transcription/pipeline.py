@@ -104,10 +104,12 @@ from .backend import (
 )
 from .boundary import (
     OCTAVE_MIN_SPAN_SEC,
+    OCTAVE_SNAP_ENERGY_RATIO,
     boundary_flags,
     compute_envelopes,
     low_octave_evidence,
     low_octave_suspected,
+    octave_band_ratio,
     octave_prefers,
     seam_evidence,
 )
@@ -4048,8 +4050,14 @@ def _pitch_dip_suspects(
             if suggested is None:
                 continue  # a chromatic note unrelated to its neighbours
             spectral: bool | None = None
+            spectral_verdict: str | None = None
             if span >= OCTAVE_MIN_SPAN_SEC:
-                spectral = octave_prefers(
+                # #361: the ratio tells "suggested dominant" (>= snap
+                #  ratio), "detected dominant" (<= its inverse — a
+                #  likely false positive the reviewer can dismiss),
+                #  and "ambiguous" (between) apart; the bare bool used
+                #  to merge the latter two.
+                ratio = octave_band_ratio(
                     samples,
                     sample_rate,
                     ev.onset_sec,
@@ -4058,6 +4066,17 @@ def _pitch_dip_suspects(
                     float(suggested),
                     time_offset_sec=time_offset_sec,
                 )
+                if ratio is not None:
+                    spectral = ratio > OCTAVE_SNAP_ENERGY_RATIO
+                    spectral_verdict = (
+                        "suggested"
+                        if spectral
+                        else (
+                            "detected"
+                            if ratio < 1.0 / OCTAVE_SNAP_ENERGY_RATIO
+                            else "ambiguous"
+                        )
+                    )
             seen.add(n.id)
             suspects.append(
                 _PitchSuspect(
@@ -4074,7 +4093,10 @@ def _pitch_dip_suspects(
                         "prevMidi": prev_midi,
                         "nextMidi": next_midi,
                         **(
-                            {"spectralSupport": spectral}
+                            {
+                                "spectralSupport": spectral,
+                                "spectralVerdict": spectral_verdict,
+                            }
                             if spectral is not None
                             else {}
                         ),

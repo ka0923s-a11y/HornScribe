@@ -441,10 +441,14 @@ function inspectorCopy(): InspectorCopy {
           const fromMidi = numEvidence(issue, "pitchMidi");
           const toMidi = numEvidence(issue, "suggestedMidi");
           const spec = issue.evidence["spectralSupport"];
+          // #361: three-way verdict (suggested/detected/ambiguous) —
+          // a legacy issue carries only the boolean and falls back.
+          const verdict = issue.evidence["spectralVerdict"];
           return ja.reviewEvidence.pitchUncertain({
             fromMidi,
             toMidi,
             spectral: typeof spec === "boolean" ? spec : null,
+            verdict: typeof verdict === "string" ? verdict : null,
           });
         }
         // #227: name the separation method that actually ran — the

@@ -416,7 +416,7 @@ def boundary_flags(
     return tuple(flags)
 
 
-def octave_prefers(
+def octave_band_ratio(
     samples: Any,
     sample_rate: int,
     onset_sec: float,
@@ -425,17 +425,19 @@ def octave_prefers(
     target_midi: float,
     *,
     time_offset_sec: float = 0.0,
-) -> bool:
-    """True when the note's own spectrum favours *target_midi* over
-    *detected_midi* at the fundamental level.
+) -> float | None:
+    """``e_target / e_detected`` fundamental-band energy ratio — None
+    when the span is too short to measure.
+
+    #361: the bare boolean verdict collapsed "detected pitch
+    dominant" and "ambiguous" into the same False. The raw ratio
+    distinguishes them: well above 1 favours the target, well below
+    favours the detected pitch (a likely false positive), and the
+    middle band is genuinely undecidable.
 
     Evidence basis: a true lower note's 2nd harmonic lands on the
     higher octave's band, so E(hi) is never zero on a real low note —
-    but on a real HIGH note the low band carries only noise.  The
-    snap therefore fires only when the target band clearly dominates
-    (x2.5); ambiguous evidence keeps the detected pitch, which makes
-    the verdict safe under bleed where the backing may add energy to
-    the low band.
+    but on a real HIGH note the low band carries only noise.
 
     The middle 60% of the span is measured so attack and release
     edges do not leak the neighbours' spectra into the comparison.
@@ -445,7 +447,7 @@ def octave_prefers(
     seg = np.asarray(samples[max(0, i0) : max(0, i1)], dtype=np.float64)
     n = int(seg.shape[0])
     if n < int(OCTAVE_MIN_SPAN_SEC * sample_rate):
-        return False
+        return None
     inset = int(n * 0.2)
     seg = seg[inset : n - inset]
     win = seg * np.hanning(seg.shape[0])
@@ -461,7 +463,44 @@ def octave_prefers(
 
     e_det = _band_peak(detected_midi)
     e_tgt = _band_peak(target_midi)
-    return e_tgt > e_det * OCTAVE_SNAP_ENERGY_RATIO
+    if e_det <= 0.0:
+        # No measured energy on the detected band at all — the target
+        # cannot lose, but an infinite ratio would overstate a silent
+        # measurement; report a ratio one step past the snap threshold
+        # instead so callers see a confident (finite) verdict.
+        return OCTAVE_SNAP_ENERGY_RATIO * 2.0 if e_tgt > 0.0 else 1.0
+    return e_tgt / e_det
+
+
+def octave_prefers(
+    samples: Any,
+    sample_rate: int,
+    onset_sec: float,
+    offset_sec: float,
+    detected_midi: float,
+    target_midi: float,
+    *,
+    time_offset_sec: float = 0.0,
+) -> bool:
+    """True when the note's own spectrum favours *target_midi* over
+    *detected_midi* at the fundamental level.
+
+    The snap fires only when the target band clearly dominates
+    (x2.5); ambiguous evidence keeps the detected pitch, which makes
+    the verdict safe under bleed where the backing may add energy to
+    the low band. Thin wrapper over :func:`octave_band_ratio` — the
+    pitch-dip path uses the ratio itself for a three-way verdict.
+    """
+    ratio = octave_band_ratio(
+        samples,
+        sample_rate,
+        onset_sec,
+        offset_sec,
+        detected_midi,
+        target_midi,
+        time_offset_sec=time_offset_sec,
+    )
+    return ratio is not None and ratio > OCTAVE_SNAP_ENERGY_RATIO
 
 
 # Low-octave audit (#264): a note the tracker placed an octave too high

@@ -2073,17 +2073,35 @@ export const ja = {
       readonly fromMidi: number | null;
       readonly toMidi: number | null;
       readonly spectral: boolean | null;
+      /** #361: three-way verdict — "suggested" / "detected" /
+       *  "ambiguous". The old boolean collapsed "detected dominant"
+       *  and "ambiguous" into false; legacy issues without the verdict
+       *  keep the two-way reading. */
+      readonly verdict?: string | null;
     }) => {
       const pair =
         p.fromMidi != null && p.toMidi != null
           ? `検出音高 MIDI ${p.fromMidi} に対し、隣接する調の音 ${p.toMidi} を提案します`
           : "隣接する調の音を提案します";
       const spec =
-        p.spectral === true
-          ? "音源スペクトルでも提案側の音が優勢です"
-          : p.spectral === false
-            ? "音源スペクトルでは判定が付きませんでした"
-            : "音が短いためスペクトル判定は行っていません";
+        (() => {
+          if (
+            p.verdict === "suggested" ||
+            (p.verdict == null && p.spectral === true)
+          ) {
+            return "音源スペクトルでも提案側の音が優勢です";
+          }
+          if (p.verdict === "detected") {
+            return "音源スペクトルは検出側の音が優勢でした（検出が正しい可能性が高い箇所です）";
+          }
+          if (
+            p.verdict === "ambiguous" ||
+            (p.verdict == null && p.spectral === false)
+          ) {
+            return "音源スペクトルでは判定が付きませんでした";
+          }
+          return "音が短いためスペクトル判定は行っていません";
+        })();
       return `${pair}。${spec}。元音源と聴き比べて確認してください。`;
     },
   },
