@@ -4078,6 +4078,14 @@ def _pitch_dip_suspects(
                             else "ambiguous"
                         )
                     )
+            # #367: a spectrum standing by the detected pitch means the
+            # chromatic note is really in the audio — a deliberate
+            # passing tone, not a tracker snap. Flagging it claims the
+            # note probably belongs to a diatonic neighbour its own
+            # spectrum contradicts. Same veto the octave-dip audit
+            # applies.
+            if spectral_verdict == "detected":
+                continue
             seen.add(n.id)
             suspects.append(
                 _PitchSuspect(

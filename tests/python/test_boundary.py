@@ -1083,11 +1083,11 @@ class TestPitchDipAudit:
     """
 
     def _issues(
-        self, events: tuple[RawNoteEvent, ...], note
+        self, events: tuple[RawNoteEvent, ...], note, sig=None
     ) -> list:
         part = Part(id="part-1", name="Horn in F", notes=(note,))
         return _pitch_dip_issues(
-            _held_tone(),
+            _held_tone() if sig is None else sig,
             _SR,
             (_cleaned(*events),),
             (part,),
@@ -1200,6 +1200,24 @@ class TestPitchDipAudit:
         assert len(issues) == 1
         assert "spectralVerdict" not in issues[0].evidence
         assert "spectralSupport" not in issues[0].evidence
+
+    def test_detected_dominant_spectrum_no_flag(self) -> None:
+        # #367: when the note's own spectrum stands by the written
+        # F3, the chromatic pitch is really in the audio — a
+        # deliberate passing tone. Flagging "probably F#3" would be
+        # review noise; the detector stays quiet like the octave dip.
+        a, b, c = (
+            _ev(1, 54, 0.0, 0.4),
+            _ev(2, 53, 0.4, 0.55),
+            _ev(3, 61, 0.55, 0.9),
+        )
+        # F3 (174.61 Hz) held through the dip window → detected band
+        # dominates the suggested F#3 band → veto.
+        sig = _tone(1.2, 174.61)
+        assert (
+            self._issues((a, b, c), _note(1, 53, "1", "1", (b.id,)), sig)
+            == []
+        )
 
 
 class TestOctaveDipSuspects:
