@@ -40,6 +40,7 @@ from hornscribe.rhythm.profile import QuantizationProfile
 from hornscribe.rhythm.timewarp import TimeWarp
 from hornscribe.transcription.boundary import (
     OCTAVE_SNAP_ENERGY_RATIO,
+    SPLIT_VIBRATO_RMS_DIP,
     BoundaryFlag,
     boundary_flags,
     compute_envelopes,
@@ -259,6 +260,48 @@ class TestSplitFlags:
         assert flag.detail["vibratoDamped"] is True
         assert flag.score < 0.7  # damped from the undamped ~1.0
 
+    def test_damped_flag_with_no_valley_reads_as_vibrato(self) -> None:
+        # #371: _retaken_tone changes frequency but the amplitude is
+        # continuous — no breath valley — so a bend-extremum candidate
+        # is the vibrato itself, not a hidden split.
+        vib = (
+            PitchBendPoint(0.8, 0.0),
+            PitchBendPoint(0.9, -0.25),
+            PitchBendPoint(1.0, 0.25),
+            PitchBendPoint(1.1, 0.0),
+        )
+        flags = boundary_flags(
+            _retaken_tone(), _SR, (_ev(1, 60, 0.0, 2.0, vib),)
+        )
+        flag = [f for f in flags if f.kind == "split"][0]
+        assert flag.detail["vibratoDamped"] is True
+        assert flag.detail["likelyVibrato"] is True
+        assert flag.detail["rmsDip"] > SPLIT_VIBRATO_RMS_DIP
+
+    def test_damped_flag_with_valley_keeps_its_caution(self) -> None:
+        # #371: same bend extremum but the envelope genuinely stops —
+        # a same-pitch re-articulation phrased ON the vibrato cycle.
+        sig = np.concatenate(
+            [
+                _tone(0.96, 440.0),
+                _silence(0.05),
+                _tone(0.99, 440.0, t0=1.01),
+            ]
+        )
+        vib = (
+            PitchBendPoint(0.8, 0.0),
+            PitchBendPoint(0.9, -0.25),
+            PitchBendPoint(1.0, 0.25),
+            PitchBendPoint(1.1, 0.0),
+        )
+        flags = boundary_flags(sig, _SR, (_ev(1, 60, 0.0, 2.0, vib),))
+        splits = [f for f in flags if f.kind == "split"]
+        assert splits
+        flag = splits[0]
+        assert flag.detail["vibratoDamped"] is True
+        assert flag.detail["rmsDip"] < SPLIT_VIBRATO_RMS_DIP
+        assert "likelyVibrato" not in flag.detail
+
 
 class TestUncertainFlags:
     def test_weak_pitch_change_edge(self) -> None:
@@ -402,6 +445,39 @@ class TestBoundaryIssues:
         # boundary ~1.0 s -> ql 2 -> beat 2 at 120 bpm in 4/4.
         split_beat = Fraction(issue.evidence["suggestedSplitBeat"])
         assert n.start_beat < split_beat < n.end_beat
+
+    def test_vibrato_shaped_split_demotes_to_info(self) -> None:
+        # #371: a bend-extremum candidate with no amplitude valley is
+        # the vibrato itself — the issue informs instead of asking
+        # for a split decision.
+        vib = (
+            PitchBendPoint(0.8, 0.0),
+            PitchBendPoint(0.9, -0.25),
+            PitchBendPoint(1.0, 0.25),
+            PitchBendPoint(1.1, 0.0),
+        )
+        e = _ev(1, 60, 0.0, 2.0, vib)
+        n = _note(1, 60, "0", "4", (e.id,))
+        part = Part(id="part-1", name="Horn in F", notes=(n,))
+        issues = _boundary_issues(
+            _retaken_tone(),
+            _SR,
+            (_cleaned(e),),
+            (part,),
+            {e.id: e},
+            TimeWarp.fixed_bpm(120.0),
+            Fraction(1),
+            ScoreRevisionId("rev-test"),
+            0.0,
+            QuantizationProfile.standard(),
+        )
+        splits = [
+            i for i in issues
+            if i.evidence.get("suggestedKind") == "split"
+        ]
+        assert len(splits) == 1
+        assert splits[0].severity is Severity.INFO
+        assert splits[0].evidence["likelyVibrato"] is True
 
     def test_split_dropped_outside_span(self) -> None:
         # Same interior onset, but the canonical note only covers

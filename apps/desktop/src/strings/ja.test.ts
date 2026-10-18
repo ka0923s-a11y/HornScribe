@@ -201,6 +201,39 @@ describe("reviewEvidence.lowModelConfidence", () => {
   });
 });
 
+describe("reviewEvidence.boundaryUncertain", () => {
+  /* #371: a vibrato-damped dip without an amplitude valley reads as
+   *  "probably the vibrato itself" instead of asking for a split
+   *  decision; corroborated splits keep the decision copy. */
+  it("likely-vibrato split says it is probably not a boundary", () => {
+    const text = ja.reviewEvidence.boundaryUncertain({
+      kind: "split",
+      score: 0.5,
+      likelyVibrato: true,
+    });
+    expect(text).toContain("ビブラート");
+    expect(text).toContain("区切りではない可能性が高い");
+    expect(text).not.toContain("分割することを検討");
+  });
+
+  it("corroborated split still suggests the split", () => {
+    const text = ja.reviewEvidence.boundaryUncertain({
+      kind: "split",
+      score: 0.5,
+      likelyVibrato: false,
+    });
+    expect(text).toContain("分割することを検討");
+  });
+
+  it("merge keeps its own copy", () => {
+    const text = ja.reviewEvidence.boundaryUncertain({
+      kind: "merge",
+      score: 0.8,
+    });
+    expect(text).toContain("1つの音にまとめる");
+  });
+});
+
 describe("reviewEvidence.octaveUncertain", () => {
   /* #363: the octave-dip suspect carries the three-way band
    * verdict, and the direction copy follows the actual suggestion
