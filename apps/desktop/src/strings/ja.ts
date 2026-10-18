@@ -2058,6 +2058,33 @@ export const ja = {
       *  the spectrum standing by the written pitch means the flag is
       *  probably noise, and the copy says to dismiss if it sounds
       *  right. */
+    /* #369: low-confidence corroboration — the backend distrusted
+     *  the note but its own spectrum says whether a real
+     *  fundamental rings there. Corroborated flags get a quieter
+     *  "exists but unsure of pitch" reading; uncorroborated ones
+     *  stay "check this, it may be a phantom". */
+    lowModelConfidence: (p: {
+      readonly confidencePct: number | null;
+      readonly fundSnr: number | null;
+      readonly corroborated: boolean;
+    }) => {
+      const conf =
+        p.confidencePct != null
+          ? `確信度 ${p.confidencePct}%`
+          : "確信度が低め";
+      if (p.corroborated) {
+        return (
+          `検出の${conf}ですが、スペクトル上は基音が明確に存在します` +
+          (p.fundSnr != null ? `（S/N ≈ ${p.fundSnr}）` : "") +
+          "。実在する音である可能性が高い箇所です。"
+        );
+      }
+      return (
+        `検出の${conf}です` +
+        (p.fundSnr != null ? `（基音 S/N ≈ ${p.fundSnr}）` : "") +
+        "。元音源と聴き比べて、実在する音か確認してください。"
+      );
+    },
      octaveUncertain: (p: {
        readonly fromMidi: number | null;
        readonly toMidi: number | null;

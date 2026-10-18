@@ -165,6 +165,42 @@ describe("reviewEvidence.pitchUncertain", () => {
   });
 });
 
+describe("reviewEvidence.lowModelConfidence", () => {
+  /* #369: spectral corroboration — a low-confidence note with a
+   *  clear fundamental is presented as likely-real; without it the
+   *  copy stays a verify warning. */
+  it("corroborated says the spectrum confirms the note", () => {
+    const text = ja.reviewEvidence.lowModelConfidence({
+      confidencePct: 20,
+      fundSnr: 42.0,
+      corroborated: true,
+    });
+    expect(text).toContain("基音が明確に存在");
+    expect(text).toContain("実在する音である可能性が高い");
+    expect(text).toContain("42");
+  });
+
+  it("uncorroborated asks to verify against the source", () => {
+    const text = ja.reviewEvidence.lowModelConfidence({
+      confidencePct: 20,
+      fundSnr: 4.0,
+      corroborated: false,
+    });
+    expect(text).toContain("元音源と聴き比べて");
+    expect(text).not.toContain("実在する音である可能性が高い");
+  });
+
+  it("missing evidence falls back cleanly", () => {
+    const text = ja.reviewEvidence.lowModelConfidence({
+      confidencePct: null,
+      fundSnr: null,
+      corroborated: false,
+    });
+    expect(text).toContain("確信度が低め");
+    expect(text).not.toContain("undefined");
+  });
+});
+
 describe("reviewEvidence.octaveUncertain", () => {
   /* #363: the octave-dip suspect carries the three-way band
    * verdict, and the direction copy follows the actual suggestion

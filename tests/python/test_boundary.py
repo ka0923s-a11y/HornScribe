@@ -43,6 +43,7 @@ from hornscribe.transcription.boundary import (
     BoundaryFlag,
     boundary_flags,
     compute_envelopes,
+    fundamental_band_snr,
     low_octave_evidence,
     low_octave_suspected,
     octave_band_ratio,
@@ -53,6 +54,7 @@ from hornscribe.transcription.clean import CleanedEvents
 from hornscribe.transcription.pipeline import (
     _auto_pitch_fixes,
     _boundary_issues,
+    _extra_issues,
     _octave_dip_suspects,
     _octave_issues,
     _pitch_dip_issues,
@@ -1421,6 +1423,111 @@ class TestOctaveDipSuspects:
             _ev(3, 69, 0.55, 0.9),
         )
         assert self._suspects(_held_tone(), (a, b, c)) == []
+
+
+class TestLowConfidenceCorroboration:
+    """#369: spectral corroboration — a low-confidence note whose
+    fundamental band clearly rings is real audio the backend merely
+    distrusted; it flags one severity level lower instead of warning
+    like a phantom."""
+
+    def _issues(
+        self,
+        sig: np.ndarray,
+        note: QuantizedNote,
+        events: tuple[RawNoteEvent, ...],
+        conf: float,
+    ) -> list:
+        return _extra_issues(
+            (note,),
+            {note.id: conf},
+            {note.id: events[0].onset_sec},
+            {e.id: e for e in events},
+            ScoreRevisionId("rev-test"),
+            samples=sig,
+            sample_rate=_SR,
+        )
+
+    def test_fundamental_band_snr_measure(self) -> None:
+        # Clear tone → high SNR; silence/short spans → None.
+        assert fundamental_band_snr(
+            _tone(1.0, 261.63), _SR, 0.0, 1.0, 60
+        ) > 10.0
+        assert (
+            fundamental_band_snr(_silence(1.0), _SR, 0.0, 1.0, 60) is None
+        )
+        assert (
+            fundamental_band_snr(_tone(1.0, 261.63), _SR, 0.0, 0.1, 60)
+            is None
+        )
+
+    def test_clear_fundamental_downgrades_flag(self) -> None:
+        # C4 (261.63 Hz) undeniably in the audio — the conf=0.2
+        # backend mistrust becomes a caution, not a warning.
+        ev = _ev(1, 60, 0.0, 1.0)
+        n = _note(1, 60, "0", "2", (ev.id,))
+        issues = self._issues(_tone(1.0, 261.63), n, (ev,), 0.2)
+        lc = [
+            i for i in issues if i.reason is ReviewReason.LOW_MODEL_CONFIDENCE
+        ]
+        assert len(lc) == 1
+        i = lc[0]
+        assert i.severity is Severity.CAUTION
+        assert i.evidence["spectralCorroborated"] is True
+        assert i.evidence["fundSnr"] >= 12.0
+
+    def test_corroborated_caution_drops_to_info(self) -> None:
+        ev = _ev(1, 60, 0.0, 1.0)
+        n = _note(1, 60, "0", "2", (ev.id,))
+        issues = self._issues(_tone(1.0, 261.63), n, (ev,), 0.4)
+        lc = [
+            i for i in issues if i.reason is ReviewReason.LOW_MODEL_CONFIDENCE
+        ]
+        assert len(lc) == 1
+        assert lc[0].severity is Severity.INFO
+
+    def test_silence_keeps_warning(self) -> None:
+        # Nothing in the audio — the flag stays a warning (the only
+        # evidence is the missing fundamental).
+        ev = _ev(1, 60, 0.0, 1.0)
+        n = _note(1, 60, "0", "2", (ev.id,))
+        issues = self._issues(_silence(1.0), n, (ev,), 0.2)
+        lc = [
+            i for i in issues if i.reason is ReviewReason.LOW_MODEL_CONFIDENCE
+        ]
+        assert len(lc) == 1
+        assert lc[0].severity is Severity.WARNING
+        assert "spectralCorroborated" not in lc[0].evidence
+
+    def test_off_pitch_audio_keeps_warning(self) -> None:
+        # Audio rings at a different pitch — the written note is a
+        # phantom and keeps its warning.
+        ev = _ev(1, 60, 0.0, 1.0)
+        n = _note(1, 60, "0", "2", (ev.id,))
+        issues = self._issues(_tone(1.0, 880.0), n, (ev,), 0.2)
+        lc = [
+            i for i in issues if i.reason is ReviewReason.LOW_MODEL_CONFIDENCE
+        ]
+        assert len(lc) == 1
+        assert lc[0].severity is Severity.WARNING
+
+    def test_no_samples_keeps_legacy_flag(self) -> None:
+        # Callers without audio (project reopen) keep the old flag.
+        ev = _ev(1, 60, 0.0, 1.0)
+        n = _note(1, 60, "0", "2", (ev.id,))
+        issues = _extra_issues(
+            (n,),
+            {n.id: 0.2},
+            {n.id: ev.onset_sec},
+            {ev.id: ev},
+            ScoreRevisionId("rev-test"),
+        )
+        lc = [
+            i for i in issues if i.reason is ReviewReason.LOW_MODEL_CONFIDENCE
+        ]
+        assert len(lc) == 1
+        assert lc[0].severity is Severity.WARNING
+        assert "fundSnr" not in lc[0].evidence
 
 
 class TestAutoPitchCorrections:

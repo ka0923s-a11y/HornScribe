@@ -472,6 +472,54 @@ def octave_band_ratio(
     return e_tgt / e_det
 
 
+def fundamental_band_snr(
+    samples: Any,
+    sample_rate: int,
+    onset_sec: float,
+    offset_sec: float,
+    midi: float,
+    *,
+    time_offset_sec: float = 0.0,
+) -> float | None:
+    """Presence corroboration (#369) — fundamental-band peak over the
+    broadband median, or None when the span is too short to measure.
+
+    A real note leaves a clear peak at its own fundamental; a phantom
+    the tracker imagined carries only bleed and the noise floor.
+    Crude by design — this corroborates existence, it does not judge
+    pitch.
+    """
+    i0 = int((onset_sec - time_offset_sec) * sample_rate)
+    i1 = int((offset_sec - time_offset_sec) * sample_rate)
+    seg = np.asarray(samples[max(0, i0) : max(0, i1)], dtype=np.float64)
+    n = int(seg.shape[0])
+    if n < int(OCTAVE_MIN_SPAN_SEC * sample_rate):
+        return None
+    inset = int(n * 0.2)
+    seg = seg[inset : n - inset]
+    if seg.shape[0] == 0:
+        return None
+    win = seg * np.hanning(seg.shape[0])
+    mag = np.abs(np.fft.rfft(win))
+    if mag.shape[0] == 0:
+        return None
+    med = float(np.median(mag))
+    # The broadband median is the noise floor — except on a pure tone,
+    # where it is ~0 and any leakage reads as infinite SNR. Floor it at
+    # a small share of the global peak so an off-pitch tone cannot
+    # corroborate a phantom note.
+    floor = max(med, float(mag.max()) * 0.001)
+    if floor <= 0.0:
+        return None
+    freqs = np.fft.rfftfreq(seg.shape[0], 1.0 / sample_rate)
+    f = 440.0 * 2.0 ** ((int(round(midi)) - 69) / 12.0)
+    mask = (freqs >= f * (1.0 - OCTAVE_BAND_RATIO)) & (
+        freqs <= f * (1.0 + OCTAVE_BAND_RATIO)
+    )
+    peak = float(mag[mask].max()) if mask.any() else 0.0
+    return peak / floor
+
+
 def octave_prefers(
     samples: Any,
     sample_rate: int,
