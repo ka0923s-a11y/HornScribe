@@ -164,3 +164,79 @@ describe("reviewEvidence.pitchUncertain", () => {
     ).toContain("スペクトル判定は行っていません");
   });
 });
+
+describe("reviewEvidence.octaveUncertain", () => {
+  /* #363: the octave-dip suspect carries the three-way band
+   * verdict, and the direction copy follows the actual suggestion
+   * (the old copy always said "1オクターブ下" even for an upward
+   * fix). */
+  it("an upward suggestion says so", () => {
+    const text = ja.reviewEvidence.octaveUncertain({
+      fromMidi: 66,
+      toMidi: 78,
+      lowFundPct: 40,
+      oddHarmPct: 20,
+    });
+    expect(text).toContain("1オクターブ上");
+    expect(text).toContain("MIDI 66");
+    expect(text).toContain("78");
+  });
+
+  it("a downward suggestion says so", () => {
+    const text = ja.reviewEvidence.octaveUncertain({
+      fromMidi: 78,
+      toMidi: 66,
+      lowFundPct: 40,
+      oddHarmPct: 20,
+    });
+    expect(text).toContain("1オクターブ下");
+  });
+
+  it("detected-dominant says the written pitch likely stands", () => {
+    const text = ja.reviewEvidence.octaveUncertain({
+      fromMidi: 66,
+      toMidi: 78,
+      lowFundPct: null,
+      oddHarmPct: null,
+      verdict: "detected",
+    });
+    expect(text).toContain("検出が正しい可能性が高い箇所です");
+    expect(text).toContain("問題なし");
+    // the detected path never claims the suggestion is likely right
+    expect(text).not.toContain("実際に1オクターブ上の音である");
+  });
+
+  it("suggested-dominant keeps the band-support copy", () => {
+    const text = ja.reviewEvidence.octaveUncertain({
+      fromMidi: 66,
+      toMidi: 78,
+      lowFundPct: null,
+      oddHarmPct: null,
+      verdict: "suggested",
+    });
+    expect(text).toContain("提案側のオクターブを支持");
+    expect(text).toContain("実際に1オクターブ上の音である");
+  });
+
+  it("ambiguous keeps the undecidable copy", () => {
+    const text = ja.reviewEvidence.octaveUncertain({
+      fromMidi: 66,
+      toMidi: 78,
+      lowFundPct: null,
+      oddHarmPct: null,
+      verdict: "ambiguous",
+    });
+    expect(text).toContain("判定が付きませんでした");
+  });
+
+  it("a low-octave audit without a verdict keeps the lowFund copy", () => {
+    const text = ja.reviewEvidence.octaveUncertain({
+      fromMidi: 78,
+      toMidi: 66,
+      lowFundPct: 42,
+      oddHarmPct: 18,
+    });
+    expect(text).toContain("42%");
+    expect(text).toContain("実際に1オクターブ下の音である");
+  });
+});

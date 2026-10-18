@@ -3643,6 +3643,7 @@ _SUSPECT_REASON = {
     "lowOctave": ReviewReason.OCTAVE_UNCERTAIN,
     "arbiter": ReviewReason.OCTAVE_UNCERTAIN,
     "context": ReviewReason.OCTAVE_UNCERTAIN,
+    "octaveDip": ReviewReason.OCTAVE_UNCERTAIN,
     "semitoneDip": ReviewReason.PITCH_UNCERTAIN,
 }
 
@@ -4104,6 +4105,120 @@ def _pitch_dip_suspects(
                     # Only an audio-verified dip is conviction-grade —
                     # a short chromatic passing tone the spectrum
                     # cannot read stays a flag.
+                    auto=spectral is True,
+                )
+            )
+    suspects.sort(key=lambda s: s.time_range.start_sec)
+    return suspects[:MAX_BOUNDARY_ISSUES]
+
+
+def _octave_dip_suspects(
+    samples: Any,
+    sample_rate: int,
+    cleaneds: tuple[CleanedEvents, ...],
+    parts: tuple[Any, ...],
+    time_offset_sec: float,
+    exclude: frozenset[ScoreNoteId] = frozenset(),
+) -> list[_PitchSuspect]:
+    """Isolated octave excursions (#363) — the X -> X±12 -> X shape.
+
+    A sub-280 ms note sitting exactly an octave off BOTH of its
+    identical-pitch neighbours is a tracker register flicker far more
+    often than a sung octave: a deliberate octave leap lands and
+    stays (or continues from the new register), it does not return to
+    the SAME pitch within two events. This is the gap the other
+    detectors leave — semitoneDip only knows ±1, the arbiter needs
+    the pYIN median to disagree (and pYIN flickers too), and the
+    low-octave audit only covers detected-too-high.
+
+    Spectral arbitration works like the semitone dip: the
+    neighbours' register winning the band ratio by the snap
+    threshold is audio-verified (``auto``), the detected register
+    winning means a real leap — no flag — and the middle stays an
+    honest flag. ``exclude`` dedupes notes the low-octave/arbiter
+    audits already suspected.
+    """
+    canon_by_event: dict[RawNoteEventId, QuantizedNote] = {}
+    for part in parts:
+        for n in part.notes:
+            for e in n.source_event_ids:
+                canon_by_event.setdefault(e, n)
+    suspects: list[_PitchSuspect] = []
+    seen: set[ScoreNoteId] = set(exclude)
+    for c in cleaneds:
+        events = c.events
+        for i, ev in enumerate(events):
+            span = ev.offset_sec - ev.onset_sec
+            if span <= 0.0 or span >= PITCH_DIP_MAX_SEC:
+                continue
+            prev_ev = events[i - 1] if i > 0 else None
+            next_ev = events[i + 1] if i + 1 < len(events) else None
+            if prev_ev is None or next_ev is None:
+                continue
+            prev_midi = int(round(prev_ev.pitch_midi))
+            next_midi = int(round(next_ev.pitch_midi))
+            # Strict V/Λ shape only — the neighbours must agree on
+            # the SAME pitch or the excursion is line material (a
+            # register walk or an alternation boundary).
+            if prev_midi != next_midi:
+                continue
+            pitch = int(round(ev.pitch_midi))
+            if abs(pitch - prev_midi) != 12:
+                continue
+            n = canon_by_event.get(ev.id)
+            if n is None or n.deleted or n.id in seen:
+                continue
+            suggested = prev_midi
+            spectral: bool | None = None
+            spectral_verdict: str | None = None
+            ratio = octave_band_ratio(
+                samples,
+                sample_rate,
+                ev.onset_sec,
+                ev.offset_sec,
+                ev.pitch_midi,
+                float(suggested),
+                time_offset_sec=time_offset_sec,
+            )
+            if ratio is not None:
+                spectral = ratio > OCTAVE_SNAP_ENERGY_RATIO
+                spectral_verdict = (
+                    "suggested"
+                    if spectral
+                    else (
+                        "detected"
+                        if ratio < 1.0 / OCTAVE_SNAP_ENERGY_RATIO
+                        else "ambiguous"
+                    )
+                )
+            # A spectrum that stands by the detected register is a
+            # real octave figure — flagging it would be noise.
+            if spectral_verdict == "detected":
+                continue
+            seen.add(n.id)
+            suspects.append(
+                _PitchSuspect(
+                    note_id=n.id,
+                    pitch_midi=pitch,
+                    suggested_midi=suggested,
+                    detector="octaveDip",
+                    time_range=TimeRange(
+                        start_sec=ev.onset_sec, end_sec=ev.offset_sec
+                    ),
+                    evidence={
+                        "pitchMidi": pitch,
+                        "suggestedMidi": suggested,
+                        "prevMidi": prev_midi,
+                        "nextMidi": next_midi,
+                        **(
+                            {
+                                "spectralSupport": spectral,
+                                "spectralVerdict": spectral_verdict,
+                            }
+                            if spectral is not None
+                            else {}
+                        ),
+                    },
                     auto=spectral is True,
                 )
             )
@@ -5761,20 +5876,35 @@ def run_transcription_job(
         # replay reproduces the same pitches). Suspect detection itself
         # is unchanged: the spectral audits already convict; only the
         # score-keeping decision moved.
+        octave_suspects = _octave_suspects(
+            *(
+                lead_evidence
+                if lead_evidence is not None
+                else (samples, sample_rate)
+            ),
+            estimate.warp,
+            beat_ql,
+            (cleaned, *cleaned_lowers),
+            payload.parts,
+            selection_offset_sec,
+            arbiter_events=arbiter_events,
+            arbiter_backend=arbiter_backend,
+        )
         pitch_suspects = (
-            *_octave_suspects(
+            *octave_suspects,
+            # #363: isolated octave excursions — the audits already
+            #  convicted notes keep their verdict; the dip detector
+            #  skips them so one flicker does not double-flag.
+            *_octave_dip_suspects(
                 *(
                     lead_evidence
                     if lead_evidence is not None
                     else (samples, sample_rate)
                 ),
-                estimate.warp,
-                beat_ql,
                 (cleaned, *cleaned_lowers),
                 payload.parts,
                 selection_offset_sec,
-                arbiter_events=arbiter_events,
-                arbiter_backend=arbiter_backend,
+                exclude=frozenset(s.note_id for s in octave_suspects),
             ),
             *_pitch_dip_suspects(
                 *(

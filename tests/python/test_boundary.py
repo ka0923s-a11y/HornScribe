@@ -53,6 +53,7 @@ from hornscribe.transcription.clean import CleanedEvents
 from hornscribe.transcription.pipeline import (
     _auto_pitch_fixes,
     _boundary_issues,
+    _octave_dip_suspects,
     _octave_issues,
     _pitch_dip_issues,
     _pitch_fixed_payload,
@@ -1199,6 +1200,209 @@ class TestPitchDipAudit:
         assert len(issues) == 1
         assert "spectralVerdict" not in issues[0].evidence
         assert "spectralSupport" not in issues[0].evidence
+
+
+class TestOctaveDipSuspects:
+    """#363: isolated octave excursions — the X -> X±12 -> X shape.
+
+    A sub-280 ms note exactly an octave off BOTH identical-pitch
+    neighbours is a tracker register flicker far more often than a
+    sung octave. The fundamental-band ratio arbitrates: the
+    neighbours' register dominant -> flagged (+auto), the detected
+    register dominant -> a real leap (no flag), the middle -> an
+    honest open flag.
+    """
+
+    @staticmethod
+    def _leap_tone() -> np.ndarray:
+        """440 Hz except a real 150 ms 880 Hz window at 0.4-0.55 s."""
+        return np.concatenate(
+            [
+                _tone(0.4, 440.0),
+                _tone(0.15, 880.0, t0=0.4),
+                _tone(0.45, 440.0, t0=0.55),
+            ]
+        )
+
+    @staticmethod
+    def _mixed_tone() -> np.ndarray:
+        """440 Hz except an equal-mix 440+880 window at 0.4-0.55 s."""
+        return np.concatenate(
+            [
+                _tone(0.4, 440.0),
+                _tone(0.15, 440.0, t0=0.4) + _tone(0.15, 880.0, t0=0.4),
+                _tone(0.45, 440.0, t0=0.55),
+            ]
+        )
+
+    def _suspects(
+        self,
+        sig: np.ndarray,
+        events: tuple[RawNoteEvent, ...],
+        *notes: QuantizedNote,
+        exclude: frozenset = frozenset(),
+    ) -> list[_PitchSuspect]:
+        part = Part(id="part-1", name="Horn in F", notes=notes)
+        return _octave_dip_suspects(
+            sig,
+            _SR,
+            (_cleaned(*events),),
+            (part,),
+            0.0,
+            exclude=exclude,
+        )
+
+    def test_v_dip_flags_with_suggested_verdict(self) -> None:
+        # A4 -> A5 -> A4 over a held 440 Hz tone: the written A5 has
+        # no energy on its own band — a register flicker, auto-fixable.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 81, 0.4, 0.55),
+            _ev(3, 69, 0.55, 0.9),
+        )
+        suspects = self._suspects(
+            _held_tone(), (a, b, c), _note(1, 81, "1", "1", (b.id,))
+        )
+        assert len(suspects) == 1
+        s = suspects[0]
+        assert s.detector == "octaveDip"
+        assert s.pitch_midi == 81
+        assert s.suggested_midi == 69
+        assert s.auto is True
+        assert s.evidence["spectralVerdict"] == "suggested"
+        assert s.evidence["spectralSupport"] is True
+        assert s.evidence["prevMidi"] == 69
+        assert s.evidence["nextMidi"] == 69
+
+    def test_dip_down_flags(self) -> None:
+        # The -12 direction convicts identically (tracker drops to
+        # the sub-octave).
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 57, 0.4, 0.55),
+            _ev(3, 69, 0.55, 0.9),
+        )
+        suspects = self._suspects(
+            _held_tone(), (a, b, c), _note(1, 57, "1", "1", (b.id,))
+        )
+        assert len(suspects) == 1
+        assert suspects[0].suggested_midi == 69
+
+    def test_detected_band_is_real_leap(self) -> None:
+        # The audio really sits an octave up for 150 ms — flagging it
+        # would be noise, so the detector stays quiet.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 81, 0.4, 0.55),
+            _ev(3, 69, 0.55, 0.9),
+        )
+        assert (
+            self._suspects(
+                self._leap_tone(), (a, b, c), _note(1, 81, "1", "1", (b.id,))
+            )
+            == []
+        )
+
+    def test_ambiguous_band_flags_without_auto(self) -> None:
+        # Equal energy on both bands — honestly undecidable: flag,
+        # no auto-fix.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 81, 0.4, 0.55),
+            _ev(3, 69, 0.55, 0.9),
+        )
+        suspects = self._suspects(
+            self._mixed_tone(), (a, b, c), _note(1, 81, "1", "1", (b.id,))
+        )
+        assert len(suspects) == 1
+        assert suspects[0].evidence["spectralVerdict"] == "ambiguous"
+        assert suspects[0].auto is False
+
+    def test_short_dip_flags_without_spectral(self) -> None:
+        # A 100 ms dip is under the 120 ms measurement floor — flag
+        # with no verdict keys rather than a guessed verdict.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 81, 0.4, 0.5),
+            _ev(3, 69, 0.5, 0.9),
+        )
+        suspects = self._suspects(
+            _held_tone(), (a, b, c), _note(1, 81, "1", "1", (b.id,))
+        )
+        assert len(suspects) == 1
+        assert "spectralVerdict" not in suspects[0].evidence
+        assert "spectralSupport" not in suspects[0].evidence
+        assert suspects[0].auto is False
+
+    def test_walk_shape_untouched(self) -> None:
+        # Neighbours disagreeing (69 -> 81 -> 67) is a register move,
+        # not a return-to-pitch flicker.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 81, 0.4, 0.55),
+            _ev(3, 67, 0.55, 0.9),
+        )
+        assert (
+            self._suspects(
+                _held_tone(), (a, b, c), _note(1, 81, "1", "1", (b.id,))
+            )
+            == []
+        )
+
+    def test_semitone_shape_untouched(self) -> None:
+        # +-1 belongs to the semitone-dip audit, not this one.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 70, 0.4, 0.55),
+            _ev(3, 69, 0.55, 0.9),
+        )
+        assert (
+            self._suspects(
+                _held_tone(), (a, b, c), _note(1, 70, "1", "1", (b.id,))
+            )
+            == []
+        )
+
+    def test_long_octave_stay_is_deliberate(self) -> None:
+        # 350 ms in the other register is a landed leap, not a
+        # flicker.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 81, 0.4, 0.75),
+            _ev(3, 69, 0.75, 1.1),
+        )
+        assert (
+            self._suspects(
+                _held_tone(), (a, b, c), _note(1, 81, "1", "1", (b.id,))
+            )
+            == []
+        )
+
+    def test_exclude_skips_flagged_note(self) -> None:
+        # A note the low-octave/arbiter audits already suspected is
+        # not double-flagged.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 81, 0.4, 0.55),
+            _ev(3, 69, 0.55, 0.9),
+        )
+        n = _note(1, 81, "1", "1", (b.id,))
+        assert (
+            self._suspects(
+                _held_tone(), (a, b, c), n, exclude=frozenset({n.id})
+            )
+            == []
+        )
+
+    def test_unmapped_event_no_flag(self) -> None:
+        # A dip event with no canonical note cannot produce a
+        # score-level issue.
+        a, b, c = (
+            _ev(1, 69, 0.0, 0.4),
+            _ev(2, 81, 0.4, 0.55),
+            _ev(3, 69, 0.55, 0.9),
+        )
+        assert self._suspects(_held_tone(), (a, b, c)) == []
 
 
 class TestAutoPitchCorrections:
