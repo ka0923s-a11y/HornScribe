@@ -56,7 +56,15 @@ const MODEL: ScoreInspectorModel = {
   openIssueLabel: "0 件",
 };
 
-function mount(over: Record<string, unknown> = {}) {
+function mount(
+  // #364: type the over keys the assertions read — a plain
+  // Record spread does not add them to the inferred props type,
+  // so props.onChordChange failed tsc while vitest passed.
+  over: Partial<{
+    onChordChange(args: { startBeat: string; chordLabel: string }): void;
+  }> &
+    Record<string, unknown> = {},
+) {
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
