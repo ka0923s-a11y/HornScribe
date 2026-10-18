@@ -2476,6 +2476,24 @@ const setKey = useCallback(
     [applyRhythmEdit],
   );
 
+  /* #359: chord relabel — the chord-map editor's row commits land
+   *  here; the engine rewrites the <harmony> symbol at startBeat
+   *  (document metadata, like setMetadata — the revision stays put). */
+  const setChord = useCallback(
+    (args: { startBeat: string; chordLabel: string }) => {
+      applyRhythmEdit(
+        () => ({
+          kind: "setChord",
+          noteId: "",
+          startBeat: args.startBeat,
+          chordLabel: args.chordLabel,
+        }),
+        ja.commandFeedback.chordChanged,
+      );
+    },
+    [applyRhythmEdit],
+  );
+
   /* #267: octave arrange — one canonical transposeRange over the
    *  whole score (real sounding pitch, not the F管 projection).
    *  The engine rejects moves that would leave MIDI 0-127; undo is
@@ -2843,6 +2861,7 @@ const setKey = useCallback(
       tempoChangeAt: (args) => tempoChangeAt(args),
       removeTempoChange: (args) => removeTempoChange(args),
       setMetadata: (md) => setMetadata(md),
+      setChord: (args) => setChord(args),
       transposeScore: (s) => transposeScore(s),
       collapseToMelody: () => collapseToMelody(),
       requantize: (settings) => requantize(settings),
@@ -2893,6 +2912,7 @@ const setKey = useCallback(
     tempoChangeAt,
     removeTempoChange,
     setMetadata,
+    setChord,
     transposeScore,
     collapseToMelody,
     requantize,

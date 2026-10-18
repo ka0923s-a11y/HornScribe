@@ -10,9 +10,11 @@ from conftest import make_score
 from hornscribe.domain.ids import ScoreNoteId
 from hornscribe.domain.score import (
     ChordSymbol,
+    MeterChange,
     Part,
     QuantizedNote,
     ScoreDocument,
+    TimeSignature,
 )
 from hornscribe.export.musicxml import (
     export_concert_musicxml,
@@ -388,6 +390,65 @@ def test_chord_symbols_do_not_change_revision() -> None:
     base = make_score([(60, 0, 4)])
     with_symbols = replace(base, chord_symbols=(_sym(0, 4, 0, "maj"),))
     assert with_symbols.revision == base.revision
+
+
+def test_chord_symbols_carry_derived_measure() -> None:
+    """#359: to_dict annotates each symbol with its measure number so
+    the inspector's chord editor can name where the symbol sits."""
+    doc = _doc_with(
+        [(60, 0, 4), (62, 4, 4), (64, 8, 4)],
+        (_sym(0, 4, 0, "maj"), _sym(4, 8, 7, "7"), _sym(8, 12, 9, "min")),
+    )
+    out = doc.to_dict()["chordSymbols"]
+    assert [c["measure"] for c in out] == [1, 2, 3]
+
+
+def test_chord_symbol_measure_honors_pickup() -> None:
+    """#359: a symbol inside the implicit anacrusis names measure 0."""
+    doc = _doc_with(
+        [(60, 0, 1), (62, 1, 4)],
+        (_sym(0, 1, 0, "maj"), _sym(1, 5, 7, "7")),
+        pickup_beats=Fraction(1),
+    )
+    out = doc.to_dict()["chordSymbols"]
+    assert [c["measure"] for c in out] == [0, 1]
+
+
+def test_chord_symbol_measure_follows_meter_change() -> None:
+    """#359: numbering derives from the CURRENT layout at serialization
+    - a mid-piece meter change re-tiles the barline grid, so symbols
+    after the boundary report the number the new layout gives them."""
+    doc = _doc_with(
+        [(60, 0, 4), (62, 4, 4), (64, 8, 4)],
+        (_sym(0, 4, 0, "maj"), _sym(4, 8, 7, "7"), _sym(11, 12, 9, "min")),
+    )
+    # 4/4 throughout: the third symbol sits in m3 (beats 8..12).
+    assert [c["measure"] for c in doc.to_dict()["chordSymbols"]] == [
+        1,
+        2,
+        3,
+    ]
+    changed = replace(
+        doc.payload,
+        meter_changes=(
+            MeterChange(Fraction(0), TimeSignature(4, 4)),
+            # 3/4 from the second measure: m4 = 10..12 catches beat 11.
+            MeterChange(Fraction(4), TimeSignature(3, 4)),
+        ),
+    )
+    out = replace(doc, payload=changed).to_dict()["chordSymbols"]
+    assert [c["measure"] for c in out] == [1, 2, 4]
+
+
+def test_chord_symbol_measure_ignored_on_load() -> None:
+    """#359: from_dict ignores the derived measure key - project files
+    written with it load cleanly and the value recomputes on save."""
+    doc = _doc_with([(60, 0, 4)], (_sym(0, 4, 0, "maj"),))
+    raw = doc.to_dict()
+    raw["chordSymbols"][0]["measure"] = 99
+    restored = ScoreDocument.from_dict(raw)
+    assert restored.chord_symbols == doc.chord_symbols
+    assert restored.to_dict()["chordSymbols"][0]["measure"] == 1
 
 
 def test_deterministic_output_with_symbols() -> None:

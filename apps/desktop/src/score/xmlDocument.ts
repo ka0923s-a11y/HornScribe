@@ -121,6 +121,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       ),
       pickupBeats: pickupBeatsOf(this.canonicalDoc),
       omittedIssueCount: this._omittedIssueCount,
+      chordSymbols: chordSymbolsOf(this.canonicalDoc),
       // #80-4: meter-estimation provenance rides the document meta so
       //  the inspector can label an estimated signature (undefined =
       //  no provenance — fixture/foreign docs say nothing).
@@ -424,6 +425,7 @@ export class XmlScoreDocument implements ScoreDocumentPort {
       ),
       pickupBeats: pickupBeatsOf(this.canonicalDoc),
       omittedIssueCount: this._omittedIssueCount,
+      chordSymbols: chordSymbolsOf(this.canonicalDoc),
       meterEstimated:
         this._meta.meter === prevMeter ? prevEstimated : undefined,
       meterConfidence:
@@ -469,6 +471,40 @@ function pickupBeatsOf(canonicalDoc: unknown): string | null {
   return typeof raw === "string" && /^\d+\/\d+$/.test(raw)
     ? raw
     : null;
+}
+
+/** #359: the canonical chord map for the inspector's chord editor —
+ *  one entry per analyzed segment in document order. startBeat is the
+ *  canonical beat the setChord edit needs (required for the row to be
+ *  editable); measure comes engine-derived via measure_spans so it is
+ *  always fresh. Entries lacking a usable startBeat are dropped — a
+ *  display-only row the user cannot act on would mislead. */
+function chordSymbolsOf(
+  canonicalDoc: unknown,
+): NonNullable<ScoreDocumentMeta["chordSymbols"]> {
+  const list = (canonicalDoc as { chordSymbols?: unknown })?.chordSymbols;
+  if (!Array.isArray(list)) return [];
+  const out: {
+    measure: number | null;
+    startBeat: string;
+    endBeat: string;
+    label: string;
+    confidence?: number;
+    margin?: number;
+  }[] = [];
+  for (const c of list as Record<string, unknown>[]) {
+    if (typeof c?.startBeat !== "string") continue;
+    out.push({
+      measure: typeof c.measure === "number" ? c.measure : null,
+      startBeat: c.startBeat,
+      endBeat: typeof c.endBeat === "string" ? c.endBeat : "",
+      label: typeof c.label === "string" ? c.label : "",
+      confidence:
+        typeof c.confidence === "number" ? c.confidence : undefined,
+      margin: typeof c.margin === "number" ? c.margin : undefined,
+    });
+  }
+  return out;
 }
 
 /* ------------------------- #224: canonical edits -------------------------

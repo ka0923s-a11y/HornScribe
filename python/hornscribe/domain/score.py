@@ -963,7 +963,33 @@ class ScoreDocument:
         if self.raw_evidence is not None:
             out["rawEvidence"] = self.raw_evidence
         if self.chord_symbols:
-            out["chordSymbols"] = [c.to_dict() for c in self.chord_symbols]
+            # #359: the inspector's chord editor locates each symbol by
+            # measure; derive it at serialization from the CURRENT
+            # layout so a setMeter/setPickup edit never leaves a stale
+            # number behind. from_dict ignores the key, so older
+            # payloads stay loadable and the revision is untouched
+            # (chord symbols sit outside the payload anyway).
+            try:
+                chord_spans = measure_spans(self.payload)
+            except Exception:
+                # Degenerate payload -- serialization must still succeed;
+                # the symbols simply carry no measure.
+                chord_spans = ()
+            rendered: list[dict[str, Any]] = []
+            for c in self.chord_symbols:
+                d = c.to_dict()
+                number = next(
+                    (
+                        s.number
+                        for s in chord_spans
+                        if s.start_beat <= c.start_beat < s.end_beat
+                    ),
+                    None,
+                )
+                if number is not None:
+                    d["measure"] = number
+                rendered.append(d)
+            out["chordSymbols"] = rendered
         return out
 
     @classmethod

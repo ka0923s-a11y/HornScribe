@@ -2172,6 +2172,34 @@ body {
   margin-top: var(--hs-space-xs);
 }
 
+/* #359: chord-map editor — a <details> section since a full-song map
+ *  runs to hundreds of symbols; the list itself scrolls inside the
+ *  panel instead of stretching it. */
+.hs-properties__chords {
+  margin-top: var(--hs-space-s);
+}
+.hs-properties__chords-summary {
+  cursor: pointer;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-font-size-compact);
+  padding-bottom: var(--hs-space-xs);
+}
+.hs-properties__chords .hs-properties__keymap {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.hs-properties__chords .hs-properties__chord {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hs-properties__chord-uncertain {
+  flex: 0 0 auto;
+  padding-bottom: var(--hs-space-xs);
+  color: var(--hs-status-warning);
+  font-size: var(--hs-font-size-caption);
+  white-space: nowrap;
+}
+
 /* ---- Settings (auxiliary screen, §18): replaces the workspace rows ---- */
 .hs-settings-wrap {
   grid-row: commandbar / transport; /* spans commandbar…main rows */

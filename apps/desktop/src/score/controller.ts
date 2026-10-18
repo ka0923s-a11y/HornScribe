@@ -84,6 +84,10 @@ export interface ScoreWorkspaceController {
     composer?: string;
     arranger?: string;
   }): void;
+  /** #359: relabel a detected chord symbol — the engine's setChord op
+   *  rewrites the <harmony> at startBeat (document metadata, so the
+   *  score revision is stable; undo still rides the doc swap). */
+  setChord?(args: { startBeat: string; chordLabel: string }): void;
   /** #267: whole-score arrangement transpose — canonical engine
    *  edit (transposeRange), one undo entry; ±12 for the octave
    *  actions. This changes REAL sounding pitch, unlike the F管

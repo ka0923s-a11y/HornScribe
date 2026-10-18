@@ -48,6 +48,7 @@ const MODEL: ScoreInspectorModel = {
     { measure: 3, bpm: 96, startBeat: "8/1" },
     { measure: 3, bpm: 88, startBeat: "10/1" },
   ],
+  chordSymbols: [],
   measureCount: 8,
   swingFeel: false,
   measureLabel: "8 小節",
@@ -363,5 +364,100 @@ describe("NoteBody edit controls (#379)", () => {
     expect(editButton("＋半音")).toBeUndefined();
     act(() => editButton("音符に変換").click());
     expect(noteActions.restToNote).toHaveBeenCalled();
+  });
+});
+
+describe("ChordMapEditor (mounted)", () => {
+  const CHORDS_MODEL: ScoreInspectorModel = {
+    ...MODEL,
+    chordSymbols: [
+      { measure: 1, startBeat: "0/1", endBeat: "4/1", label: "C", confidence: 0.9, margin: 0.5 },
+      { measure: 0, startBeat: "-1/1", endBeat: "0/1", label: "G7", confidence: 0.2, margin: 0.5 },
+      { measure: null, startBeat: "40/1", endBeat: "44/1", label: "F", confidence: 0.9, margin: 0.5 },
+    ],
+  };
+
+  function chordInputs() {
+    return [
+      ...host!.querySelectorAll<HTMLInputElement>(
+        ".hs-properties__chords input",
+      ),
+    ];
+  }
+
+  function typeInto(input: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    act(() => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  function pressEnter(input: HTMLInputElement) {
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+  }
+
+  it("renders a collapsed section with one labelled row per symbol", () => {
+    mount({ model: CHORDS_MODEL, onChordChange: vi.fn() });
+    const details = host!.querySelector<HTMLDetailsElement>(
+      ".hs-properties__chords",
+    );
+    expect(details).toBeTruthy();
+    expect(details!.open).toBe(false);
+    expect(details!.querySelector("summary")!.textContent).toContain(
+      "コード進行（3件）",
+    );
+    const rows = host!.querySelectorAll(
+      ".hs-properties__chords .hs-properties__keymap-row",
+    );
+    expect(rows.length).toBe(3);
+    const wheres = [...rows].map(
+      (r) => r.querySelector(".hs-properties__keymap-measure")!.textContent,
+    );
+    // m1 -> 第1小節; m0 (implicit pickup) -> 弱起; unresolved -> beat.
+    expect(wheres).toEqual(["第1小節", "弱起", "40/1拍"]);
+    expect(chordInputs().map((i) => i.value)).toEqual(["C", "G7", "F"]);
+  });
+
+  it("commits a parseable relabel through onChordChange", () => {
+    const props = mount({ model: CHORDS_MODEL, onChordChange: vi.fn() });
+    const input = chordInputs()[0];
+    typeInto(input, "Am7");
+    pressEnter(input);
+    expect(props.onChordChange).toHaveBeenCalledWith({
+      startBeat: "0/1",
+      chordLabel: "Am7",
+    });
+  });
+
+  it("flags an unparseable label inline instead of calling the engine", () => {
+    const props = mount({ model: CHORDS_MODEL, onChordChange: vi.fn() });
+    const input = chordInputs()[0];
+    typeInto(input, "Hqq");
+    pressEnter(input);
+    expect(props.onChordChange).not.toHaveBeenCalled();
+    expect(host!.textContent).toContain("コード名を解釈できません");
+  });
+
+  it("marks a low-confidence symbol with the uncertain badge", () => {
+    mount({ model: CHORDS_MODEL, onChordChange: vi.fn() });
+    const marks = host!.querySelectorAll(
+      ".hs-properties__chord-uncertain",
+    );
+    expect(marks.length).toBe(1);
+    expect(marks[0].textContent).toBe("要確認");
+  });
+
+  it("renders display-only rows when no edit path exists", () => {
+    mount({ model: CHORDS_MODEL });
+    expect(chordInputs().length).toBe(0);
+    expect(host!.textContent).toContain("G7");
   });
 });

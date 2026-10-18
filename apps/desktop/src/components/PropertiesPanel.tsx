@@ -56,6 +56,7 @@ export function PropertiesPanel({
   onTempoChangeAt,
   onRemoveTempoChange,
   onMetadataChange,
+  onChordChange,
   noteActions,
   noteEngineEdits = true,
 }: {
@@ -114,6 +115,9 @@ export function PropertiesPanel({
     composer?: string;
     arranger?: string;
   }): void;
+  /** #359: relabel one detected chord symbol in place — the engine's
+   *  setChord op rewrites the <harmony> at startBeat. */
+  onChordChange?(args: { startBeat: string; chordLabel: string }): void;
   /** #379: note-edit commands for the inspector's editable note body —
    *  the same score-workspace controller methods the keyboard
    *  shortcuts run (single command surface; no duplicated logic). */
@@ -170,6 +174,7 @@ export function PropertiesPanel({
             onTempoChangeAt={onTempoChangeAt}
             onRemoveTempoChange={onRemoveTempoChange}
             onMetadataChange={onMetadataChange}
+            onChordChange={onChordChange}
             noteActions={noteActions}
             noteEngineEdits={noteEngineEdits}
           />
@@ -223,6 +228,7 @@ function InspectorBody({
   onTempoChangeAt,
   onRemoveTempoChange,
   onMetadataChange,
+  onChordChange,
   noteActions,
   noteEngineEdits = true,
 }: {
@@ -254,6 +260,7 @@ function InspectorBody({
     composer?: string;
     arranger?: string;
   }): void;
+  onChordChange?(args: { startBeat: string; chordLabel: string }): void;
   noteActions?: {
     pitch(delta: number): void;
     toggleEnharmonic(): void;
@@ -282,6 +289,7 @@ function InspectorBody({
         onTempoChangeAt={onTempoChangeAt}
         onRemoveTempoChange={onRemoveTempoChange}
         onMetadataChange={onMetadataChange}
+        onChordChange={onChordChange}
       />
     );
   }
@@ -321,6 +329,7 @@ function ScoreBody({
   onTempoChangeAt,
   onRemoveTempoChange,
   onMetadataChange,
+  onChordChange,
 }: {
   model: ScoreInspectorModel;
   pitch: PitchView;
@@ -350,6 +359,7 @@ function ScoreBody({
     composer?: string;
     arranger?: string;
   }): void;
+  onChordChange?(args: { startBeat: string; chordLabel: string }): void;
 }) {
   const f = ja.inspector.summaryFields;
   return (
@@ -520,6 +530,16 @@ function ScoreBody({
         <Row label={f.notes} value={model.noteLabel} />
         <Row label={f.openIssues} value={model.openIssueLabel} />
       </dl>
+      {model.chordSymbols.length > 0 && (
+        /* #359: the analyzed chord map — each symbol relabels in place
+         *  through the engine's setChord op (the same contract the
+         *  review remedy uses). Collapsed by default: a full-song map
+         *  runs to hundreds of segments. */
+        <ChordMapEditor
+          symbols={model.chordSymbols}
+          onChange={onChordChange}
+        />
+      )}
       <p className="hs-properties__placeholder">{ja.inspector.selectHint}</p>
     </>
   );
@@ -1168,6 +1188,118 @@ function EditButton({
 /** §22 "Note selected" - pitch, onset, duration, review info. #379:
  *  the same section also carries the note's edit commands so a mouse
  *  user never travels to the global overflow for a simple fix. */
+/* #359: chord-map editor — every analyzed chord symbol relabels in
+ *  place via the engine's setChord op (the same contract the review
+ *  remedy uses: the label must parse). Rows the layout could not place
+ *  in a measure name their canonical beat instead. The section sits in
+ *  a <details> because a JPOP map runs to hundreds of segments. */
+function ChordMapEditor({
+  symbols,
+  onChange,
+}: {
+  symbols: ScoreInspectorModel["chordSymbols"];
+  onChange?(args: { startBeat: string; chordLabel: string }): void;
+}) {
+  const f = ja.inspector.chordMap;
+  return (
+    <details className="hs-properties__chords">
+      <summary className="hs-properties__chords-summary">
+        {f.title(symbols.length)}
+      </summary>
+      <div className="hs-properties__keymap">
+        {symbols.map((c) => (
+          <ChordRow key={c.startBeat} symbol={c} onCommit={onChange} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+/* The label vocabulary the engine's parse_chord_label accepts —
+ *  checked client-side so a typo flags inline instead of round-
+ *  tripping a guaranteed ScoreEditError. Keep in sync with
+ *  transcription/chord.py's _SUFFIX_QUALITY keys. */
+const CHORD_LABEL_RE =
+  /^[A-G](?:#|b)?(?:mMaj7|maj7|m7-5|m7|m6|m|7sus4|7|sus4|sus2|add9|aug|dim7|dim|6)?(?:\/[A-G](?:#|b)?)?$/;
+
+/* Mirrors transcription/chord.py's uncertainty gates — the same two
+ *  thresholds that decide a chord_uncertain review issue, so a symbol
+ *  the review list never surfaced still carries its muddy mark. */
+const CHORD_UNCERTAIN_CONFIDENCE = 0.35;
+const CHORD_UNCERTAIN_MARGIN = 0.04;
+
+function ChordRow({
+  symbol,
+  onCommit,
+}: {
+  symbol: ScoreInspectorModel["chordSymbols"][number];
+  onCommit?(args: { startBeat: string; chordLabel: string }): void;
+}) {
+  const f = ja.inspector.chordMap;
+  const [draft, setDraft] = useState(symbol.label);
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => {
+    setDraft(symbol.label);
+    setInvalid(false);
+  }, [symbol.label]);
+  const where =
+    symbol.measure == null
+      ? f.beatAt(symbol.startBeat)
+      : symbol.measure === 0
+        ? f.pickup
+        : f.measureAt(symbol.measure);
+  const uncertain =
+    (symbol.confidence != null &&
+      symbol.confidence < CHORD_UNCERTAIN_CONFIDENCE) ||
+    (symbol.margin != null && symbol.margin < CHORD_UNCERTAIN_MARGIN);
+  const commit = () => {
+    const next = draft.trim();
+    if (next === symbol.label) {
+      setInvalid(false);
+      return;
+    }
+    if (!CHORD_LABEL_RE.test(next)) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    onCommit?.({ startBeat: symbol.startBeat, chordLabel: next });
+  };
+  return (
+    <div className="hs-properties__keymap-row">
+      <span className="hs-properties__keymap-measure">{where}</span>
+      {onCommit ? (
+        <Field
+          label={f.chordAt(where)}
+          className="hs-field hs-properties__chord"
+          validationState={invalid ? "error" : "none"}
+          validationMessage={invalid ? f.invalidLabel : undefined}
+        >
+          <Input
+            value={draft}
+            size="small"
+            onChange={(_, d) => {
+              setDraft(d.value);
+              if (invalid) setInvalid(false);
+            }}
+            onBlur={commit}
+            onKeyDown={(ev) => {
+              if (ev.key === "Enter") commit();
+            }}
+          />
+        </Field>
+      ) : (
+        <span>{symbol.label}</span>
+      )}
+      {uncertain ? (
+        <span className="hs-properties__chord-uncertain">
+          {f.uncertain}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function NoteBody({
   model,
   pitch,
