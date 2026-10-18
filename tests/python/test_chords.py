@@ -110,6 +110,58 @@ class TestChordsPipeline:
         assert len(parts[0]["notes"]) == 4
         assert "<chord />" in result["musicXmlConcert"]
 
+    def test_chord_map_failure_degrades_without_sinking_job(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """#353: estimate_chords raising mid-build must not sink the job.
+
+        The chord-map layer is an enhancement: its except clears
+        chord_map, but seg_beats was already populated, so the
+        strict zip in _chord_issues turned any enhancement failure
+        (e.g. a missing librosa install) into a JOB_FAILED crash.
+        """
+        import threading
+        from array import array
+
+        import hornscribe.transcription.pipeline as pipeline
+        from hornscribe.transcription.options import TranscriptionParams
+        from hornscribe.transcription.pipeline import run_transcription_job
+
+        audio = tmp_path / "take.wav"
+        audio.write_bytes(b"x" * 64)
+        collected: list[dict] = []
+
+        def emit(phase: str, **kw) -> None:
+            collected.append({"phase": phase, **kw})
+
+        def _boom(*_a, **_k):
+            raise ModuleNotFoundError("No module named 'librosa'")
+
+        monkeypatch.setattr(pipeline, "estimate_chords", _boom)
+        events = _e2e_events()
+        params = TranscriptionParams.from_payload(
+            {
+                "audioPath": str(audio),
+                "tempoBpm": 120.0,
+                "meter": "4/4",
+                "texture": "chords",
+            }
+        )
+        run_transcription_job(
+            job_id="j",
+            params=params,
+            emit=emit,
+            cancel=threading.Event(),
+            backend=lambda _p: events,
+            loader=lambda _p: (array("f", [0.0] * (22050 * 5)), 22050),
+        )
+        assert collected[-1]["phase"] == "completed"
+        result = collected[-1]["result"]
+        # Chord symbols degrade to absent; notes still merge.
+        parts = result["scoreDocument"]["content"]["parts"]
+        assert len(parts) == 1
+        assert "<chord />" in result["musicXmlConcert"]
+
     def test_voices_texture_still_splits_parts(self, tmp_path) -> None:
         import threading
         from array import array
