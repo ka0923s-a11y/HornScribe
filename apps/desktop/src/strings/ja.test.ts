@@ -234,6 +234,34 @@ describe("reviewEvidence.boundaryUncertain", () => {
   });
 });
 
+describe("reviewEvidence.chordUncertain", () => {
+  /* #373: an enharmonic tie reads as a naming question, not an
+   *  undecidable harmony - the copy says both labels spell the same
+   *  sounding voicing. */
+  it("enharmonic pair says the voicing matches", () => {
+    const text = ja.reviewEvidence.chordUncertain({
+      suggested: "F#m7/A",
+      runnerUp: "A6",
+      confidencePct: 84,
+      marginPct: 0,
+      enharmonicMatch: true,
+    });
+    expect(text).toContain("同じ構成音");
+    expect(text).toContain("別表記");
+  });
+
+  it("a real ambiguity does not claim a shared voicing", () => {
+    const text = ja.reviewEvidence.chordUncertain({
+      suggested: "A7",
+      runnerUp: "Amaj7",
+      confidencePct: 88,
+      marginPct: 1,
+      enharmonicMatch: false,
+    });
+    expect(text).not.toContain("別表記");
+  });
+});
+
 describe("reviewEvidence.octaveUncertain", () => {
   /* #363: the octave-dip suspect carries the three-way band
    * verdict, and the direction copy follows the actual suggestion

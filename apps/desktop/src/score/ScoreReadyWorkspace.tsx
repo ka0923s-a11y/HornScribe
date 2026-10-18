@@ -421,6 +421,8 @@ function inspectorCopy(): InspectorCopy {
               conf != null ? Math.round(conf * 100) : null,
             marginPct:
               margin != null ? Math.round(margin * 100) : null,
+              enharmonicMatch:
+                issue.evidence["enharmonicMatch"] === true,
           });
         }
         // #264: octave-uncertainty — detected pitch, the suggested
