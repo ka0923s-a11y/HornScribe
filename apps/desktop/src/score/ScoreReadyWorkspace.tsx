@@ -401,6 +401,8 @@ function inspectorCopy(): InspectorCopy {
             return ja.reviewEvidence.boundaryUncertain({
               kind,
               score: numEvidence(issue, "boundaryScore"),
+              likelyVibrato:
+                issue.evidence["likelyVibrato"] === true,
             });
           }
         }

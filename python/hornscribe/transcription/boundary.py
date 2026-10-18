@@ -69,6 +69,19 @@ SPLIT_MIN_SPAN_SEC = 0.40
 SPLIT_VIBRATO_BEND_RANGE = 0.30
 SPLIT_VIBRATO_EXTREMUM_WINDOW_SEC = 0.12
 SPLIT_VIBRATO_DAMP = 0.5
+# A re-articulation breathes — the envelope falls into a valley just
+# before the new attack (consonant closure, breath, tongue stop). A
+# vibrato accent is a spectral swell on a CONTINUOUS tone: flux rises
+# but the RMS stays near sustain. A bend-extremum candidate with no
+# valley is the vibrato itself, not a missed split (#371).
+# The shared ~93 ms RMS frame smears any gap shorter than ~90 ms into
+# a shallow dent, so the dip is measured on a dedicated fine envelope
+# (~23 ms window / ~6 ms hop) that resolves real articulation stops.
+SPLIT_DIP_LOOKBACK_SEC = 0.09
+SPLIT_DIP_LOOKAHEAD_SEC = 0.03
+SPLIT_VIBRATO_RMS_DIP = 0.55
+_FINE_RMS_WIN = 512
+_FINE_RMS_HOP = 128
 
 # Uncertain: a pitch-changing edge with essentially no attack and no
 # gap — legato is legitimate, but the backend asserted a hard boundary
@@ -128,6 +141,10 @@ class EdgeEnvelopes:
     rms: Any
     spf: float
     offset: float = 0.0
+    # #371: fine-grained RMS for the split-dip check — the coarse
+    # envelope's ~93 ms frame cannot resolve an articulation stop.
+    rms_fine: Any = None
+    spf_fine: float = 0.0
 
 
 def compute_envelopes(
@@ -135,9 +152,17 @@ def compute_envelopes(
 ) -> EdgeEnvelopes:
     """Build the flux/RMS envelopes once so several consumers (merge
     arbitration, flag re-scoring) share one FFT pass."""
-    times, flux, rms, spf = _envelopes(samples, sample_rate)
+    times, flux, rms, spf, rms_fine, spf_fine = _envelopes(
+        samples, sample_rate
+    )
     return EdgeEnvelopes(
-        times=times, flux=flux, rms=rms, spf=spf, offset=time_offset_sec
+        times=times,
+        flux=flux,
+        rms=rms,
+        spf=spf,
+        offset=time_offset_sec,
+        rms_fine=rms_fine,
+        spf_fine=spf_fine,
     )
 
 
@@ -212,8 +237,8 @@ def seam_evidence(
 
 def _envelopes(
     samples: Any, sample_rate: int
-) -> tuple[Any, Any, Any, float]:
-    """(times, flux, rms, sec-per-frame) numpy envelopes.
+) -> tuple[Any, Any, Any, float, Any, float]:
+    """(times, flux, rms, sec-per-frame, fine-rms, fine-spf).
 
     Spectral flux on Hann-windowed rfft frames — positive log-magnitude
     change summed per frame, the classic onset-function shape — plus a
@@ -224,7 +249,10 @@ def _envelopes(
     n = int(sig.shape[0])
     spf = _FLUX_HOP / float(sample_rate)
     if n <= _FLUX_HOP:
-        return np.zeros(1), np.zeros(1), np.zeros(1), spf
+        zeros = np.zeros(1)
+        return zeros, zeros, zeros, spf, zeros, (
+            _FINE_RMS_HOP / float(sample_rate)
+        )
     win = min(_FLUX_WIN, n)
     padded = np.pad(sig, win // 2)
     count = 1 + (padded.shape[0] - win) // _FLUX_HOP
@@ -242,7 +270,17 @@ def _envelopes(
     if rpeak > 0.0:
         rms /= rpeak
     times = np.arange(count) * spf
-    return times, flux, rms, spf
+    spf_fine = _FINE_RMS_HOP / float(sample_rate)
+    fwin = min(_FINE_RMS_WIN, n)
+    fcount = 1 + (n - fwin) // _FINE_RMS_HOP
+    fidx = (
+        np.arange(fwin)[None, :]
+        + np.arange(fcount)[:, None] * _FINE_RMS_HOP
+    )
+    rms_fine = np.sqrt((sig[fidx] ** 2).mean(axis=1))
+    if rpeak > 0.0:
+        rms_fine /= rpeak
+    return times, flux, rms, spf, rms_fine, spf_fine
 
 
 def _peak(env: Any, spf: float, t: float, half_window: float) -> float:
@@ -331,17 +369,63 @@ def _split_flag(
     damped = _at_bend_extremum(e, boundary)
     if damped:
         score *= SPLIT_VIBRATO_DAMP
+    rms_dip = _sustain_dip(env, i0, i1, boundary - env.offset)
+    # #371: a damped candidate the amplitude contour cannot back up is
+    # the vibrato's own accent, not a hidden re-articulation — demote
+    # it to INFO so the caution queue stays worth reading. A real
+    # same-pitch re-articulation still carries the breath valley and
+    # keeps its caution even at a bend extremum.
+    likely_vibrato = bool(
+        damped and (rms_dip is None or rms_dip >= SPLIT_VIBRATO_RMS_DIP)
+    )
+    detail: dict[str, Any] = {
+        "interiorPeak": round(peak, 3),
+        "attackPeak": round(attack, 3),
+        "vibratoDamped": damped,
+    }
+    if rms_dip is not None:
+        detail["rmsDip"] = round(rms_dip, 3)
+    if likely_vibrato:
+        detail["likelyVibrato"] = True
     return BoundaryFlag(
         kind="split",
         event_ids=(str(e.id),),
         boundary_sec=boundary,
         score=round(score, 3),
-        detail={
-            "interiorPeak": round(peak, 3),
-            "attackPeak": round(attack, 3),
-            "vibratoDamped": damped,
-        },
+        detail=detail,
     )
+
+
+def _sustain_dip(
+    env: EdgeEnvelopes, i0: int, i1: int, t: float
+) -> float | None:
+    """RMS trough around *t* over the note's sustain median.
+
+    The flux search window i0..i1 already sits inside the note's
+    inset region, so its median fine-RMS approximates the sustain
+    level. None when the fine envelope or the sustain is unmeasurable
+    (a ~silent note cannot carry a real attack anyway).
+    """
+    fine = env.rms_fine
+    if fine is None or env.spf_fine <= 0.0:
+        return None
+    j0 = int(i0 * env.spf / env.spf_fine)
+    j1 = int(i1 * env.spf / env.spf_fine)
+    region = fine[j0:j1]
+    if region.shape[0] == 0:
+        return None
+    sustain = float(np.median(region))
+    if sustain <= 0.0:
+        return None
+    dip = _trough(
+        fine,
+        env.spf_fine,
+        t - SPLIT_DIP_LOOKBACK_SEC,
+        t + SPLIT_DIP_LOOKAHEAD_SEC,
+    )
+    if dip is None:
+        return None
+    return dip / sustain
 
 
 def _edge_flag(

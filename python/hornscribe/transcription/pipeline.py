@@ -107,10 +107,10 @@ from .boundary import (
     OCTAVE_SNAP_ENERGY_RATIO,
     boundary_flags,
     compute_envelopes,
+    fundamental_band_snr,
     low_octave_evidence,
     low_octave_suspected,
     octave_band_ratio,
-    fundamental_band_snr,
     octave_prefers,
     seam_evidence,
 )
@@ -3573,7 +3573,13 @@ def _boundary_issues(
                     continue
                 evidence["suggestedSplitBeat"] = str(split_beat)
                 note_ids.append(n.id)
-                severity = Severity.CAUTION
+                # #371: a vibrato-damped dip with no RMS valley is the
+                # vibrato itself — inform, don't ask for a decision.
+                severity = (
+                    Severity.INFO
+                    if flag.detail.get("likelyVibrato")
+                    else Severity.CAUTION
+                )
             else:
                 a = canon_by_event.get(flag.event_ids[0])
                 b = canon_by_event.get(flag.event_ids[1])

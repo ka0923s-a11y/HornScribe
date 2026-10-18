@@ -1995,6 +1995,7 @@ export const ja = {
     boundaryUncertain: (p: {
       readonly kind: string;
       readonly score: number | null;
+      readonly likelyVibrato?: boolean;
     }) => {
       const scoreTxt =
         p.score != null
@@ -2004,6 +2005,12 @@ export const ja = {
         return `隣り合う同じ高さの2音ですが、音源には切れ目の証拠が見つかりません${scoreTxt}。1つの音にまとめることを検討してください。`;
       }
       if (p.kind === "split") {
+        // #371: the dip coincides with a vibrato extremum and carries
+        // no breath valley — tell the user it is probably the vibrato
+        // itself instead of asking for a merge/split decision.
+        if (p.likelyVibrato) {
+          return `この揺らぎはビブラートの周期と一致しており、音符の区切りではない可能性が高い箇所です${scoreTxt}。違和感があれば確認してください。`;
+        }
         return `ひとつの音の途中に、別の発音らしき立ち上がりが検出されています${scoreTxt}。その位置で分割することを検討してください。`;
       }
       return `この区切りには確かな発音の証拠が見つかりません${scoreTxt}。元音源と聴き比べて確認してください。`;
