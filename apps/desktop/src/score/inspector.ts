@@ -100,6 +100,17 @@ export interface ScoreInspectorModel {
     readonly bpm: number;
     readonly startBeat?: string;
   }[];
+  /** #359: the analyzed chord map for the chord editor — one row per
+   *  segment in document order; startBeat names the symbol the
+   *  engine's setChord op rewrites. Empty for fixture/foreign docs. */
+  readonly chordSymbols: readonly {
+    readonly measure: number | null;
+    readonly startBeat: string;
+    readonly endBeat: string;
+    readonly label: string;
+    readonly confidence?: number;
+    readonly margin?: number;
+  }[];
   /** Raw measure count for the "add key change" field's max. */
   readonly measureCount: number;
   /** #134: the score carries a swing marking — shown as a feel row. */
@@ -346,6 +357,7 @@ export function buildScoreInspector(
       mode: c.mode,
     })),
     tempoChanges: meta.tempoChanges,
+    chordSymbols: meta.chordSymbols ?? [],
     measureCount: meta.measureCount,
     swingFeel: meta.swingFeel,
     measureLabel: copy.measureCount(meta.measureCount),

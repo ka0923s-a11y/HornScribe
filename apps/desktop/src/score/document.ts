@@ -62,6 +62,21 @@ export interface ScoreDocumentMeta {
    *  surfacing cap — the review bar shows them so a truncated list
    *  is never silent. */
   readonly omittedIssueCount: number;
+  /* #359: the analyzed chord map (canonical beats, document order) for
+   *  the inspector's chord editor. Each entry's startBeat names the
+   *  symbol the engine's setChord op rewrites; measure is derived at
+   *  serialization from the measure layout (null when unresolved —
+   *  e.g. a symbol beyond the tiled range). Undefined on documents
+   *  without a canonical payload (fixture/foreign), which leaves the
+   *  chord section hidden instead of display-only. */
+  readonly chordSymbols?: readonly {
+    readonly measure: number | null;
+    readonly startBeat: string;
+    readonly endBeat: string;
+    readonly label: string;
+    readonly confidence?: number;
+    readonly margin?: number;
+  }[];
   /* #80-4: head-meter provenance. true = the engine's auto-estimator
    *  produced the written signature; false = user-pinned or
    *  deliberately changed since; undefined = foreign/fixture document

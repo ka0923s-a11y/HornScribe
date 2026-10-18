@@ -3353,6 +3353,9 @@ export default function App() {
                     onMetadataChange={(md) =>
                       scoreCtlRef.current?.setMetadata?.(md)
                     }
+                    onChordChange={(args) =>
+                      scoreCtlRef.current?.setChord?.(args)
+                    }
                     /* #379: the inspector's note body is editable —
                      *  every button runs the same controller method the
                      *  keyboard shortcut does, so both paths share one

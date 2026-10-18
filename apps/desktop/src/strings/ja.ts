@@ -1551,6 +1551,20 @@ export const ja = {
       remove: "このテンポ変化を削除",
       measureRequired: "追加先の小節を入力してください",
     },
+    /** #359: chord-map editor — one collapsible row per analyzed
+     *  chord symbol; low-confidence rows carry the uncertain marker
+     *  so a clean-looking score's muddy calls stay discoverable. */
+    chordMap: {
+      title: (count: number) => `コード進行（${count}件）`,
+      measureAt: (n: number) => `第${n}小節`,
+      /** Implicit anacrusis measure (number 0 in the layout). */
+      pickup: "弱起",
+      /** Unresolved measure — the row names its canonical beat. */
+      beatAt: (beat: string) => `${beat}拍`,
+      chordAt: (where: string) => `${where}のコード`,
+      uncertain: "要確認",
+      invalidLabel: "コード名を解釈できません",
+    },
     scoreSeconds: (sec: number) => `スコア ${sec.toFixed(1)} 秒`,
     tieFragments: (count: number) => `タイで分割（${count}分割）`,
     tempoLabel: (bpm: number) => `${bpm} BPM`,
