@@ -290,4 +290,48 @@ describe("ReviewNavigator (#361)", () => {
       document.querySelector(".hs-reviewnav__omitted")!.textContent,
     ).toContain("10");
   });
+
+  it("#355: confidence sort walks least-confident first, flag-only last", async () => {
+    const confIssues: readonly ScoreReviewIssue[] = [
+      issue({
+        id: "ri-c0",
+        timeRange: { startSec: 1.5, endSec: 2.0 },
+        evidence: { modelConfidence: 0.9 },
+      }), // -> "0:01"
+      issue({
+        id: "ri-c1",
+        severity: "warning",
+        timeRange: { startSec: 62, endSec: 64.5 },
+        evidence: { modelConfidence: 0.2 },
+      }), // -> "1:02"
+      issue({
+        id: "ri-c2",
+        timeRange: { startSec: 95, endSec: 96 },
+        evidence: {},
+      }), // no confidence -> "1:35", tails the list
+      issue({
+        id: "ri-c3",
+        reason: "chord_uncertain",
+        timeRange: { startSec: 10, endSec: 11 },
+        evidence: { chordConfidence: 0.1 },
+      }), // -> "0:10"
+    ];
+    await mount(props({ issues: confIssues }));
+    const selects = document.querySelectorAll("select");
+    const sort = selects[2] as HTMLSelectElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(sort, "confidence");
+      sort.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const list = options();
+    // ascending suspicion: 0.1 (chord) -> 0.2 -> 0.9 -> flag-only tail
+    expect(list[0].textContent).toContain("0:10");
+    expect(list[1].textContent).toContain("1:02");
+    expect(list[2].textContent).toContain("0:01");
+    expect(list[3].textContent).toContain("1:35");
+  });
 });

@@ -2262,6 +2262,10 @@ export const ja = {
       sortLabel: "並び順",
       sortSeverity: "重要度順",
       sortPosition: "位置順",
+      /* #355: confidence-ascending triage -- issues the engine itself
+       *  rated least certain are the most likely real errors, so they
+       *  walk first. Issues with no confidence signal go last. */
+      sortConfidence: "確度の低い順",
     },
     feedback: {
       accepted: "確認済みにしました",
