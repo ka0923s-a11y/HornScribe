@@ -423,6 +423,18 @@ function inspectorCopy(): InspectorCopy {
         }
         // #264: octave-uncertainty — detected pitch, the suggested
         // -12 pitch, and the spectral ratios that raised the flag.
+        // #369: low-confidence corroboration — when the spectrum
+        // confirms the fundamental the copy says the note is likely
+        // real; without it the flag stays a plain "verify" warning.
+        if (issue.reason === "low_model_confidence") {
+          const conf = numEvidence(issue, "modelConfidence");
+          const snr = numEvidence(issue, "fundSnr");
+          return ja.reviewEvidence.lowModelConfidence({
+            confidencePct: conf != null ? Math.round(conf * 100) : null,
+            fundSnr: snr != null ? Math.round(snr * 10) / 10 : null,
+            corroborated: issue.evidence["spectralCorroborated"] === true,
+          });
+        }
         if (issue.reason === "octave_uncertain") {
           const fromMidi = numEvidence(issue, "pitchMidi");
           const toMidi = numEvidence(issue, "suggestedMidi");

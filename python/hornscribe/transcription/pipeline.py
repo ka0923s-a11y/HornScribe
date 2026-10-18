@@ -110,6 +110,7 @@ from .boundary import (
     low_octave_evidence,
     low_octave_suspected,
     octave_band_ratio,
+    fundamental_band_snr,
     octave_prefers,
     seam_evidence,
 )
@@ -169,6 +170,10 @@ STAGES: tuple[str, ...] = (
 # corrections):
 LOW_CONFIDENCE = 0.5
 """Backend amplitude below this flags ``low_model_confidence``."""
+LOW_CONF_SNR_FLOOR = 12.0
+"""#369: fundamental-band SNR that corroborates a low-confidence note
+presence — clears the flag one severity level instead of letting a
+proven-real note shout like a phantom."""
 VERY_SHORT_SEC = 0.09
 """Surviving detections shorter than this flag ``very_short_detection``."""
 MAX_EXTRA_ISSUES = 60
@@ -3291,6 +3296,10 @@ def _extra_issues(
     event_by_id: dict[RawNoteEventId, RawNoteEvent],
     score_revision: ScoreRevisionId,
     stem_admitted: dict[RawNoteEventId, float | None] | None = None,
+    *,
+    samples: Any = None,
+    sample_rate: int | None = None,
+    time_offset_sec: float = 0.0,
 ) -> list[ReviewIssue]:
     """Confidence/range/duration issues the quantizer cannot see.
 
@@ -3353,6 +3362,32 @@ def _extra_issues(
                     )
                 )
         if conf is not None and conf < LOW_CONFIDENCE:
+            severity = Severity.WARNING if conf < 0.3 else Severity.CAUTION
+            evidence: dict[str, Any] = {"modelConfidence": round(conf, 3)}
+            # #369: corroborate presence spectrally — a note whose own
+            # fundamental band clearly rings is REAL audio the backend
+            # merely distrusted; flag it quieter instead of warning it
+            # like a phantom. SNR proves existence, not pitch, so the
+            # flag stays — it just stops screaming.
+            snr = (
+                fundamental_band_snr(
+                    samples,
+                    sample_rate,
+                    rng.start_sec,
+                    rng.end_sec,
+                    note.pitch_midi,
+                    time_offset_sec=time_offset_sec,
+                )
+                if samples is not None and sample_rate is not None
+                else None
+            )
+            if snr is not None:
+                evidence["fundSnr"] = round(snr, 1)
+                if snr >= LOW_CONF_SNR_FLOOR:
+                    evidence["spectralCorroborated"] = True
+                    severity = (
+                        Severity.CAUTION if conf < 0.3 else Severity.INFO
+                    )
             issues.append(
                 ReviewIssue(
                     id="",
@@ -3360,8 +3395,8 @@ def _extra_issues(
                     canonical_note_ids=(note.id,),
                     time_range=rng,
                     reason=ReviewReason.LOW_MODEL_CONFIDENCE,
-                    severity=(Severity.WARNING if conf < 0.3 else Severity.CAUTION),
-                    evidence={"modelConfidence": round(conf, 3)},
+                    severity=severity,
+                    evidence=evidence,
                 )
             )
         status = sounding_range_status(note.pitch_midi)
@@ -5994,6 +6029,16 @@ def run_transcription_job(
                 event_by_id,
                 score_revision,
                 stem_admitted,
+                # #369: corroborate low-confidence notes on the lead
+                # source when isolation produced one — the isolated
+                # vocal fundamental reads cleaner than the full mix.
+                samples=(
+                    lead_evidence[0] if lead_evidence is not None else samples
+                ),
+                sample_rate=(
+                    lead_evidence[1] if lead_evidence is not None else sample_rate
+                ),
+                time_offset_sec=selection_offset_sec,
             )
         )
         # #272: severity-priority cap — warnings surface before
