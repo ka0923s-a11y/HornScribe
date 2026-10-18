@@ -124,6 +124,7 @@ from .chord import (
     ChordEstimate,
     diatonic_chords,
     estimate_chords,
+    labels_same_voicing,
     rerank_chords_with_melody,
 )
 from .clean import (
@@ -4342,6 +4343,21 @@ def _chord_issues(
         ids = tuple(nid for sec, nid in note_secs if est.start_sec <= sec < est.end_sec)[:6]
         if not ids:
             continue
+        evidence: dict[str, Any] = {
+            "suggestedChord": est.label(prefer_flats),
+            "runnerUpChord": est.runner_up,
+            "chordConfidence": round(est.confidence, 3),
+            "chordMargin": round(est.margin, 3),
+            # #335: the document chord symbol's canonical beat --
+            # the setChord remedy edits by span start.
+            "startBeat": str(lo_b),
+        }
+        # #373: same pitch-class set INCLUDING bass - the tie is a
+        # spelling question (F#m7/A vs A6), not a harmonic one.
+        if labels_same_voicing(
+            evidence["suggestedChord"], est.runner_up
+        ):
+            evidence["enharmonicMatch"] = True
         issues.append(
             ReviewIssue(
                 id="",
@@ -4353,15 +4369,7 @@ def _chord_issues(
                 ),
                 reason=ReviewReason.CHORD_UNCERTAIN,
                 severity=Severity.INFO,
-                evidence={
-                    "suggestedChord": est.label(prefer_flats),
-                    "runnerUpChord": est.runner_up,
-                    "chordConfidence": round(est.confidence, 3),
-                    "chordMargin": round(est.margin, 3),
-                    # #335: the document chord symbol's canonical beat --
-                    # the setChord remedy edits by span start.
-                    "startBeat": str(lo_b),
-                },
+                evidence=evidence,
             )
         )
         if len(issues) >= MAX_CHORD_ISSUES:

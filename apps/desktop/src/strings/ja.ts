@@ -2023,6 +2023,7 @@ export const ja = {
       readonly runnerUp: string | null;
       readonly confidencePct: number | null;
       readonly marginPct: number | null;
+      readonly enharmonicMatch?: boolean;
     }) => {
       const clauses: string[] = [];
       if (p.suggested != null) {
@@ -2048,6 +2049,14 @@ export const ja = {
               : `次点は${p.runnerUp}です`,
           );
         }
+      }
+      // #373: both candidates spell the same sounding voicing - the
+      // ambiguity is the NAME, not the harmony, so say that instead
+      // of implying the chord itself cannot be decided.
+      if (p.enharmonicMatch && p.runnerUp != null) {
+        clauses.push(
+          "両候補は同じ構成音を持つ別表記で、響き自体は一致しています",
+        );
       }
       clauses.push(
         "この区間の和音は証拠が弱いため、臨時記号やリズムの解釈を耳で確認してください",

@@ -26,6 +26,7 @@ from hornscribe.transcription.chord import (
     chord_label,
     diatonic_chords,
     estimate_chords,
+    labels_same_voicing,
     rerank_chords_with_melody,
 )
 from hornscribe.transcription.pipeline import (
@@ -102,6 +103,15 @@ class TestLabels:
         assert set(est.chord_tones()) == {0, 4, 7}
         g7 = _est(0.0, 2.0, 7, "7", 0.9, 0.5)
         assert set(g7.chord_tones()) == {7, 11, 2, 5}
+
+    def test_labels_same_voicing(self) -> None:
+        # #373: enharmonic spellings share tones AND bass.
+        assert labels_same_voicing("F#m7/A", "A6")
+        assert labels_same_voicing("C6", "Am7") is False  # bass differs
+        assert labels_same_voicing("A7", "A7sus4") is False
+        assert labels_same_voicing("C", "F") is False
+        assert labels_same_voicing("C", None) is False
+        assert labels_same_voicing("nonsense", "C") is False
 
 
 class TestDiatonic:
@@ -349,6 +359,42 @@ class TestChordIssues:
         assert issue.canonical_note_ids == (
             ScoreNoteId("sn-000001"),
         )
+
+    def test_enharmonic_tie_is_marked(self) -> None:
+        # #373: F#m7/A and A6 are the same four pitch classes in the
+        # same bass inversion - the "tie" is the NAME, not the chord.
+        est = ChordEstimate(
+            start_sec=0.0,
+            end_sec=2.0,
+            root_pc=6,
+            quality="m7",
+            confidence=0.3,
+            margin=0.005,
+            runner_up="A6",
+            bass_pc=9,
+        )
+        issues = self._issues((est,), (_note(1, 60, "0", "1"),))
+        assert len(issues) == 1
+        assert issues[0].evidence["suggestedChord"] == "F#m7/A"
+        assert issues[0].evidence["enharmonicMatch"] is True
+
+    def test_same_tones_different_bass_stays_real_ambiguity(
+        self,
+    ) -> None:
+        # #373: C6 and Am7 share their tones but read different bass -
+        # genuinely different chords, no match marker.
+        est = ChordEstimate(
+            start_sec=0.0,
+            end_sec=2.0,
+            root_pc=0,
+            quality="6",
+            confidence=0.3,
+            margin=0.005,
+            runner_up="Am7",
+        )
+        issues = self._issues((est,), (_note(1, 60, "0", "1"),))
+        assert len(issues) == 1
+        assert "enharmonicMatch" not in issues[0].evidence
 
     def test_low_margin_flags(self) -> None:
         issues = self._issues(

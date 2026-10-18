@@ -241,6 +241,35 @@ def parse_chord_label(label: str) -> tuple[int, str, int | None] | None:
     return (root_pc, quality, bass_pc)
 
 
+def labels_same_voicing(a: str | None, b: str | None) -> bool:
+    """True when two emitted labels spell the same sounding chord.
+
+    #373: enharmonic pairs the estimator can tie on - F#m7/A and A6
+    share the identical four pitch classes including the bass, so the
+    "uncertainty" is notational, not harmonic. Bass counts: C6 and
+    Am7 are the same tones but different bass readings, and the flag
+    should still read as a real ambiguity.
+    """
+    pa = parse_chord_label(a) if a else None
+    pb = parse_chord_label(b) if b else None
+    if pa is None or pb is None:
+        return False
+
+    def _voicing(parsed: tuple[int, str, int | None]) -> frozenset[int]:
+        root_pc, quality, _bass = parsed
+        return frozenset(
+            (root_pc + iv) % 12 for iv, _w in _QUALITIES[quality]
+        )
+
+    if _voicing(pa) != _voicing(pb):
+        return False
+    # Same tones: the BASS reading must match too - a missing slash
+    # means root position.
+    return (pa[2] if pa[2] is not None else pa[0]) == (
+        pb[2] if pb[2] is not None else pb[0]
+    )
+
+
 def diatonic_chords(fifths: int, mode: str) -> set[tuple[int, str]]:
     """(root_pc, quality) pairs diatonic to the estimated key.
 
