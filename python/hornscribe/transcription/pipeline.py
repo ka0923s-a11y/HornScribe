@@ -4132,6 +4132,12 @@ def _chord_issues(
     rhythm decisions for the chord context to inform.
     """
     issues: list[ReviewIssue] = []
+    if len(chord_map) != len(seg_beats):
+        # #353: the upstream pairing broke (enhancement layer degraded
+        # after seg_beats was already built). Positions can no longer
+        # be trusted, and a review hint must never sink the job -
+        # return no issues rather than let the strict zip raise.
+        return []
     note_secs = sorted(
         (
             warp.ql_to_seconds(n.start_beat * beat_ql),
@@ -5576,8 +5582,14 @@ def run_transcription_job(
                 for (lo_b, hi_b), est in zip(seg_beats, chord_map, strict=True)
             )
         except Exception:  # noqa: BLE001 - enhancement layer
+            # Clear seg_beats WITH the map: downstream consumers zip
+            # them 1:1, and a stale span list turns "no chords" into
+            # a positional-pairing crash (#353). Degradation must
+            # stay vacuously consistent - enhancement never sinks
+            # the job.
             chord_map = ()
             chord_symbols = ()
+            seg_beats = []
         build_done += 1
         step(5, build_done, build_total)
         tempo_map = tempo_map_from_estimate(
