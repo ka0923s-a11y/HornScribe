@@ -428,11 +428,16 @@ function inspectorCopy(): InspectorCopy {
           const toMidi = numEvidence(issue, "suggestedMidi");
           const loFund = numEvidence(issue, "lowFundRatio");
           const oddHarm = numEvidence(issue, "oddHarmonicRatio");
+          // #363: three-way band verdict (suggested/detected/ambiguous) —
+          // octave-dip suspects carry it; low-octave audits do not and
+          // fall back to the lowFund reading.
+          const verdict = issue.evidence["spectralVerdict"];
           return ja.reviewEvidence.octaveUncertain({
             fromMidi,
             toMidi,
             lowFundPct: loFund != null ? Math.round(loFund * 100) : null,
             oddHarmPct: oddHarm != null ? Math.round(oddHarm * 100) : null,
+            verdict: typeof verdict === "string" ? verdict : null,
           });
         }
         // #264: pitch-dip — detected chromatic pitch, the suggested

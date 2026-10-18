@@ -2047,25 +2047,47 @@ export const ja = {
       );
       return clauses.join("。") + "。";
     },
-    // #264: octave-uncertainty evidence — the detected pitch, the
-    // suggested -12 pitch, and how strongly the lower octave's
-    // signature (fundamental + odd harmonic) shows up in the audio.
-    octaveUncertain: (p: {
-      readonly fromMidi: number | null;
-      readonly toMidi: number | null;
-      readonly lowFundPct: number | null;
-      readonly oddHarmPct: number | null;
-    }) => {
-      const pair =
-        p.fromMidi != null && p.toMidi != null
-          ? `検出音高 MIDI ${p.fromMidi} に対し、${p.toMidi}（1オクターブ下）を提案します`
-          : "1オクターブ下の音高を提案します";
-      const ev =
-        p.lowFundPct != null
-          ? `下の基音の強さは検出音の ${p.lowFundPct}% あり`
-          : "下の基音に明確なエネルギーがあり";
-      return `${pair}。${ev}、実際に1オクターブ低い音である可能性が高い箇所です。元音源と聴き比べて確認してください。`;
-    },
+     /* #264: octave-uncertainty evidence — the detected pitch, the
+      *  suggested ±12 pitch, and how strongly the alternate octave's
+      *  signature shows up in the audio.
+      *  #363: the octave-dip detector carries no low-fund ratio — its
+      *  arbitration is the band verdict, so the copy names that
+      *  instead; and the suggestion is direction-aware (the arbiter
+      *  and the dip both emit +12 calls, which used to read "下").
+      *  A detected-dominant verdict drops the "likely wrong" claim —
+      *  the spectrum standing by the written pitch means the flag is
+      *  probably noise, and the copy says to dismiss if it sounds
+      *  right. */
+     octaveUncertain: (p: {
+       readonly fromMidi: number | null;
+       readonly toMidi: number | null;
+       readonly lowFundPct: number | null;
+       readonly oddHarmPct: number | null;
+       /** #363: band-ratio verdict — "suggested" / "detected" /
+        *  "ambiguous"; absent on low-octave audits and legacy issues. */
+       readonly verdict?: string | null;
+     }) => {
+       const up =
+         p.fromMidi != null && p.toMidi != null && p.toMidi > p.fromMidi;
+       const dir = up ? "1オクターブ上" : "1オクターブ下";
+       const pair =
+         p.fromMidi != null && p.toMidi != null
+           ? `検出音高 MIDI ${p.fromMidi} に対し、${p.toMidi}（${dir}）を提案します`
+           : "1オクターブ異なる音高を提案します";
+       if (p.verdict === "detected") {
+         return `${pair}。ただしスペクトルは検出側の音を支持しています（検出が正しい可能性が高い箇所です）。元音源と聴き比べて、問題なければ「問題なし」としてください。`;
+       }
+       const ev =
+         p.verdict === "suggested"
+           ? "スペクトルも提案側のオクターブを支持しています"
+           : p.verdict === "ambiguous"
+             ? "スペクトルでは判定が付きませんでした"
+             : p.lowFundPct != null
+               ? `下の基音の強さは検出音の ${p.lowFundPct}% あり`
+               : "下の基音に明確なエネルギーがあり";
+       const tail = `実際に${dir}の音である可能性が高い箇所です`;
+       return `${pair}。${ev}、${tail}。元音源と聴き比べて確認してください。`;
+     },
     // #264: pitch-dip evidence — the detected chromatic pitch, the
     // suggested diatonic neighbour, and whether the note's own
     // spectrum agrees with the suggestion.
