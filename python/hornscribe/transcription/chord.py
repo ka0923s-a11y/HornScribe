@@ -17,7 +17,7 @@ granularity, the harmonic rhythm JPOP choruses actually use.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 # Chord qualities the estimator can name. Each entry maps interval-
@@ -92,6 +92,18 @@ _ROOT_FLAT = (
 # when two candidates explain it almost equally well.
 LOW_CONFIDENCE = 0.35
 LOW_MARGIN = 0.04
+
+# #357: melody-agreement re-rank for coin-flip segments. The Viterbi
+# path already knows chroma and transitions; what it ignores is that
+# the lead line mostly sits on chord tones. When two candidates tie
+# on emission, the one explaining more of the melody wins - JPOP
+# lead phrasing is dense enough that a wrong-root read leaves most
+# notes as non-chord tones. Thresholds stay conservative: need 3+
+# distinct pitch classes under the segment and a one-third coverage
+# gap with a 0.5 absolute floor so two bad reads never trade places.
+RERANK_MIN_PCS = 3
+RERANK_MIN_DELTA = 0.3
+RERANK_MIN_FIT = 0.5
 
 # Viterbi geometry: a same-chord self loop is free, a root change
 # costs proportionally to circle-of-fifths distance, and a quality-
@@ -447,3 +459,64 @@ def estimate_chords(
             )
         )
     return tuple(estimates)
+
+
+def rerank_chords_with_melody(
+    estimates: tuple[ChordEstimate, ...],
+    melody: tuple[tuple[float, float, float], ...],
+    *,
+    prefer_flats: bool = False,
+) -> tuple[ChordEstimate, ...]:
+    """Re-score coin-flip segments against the lead line (#357).
+
+    melody is (start_sec, end_sec, midi) triples from the lead part.
+    A segment whose runner-up explains at least a third more of the
+    melody pitch-classes than the written chord - and covers at least
+    half outright - swaps to the runner-up. The swap is a score-level
+    evidence call the chroma-only Viterbi cannot make: JPOP lead
+    phrasing sits on chord tones densely enough that a wrong-root
+    read leaves most notes sounding as non-chord tones.
+
+    Only coin-flip segments (margin < LOW_MARGIN, parseable
+    runner-up, >= RERANK_MIN_PCS distinct melody pitch-classes) are
+    eligible; everything else passes through untouched.
+    """
+    if not estimates or not melody:
+        return estimates
+    out: list[ChordEstimate] = []
+    for est in estimates:
+        if est.runner_up is None or est.margin >= LOW_MARGIN:
+            out.append(est)
+            continue
+        parsed = parse_chord_label(est.runner_up)
+        if parsed is None:
+            out.append(est)
+            continue
+        pcs = {
+            int(round(midi)) % 12
+            for lo, hi, midi in melody
+            if hi > est.start_sec and lo < est.end_sec
+        }
+        if len(pcs) < RERANK_MIN_PCS:
+            out.append(est)
+            continue
+        r_root, r_quality, r_bass = parsed
+        best_tones = set(est.chord_tones())
+        run_tones = {(r_root + iv) % 12 for iv, _w in _QUALITIES[r_quality]}
+        best_fit = len(pcs & best_tones) / len(pcs)
+        run_fit = len(pcs & run_tones) / len(pcs)
+        if run_fit >= RERANK_MIN_FIT and run_fit - best_fit >= RERANK_MIN_DELTA:
+            out.append(
+                replace(
+                    est,
+                    root_pc=r_root,
+                    quality=r_quality,
+                    bass_pc=r_bass if r_bass != r_root else None,
+                    runner_up=chord_label(
+                        est.root_pc, est.quality, prefer_flats
+                    ),
+                )
+            )
+        else:
+            out.append(est)
+    return tuple(out)
