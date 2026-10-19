@@ -15,7 +15,12 @@
  * flow (including the keyboard-only acceptance path) is unit-testable.
  */
 import type { ScoreDocumentPort } from "./document";
-import { openIssues, type ReviewIssueStatus, type ScoreReviewIssue } from "./review";
+import {
+  actionableIssues,
+  openIssues,
+  type ReviewIssueStatus,
+  type ScoreReviewIssue,
+} from "./review";
 import { NO_NOTE_EDIT, type ScoreNoteEdit } from "./scoreEdits";
 
 /** One canonical note's before/after edit inside a ReviewEdit. */
@@ -101,7 +106,10 @@ export class ReviewSession {
   }
 
   pendingCount(): number {
-    return this.openIssues().length;
+    // #383: provenance notices stay open (their markers persist) but ask
+    //  for no decision — the pending count only charges actionable rows
+    //  so "残り 0" is reachable on a job that ends with notices open.
+    return actionableIssues(this.doc.reviewIssues()).length;
   }
 
   statusOf(issueId: string): ReviewIssueStatus | null {

@@ -55,7 +55,10 @@ import type {
   ScoreWorkspaceController,
   ScoreWorkspaceState,
 } from "./score/controller";
-import { openIssues, type ScoreReviewIssue } from "./score/review";
+import {
+  actionableIssues,
+  type ScoreReviewIssue,
+} from "./score/review";
 import { waveformNoteOverlay } from "./score/noteOverlay";
 import { scoreHasPolyphony } from "./score/polyphony";
 import { extractTimingCorrection } from "./sidecar/resultMeta";
@@ -1470,7 +1473,7 @@ export default function App() {
   const reviewCount =
     scoreState?.openIssueCount ??
     (scoreDocument
-      ? openIssues(scoreDocument.reviewIssues()).length
+      ? actionableIssues(scoreDocument.reviewIssues()).length
       : sessionSnap.reviewIssueCount > 0
         ? sessionSnap.reviewIssueCount
         : screen === "reviewing"
