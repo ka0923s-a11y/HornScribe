@@ -93,6 +93,10 @@ import {
   type PartMixEntry,
 } from "./playbackSynth";
 import { filterScorePartsXml } from "./partFilter";
+import {
+  rehearsalMarksFor,
+  withRehearsalMarks,
+} from "./rehearsalMarks";
 import { buildSwingWarp } from "./swingWarp";
 import { clickTrack, countInMs, countInPattern } from "./metronome";
 import {
@@ -151,6 +155,7 @@ import type {
 import { SegmentedControl } from "../components/primitives/SegmentedControl";
 import { HsButton } from "../components/primitives/Button";
 import { HsDialog } from "../components/primitives/Dialog";
+import type { RegionLabel } from "../workspace/regionLabels";
 
 interface Selection {
   exportId: string;
@@ -220,6 +225,9 @@ interface Props {
   /** #243: open the settings screen on a category - the demucs-less
    *  buried-lead issue links straight to the tools section. */
   onOpenSettings?(category: SettingsCategory): void;
+  /** #389: 区間ラベル — waveform-region names surface on the score as
+   *  boxed rehearsal marks (view + print + export paths). */
+  regionLabels?: readonly RegionLabel[];
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -558,6 +566,7 @@ export function ScoreReadyWorkspace({
   onRetranscribeBasicPitch,
   onOpenProperties,
   onOpenSettings,
+  regionLabels,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<ScoreRenderer | null>(null);
@@ -942,6 +951,19 @@ export function ScoreReadyWorkspace({
     [ensurePage],
   );
 
+  /* #389: 区間ラベル → rehearsal marks. Recomputed when the label list
+   *  or document changes; renderScore reads it below, so a label edit
+   *  re-renders the score with updated marks (renderScore's identity
+   *  change refires the pitch effect). */
+  const rehearsalMarks = useMemo(
+    () =>
+      rehearsalMarksFor(
+        regionLabels ?? [],
+        scoreDoc.canonicalDocument?.() ?? null,
+      ) ?? [],
+    [regionLabels, scoreDoc],
+  );
+
   /** (Re)load + re-render the current presentation. Preserves the viewport
    *  ratio so the Concert↔F管 switch keeps an equivalent scroll position. */
   const renderScore = useCallback(
@@ -962,7 +984,11 @@ export function ScoreReadyWorkspace({
         // #210: render only the staves the mixer rows leave visible —
         // hidden parts keep sounding (visibility is display-only).
         const xml = filterScorePartsXml(
-          scoreDoc.musicXml(view),
+          withRehearsalMarks(
+            scoreDoc.musicXml(view),
+            rehearsalMarks,
+            scoreDoc.canonicalDocument?.() ?? null,
+          ),
           partMixRef.current.map((m) => m.visible),
         );
         const ok = r.load(xml);
@@ -1020,7 +1046,7 @@ export function ScoreReadyWorkspace({
         setLoading(false);
       }
     },
-    [scoreDoc, schedulePagePrefetch],
+    [scoreDoc, rehearsalMarks, schedulePagePrefetch],
   );
 
   /** Shared page collection for both print sinks. Loads each scoped
@@ -1032,7 +1058,14 @@ export function ScoreReadyWorkspace({
       if (!r) return null;
       const visible = partMixRef.current.map((m) => m.visible);
       const currentXml = () =>
-        filterScorePartsXml(scoreDoc.musicXml(pitchRef.current), visible);
+        filterScorePartsXml(
+          withRehearsalMarks(
+            scoreDoc.musicXml(pitchRef.current),
+            rehearsalMarks,
+            scoreDoc.canonicalDocument?.() ?? null,
+          ),
+          visible,
+        );
       const views: PitchViewSetting[] =
         scope === "current"
           ? [pitchRef.current]
@@ -1056,7 +1089,14 @@ export function ScoreReadyWorkspace({
         const collected: PrintPage[] = [];
         for (const v of views) {
           const ok = r.load(
-            filterScorePartsXml(scoreDoc.musicXml(v), visible),
+            filterScorePartsXml(
+              withRehearsalMarks(
+                scoreDoc.musicXml(v),
+                rehearsalMarks,
+                scoreDoc.canonicalDocument?.() ?? null,
+              ),
+              visible,
+            ),
           );
           if (!ok) throw new Error("score load failed");
           const pages = r.renderForPrint();
@@ -1080,7 +1120,7 @@ export function ScoreReadyWorkspace({
         }
       }
     },
-    [announce, scoreDoc],
+    [announce, scoreDoc, rehearsalMarks],
   );
 
   /** #102: print the score through the webview's print UI — PDF

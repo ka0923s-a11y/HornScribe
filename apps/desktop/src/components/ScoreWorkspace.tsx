@@ -18,6 +18,7 @@ import type { RhythmEditInvoker } from "../score/rhythmEdits";
 import type { ScoreViewMode } from "../score/verovio";
 import type { PitchView } from "./PitchSegmented";
 import type { SettingsCategory } from "../settings/store";
+import type { RegionLabel } from "../workspace/regionLabels";
 
 /* #115: engine rhythm edits swap a document's content in place — its
  * revisionId changes without the workspace needing a remount (a remount
@@ -99,6 +100,7 @@ export function ScoreWorkspace({
   onRetranscribeBasicPitch,
   onOpenProperties,
   onOpenSettings,
+  regionLabels,
   banner = null,
 }: {
   screen: ScreenState;
@@ -159,6 +161,9 @@ export function ScoreWorkspace({
   /** #243: review-bar action - open the settings screen focused on a
    *  category (the demucs-less buried-lead issue links to tools). */
   onOpenSettings?(category: SettingsCategory): void;
+  /** #389: 区間ラベル — forwarded to the score so waveform section
+   *  names render as rehearsal marks. */
+  regionLabels?: readonly RegionLabel[];
   /** #219: persistent notice strip rendered above the score region
    *  content (SOURCE_MISSING over a restored score). */
   banner?: ReactNode;
@@ -242,6 +247,7 @@ export function ScoreWorkspace({
             onRetranscribeBasicPitch={onRetranscribeBasicPitch}
             onOpenProperties={onOpenProperties}
             onOpenSettings={onOpenSettings}
+            regionLabels={regionLabels}
           />
         ) : (
           <div className="hs-score-paper" aria-hidden="true">
