@@ -1977,6 +1977,21 @@ body {
   font-weight: 700;
   pointer-events: none;
 }
+/* #377: the marker group carries --warning/--caution/--info so severity
+ * reads on the score like the waveform's ▼/◆/○ — warning keeps the filled
+ * disc, caution's badge is a <polygon> diamond (same warning tint, shape
+ * carries the difference), and info drops to a stroked ring so flags the
+ * engine marked informational stay quiet on the paper. The info glyph
+ * switches from paper-on-fill to the info tint; color and fill-state both
+ * differ, so the cue never relies on hue alone. */
+.hs-score-pages .hs-review-mark--info .hs-review-mark__badge {
+  fill: none;
+  stroke: var(--hs-score-review-info);
+  stroke-width: 2;
+}
+.hs-score-pages .hs-review-mark--info .hs-review-mark__glyph {
+  fill: var(--hs-score-review-info);
+}
 
 /* Loading / error bodies inside the score region. */
 .hs-score-loading {

@@ -97,7 +97,7 @@ import { buildSwingWarp } from "./swingWarp";
 import { clickTrack, countInMs, countInPattern } from "./metronome";
 import {
   allIssuesForCanonical,
-  markedCanonicalIds,
+  markedCanonicalSeverities,
   nextOpenIssueIndex,
   numEvidence,
   type ScoreReviewIssue,
@@ -1233,7 +1233,7 @@ export function ScoreReadyWorkspace({
     markReviewMarkers(
       container,
       indexRef.current,
-      markedCanonicalIds(scoreDoc.reviewIssues()),
+      markedCanonicalSeverities(scoreDoc.reviewIssues()),
     );
     const sel = selectionRef.current;
     if (sel?.canonicalId) {

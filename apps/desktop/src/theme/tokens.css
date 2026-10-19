@@ -168,6 +168,10 @@
   --hs-score-active-note: #0f6cbd;
   --hs-score-current-measure: rgba(0, 0, 0, 0.05);
   --hs-review-marker: #8a6308;
+  /* #377: severity-shaped review markers — the info ring/glyph lives on
+     the always-light score paper, so it pins the paper-safe info blue in
+     both themes (chrome --hs-status-info is too light in dark mode). */
+  --hs-score-review-info: #0f6cbd;
   /* Playback caret sits on the light paper even in dark mode, so it keeps
      a paper-safe dark value in both themes (was --hs-playhead, which is
      a chrome color and fails 3:1 on paper in dark mode). */
@@ -256,6 +260,8 @@
   --hs-score-active-note: #0f6cbd;
   --hs-score-current-measure: rgba(0, 0, 0, 0.06);
   --hs-review-marker: #8a6308;
+  /* #377: see the light block — pinned paper-safe info for review rings. */
+  --hs-score-review-info: #0f6cbd;
   --hs-score-caret: #0c3b5e;
 
   --hs-elevation-menu:
