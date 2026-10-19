@@ -1706,7 +1706,7 @@ export const ja = {
     repeated_section: {
       title: "繰り返されるフレーズを検出しました",
       detail:
-        "同じフレーズが後の小節で繰り返されています（サビの再現など）。譜面の内容はそのままです — 繰り返し箇所はエビデンスの小節番号で確認できます。",
+        "同じフレーズが後の小節で繰り返されています（サビの再現など）。譜面の内容はそのままです — 繰り返し箇所の小節番号は詳細に表示しています。",
     },
     // #352: the auto-estimated key could not be justified — the
     // evidence branch names the estimate and why it is unsure.
@@ -2196,6 +2196,24 @@ export const ja = {
         })();
       return `${pair}。${spec}。元音源と聴き比べて確認してください。`;
     },
+    /* #385: repeat-detection evidence — names the canonical phrase's
+     *  measure range and each reprise's range (en-dash, matching the
+     *  selection-range label convention), plus which track proved the
+     *  match. Transposed reprises get a parenthetical. */
+    repeatedSection: (p: {
+      readonly canonical: string;
+      readonly reprises: readonly string[];
+      readonly track: "chords" | "melody";
+      readonly transposed: boolean;
+    }) =>
+      `第${p.canonical}小節の` +
+      (p.track === "chords" ? "コード進行" : "フレーズ") +
+      "と同じ内容が" +
+      (p.reprises.length > 0
+        ? p.reprises.map((s) => `第${s}小節`).join("・")
+        : "後の小節") +
+      "にも現れています" +
+      (p.transposed ? "（移調を含みます）" : ""),
   },
 
   /* #130 (§14): re-quantize dialog — change the quantization settings
