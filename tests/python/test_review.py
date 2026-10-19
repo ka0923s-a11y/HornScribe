@@ -65,6 +65,9 @@ def test_all_master_plan_reasons_exist() -> None:
             "octave_uncertain",
             # #264: isolated chromatic semitone-dip audit.
             "pitch_uncertain",
+            # #379: instrumental-break lead borrowed from the
+            # accompaniment stem — provenance marker contract.
+            "instrumental_break",
         }
     assert {r.value for r in ReviewReason} == expected
 

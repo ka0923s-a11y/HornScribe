@@ -60,6 +60,9 @@ export interface TranscriptionJobParams {
   /** #203: opt-out flag — absent means the accompaniment staff is
    *  generated whenever a separation stem exists (engine default). */
   accompanimentPart?: boolean;
+  /** #379: opt-out flag — absent means vocal-silent spans borrow the
+   *  accompaniment stem's top voice into the lead (engine default). */
+  interludeLead?: boolean;
   /** #53: user-pinned key signature ("auto" omitted). */
   keyHint?: string;
 }
@@ -122,6 +125,9 @@ export function buildTranscriptionParams(
   // #203: accompaniment staff is engine-default on — only an
   // explicit opt-out travels on the wire (same sparse-param rule).
   if (!options.accompanimentPart) params.accompanimentPart = false;
+  // #379: same sparse-param rule — the interlude-lead borrow is the
+  // engine default; only an explicit opt-out is sent.
+  if (!options.interludeLead) params.interludeLead = false;
   // #53: "auto" is the engine default — pin only an explicit key.
   if (options.keyHint && options.keyHint !== "auto") {
     params.keyHint = options.keyHint;
@@ -267,6 +273,8 @@ export function transcriptionOptionsFromSettings(
     // #203: absent (or a non-boolean echo) means the engine default
     // — the accompaniment staff stays on.
     accompanimentPart: s.accompanimentPart !== false,
+    // #379: same restore contract — absent means the engine default.
+    interludeLead: s.interludeLead !== false,
     // #53: restore a pinned key verbatim — an unknown name falls back
     // to auto rather than pinning a key the engine would reject.
     keyHint: pick("keyHint", KEY_HINT_VALUES, "auto"),

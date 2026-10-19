@@ -135,6 +135,7 @@ from .clean import (
     clip_to_range,
     split_voices,
 )
+from .interlude import borrow_interlude_lead, vocal_silent_spans
 from .key import analyze_key, key_uncertainty, refine_key_with_harmony
 from .leadvoice import lead_track_agreement
 from .meter import estimate_meter
@@ -5399,6 +5400,64 @@ def run_transcription_job(
         # reach the accent pool either.
         if accomp_cleaned and cleaned.events:
             cleaned = _drop_stem_bleed_lows(cleaned, accomp_cleaned)
+        # #379: vocal-silent spans (イントロ/間奏/アウトロ) borrow the
+        # accompaniment stem's top voice into the lead — the hook line
+        # that would otherwise print as rests. Borrowed events keep
+        # their rne-a* ids and source="interlude-lead" so the vocal-stem
+        # audits below can exempt them by id — their spectral evidence
+        # lives on the accompaniment stem, where silence reads as a
+        # false conviction. Inserted pre-quantize so they land on the
+        # shared beat grid like any other lead note.
+        interlude_event_ids: set[str] = set()
+        interlude_spans: list[tuple[float, float]] = []
+        if (
+            params.interlude_lead
+            and lead_evidence is not None
+            and accomp_cleaned
+        ):
+            interlude_spans = vocal_silent_spans(
+                lead_evidence[0],
+                lead_evidence[1],
+                time_offset_sec=selection_offset_sec,
+            )
+            if interlude_spans:
+                interlude_borrowed, interlude_spans = borrow_interlude_lead(
+                    cleaned.events, accomp_cleaned, interlude_spans
+                )
+                if interlude_borrowed:
+                    interlude_event_ids = {
+                        str(e.id) for e in interlude_borrowed
+                    }
+                    cleaned = replace(
+                        cleaned,
+                        events=tuple(
+                            sorted(
+                                [*cleaned.events, *interlude_borrowed],
+                                key=lambda e: (
+                                    e.onset_sec,
+                                    e.pitch_midi,
+                                    str(e.id),
+                                ),
+                            )
+                        ),
+                    )
+        # Audits scoped to the vocal stem must not read borrowed notes —
+        # absent on the vocal estimate, they would flag against silence.
+        audit_cleaneds: tuple[CleanedEvents, ...] | None = (
+            tuple(
+                replace(
+                    c,
+                    events=tuple(
+                        e
+                        for e in c.events
+                        if str(e.id) not in interlude_event_ids
+                    ),
+                )
+                for c in (cleaned, *cleaned_lowers)
+            )
+            if interlude_event_ids
+            else None
+        )
         if stop(2):
             return
 
@@ -5941,7 +6000,11 @@ def run_transcription_job(
             ),
             estimate.warp,
             beat_ql,
-            (cleaned, *cleaned_lowers),
+            (
+                audit_cleaneds
+                if audit_cleaneds is not None
+                else (cleaned, *cleaned_lowers)
+            ),
             payload.parts,
             selection_offset_sec,
             arbiter_events=arbiter_events,
@@ -5958,7 +6021,11 @@ def run_transcription_job(
                     if lead_evidence is not None
                     else (samples, sample_rate)
                 ),
-                (cleaned, *cleaned_lowers),
+                (
+                    audit_cleaneds
+                    if audit_cleaneds is not None
+                    else (cleaned, *cleaned_lowers)
+                ),
                 payload.parts,
                 selection_offset_sec,
                 exclude=frozenset(s.note_id for s in octave_suspects),
@@ -5969,7 +6036,11 @@ def run_transcription_job(
                     if lead_evidence is not None
                     else (samples, sample_rate)
                 ),
-                (cleaned, *cleaned_lowers),
+                (
+                    audit_cleaneds
+                    if audit_cleaneds is not None
+                    else (cleaned, *cleaned_lowers)
+                ),
                 payload.parts,
                 payload.key_signature.fifths,
                 payload.key_changes,
@@ -6112,7 +6183,11 @@ def run_transcription_job(
                     if lead_evidence is not None
                     else (samples, sample_rate)
                 ),
-                (cleaned, *cleaned_lowers),
+                (
+                    audit_cleaneds
+                    if audit_cleaneds is not None
+                    else (cleaned, *cleaned_lowers)
+                ),
                 built.payload.parts,
                 event_by_id,
                 estimate.warp,
@@ -6445,6 +6520,31 @@ def run_transcription_job(
                             p.name for p in built.payload.parts if not p.transposing
                         ],
                         "method": vocal_method or "none",
+                    },
+                )
+            )
+        # #379: borrowed break leads ride the LEAD staff — one
+        # provenance marker names the vocal-silent spans so the user
+        # can audit where those notes came from (the accompaniment
+        # decode, not the vocal tracker).
+        if interlude_spans:
+            issues.append(
+                ReviewIssue(
+                    id="",
+                    score_revision=score_revision,
+                    canonical_note_ids=(),
+                    time_range=TimeRange(
+                        start_sec=interlude_spans[0][0],
+                        end_sec=interlude_spans[-1][1],
+                    ),
+                    reason=ReviewReason.INSTRUMENTAL_BREAK,
+                    severity=Severity.INFO,
+                    evidence={
+                        "spans": [
+                            {"startSec": round(s, 3), "endSec": round(e, 3)}
+                            for s, e in interlude_spans
+                        ],
+                        "borrowedCount": len(interlude_event_ids),
                     },
                 )
             )

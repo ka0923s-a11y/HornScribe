@@ -97,4 +97,12 @@ describe("queueParamSummary (#59)", () => {
     expect(queueParamSummary({ accompanimentPart: true })).toBe("");
     expect(queueParamSummary({})).toBe("");
   });
+
+  it("#379: interlude-lead opt-out echoes, default stays silent", () => {
+    expect(queueParamSummary({ interludeLead: false })).toBe(
+      ja.queue.paramsInterludeOff,
+    );
+    expect(queueParamSummary({ interludeLead: true })).toBe("");
+    expect(queueParamSummary({})).toBe("");
+  });
 });

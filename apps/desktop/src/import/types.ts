@@ -171,6 +171,11 @@ export interface TranscriptionOptions {
    *  part on the shared grid. Default on — the JPOP lead-sheet case;
    *  solo sources drop the stem so no empty staff can appear. */
   accompanimentPart: boolean;
+  /** #379: while the vocal stem exists and the accompaniment part
+   *  ran, borrow the accompaniment's top voice into the lead during
+   *  vocal-silent spans — the イントロ/間奏 hook that otherwise
+   *  prints as rests. Default on (完全採譜). */
+  interludeLead: boolean;
   /** #53: user-attested key ("auto" or a tonic name like "Ebm") —
   *  pinning it fixes enharmonic spelling, the signature and the
   *  chord prior; analysis and the key_uncertain review are skipped. */
@@ -204,6 +209,7 @@ export const DEFAULT_TRANSCRIPTION_OPTIONS: TranscriptionOptions = {
   vocalIsolation: false,
   vocalIsolationQuality: "standard",
   accompanimentPart: true,
+  interludeLead: true,
   keyHint: "auto",
   selectionStartSec: null,
   selectionEndSec: null,
