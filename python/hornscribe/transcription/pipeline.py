@@ -135,7 +135,11 @@ from .clean import (
     clip_to_range,
     split_voices,
 )
-from .interlude import borrow_interlude_lead, vocal_silent_spans
+from .interlude import (
+    borrow_interlude_lead,
+    borrowed_note_ids,
+    vocal_silent_spans,
+)
 from .key import analyze_key, key_uncertainty, refine_key_with_harmony
 from .leadvoice import lead_track_agreement
 from .meter import estimate_meter
@@ -6526,13 +6530,21 @@ def run_transcription_job(
         # #379: borrowed break leads ride the LEAD staff — one
         # provenance marker names the vocal-silent spans so the user
         # can audit where those notes came from (the accompaniment
-        # decode, not the vocal tracker).
+        # decode, not the vocal tracker). #381: the borrowed notes
+        # themselves carry the marker ids so every hook note shows an
+        # INFO ring on the staff — provenance is per-note, not just a
+        # part-level banner.
         if interlude_spans:
             issues.append(
                 ReviewIssue(
                     id="",
                     score_revision=score_revision,
-                    canonical_note_ids=(),
+                    canonical_note_ids=borrowed_note_ids(
+                        built.payload.parts[0].notes
+                        if built.payload.parts
+                        else (),
+                        interlude_event_ids,
+                    ),
                     time_range=TimeRange(
                         start_sec=interlude_spans[0][0],
                         end_sec=interlude_spans[-1][1],
