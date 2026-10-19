@@ -19,6 +19,11 @@ import {
 } from "../diagnostics/toolProbe";
 import type { ScoreDocumentPort } from "../score/document";
 import { filterScorePartsXml } from "../score/partFilter";
+import {
+  rehearsalMarksFor,
+  withRehearsalMarks,
+} from "../score/rehearsalMarks";
+import type { RegionLabel } from "../workspace/regionLabels";
 import { buildMidiFile } from "./midi";
 import {
   ExportError,
@@ -63,6 +68,9 @@ export interface ExportSource {
    *  visibility is display-only (a hidden staff still sounds), so a
    *  listening-reference file keeps every part. */
   readonly partVisible?: readonly boolean[];
+  /** #389: 区間ラベル — score artifacts carry them as rehearsal
+   *  marks; omitted/empty exports marks nothing. */
+  readonly regionLabels?: readonly RegionLabel[];
 }
 
 /** UTF-8-safe base64 (btoa chokes on multibyte; chunk to stay under the
@@ -325,6 +333,14 @@ export class TauriExportPort implements ExportPort {
     // copy (no base64 round-trip for what can be a large file).
     const batch: { name: string; dataBase64: string }[] = [];
     const pdfPayloads: { name: string; musicXml: string }[] = [];
+    // #389: rehearsal marks ride every score artifact — the same
+    // region-label-driven <direction> the on-screen score shows.
+    const scoreDoc = source.doc;
+    const marksCanon = scoreDoc.canonicalDocument?.() ?? null;
+    const exportMarks =
+      rehearsalMarksFor(source.regionLabels ?? [], marksCanon) ?? [];
+    const markedXml = (view: "concert" | "hornF" | "bFlat") =>
+      withRehearsalMarks(scoreDoc.musicXml(view), exportMarks, marksCanon);
     // #390: formats that landed at reduced quality — disclosed to
     // the user via the result, never silently downgraded.
     const degraded: ExportFormatId[] = [];
@@ -332,11 +348,11 @@ export class TauriExportPort implements ExportPort {
       const name = names.get(format);
       if (!name) continue;
       if (format === "concertMusicxml") {
-        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(source.doc.musicXml("concert"), source.partVisible ?? [])) });
+        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(markedXml("concert"), source.partVisible ?? [])) });
       } else if (format === "hornMusicxml") {
-        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(source.doc.musicXml("hornF"), source.partVisible ?? [])) });
+        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(markedXml("hornF"), source.partVisible ?? [])) });
       } else if (format === "bFlatMusicxml") {
-        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(source.doc.musicXml("bFlat"), source.partVisible ?? [])) });
+        batch.push({ name, dataBase64: textToBase64(filterScorePartsXml(markedXml("bFlat"), source.partVisible ?? [])) });
       } else if (format === "playbackMidi") {
         // #256/#390: prefer the engine's canonical exporter (velocity /
         // bend / swing / tempo map survive). A dead or failing engine
@@ -380,7 +396,7 @@ export class TauriExportPort implements ExportPort {
         pdfPayloads.push({
           name,
           musicXml: filterScorePartsXml(
-            source.doc.musicXml(
+            markedXml(
             format === "hornPdf"
               ? "hornF"
               : format === "bFlatPdf"
@@ -473,7 +489,14 @@ export class TauriExportPort implements ExportPort {
       return await invoke<string>("open_in_musescore", {
         musescorePath: exe,
         musicXml: filterScorePartsXml(
-          source.doc.musicXml(view),
+          withRehearsalMarks(
+            source.doc.musicXml(view),
+            rehearsalMarksFor(
+              source.regionLabels ?? [],
+              source.doc.canonicalDocument?.() ?? null,
+            ) ?? [],
+            source.doc.canonicalDocument?.() ?? null,
+          ),
           source.partVisible ?? [],
         ),
         basename: source.basename || source.doc.meta.title,

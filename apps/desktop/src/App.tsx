@@ -762,9 +762,10 @@ export default function App() {
           audioPath,
           audioName: audioPath ? fileName || null : null,
           partVisible: partMixVisible ?? undefined,
+          regionLabels,
         }
       : null;
-  }, [scoreDocument, importState.audio, partMixVisible]);
+  }, [scoreDocument, importState.audio, partMixVisible, regionLabels]);
 
   // #156: a document swap while the B♭ view is active must not strand
   // the renderer on a projection the document lacks (legacy projects
@@ -3295,6 +3296,7 @@ export default function App() {
                     setSettingsFocus(category);
                     setView("settings");
                   }}
+                  regionLabels={regionLabels}
                   banner={
                     importState.sourceMissing ? (
                       <div className="hs-source-missing-banner" role="alert">
