@@ -177,6 +177,12 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
     note: "要確認 mark on score paper — shape+glyph",
   },
   {
+    fg: "--hs-score-review-info",
+    bg: "--hs-surface-score",
+    kind: "non-text",
+    note: "#377 info review ring/glyph on score paper — hollow ring + i",
+  },
+  {
     fg: "--hs-review-ink",
     bg: "--hs-review-tint",
     kind: "text",

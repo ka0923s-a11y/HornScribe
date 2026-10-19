@@ -107,13 +107,33 @@ export function allIssuesForCanonical(
   return issues.filter((i) => i.canonicalNoteIds.includes(canonicalId));
 }
 
-/** Canonical ids carrying at least one open issue — drives score markers. */
-export function markedCanonicalIds(issues: readonly ScoreReviewIssue[]): Set<string> {
-  const out = new Set<string>();
+const SEVERITY_ORDER: Record<ReviewSeverity, number> = {
+  info: 0,
+  caution: 1,
+  warning: 2,
+};
+
+/** Canonical ids → worst severity of their open issues — drives the
+ *  severity-shaped score markers (#377). A note flagged by both an info
+ *  and a warning issue shows the warning marker. */
+export function markedCanonicalSeverities(
+  issues: readonly ScoreReviewIssue[],
+): Map<string, ReviewSeverity> {
+  const out = new Map<string, ReviewSeverity>();
   for (const issue of openIssues(issues)) {
-    for (const id of issue.canonicalNoteIds) out.add(id);
+    for (const id of issue.canonicalNoteIds) {
+      const prev = out.get(id);
+      if (!prev || SEVERITY_ORDER[issue.severity] > SEVERITY_ORDER[prev]) {
+        out.set(id, issue.severity);
+      }
+    }
   }
   return out;
+}
+
+/** Canonical ids carrying at least one open issue — drives score markers. */
+export function markedCanonicalIds(issues: readonly ScoreReviewIssue[]): Set<string> {
+  return new Set(markedCanonicalSeverities(issues).keys());
 }
 
 /** Optional model confidence from the evidence payload (0..1), or null.

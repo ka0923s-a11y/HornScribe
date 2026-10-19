@@ -19,6 +19,13 @@ import {
   MEASURE_ACTIVE_CLASS,
   REVIEW_MARK_CLASS,
 } from "./domScore";
+import type { ReviewSeverity } from "./review";
+
+/** #377: markReviewMarkers takes id → severity; tests default to warning
+ *  (the loudest badge) unless exercising a specific severity. */
+function warn(...ids: string[]): Map<string, ReviewSeverity> {
+  return new Map(ids.map((id) => [id, "warning" as const]));
+}
 
 function scoreDom(): HTMLElement {
   const root = document.createElement("div");
@@ -129,7 +136,7 @@ describe("markReviewMarkers", () => {
   it("no-ops cleanly when geometry is unavailable (jsdom)", () => {
     const root = scoreDom();
     const idx = buildElementIndex(root);
-    expect(markReviewMarkers(root, idx, new Set(["sn-000001"]))).toBe(0);
+    expect(markReviewMarkers(root, idx, warn("sn-000001"))).toBe(0);
     // No markers left behind.
     expect(root.querySelectorAll(".hs-review-mark").length).toBe(0);
   });
@@ -165,7 +172,7 @@ describe("markReviewMarkers system-band grouping (#237)", () => {
     const n = markReviewMarkers(
       root,
       idx,
-      new Set(["sn-000001", "sn-000002", "sn-000003", "sn-000004"]),
+      warn("sn-000001", "sn-000002", "sn-000003", "sn-000004"),
     );
     expect(n).toBe(4);
     // Both staves share the system and (no staff bbox -> band 0): the
@@ -214,7 +221,7 @@ describe("markReviewMarkers system-band grouping (#237)", () => {
     const n = markReviewMarkers(
       root,
       idx,
-      new Set(["sn-000001", "sn-000002", "sn-000003", "sn-000004"]),
+      warn("sn-000001", "sn-000002", "sn-000003", "sn-000004"),
     );
     expect(n).toBe(4);
     expect(
@@ -243,7 +250,7 @@ describe("markReviewMarkers system-band grouping (#237)", () => {
     const n = markReviewMarkers(
       root,
       idx,
-      new Set(["sn-000001", "sn-000002"]),
+      warn("sn-000001", "sn-000002"),
     );
     expect(n).toBe(2);
     expect(
@@ -270,7 +277,7 @@ describe("markReviewMarkers system-band grouping (#237)", () => {
       value: () => ({ x: 40, y: 50, width: 20, height: 30 }),
     });
     const idx = buildElementIndex(root);
-    markReviewMarkers(root, idx, new Set(["sn-000001", "sn-000002"]));
+    markReviewMarkers(root, idx, warn("sn-000001", "sn-000002"));
     const badge = root.querySelector(
       "." + REVIEW_MARK_CLASS + "__badge",
     ) as SVGCircleElement;
@@ -285,10 +292,105 @@ describe("markReviewMarkers system-band grouping (#237)", () => {
     const root = scoreDom();
     withBboxes(root);
     const idx = buildElementIndex(root);
-    markReviewMarkers(root, idx, new Set(["sn-000001", "sn-000002"]));
-    markReviewMarkers(root, idx, new Set(["sn-000001"]));
+    markReviewMarkers(root, idx, warn("sn-000001", "sn-000002"));
+    markReviewMarkers(root, idx, warn("sn-000001"));
     expect(
       root.querySelectorAll("." + REVIEW_MARK_CLASS + "__line").length,
     ).toBe(1);
+  });
+});
+
+describe("markReviewMarkers severity shapes (#377)", () => {
+  function flaggedRoot(): HTMLElement {
+    const root = document.createElement("div");
+    root.innerHTML = [
+      '<svg><g class="system"><g class="measure"><g class="staff">',
+      '<g class="note" id="hs-sn-000001"><g class="notehead"><use/></g></g>',
+      '<g class="note" id="hs-sn-000002"><g class="notehead"><use/></g></g>',
+      "</g></g></g></svg>",
+    ].join("");
+    let x = 0;
+    root.querySelectorAll("g.note").forEach((el) => {
+      x += 100;
+      Object.defineProperty(el, "getBBox", {
+        value: () => ({ x, y: 50, width: 20, height: 30 }),
+      });
+    });
+    return root;
+  }
+
+  it("warning keeps the filled disc + '!' glyph", () => {
+    const root = flaggedRoot();
+    markReviewMarkers(root, buildElementIndex(root), warn("sn-000001"));
+    const mark = root.querySelector("g." + REVIEW_MARK_CLASS)!;
+    expect(mark.classList.contains(REVIEW_MARK_CLASS + "--warning")).toBe(
+      true,
+    );
+    const badge = mark.querySelector("." + REVIEW_MARK_CLASS + "__badge")!;
+    expect(badge.tagName.toLowerCase()).toBe("circle");
+    expect(
+      mark.querySelector("." + REVIEW_MARK_CLASS + "__glyph")!.textContent,
+    ).toBe("!");
+  });
+
+  it("caution draws a filled diamond instead of the disc", () => {
+    const root = flaggedRoot();
+    markReviewMarkers(
+      root,
+      buildElementIndex(root),
+      new Map([["sn-000001", "caution" as const]]),
+    );
+    const mark = root.querySelector("g." + REVIEW_MARK_CLASS)!;
+    expect(mark.classList.contains(REVIEW_MARK_CLASS + "--caution")).toBe(
+      true,
+    );
+    const badge = mark.querySelector("." + REVIEW_MARK_CLASS + "__badge")!;
+    expect(badge.tagName.toLowerCase()).toBe("polygon");
+    expect(
+      mark.querySelector("." + REVIEW_MARK_CLASS + "__glyph")!.textContent,
+    ).toBe("!");
+  });
+
+  it("info drops to the ring badge and the quieter 'i' glyph", () => {
+    const root = flaggedRoot();
+    markReviewMarkers(
+      root,
+      buildElementIndex(root),
+      new Map([["sn-000001", "info" as const]]),
+    );
+    const mark = root.querySelector("g." + REVIEW_MARK_CLASS)!;
+    expect(mark.classList.contains(REVIEW_MARK_CLASS + "--info")).toBe(true);
+    const badge = mark.querySelector("." + REVIEW_MARK_CLASS + "__badge")!;
+    // Ring = circle element; the hollow stroke is the CSS modifier's job.
+    expect(badge.tagName.toLowerCase()).toBe("circle");
+    expect(
+      mark.querySelector("." + REVIEW_MARK_CLASS + "__glyph")!.textContent,
+    ).toBe("i");
+  });
+
+  it("a mixed-severity band carries the worst member severity", () => {
+    const root = flaggedRoot();
+    markReviewMarkers(
+      root,
+      buildElementIndex(root),
+      new Map<string, ReviewSeverity>([
+        ["sn-000001", "info"],
+        ["sn-000002", "warning"],
+      ]),
+    );
+    const marks = root.querySelectorAll("g." + REVIEW_MARK_CLASS);
+    // One badge, warning severity, count glyph — the info flag's band
+    // must not look quieter than the loudest thing inside it.
+    expect(
+      root.querySelectorAll("." + REVIEW_MARK_CLASS + "__badge").length,
+    ).toBe(1);
+    marks.forEach((m) =>
+      expect(m.classList.contains(REVIEW_MARK_CLASS + "--warning")).toBe(
+        true,
+      ),
+    );
+    expect(
+      root.querySelector("." + REVIEW_MARK_CLASS + "__glyph")!.textContent,
+    ).toBe("2");
   });
 });

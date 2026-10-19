@@ -9,6 +9,7 @@
  * docs/UI_003_SPIKE_RESULTS.md §3).
  */
 import { canonicalNoteIdFromMusicxml, isMusicxmlNoteId } from "./ids";
+import type { ReviewSeverity } from "./review";
 
 export interface ElementIndex {
   /** export id (`hs-sn-000003-2`) → rendered <g> element */
@@ -218,10 +219,16 @@ export function clearCaret(container: Element): void {
  * Draw 要確認 markers on the rendered fragments of the given canonical ids.
  *
  * Spec (GUI_UX_SPEC §12, §15): review markers are a warning-tint dotted cue
- * — never error red, never a strong fill. The marker is a dotted underline
+ * — never error red. The marker is a dotted underline
  * under the note's bounding box plus a small "!" badge above-right; it is
  * appended inside the id-bearing note group so clicks still resolve to the
  * note and the cue inherits the score's coordinate space / zoom.
+ *
+ * #377: the badge carries severity — warning keeps the filled gold disc,
+ * caution gets a filled diamond, info a hollow info-tinted ring — so the
+ * score triages like the waveform strip's ▼/◆/○ without relying on hue
+ * alone (shape + fill-state both differ). A cluster badge takes the worst
+ * member severity; the dotted underline stays the uniform spec cue.
  *
  * Markers live in the (aria-hidden) SVG only as a visual cue; the readable
  * reason text is surfaced by the properties inspector (§24).
@@ -229,7 +236,7 @@ export function clearCaret(container: Element): void {
 export function markReviewMarkers(
   container: Element,
   index: ElementIndex,
-  canonicalIds: ReadonlySet<string>,
+  markers: ReadonlyMap<string, ReviewSeverity>,
 ): number {
   for (const el of Array.from(
     container.querySelectorAll("g." + REVIEW_MARK_CLASS),
@@ -250,10 +257,11 @@ export function markReviewMarkers(
   interface Flagged {
     el: SVGGElement;
     box: DOMRect;
+    severity: ReviewSeverity;
   }
   const systems = Array.from(container.querySelectorAll("g.system"));
   const groups = new Map<unknown, Flagged[]>();
-  for (const canonicalId of canonicalIds) {
+  for (const [canonicalId, severity] of markers) {
     // One marker per canonical note, on its first rendered fragment.
     const host = index.byCanonical.get(canonicalId)?.[0];
     if (!host || typeof (host as SVGGElement).getBBox !== "function") continue;
@@ -280,7 +288,7 @@ export function markReviewMarkers(
         ? systems.indexOf(system) + ":" + band
         : (staff ?? measureElementOf(host) ?? host);
       const list = groups.get(key) ?? [];
-      list.push({ el: host as SVGGElement, box });
+      list.push({ el: host as SVGGElement, box, severity });
       groups.set(key, list);
     } catch {
       /* getBBox unsupported — skip this marker */
@@ -292,11 +300,25 @@ export function markReviewMarkers(
     // deterministic anchor regardless of issue ordering.
     const sorted = hosts.slice().sort((a, b) => a.box.x - b.box.x);
     const count = sorted.length;
+    // Cluster badge takes the worst member severity — a mixed band must
+    // not downplay a warning because an info flag shares the row.
+    const sevRank: Record<ReviewSeverity, number> = {
+      info: 0,
+      caution: 1,
+      warning: 2,
+    };
+    const severity = sorted.reduce<ReviewSeverity>(
+      (worst, f) => (sevRank[f.severity] > sevRank[worst] ? f.severity : worst),
+      "info",
+    );
     sorted.forEach(({ el, box }, i) => {
       const padX = Math.max(6, box.width * 0.2);
       const lineY = box.y + box.height + Math.max(8, box.height * 0.25);
       const mark = document.createElementNS(SVG_NS, "g");
-      mark.setAttribute("class", REVIEW_MARK_CLASS);
+      mark.setAttribute(
+        "class",
+        REVIEW_MARK_CLASS + " " + REVIEW_MARK_CLASS + "--" + severity,
+      );
       mark.setAttribute("aria-hidden", "true");
 
       const line = document.createElementNS(SVG_NS, "line");
@@ -317,10 +339,26 @@ export function markReviewMarkers(
         // Center the disc fully above the note box (0.25r clearance)
         // instead of overlapping its top edge.
         const badgeCy = box.y - r * 1.25;
-        const badge = document.createElementNS(SVG_NS, "circle");
-        badge.setAttribute("cx", String(badgeCx));
-        badge.setAttribute("cy", String(badgeCy));
-        badge.setAttribute("r", String(r));
+        // #377: badge shape carries severity — warning/caution keep a
+        // filled body (disc / diamond), info drops to a stroked ring so
+        // informational flags read quieter on the paper.
+        const badge =
+          severity === "caution"
+            ? document.createElementNS(SVG_NS, "polygon")
+            : document.createElementNS(SVG_NS, "circle");
+        if (severity === "caution") {
+          badge.setAttribute(
+            "points",
+            String(badgeCx) + "," + String(badgeCy - r) + " " +
+              String(badgeCx + r) + "," + String(badgeCy) + " " +
+              String(badgeCx) + "," + String(badgeCy + r) + " " +
+              String(badgeCx - r) + "," + String(badgeCy),
+          );
+        } else {
+          badge.setAttribute("cx", String(badgeCx));
+          badge.setAttribute("cy", String(badgeCy));
+          badge.setAttribute("r", String(r));
+        }
         badge.setAttribute("class", REVIEW_MARK_CLASS + "__badge");
         mark.appendChild(badge);
 
@@ -333,7 +371,8 @@ export function markReviewMarkers(
           String(count > 9 ? r * 0.85 : r * 1.3),
         );
         glyph.setAttribute("class", REVIEW_MARK_CLASS + "__glyph");
-        glyph.textContent = count > 1 ? String(count) : "!";
+        glyph.textContent =
+          count > 1 ? String(count) : severity === "info" ? "i" : "!";
         mark.appendChild(glyph);
       }
 
