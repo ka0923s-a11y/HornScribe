@@ -445,6 +445,10 @@ class ChordSymbol:
     (``C/E``); ``None`` for root position. Absent in score JSON
     written before slash symbols existed - ``from_dict`` tolerates
     the missing key."""
+    melody_corroborated: bool = False
+    # see #391 - set by the melody-agreement rerank; the export print
+    # gate treats corroboration as sufficient despite a near-tied
+    # chroma margin
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "start_beat", _unfrac(self.start_beat))
@@ -476,6 +480,7 @@ class ChordSymbol:
             "margin": round(self.margin, 3),
             "label": self.label,
             "bassPc": self.bass_pc,
+            "melodyCorroborated": self.melody_corroborated or None,
         }
 
     @classmethod
@@ -491,6 +496,7 @@ class ChordSymbol:
             bass_pc=(
                 None if data.get("bassPc") is None else int(data["bassPc"])
             ),
+            melody_corroborated=data.get("melodyCorroborated") is True,
         )
 
 

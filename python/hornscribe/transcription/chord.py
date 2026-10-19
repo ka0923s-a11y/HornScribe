@@ -160,6 +160,12 @@ class ChordEstimate:
     confidence: float
     margin: float
     runner_up: str | None = None
+    # #391: the melody-agreement rerank swapped this call onto its
+    # runner-up. Chroma confidence/margin stay honest (they describe
+    # the chroma evidence only); the flag marks that the lead line's
+    # chord-tone fit is what resolved the coin flip - the print gate
+    # must not drop it for the chroma margin it replaced.
+    melody_corroborated: bool = False
     # Bass pitch class when the segment is an inversion (the bass
     # voice sits on a chord tone other than the root); None for root
     # position. Rendered as a slash suffix - C/E.
@@ -188,6 +194,7 @@ class ChordEstimate:
             "margin": round(self.margin, 3),
             "runnerUp": self.runner_up,
             "bassPc": self.bass_pc,
+            "melodyCorroborated": self.melody_corroborated or None,
         }
 
 
@@ -544,6 +551,7 @@ def rerank_chords_with_melody(
                     runner_up=chord_label(
                         est.root_pc, est.quality, prefer_flats
                     ),
+                    melody_corroborated=True,
                 )
             )
         else:
