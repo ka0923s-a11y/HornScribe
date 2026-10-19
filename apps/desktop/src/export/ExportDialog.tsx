@@ -575,7 +575,15 @@ export function ExportDialog({
             })}
             <HsButton onClick={close}>{ja.common.close}</HsButton>
           </>
-        ) : undefined
+        ) : (
+          // #375: the loading probe has no other chrome — a DialogSurface
+          // with zero focusable elements strands keyboard focus on <body>
+          // and trips Fluent's useFocusFirstElement warning. close() here
+          // is safe: generation++ + the probe's cancelled flag swallow the
+          // late response. Keep this as the ternary's default so any future
+          // phase can never render a focus-less dialog.
+          <HsButton onClick={close}>{ja.common.cancel}</HsButton>
+        )
       }
     >
       {phase === "loading" ? (

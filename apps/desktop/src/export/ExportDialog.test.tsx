@@ -250,3 +250,47 @@ describe("selection persistence (#377)", () => {
     expect(calls[0].concertMusicxml).toBe(false);
   });
 });
+
+describe("loading phase a11y (#375)", () => {
+  it("keeps a focusable cancel action on the dialog while the probe runs", async () => {
+    // Regression: during the capabilities probe the actions ternary
+    // returned undefined and the body held only <HsProgress> — zero
+    // focusable elements inside DialogSurface, so FluentUI logged
+    // useFocusFirstElement and keyboard focus stranded on <body>.
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const onOpenChange = vi.fn();
+    await act(async () => {
+      root!.render(
+        <ExportDialog
+          open={true}
+          onOpenChange={onOpenChange}
+          port={new MockExportPort({ latencyMs: 50 })}
+          defaultDestination="C:\\out"
+          onOpenSettings={NOOP}
+          onOpenDiagnostics={NOOP}
+          onAnnounce={NOOP}
+          initialSelected={ALL_SELECTED}
+          suggestedBasename="take1"
+        />,
+      );
+    });
+    // The 50 ms probe is still in flight — the dialog sits on loading.
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog, "dialog surface during the loading phase").toBeTruthy();
+    const cancel = [...dialog!.querySelectorAll("button")].find((b) =>
+      (b.textContent ?? "").includes(ja.common.cancel),
+    );
+    expect(
+      cancel,
+      "focusable cancel button inside the loading dialog",
+    ).toBeTruthy();
+    // And it must actually dismiss: close() during loading is the fix's
+    // contract, not just a painted button.
+    await act(async () => {
+      cancel!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
