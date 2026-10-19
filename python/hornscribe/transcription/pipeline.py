@@ -6535,31 +6535,46 @@ def run_transcription_job(
         # INFO ring on the staff — provenance is per-note, not just a
         # part-level banner.
         if interlude_spans:
-            issues.append(
-                ReviewIssue(
-                    id="",
-                    score_revision=score_revision,
-                    canonical_note_ids=borrowed_note_ids(
-                        built.payload.parts[0].notes
-                        if built.payload.parts
-                        else (),
-                        interlude_event_ids,
-                    ),
-                    time_range=TimeRange(
-                        start_sec=interlude_spans[0][0],
-                        end_sec=interlude_spans[-1][1],
-                    ),
-                    reason=ReviewReason.INSTRUMENTAL_BREAK,
-                    severity=Severity.INFO,
-                    evidence={
-                        "spans": [
-                            {"startSec": round(s, 3), "endSec": round(e, 3)}
-                            for s, e in interlude_spans
-                        ],
-                        "borrowedCount": len(interlude_event_ids),
-                    },
+            # One issue per span — a single issue spanning intro→outro
+            # would paint one waveform marker across the whole song and
+            # its review jump could only seek to one end. Per-span issues
+            # stay scoped to the break they describe, carry only that
+            # span's borrowed notes, and can be audited independently.
+            for span_idx, (span_lo, span_hi) in enumerate(interlude_spans):
+                span_event_ids = {
+                    eid
+                    for eid in interlude_event_ids
+                    if RawNoteEventId(eid) in event_by_id
+                    and span_lo
+                    <= event_by_id[RawNoteEventId(eid)].onset_sec
+                    < span_hi
+                }
+                issues.append(
+                    ReviewIssue(
+                        id="",
+                        score_revision=score_revision,
+                        canonical_note_ids=borrowed_note_ids(
+                            built.payload.parts[0].notes
+                            if built.payload.parts
+                            else (),
+                            span_event_ids,
+                        ),
+                        time_range=TimeRange(
+                            start_sec=span_lo,
+                            end_sec=span_hi,
+                        ),
+                        reason=ReviewReason.INSTRUMENTAL_BREAK,
+                        severity=Severity.INFO,
+                        evidence={
+                            "spans": [
+                                {"startSec": round(span_lo, 3), "endSec": round(span_hi, 3)}
+                            ],
+                            "borrowedCount": len(span_event_ids),
+                            "spanIndex": span_idx + 1,
+                            "spanCount": len(interlude_spans),
+                        },
+                    )
                 )
-            )
         # #188: the tracked tempo looks like a half/double pick —
         # surface it with the corrected value so the UI can offer a
         # one-click setTempo.
