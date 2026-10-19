@@ -32,6 +32,7 @@ def _sym(
     margin: float = 0.5,
     label: str = "",
     bass_pc: int | None = None,
+    melody_corroborated: bool = False,
 ) -> ChordSymbol:
     return ChordSymbol(
         start_beat=Fraction(start),
@@ -42,6 +43,7 @@ def _sym(
         margin=margin,
         label=label or quality,
         bass_pc=bass_pc,
+        melody_corroborated=melody_corroborated,
     )
 
 
@@ -277,8 +279,9 @@ def test_mid_measure_symbol_carries_offset_when_unanchored() -> None:
 
 
 def test_low_confidence_symbol_is_not_exported() -> None:
-    """The export gate mirrors chord_uncertain: weak or contested
-    calls stay out of baked notation."""
+    """#391: the confidence floor still gates, but the margin only
+    hides strong contradictions - a near-tied chroma call prints the
+    smoothed best guess and leaves review to chord_uncertain."""
     doc = _doc_with(
         [(60, 0, 4), (64, 4, 4)],
         (
@@ -287,10 +290,25 @@ def test_low_confidence_symbol_is_not_exported() -> None:
         ),
     )
     assert len(_harmonies(export_concert_musicxml(doc))) == 1
-    contested = _doc_with(
-        [(60, 0, 4)], (_sym(0, 4, 0, "maj", margin=0.01),)
+    # A near-tied chroma margin prints - flagged for review, not
+    # erased from the staff.
+    near_tie = _doc_with(
+        [(60, 0, 4)], (_sym(0, 4, 0, "maj", margin=-0.02),)
     )
-    assert _harmonies(export_concert_musicxml(contested)) == []
+    assert len(_harmonies(export_concert_musicxml(near_tie))) == 1
+    # A strongly contradicted call (the smoother actively disagreed
+    # with the raw winner) still stays out of baked notation.
+    contradicted = _doc_with(
+        [(60, 0, 4)], (_sym(0, 4, 0, "maj", margin=-0.10),)
+    )
+    assert _harmonies(export_concert_musicxml(contradicted)) == []
+    # #357: a melody-corroborated rerank prints regardless of the
+    # chroma margin - the lead line already adjudicated the coin flip.
+    corroborated = _doc_with(
+        [(60, 0, 4)],
+        (_sym(0, 4, 0, "maj", margin=-0.10, melody_corroborated=True),),
+    )
+    assert len(_harmonies(export_concert_musicxml(corroborated))) == 1
 
 
 def test_contiguous_same_chord_segments_print_once() -> None:

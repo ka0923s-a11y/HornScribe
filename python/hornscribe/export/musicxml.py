@@ -247,8 +247,18 @@ def _insert_swing_direction(root: ET.Element, swing_feel: Fraction) -> None:
 # Reliability gate mirrors transcription.chord's review thresholds -
 # a segment weak enough to raise ``chord_uncertain`` is not baked
 # into exported notation.
+# #391: the margin gate -0.04 mirrors chord_uncertain's LOW_MARGIN -
+# but the review flag and the printed symbol serve different jobs.
+# Chroma template margins are near-tied BY CONSTRUCTION (A7 vs A7sus4
+# share 5/7 tones), so the 0.04 gate dropped ~95% of detected chords
+# and left the printed harmony track nearly empty. Print the smoothed
+# best guess whenever confidence clears the floor and the margin does
+# not show a strong contradiction (Viterbi actively disagreeing with
+# the raw winner); flagged segments still surface as chord_uncertain
+# for review. A melody-corroborated rerank (#357) always prints - the
+# lead line already adjudicated the coin flip.
 _HARMONY_MIN_CONFIDENCE = 0.35
-_HARMONY_MIN_MARGIN = 0.04
+_HARMONY_MIN_MARGIN = -0.05
 
 # quality key -> (MusicXML <kind>, kind@text). The text override keeps
 # the JPOP spelling ("m7-5") instead of a reader's default glyph
@@ -314,8 +324,11 @@ def _insert_harmony_symbols(
         s
         for s in score.chord_symbols
         if s.confidence >= _HARMONY_MIN_CONFIDENCE
-        and s.margin >= _HARMONY_MIN_MARGIN
         and s.quality in _QUALITY_KIND
+        # #391: margin hides only strong contradictions (-0.05); a
+        # melody-corroborated rerank bypasses it entirely (its coin
+        # flip was adjudicated by the lead line, not the chroma).
+        and (s.margin >= _HARMONY_MIN_MARGIN or s.melody_corroborated)
     )
     if not printable:
         return

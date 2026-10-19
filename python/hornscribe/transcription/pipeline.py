@@ -4345,6 +4345,12 @@ def _chord_issues(
     for est, (lo_b, _hi_b) in zip(chord_map, seg_beats, strict=True):
         if est.confidence >= CHORD_LOW_CONFIDENCE and (est.margin >= CHORD_LOW_MARGIN):
             continue
+        # #391: a melody-corroborated rerank already resolved the
+        # coin flip via lead-line chord-tone fit - re-flagging the
+        # chroma near-tie asks the user to re-decide a decided call.
+        # Only a genuinely weak read (low confidence) still flags.
+        if est.melody_corroborated and est.confidence >= CHORD_LOW_CONFIDENCE:
+            continue
         ids = tuple(nid for sec, nid in note_secs if est.start_sec <= sec < est.end_sec)[:6]
         if not ids:
             continue
@@ -5850,6 +5856,7 @@ def run_transcription_job(
                     margin=est.margin,
                     label=est.label(prefer_flats),
                     bass_pc=est.bass_pc,
+                    melody_corroborated=est.melody_corroborated,
                 )
                 for (lo_b, hi_b), est in zip(seg_beats, chord_map, strict=True)
             )
