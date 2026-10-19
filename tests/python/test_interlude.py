@@ -16,6 +16,7 @@ from hornscribe.domain.ids import RawNoteEventId, TranscriptionRevisionId  # noq
 from hornscribe.transcription.clean import CleanedEvents  # noqa: E402
 from hornscribe.transcription.interlude import (  # noqa: E402
     borrow_interlude_lead,
+    borrowed_note_ids,
     vocal_silent_spans,
 )
 
@@ -134,3 +135,33 @@ class TestBorrowInterludeLead:
             "rne-a000009",
             "rne-a000007",
         ]
+
+
+class TestBorrowedNoteIds:
+    """#381: canonical ids for the instrumental_break marker — the
+    borrowed events are shared with the accompaniment part, so the
+    helper takes only the lead part's notes by contract."""
+
+    def test_maps_borrowed_events_to_canonical_notes(self) -> None:
+        class _N:
+            def __init__(self, nid: str, src: list[str]) -> None:
+                self.id = nid
+                self.source_event_ids = src
+
+        notes = [
+            _N("sn-1", ["rne-000001", "rne-a000010"]),
+            _N("sn-2", ["rne-000002"]),
+            _N("sn-3", ["rne-a000011"]),
+        ]
+        assert borrowed_note_ids(
+            notes, {"rne-a000010", "rne-a000011"}
+        ) == ("sn-1", "sn-3")
+
+    def test_no_borrows_maps_to_empty(self) -> None:
+        class _N:
+            def __init__(self, nid: str, src: list[str]) -> None:
+                self.id = nid
+                self.source_event_ids = src
+
+        notes = [_N("sn-1", ["rne-000001"])]
+        assert borrowed_note_ids(notes, set()) == ()

@@ -16,6 +16,7 @@ evidence lives on the accompaniment stem, not the vocal estimate.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from typing import Any
 
@@ -199,3 +200,22 @@ def borrow_interlude_lead(
             used_spans.append((lo, hi))
     borrowed.sort(key=lambda e: (e.onset_sec, e.pitch_midi, str(e.id)))
     return borrowed, used_spans
+
+
+def borrowed_note_ids(
+    lead_part_notes: Iterable[Any],
+    event_ids: set[str],
+) -> tuple[Any, ...]:
+    """Canonical note ids on the lead part backed by borrowed events.
+
+    #381: the instrumental_break issue attaches these so every borrowed
+    # hook note carries an INFO ring on the staff.  Scope to the LEAD
+    # part's notes only — the same rne-a* source ids also back the
+    # accompaniment part's own notes, and the marker names the borrowed
+    # copies, not their sources.
+    """
+    return tuple(
+        n.id
+        for n in lead_part_notes
+        if any(str(eid) in event_ids for eid in n.source_event_ids)
+    )
