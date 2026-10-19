@@ -129,6 +129,13 @@ class ReviewReason(Enum):
     # ACCOMPANIMENT_PART provenance convention.
     INSTRUMENTAL_BREAK = "instrumental_break"
 
+    # #385: a phrase of >=4 measures repeats later on the lead staff
+    # (chorus statements, the transposed last chorus included).
+    # Detection only - the score is not folded; evidence names the
+    # canonical measures and each occurrence's similarity/transposition
+    # so a future folding feature can be validated against real hits.
+    REPEATED_SECTION = "repeated_section"
+
 
 class Severity(Enum):
     """Review severity — UI must not encode this by color alone."""

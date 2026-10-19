@@ -1699,6 +1699,15 @@ export const ja = {
       detail:
         "ボーカルが休止している区間では、伴奏ステムの最上声部を主旋律として採譜しました（ギターソロやシンセリード等）。伴奏由来のため精度は主旋律より落ちます — 元音源を再生して確認してください。不要なら採譜オプションの「間奏の器楽リードを主旋律に含める」を外せます。",
     },
+    // #385: detection-only marker - a >=4-measure phrase repeats
+    // later (chorus statements). Nothing to fix; the evidence names
+    // the canonical measures so a future repeat-sign fold can be
+    // validated, and the user can audit the match by ear.
+    repeated_section: {
+      title: "繰り返されるフレーズを検出しました",
+      detail:
+        "同じフレーズが後の小節で繰り返されています（サビの再現など）。譜面の内容はそのままです — 繰り返し箇所はエビデンスの小節番号で確認できます。",
+    },
     // #352: the auto-estimated key could not be justified — the
     // evidence branch names the estimate and why it is unsure.
     key_uncertain: {

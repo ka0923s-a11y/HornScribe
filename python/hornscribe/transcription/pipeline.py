@@ -144,6 +144,7 @@ from .key import analyze_key, key_uncertainty, refine_key_with_harmony
 from .leadvoice import lead_track_agreement
 from .meter import estimate_meter
 from .options import TranscriptionParams
+from .repeats import repeat_section_issues
 from .scorebuild import build_score
 from .swing import detect_swing
 from .tempo import (
@@ -6582,6 +6583,20 @@ def run_transcription_job(
                         },
                     )
                 )
+        # #385 stage 1: detect repeated phrases on the lead staff and
+        # report them as informational markers - the score itself is
+        # never folded (the display <-> audio 1:1 contract holds); the
+        # evidence validates whether repeat-sign folding is worth
+        # building (#385 stage 2/3).
+        issues.extend(
+            repeat_section_issues(
+                built.payload,
+                estimate.warp,
+                beat_ql,
+                score_revision,
+                chord_symbols=chord_symbols,
+            )
+        )
         # #188: the tracked tempo looks like a half/double pick —
         # surface it with the corrected value so the UI can offer a
         # one-click setTempo.

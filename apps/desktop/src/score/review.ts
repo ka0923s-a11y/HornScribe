@@ -36,6 +36,7 @@ export type ReviewReason =
   | "vocal_isolation_unavailable"
   | "accompaniment_part"
   | "instrumental_break"
+  | "repeated_section"
   | "key_uncertain"
   | "pickup_uncertain"
   | "boundary_uncertain"
@@ -65,6 +66,7 @@ const PROVENANCE_NOTICE_REASONS: ReadonlySet<string> = new Set([
   "accompaniment_part",
   "instrumental_break",
   "vocal_isolation_applied",
+  "repeated_section",
 ]);
 
 /** True when the issue is a pure provenance notice. The severity check is
