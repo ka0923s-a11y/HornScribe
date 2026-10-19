@@ -37,3 +37,14 @@ apps/desktop/src-tauri/resources/tools/*.exe
 
 # vite dev-server scratch logs
 vite-*.log
+
+# Local verification scratch — leading-underscore probe scripts, dumps,
+# reference renders and repo backup bundles are never meant to land.
+# Scoped to the repo root + the two scratch-heavy dirs so package files
+# like `python/**/__init__.py` are untouched.
+/_*
+/apps/desktop/_*
+/apps/desktop/src-tauri/_*
+/*.bundle
+benchmarks/_*
+apps/desktop/scripts/ui070/_*
