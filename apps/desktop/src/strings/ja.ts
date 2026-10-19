@@ -1129,6 +1129,15 @@ export const ja = {
         "分離で得られた伴奏ステムを 2 段目の譜面として採譜します。JPOP などのミックス音源で主旋律と伴奏を分けて読めます。ボーカル分離を使わなくても、ミックス判定時の自動分離があれば適用されます。",
       accompanimentPartPolyphonicHint:
         "複数声部・和音として採譜する場合、分離は行われないため伴奏パートは生成されません。",
+      /* #379: interlude-lead borrow — rides the same stems as the
+         accompaniment part, so its disables mirror that checkbox's. */
+      interludeLead: "間奏の器楽リードを主旋律に含める",
+      interludeLeadHint:
+        "ボーカルが休止している区間（イントロ・間奏・アウトロ）では、伴奏ステムの最上声部を主旋律として採譜します。ギターソロやシンセリードなど、曲のフックが休符になりません。分離ステムが得られた場合に適用されます。",
+      interludeLeadNeedsAccompHint:
+        "「伴奏も別パートで採譜する」を有効にすると利用できます。",
+      interludeLeadPolyphonicHint:
+        "複数声部・和音として採譜する場合、分離は行われないため間奏リードは生成されません。",
     },
     /** エラーカード (errors.* — title/body/actions の3点構成)。 */
     errors: {
@@ -1680,6 +1689,15 @@ export const ja = {
       title: "伴奏パートは自動分離から生成しました",
       detail:
         "ソース分離で得た伴奏ステムを採譜したパートです。主旋律より検出精度が落ちるため、耳で確認しながら修正してください。不要なら採譜オプションの「伴奏も別パートで採譜する」を外せます。",
+    },
+    // #379: borrowed break leads — the vocal stem is silent during
+    // intro/kansou/outro, so the line there came from the
+    // accompaniment stem's top voice. One provenance marker names
+    // the spans; per-note flags would double the review list.
+    instrumental_break: {
+      title: "間奏・イントロの器楽リードを主旋律に含めました",
+      detail:
+        "ボーカルが休止している区間では、伴奏ステムの最上声部を主旋律として採譜しました（ギターソロやシンセリード等）。伴奏由来のため精度は主旋律より落ちます — 元音源を再生して確認してください。不要なら採譜オプションの「間奏の器楽リードを主旋律に含める」を外せます。",
     },
     // #352: the auto-estimated key could not be justified — the
     // evidence branch names the estimate and why it is unsure.
@@ -2709,6 +2727,8 @@ export const ja = {
     paramsVocalIsolationPrecision: "分離高精度",
     /* #203: accompaniment-staff opt-out echo on queue rows. */
     paramsAccompanimentOff: "伴奏なし",
+    // #379: queue summary tag when the interlude-lead borrow is off.
+    paramsInterludeOff: "間奏リードなし",
     paramsTempo: (bpm: number) => `${bpm} BPM`,
     paramsKey: (key: string) => `調 ${key}`,
     paramsTriplets: {

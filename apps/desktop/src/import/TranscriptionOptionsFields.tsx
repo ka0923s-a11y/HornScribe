@@ -214,6 +214,32 @@ export function TranscriptionOptionsFields({
           ? ja.import.audioOptions.accompanimentPartPolyphonicHint
           : ja.import.audioOptions.accompanimentPartHint}
       </p>
+      {/* #379: interlude-lead borrowing needs the vocal stem (silent-
+          span detection) AND the accompaniment decode (the voice it
+          borrows from). The vocal stem can arrive via explicit
+          vocalIsolation OR the auto-rescue on a detected mix, so the
+          honest gate is the accompaniment part's own: it disables only
+          where no stems can exist (polyphonic textures, or the
+          accompaniment part switched off). */}
+      <Checkbox
+        label={ja.import.audioOptions.interludeLead}
+        checked={options.interludeLead}
+        disabled={
+          !options.accompanimentPart ||
+          options.texture === "voices" ||
+          options.texture === "chords"
+        }
+        onChange={(_e, data) =>
+          set({ interludeLead: data.checked === true })
+        }
+      />
+      <p className="hs-audio-options__hint">
+        {options.texture === "voices" || options.texture === "chords"
+          ? ja.import.audioOptions.interludeLeadPolyphonicHint
+          : !options.accompanimentPart
+            ? ja.import.audioOptions.interludeLeadNeedsAccompHint
+            : ja.import.audioOptions.interludeLeadHint}
+      </p>
       <HsSelect
         label={ja.import.audioOptions.tempo}
         options={TEMPO_OPTIONS}

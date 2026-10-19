@@ -43,6 +43,10 @@ export function queueParamSummary(params: TranscriptionJobParams): string {
    *  would let a queued job silently drop the accompaniment staff. */
   if (params.accompanimentPart === false)
     f.push(ja.queue.paramsAccompanimentOff);
+  /* #379: same honest echo — an interlude-lead opt-out is a pinned
+   *  non-default the queue row must name. */
+  if (params.interludeLead === false)
+    f.push(ja.queue.paramsInterludeOff);
   if (params.tempoBpm != null) f.push(ja.queue.paramsTempo(params.tempoBpm));
   if (params.meter) f.push(params.meter);
   if (params.keyHint) f.push(ja.queue.paramsKey(params.keyHint));

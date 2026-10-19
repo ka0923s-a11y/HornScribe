@@ -169,6 +169,11 @@ class TranscriptionParams:
     # drop the stem during isolation so the flag is inert there;
     # mixes under auto/melody get the split automatically (#204).
     accompaniment_part: bool = True
+    # #379: while a vocal stem exists and the accompaniment part ran,
+    # borrow the accompaniment's top voice into the lead staff during
+    # vocal-silent spans — the イントロ/間奏/アウトロ hook that would
+    # otherwise print as rests. Strict opt-out like accompaniment_part.
+    interlude_lead: bool = True
 
     @classmethod
     def from_payload(cls, raw: Any) -> TranscriptionParams:
@@ -209,6 +214,7 @@ class TranscriptionParams:
         # the accompaniment staff on (the JPOP default the issue
         # asked for).
         accompaniment_part = raw.get("accompanimentPart", True) is not False
+        interlude_lead = raw.get("interludeLead", True) is not False
         return cls(
             audio_path=audio_path,
             tempo_bpm=tempo_bpm,
@@ -228,6 +234,7 @@ class TranscriptionParams:
             display_name=display_name,
             key_hint=key_hint,
             accompaniment_part=accompaniment_part,
+            interlude_lead=interlude_lead,
         )
 
     def meter_segment(self) -> MeterSegment:
@@ -286,6 +293,7 @@ class TranscriptionParams:
             "vocalIsolationQuality": self.vocal_isolation_quality,
             "keyHint": self.key_hint,
             "accompanimentPart": self.accompaniment_part,
+            "interludeLead": self.interlude_lead,
         }
 
     @staticmethod

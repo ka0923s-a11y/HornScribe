@@ -121,6 +121,14 @@ class ReviewReason(Enum):
     # by the suggested delta.
     PITCH_UNCERTAIN = "pitch_uncertain"
 
+    # #379: instrumental-break leads (intro / kansou / outro) were
+    # borrowed from the accompaniment stem's top voice into the lead
+    # staff — the vocal stem is silent there, so these notes carry the
+    # accompaniment decode's confidence, not the vocal tracker's.
+    # One informational marker per job, mirroring the
+    # ACCOMPANIMENT_PART provenance convention.
+    INSTRUMENTAL_BREAK = "instrumental_break"
+
 
 class Severity(Enum):
     """Review severity — UI must not encode this by color alone."""

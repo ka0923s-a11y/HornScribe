@@ -31,6 +31,9 @@ export const REVIEW_REASONS = [
   // #212: separation-derived accompaniment staff — one informational
   // provenance marker for the whole part.
   "accompaniment_part",
+  // #379: instrumental-break lead borrowed from the accompaniment
+  // stem's top voice — provenance marker for the borrowed spans.
+  "instrumental_break",
   // #352: auto-estimated key the evidence cannot justify.
   "key_uncertain",
   // #358: auto-estimated anacrusis the evidence cannot justify.
@@ -76,6 +79,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "vocal_isolation_unavailable",
   "key_uncertain",
   "accompaniment_part",
+  "instrumental_break",
   "pickup_uncertain",
   "boundary_uncertain",
   "chord_uncertain",
