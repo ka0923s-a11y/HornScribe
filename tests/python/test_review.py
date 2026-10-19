@@ -68,6 +68,9 @@ def test_all_master_plan_reasons_exist() -> None:
             # #379: instrumental-break lead borrowed from the
             # accompaniment stem — provenance marker contract.
             "instrumental_break",
+            # #385: repeated-section detection marker (stage 1 -
+            # detection only, no folding).
+            "repeated_section",
         }
     assert {r.value for r in ReviewReason} == expected
 
