@@ -34,6 +34,9 @@ export const REVIEW_REASONS = [
   // #379: instrumental-break lead borrowed from the accompaniment
   // stem's top voice — provenance marker for the borrowed spans.
   "instrumental_break",
+  // #385: a >=8-measure harmonic (or >=4 melodic) phrase recurs
+  // later — detection-only provenance marker, no folding.
+  "repeated_section",
   // #352: auto-estimated key the evidence cannot justify.
   "key_uncertain",
   // #358: auto-estimated anacrusis the evidence cannot justify.
@@ -80,6 +83,7 @@ export const REVIEW_REASON_COPY_KEYS = [
   "key_uncertain",
   "accompaniment_part",
   "instrumental_break",
+  "repeated_section",
   "pickup_uncertain",
   "boundary_uncertain",
   "chord_uncertain",

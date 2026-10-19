@@ -528,6 +528,60 @@ function inspectorCopy(): InspectorCopy {
             });
           }
         }
+        // #385: repeat-detection evidence — name the canonical
+        // phrase's measure range and every reprise's range; the
+        // generic detail used to promise numbers no surface showed.
+        if (issue.reason === "repeated_section") {
+          const measures = issue.evidence["measures"];
+          const occurrences = issue.evidence["occurrences"];
+          const canon =
+            Array.isArray(measures) && measures.length > 0
+              ? measures[0]
+              : null;
+          if (canon !== null && typeof canon === "object") {
+            const rec = (o: unknown): Record<string, unknown> | null =>
+              o !== null && typeof o === "object"
+                ? (o as Record<string, unknown>)
+                : null;
+            const fmtSpan = (
+              start: unknown,
+              end: unknown,
+            ): string | null =>
+              typeof start === "number" && typeof end === "number"
+                ? `${start}–${end}`
+                : null;
+            const c = rec(canon);
+            const canonical =
+              c !== null ? fmtSpan(c["start"], c["end"]) : null;
+            const reprises: string[] = [];
+            let transposed = false;
+            if (Array.isArray(occurrences)) {
+              for (const raw of occurrences) {
+                const o = rec(raw);
+                if (o === null) continue;
+                const s = fmtSpan(o["startMeasure"], o["endMeasure"]);
+                if (s !== null) reprises.push(s);
+                if (
+                  typeof o["transposition"] === "number" &&
+                  o["transposition"] !== 0
+                ) {
+                  transposed = true;
+                }
+              }
+            }
+            if (canonical !== null) {
+              return ja.reviewEvidence.repeatedSection({
+                canonical,
+                reprises,
+                track:
+                  issue.evidence["track"] === "melody"
+                    ? "melody"
+                    : "chords",
+                transposed,
+              });
+            }
+          }
+        }
         return (REASON_DECK[issue.reason] ?? ja.reviewReasons.other).detail;
       },
       severityLabel: (s) => ja.reviewSeverity[s] ?? ja.reviewSeverity.info,
