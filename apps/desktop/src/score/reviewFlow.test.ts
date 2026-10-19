@@ -416,3 +416,68 @@ describe("keyboard-only review processing (acceptance: 20 items, no menus)", () 
     expect(session.canUndo).toBe(true);
   });
 });
+
+
+describe("#383 provenance notices leave the actionable queue", () => {
+  /** Mixed list: notice + actionable interleaved. */
+  function mixedIssues(): readonly ScoreReviewIssue[] {
+    const mk = (
+      i: number,
+      reason: ScoreReviewIssue["reason"],
+      severity: ScoreReviewIssue["severity"],
+    ): ScoreReviewIssue => ({
+      id: `ri-${String(i).padStart(6, "0")}`,
+      scoreRevision: "rev-prov-test01",
+      canonicalNoteIds: [`sn-${String(i).padStart(6, "0")}`],
+      timeRange: { startSec: i, endSec: i + 0.3 },
+      reason,
+      severity,
+      evidence: {},
+      status: "open",
+    });
+    return [
+      mk(1, "vocal_isolation_applied", "info"), // notice
+      mk(2, "low_model_confidence", "caution"), // actionable
+      mk(3, "instrumental_break", "info"), // notice
+      mk(4, "accompaniment_part", "info"), // notice
+      mk(5, "boundary_uncertain", "caution"), // actionable
+      mk(6, "vocal_isolation_applied", "caution"), // upgraded -> actionable
+    ];
+  }
+
+  it("the linear walk never stops on a provenance notice", () => {
+    const issues = mixedIssues();
+    // from 0 (notice) forward -> index 1 (low_model_confidence)
+    expect(nextOpenIssueIndex(issues, 0, 1)).toBe(1);
+    // from 1 forward -> skips 2,3 (notices) -> index 4
+    expect(nextOpenIssueIndex(issues, 1, 1)).toBe(4);
+    // from 4 forward -> index 5 (upgraded severity counts as actionable)
+    expect(nextOpenIssueIndex(issues, 4, 1)).toBe(5);
+    // backward from 5 -> 4 (skips notices again)
+    expect(nextOpenIssueIndex(issues, 5, -1)).toBe(4);
+    // wrap-around: from 5 forward wraps past 0's notice to 1
+    expect(nextOpenIssueIndex(issues, 5, 1)).toBe(1);
+  });
+
+  it("pendingCount charges actionable issues only", () => {
+    const doc = createFixtureScoreDocument({
+      revisionId: "rev-prov-test01",
+      issues: mixedIssues(),
+    });
+    const session = new ReviewSession(doc);
+    // open = 6 (notices stay open for markers), actionable pending = 3
+    expect(doc.reviewIssues().filter((i) => i.status === "open")).toHaveLength(6);
+    expect(session.pendingCount()).toBe(3);
+  });
+
+  it("an all-notice job reports zero pending immediately", () => {
+    const doc = createFixtureScoreDocument({
+      revisionId: "rev-prov-test02",
+      issues: mixedIssues().filter((i) => i.severity === "info"),
+    });
+    const session = new ReviewSession(doc);
+    expect(doc.reviewIssues()).toHaveLength(3);
+    expect(session.pendingCount()).toBe(0);
+    expect(nextOpenIssueIndex(doc.reviewIssues(), 0, 1)).toBe(-1);
+  });
+});

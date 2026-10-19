@@ -97,6 +97,7 @@ import { buildSwingWarp } from "./swingWarp";
 import { clickTrack, countInMs, countInPattern } from "./metronome";
 import {
   allIssuesForCanonical,
+  isProvenanceNotice,
   markedCanonicalSeverities,
   nextOpenIssueIndex,
   numEvidence,
@@ -1760,7 +1761,11 @@ export function ScoreReadyWorkspace({
     setReviewOpen(true);
     // Enter on the first still-open issue; when everything is resolved the
     // bar shows the all-done state at the top of the list.
-    const firstOpen = allIssues.findIndex((i) => i.status === "open");
+    // #383: provenance notices skip the queue — enter on the first
+    // actionable row (an all-notice job opens straight into all-done).
+    const firstOpen = allIssues.findIndex(
+      (i) => i.status === "open" && !isProvenanceNotice(i),
+    );
     gotoIssue(firstOpen >= 0 ? firstOpen : 0);
   }, [allIssues, gotoIssue, announce]);
 

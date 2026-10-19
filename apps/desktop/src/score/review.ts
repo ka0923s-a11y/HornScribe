@@ -51,6 +51,31 @@ export type ReviewReason =
 export type ReviewSeverity = "info" | "caution" | "warning";
 export type ReviewIssueStatus = "open" | "accepted" | "dismissed" | "fixed";
 
+/**
+ * #383: provenance-only reasons — the engine records what it DID (stem
+ * separation ran, the second staff came from the accompaniment decode,
+ * N notes were borrowed into a break) with no decision for the user to
+ * make. They stay `open` so their score/waveform markers keep rendering,
+ * but they leave the actionable review queue: the linear cursor never
+ * stops on them and the 要確認 badge / 残り count do not charge them.
+ * The navigator still lists them for audit, and a jump can land on one —
+ * only the unsolicited walk skips them.
+ */
+const PROVENANCE_NOTICE_REASONS: ReadonlySet<string> = new Set([
+  "accompaniment_part",
+  "instrumental_break",
+  "vocal_isolation_applied",
+]);
+
+/** True when the issue is a pure provenance notice. The severity check is
+ *  defensive: if a future engine bumps one of these reasons above INFO it
+ *  is saying something worth a decision, so it re-enters the queue. */
+export function isProvenanceNotice(issue: ScoreReviewIssue): boolean {
+  return (
+    issue.severity === "info" && PROVENANCE_NOTICE_REASONS.has(issue.reason)
+  );
+}
+
 export interface ScoreReviewIssue {
   /** `ri-<6 digits>`, allocated deterministically within one score revision. */
   readonly id: string;
@@ -70,6 +95,15 @@ export function openIssues(issues: readonly ScoreReviewIssue[]): ScoreReviewIssu
   return issues.filter((i) => i.status === "open");
 }
 
+/** #383: open issues that ask for a decision — provenance notices stay
+ *  open (their markers keep rendering) but never count as pending work
+ *  and never stop the linear review cursor. */
+export function actionableIssues(
+  issues: readonly ScoreReviewIssue[],
+): ScoreReviewIssue[] {
+  return issues.filter((i) => i.status === "open" && !isProvenanceNotice(i));
+}
+
 /** #361: index of the next still-open issue stepping `dir` from `from`
  *  (exclusive, wrapping at both ends), or -1 when nothing is open.
  *  Normal review navigation walks the open subset so a resumed
@@ -83,7 +117,10 @@ export function nextOpenIssueIndex(
   const n = issues.length;
   for (let step = 1; step <= n; step += 1) {
     const i = (((from + dir * step) % n) + n) % n;
-    if (issues[i]?.status === "open") return i;
+    const issue = issues[i];
+    // #383: provenance notices are documentation, not queue items —
+    //  the walk passes over them (navigator jumps can still land).
+    if (issue?.status === "open" && !isProvenanceNotice(issue)) return i;
   }
   return -1;
 }
