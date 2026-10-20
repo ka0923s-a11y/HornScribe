@@ -168,6 +168,7 @@ export function ExportDialog({
   suggestedBasename,
   bFlatAvailable = true,
   hiddenParts = 0,
+  mutedParts = 0,
   onPrintScore,
 }: {
   open: boolean;
@@ -194,6 +195,9 @@ export function ExportDialog({
   /** #236: count of mixer-hidden parts — MusicXML/PDF artifacts
    *  export the visible subset only, so >0 shows a disclosure note. */
   hiddenParts?: number;
+  /** #405: count of mixer-muted/sidelined parts — the MIDI bounce
+   *  drops them (audition contract), so >0 shows the same note. */
+  mutedParts?: number;
   /** #102: prints the score through the webview — the PDF path that
    *  survives a missing MuseScore (OS print dialog -> Save-as-PDF). */
   onPrintScore?(): void;
@@ -632,9 +636,9 @@ export function ExportDialog({
 
           {/* #236: a hidden staff exports to MusicXML/PDF the same way
               it prints — disclose the WYSIWYG subset so the exclusion
-              is never silent. MIDI keeps all parts (visibility is a
-              display filter, not a mute). */}
-          {hiddenParts > 0 ? (
+              is never silent. #405: muted parts leave the MIDI bounce
+              too — disclose both filters with the same note. */}
+          {hiddenParts > 0 || mutedParts > 0 ? (
             <p className="hs-export__note" role="note">
               <Warning24Regular aria-hidden="true" />
               <span>{e.hiddenPartsNote}</span>

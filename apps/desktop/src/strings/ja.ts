@@ -2486,9 +2486,10 @@ export const ja = {
       "再生用MIDIは簡易版で書き出しました（ベロシティ・ピッチベンド・スイングは含まれません）。",
     /* #236: a mixer-hidden staff stays out of MusicXML/PDF artifacts
        (same subset the print path emits) — disclosed so the WYSIWYG
-       filter is never a silent exclusion. */
+       filter is never a silent exclusion. #405: the mute/solo audio
+       filter reaches MIDI too, so the note covers both contracts. */
     hiddenPartsNote:
-      "ミキサーで非表示にしたパートは書き出しに含まれません（MIDIは全パートを含みます）。",
+      "ミキサーで非表示にしたパートは楽譜の書き出しに含まれません。ミュートしたパートはMIDIにも含まれません。",
     pdfDisabledTooltip:
       "MuseScoreが見つからないためPDF形式は無効です（アプリ内印刷なら作成できます）",
     audioDisabledTooltip: "元の音声がディスク上にないため同梱できません",

@@ -740,6 +740,16 @@ export default function App() {
     [scoreState?.partMix],
   );
 
+  // #405: MIDI exports what the user hears — a part leaves the bounce
+  // exactly when the mixer silences it (muted, or sidelined by another
+  // part's solo). Hidden-but-unmuted parts stay: they still sound.
+  const partMixAudible = useMemo(() => {
+    const mix = scoreState?.partMix;
+    if (!mix?.length) return null;
+    const anySolo = mix.some((m) => m.solo);
+    return mix.map((m) => !(m.muted || (anySolo && !m.solo)));
+  }, [scoreState?.partMix]);
+
   // #99: keep the export port's source getter current — the doc plus a
   // basename derived from the loaded audio's file name (extension
   // stripped), matching the ENG-001 `<basename>_<artifact>` policy.
@@ -762,10 +772,11 @@ export default function App() {
           audioPath,
           audioName: audioPath ? fileName || null : null,
           partVisible: partMixVisible ?? undefined,
+          partAudible: partMixAudible ?? undefined,
           regionLabels,
         }
       : null;
-  }, [scoreDocument, importState.audio, partMixVisible, regionLabels]);
+  }, [scoreDocument, importState.audio, partMixVisible, partMixAudible, regionLabels]);
 
   // #156: a document swap while the B♭ view is active must not strand
   // the renderer on a projection the document lacks (legacy projects
@@ -3798,6 +3809,11 @@ export default function App() {
                mixer parts stay out of MusicXML/PDF artifacts. */
             hiddenParts={
               scoreState?.partMix?.filter((m) => !m.visible).length ?? 0
+            }
+            /* #405: …and the audition filter — mixer-muted parts stay
+               out of the MIDI bounce. */
+            mutedParts={
+              partMixAudible?.filter((a) => !a).length ?? 0
             }
             // #102: the no-MuseScore PDF path — close the dialog and
             // let the workspace print the paged score surface. #112:

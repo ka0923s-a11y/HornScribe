@@ -326,6 +326,98 @@ describe("TauriExportPort MIDI resilience (#390)", () => {
     expect(res.degraded).toBeUndefined();
   });
 
+  // #405: the mixer mute/solo is the audition contract — a part the
+  // user cannot hear must not appear in the MIDI bounce.
+  it("drops mixer-muted parts from the canonical MIDI payload (#405)", async () => {
+    const midiExporter = vi.fn<(doc: unknown) => Promise<string>>(() =>
+      Promise.resolve("AAAA"),
+    );
+    const src = () => ({
+      doc: createFixtureScoreDocument({
+        canonicalDocument: {
+          schemaVersion: 1,
+          content: { parts: [{ name: "horn" }, { name: "accomp" }] },
+        },
+      }),
+      basename: "take1",
+      audioPath: null,
+      audioName: null,
+      partAudible: [true, false],
+    });
+    const p = new TauriExportPort(src, midiExporter);
+    await p.export({
+      formats: ["playbackMidi"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    expect(midiExporter).toHaveBeenCalledTimes(1);
+    const sent = midiExporter.mock.calls[0]?.[0] as {
+      content: { parts: { name: string }[] };
+    };
+    expect(sent.content.parts.map((pt) => pt.name)).toEqual(["horn"]);
+  });
+
+  it("keeps hidden-but-audible parts in MIDI (#405)", async () => {
+    const midiExporter = vi.fn<(doc: unknown) => Promise<string>>(() =>
+      Promise.resolve("AAAA"),
+    );
+    const src = () => ({
+      doc: createFixtureScoreDocument({
+        canonicalDocument: {
+          schemaVersion: 1,
+          content: { parts: [{ name: "horn" }, { name: "accomp" }] },
+        },
+      }),
+      basename: "take1",
+      audioPath: null,
+      audioName: null,
+      // Hidden from notation but still audible — visibility is a
+      // notation filter, so the MIDI bounce keeps the part.
+      partVisible: [true, false],
+      partAudible: [true, true],
+    });
+    const p = new TauriExportPort(src, midiExporter);
+    await p.export({
+      formats: ["playbackMidi"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    const sent = midiExporter.mock.calls[0]?.[0] as {
+      content: { parts: { name: string }[] };
+    };
+    expect(sent.content.parts).toHaveLength(2);
+  });
+
+  it("fails open when the mute mask would empty the MIDI (#405)", async () => {
+    const midiExporter = vi.fn<(doc: unknown) => Promise<string>>(() =>
+      Promise.resolve("AAAA"),
+    );
+    const src = () => ({
+      doc: createFixtureScoreDocument({
+        canonicalDocument: {
+          schemaVersion: 1,
+          content: { parts: [{ name: "horn" }, { name: "accomp" }] },
+        },
+      }),
+      basename: "take1",
+      audioPath: null,
+      audioName: null,
+      partAudible: [false, false],
+    });
+    const p = new TauriExportPort(src, midiExporter);
+    await p.export({
+      formats: ["playbackMidi"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    const sent = midiExporter.mock.calls[0]?.[0] as {
+      content: { parts: { name: string }[] };
+    };
+    // A zero-note artifact is never produced — same guard as the
+    // score view refusing to render an empty score.
+    expect(sent.content.parts).toHaveLength(2);
+  });
+
   it("reports the playbackMidi capability tier honestly (#390)", async () => {
     const ready = new TauriExportPort(
       canonicalSource,
