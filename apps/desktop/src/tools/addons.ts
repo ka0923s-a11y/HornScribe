@@ -36,3 +36,16 @@ export async function openAddonsDir(): Promise<boolean> {
     return false;
   }
 }
+
+/** Open the HornScribe releases page — where the demucs addon zip is
+ *  distributed (#408) — in the default browser. The URL is fixed
+ *  shell-side. Success -> true. */
+export async function openAddonDownload(): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
+  try {
+    await invoke("open_addon_download");
+    return true;
+  } catch {
+    return false;
+  }
+}

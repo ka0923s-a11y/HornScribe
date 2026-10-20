@@ -247,6 +247,7 @@ pub fn run() {
             diagnostics::reveal_log_folder,
             tools::addons_dir,
             tools::open_addons_dir,
+            tools::open_addon_download,
             export::export_pick_dir,
             export::export_default_dir,
             export::export_check_existing,
