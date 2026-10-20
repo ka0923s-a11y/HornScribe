@@ -706,3 +706,64 @@ describe("ensureEngine spawn discipline (#418)", () => {
     expect(exited.size).toBe(1);
   });
 });
+
+describe("idle wedged worker detection (#419)", () => {
+  const doc = {
+    schemaVersion: 1,
+    projectId: "prj-0123456789abcdef",
+    sourceAudio: null,
+    scoreDocument: { content: {} },
+  };
+  const open = () => ({ documentBase64: btoa(JSON.stringify(doc)) });
+
+  it("a timed-out lazy RPC probes, marks unresponsive, and the next call self-heals", async () => {
+    const ports: MockSidecarPort[] = [];
+    const session = new TranscriptionSession({
+      portFactory: () => {
+        const p = new MockSidecarPort();
+        ports.push(p);
+        return p;
+      },
+      clientOptions: {
+        requestTimeoutMs: 120,
+        handshakeTimeoutMs: 800,
+        watchdogMs: 40,
+        pingTimeoutMs: 60,
+      },
+    });
+    await session.inspectProject(open()); // engine up and idle
+    // Wedge while IDLE — no job is active, so the watchdog never
+    // arms and the snapshot stays 'ready' while every RPC is lost.
+    ports[0].simulateHang();
+    await expect(session.inspectProject(open())).rejects.toMatchObject({
+      code: ERR.REQUEST_TIMEOUT,
+    });
+    await until(() => session.getSnapshot().engine === "unresponsive", 3000);
+    // #418: the next lazy call tears the zombie down and respawns —
+    // before #419 it would time out forever against the wedge.
+    const res = await session.inspectProject(open());
+    expect(res.project).toMatchObject({ projectId: doc.projectId });
+    expect(session.getSnapshot().engine).toBe("ready");
+    expect(ports.length).toBe(2);
+    await session.dispose();
+  }, 10_000);
+
+  it("a timed-out call on a live worker does NOT condemn the engine", async () => {
+    // A port that drops only project.open frames — the call times
+    // out but the liveness probe still answers, so the worker is
+    // merely slow/deaf on that method, not dead.
+    class DropProjectOpen extends MockSidecarPort {
+      override writeLine(line: string): void {
+        if (line.includes('"project.open"')) return;
+        super.writeLine(line);
+      }
+    }
+    const { session } = makeSession(new DropProjectOpen());
+    await expect(session.inspectProject(open())).rejects.toMatchObject({
+      code: ERR.REQUEST_TIMEOUT,
+    });
+    // The probe answered — engine stays ready, no zombie kill.
+    expect(session.getSnapshot().engine).toBe("ready");
+    await session.dispose();
+  });
+});

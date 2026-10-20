@@ -329,6 +329,31 @@ export class SidecarClient {
     return this.request<PingResult>("engine.ping", { echo });
   }
 
+  /** On-demand liveness probe (#419): ping regardless of job state.
+   *  Used when a non-job request timed out — the watchdog only arms
+   *  while a job is active, so an idle wedge is otherwise invisible.
+   *  Resolves when the worker proves alive (the timed-out call was
+   *  merely slow); rejects and marks the client unresponsive when it
+   *  cannot answer, so the session's lazy-spawn path replaces it. */
+  async probeLiveness(): Promise<void> {
+    if (this.state !== "ready" || this.probing) return;
+    this.probing = true;
+    try {
+      await this.requestRaw(
+        "engine.ping",
+        { echo: "liveness" },
+        this.opts.pingTimeoutMs,
+        true,
+      );
+      if (this.activeJobs.size > 0) this.armWatchdog();
+    } catch (e) {
+      this.declareUnresponsive("worker did not answer liveness probe");
+      throw e;
+    } finally {
+      this.probing = false;
+    }
+  }
+
   /** `job.start` — returns {jobId, jobKind, state:"accepted"}.
    *  JOB_ALREADY_RUNNING is enforced engine-side. */
   async startJob(jobKind: string, params: unknown): Promise<JobStartResult> {
@@ -508,15 +533,19 @@ export class SidecarClient {
       // dispatch loop is independent of the job thread).
       this.armWatchdog();
     } catch {
-      this.setState("unresponsive");
-      this.clearWatchdog();
-      this.diagnose("worker did not answer watchdog ping — unresponsive");
-      this.rejectAllPending(
-        new SidecarError(ERR.WORKER_UNRESPONSIVE, "worker is not responding"),
-      );
+      this.declareUnresponsive("worker did not answer watchdog ping");
     } finally {
       this.probing = false;
     }
+  }
+
+  private declareUnresponsive(reason: string): void {
+    this.setState("unresponsive");
+    this.clearWatchdog();
+    this.diagnose(reason + " — unresponsive");
+    this.rejectAllPending(
+      new SidecarError(ERR.WORKER_UNRESPONSIVE, "worker is not responding"),
+    );
   }
 
   private handleExit(code: number | null): void {

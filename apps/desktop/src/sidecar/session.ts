@@ -325,6 +325,34 @@ export class TranscriptionSession {
   }
 
   /**
+   * Non-job RPC with liveness disambiguation (#419): a REQUEST_TIMEOUT
+   * may mean a wedged IDLE worker — invisible to the job-scoped
+   * watchdog — or a merely slow call. One bounded engine.ping
+   * decides: a worker that cannot answer is marked unresponsive so
+   * the next lazy call self-heals (#418); a live one rethrows the
+   * honest timeout without condemning it.
+   */
+  private async callEngine<T>(
+    client: SidecarClient,
+    method: string,
+    payload: unknown,
+  ): Promise<T> {
+    try {
+      return await client.call<T>(method, payload);
+    } catch (e) {
+      if (e instanceof SidecarError && e.code === ERR.REQUEST_TIMEOUT) {
+        try {
+          await client.probeLiveness();
+        } catch {
+          /* dead worker already marked — the original timeout
+           * still reaches the caller below */
+        }
+      }
+      throw e;
+    }
+  }
+
+  /**
    * `project.open` (#365): the authoritative open path — the worker
    * reads (or decodes), migrates and validates the document, and returns
    * the normalized current-schema dict. `path` covers MRU/disk opens;
@@ -345,11 +373,12 @@ export class TranscriptionSession {
     if (!client) {
       throw new SidecarError(ERR.ENGINE_UNAVAILABLE, "no engine client");
     }
-    return client.call<{
+    return this.callEngine<{
       path: string;
       project: Record<string, unknown>;
       recovered?: boolean;
     }>(
+      client,
       "project.open",
       ref,
     );
@@ -378,13 +407,13 @@ export class TranscriptionSession {
     if (!client) {
       throw new SidecarError(ERR.ENGINE_UNAVAILABLE, "no engine client");
     }
-    return client.call<{
+    return this.callEngine<{
       scoreDocument: unknown;
       scoreRevision: string;
       musicXmlConcert: string;
       musicXmlHornF: string;
       musicXmlBFlat?: string;
-    }>("score.edit", { scoreDocument, edit });
+    }>(client, "score.edit", { scoreDocument, edit });
   }
 
   /**
@@ -406,7 +435,7 @@ export class TranscriptionSession {
     if (!client) {
       throw new SidecarError(ERR.ENGINE_UNAVAILABLE, "no engine client");
     }
-    return client.call<{ midiBase64: string }>("export.midi", {
+    return this.callEngine<{ midiBase64: string }>(client, "export.midi", {
       scoreDocument,
       ...(opts?.partGains ? { partGains: [...opts.partGains] } : {}),
     });
