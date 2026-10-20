@@ -66,6 +66,12 @@ export function QueuePanel({
   const hasFinished = snapshot.entries.some(
     (e) => e.status === "done" || e.status === "failed" || e.status === "cancelled",
   );
+  // #422: ↑/↓ reorder within the pending group only (controller.move
+  // swaps with the nearest pending sibling) — disable the button when
+  // that direction has no pending sibling, instead of dead-clicking.
+  const pendingIds = snapshot.entries
+    .filter((e) => e.status === "pending")
+    .map((e) => e.id);
   return (
     <HsDialog
       open={open}
@@ -102,6 +108,7 @@ export function QueuePanel({
                carries non-default keys, so an empty summary means
                "all defaults" and renders nothing. */
             const paramsSummary = queueParamSummary(e.params);
+            const pendingPos = pendingIds.indexOf(e.id);
             return (
             <li key={e.id} className={`hs-queue__row hs-queue__row--${e.status}`}>
               <div className="hs-queue__main">
@@ -136,12 +143,14 @@ export function QueuePanel({
                       label={ja.queue.moveUp}
                       icon={<ArrowUp24Regular />}
                       size="small"
+                      disabled={pendingPos <= 0}
                       onClick={() => onMove(e.id, -1)}
                     />
                     <HsIconButton
                       label={ja.queue.moveDown}
                       icon={<ArrowDown24Regular />}
                       size="small"
+                      disabled={pendingPos === pendingIds.length - 1}
                       onClick={() => onMove(e.id, 1)}
                     />
                     <HsIconButton

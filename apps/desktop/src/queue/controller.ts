@@ -136,13 +136,22 @@ export class TranscriptionQueue {
     return true;
   }
 
-  /** pending エントリの並び替え(±1)。 */
+  /** pending エントリの並び替え(±1)。#422: ターゲットは同方向で最も
+   *  近い pending 兄弟 — done/failed/running の行は固定で、完了
+   *  履歴が pending 群に沈み込まない。 */
   move(id: string, delta: -1 | 1): boolean {
     const idx = this.entries.findIndex((x) => x.id === id);
     if (idx < 0) return false;
     const e = this.entries[idx];
     if (e.status !== "pending") return false;
-    const target = idx + delta;
+    let target = idx + delta;
+    while (
+      target >= 0 &&
+      target < this.entries.length &&
+      this.entries[target].status !== "pending"
+    ) {
+      target += delta;
+    }
     if (target < 0 || target >= this.entries.length) return false;
     const next = [...this.entries];
     [next[idx], next[target]] = [next[target], next[idx]];
