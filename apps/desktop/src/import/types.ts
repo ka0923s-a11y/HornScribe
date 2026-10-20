@@ -128,6 +128,11 @@ export interface ProjectSummary {
     solo: boolean;
     visible: boolean;
   }[];
+  /** #427: saved uiSession.pitchView — 表示移調。スコア固有の
+   *  ユーザー選択なのでプロジェクト側に属する(view/zoom の
+   *  sessionStorage 復元とは別系統)。doc が bFlat 非対応なら
+   *  hornF フォールバック、省略/不正値は null。 */
+  savedPitchView?: "concert" | "hornF" | "bFlat" | null;
 }
 
 /** SOURCE_MISSING context: which project lost its audio, and whether the

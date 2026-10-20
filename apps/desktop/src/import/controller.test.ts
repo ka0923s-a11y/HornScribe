@@ -997,4 +997,30 @@ describe("parseProjectFile", () => {
     const p = parse({ schemaVersion: 1, projectId: "x", sourceAudio: null });
     expect(p.savedPartMix).toEqual([]);
   });
+
+  it("extracts uiSession.pitchView as savedPitchView (#427)", () => {
+    const p = parse({
+      schemaVersion: 1,
+      projectId: "x",
+      sourceAudio: null,
+      uiSession: { pitchView: "bFlat" },
+    });
+    expect(p.savedPitchView).toBe("bFlat");
+  });
+
+  it("unknown/absent pitchView → savedPitchView is null (#427)", () => {
+    const p = parse({
+      schemaVersion: 1,
+      projectId: "x",
+      sourceAudio: null,
+      uiSession: { pitchView: "alto" },
+    });
+    expect(p.savedPitchView).toBeNull();
+    const bare = parse({
+      schemaVersion: 1,
+      projectId: "x",
+      sourceAudio: null,
+    });
+    expect(bare.savedPitchView).toBeNull();
+  });
 });

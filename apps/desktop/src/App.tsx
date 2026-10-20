@@ -342,6 +342,11 @@ export default function App() {
   const { mode, resolved, select } = useThemeMode();
   const [view, setView] = useState<View>("workspace");
   const [pitch, setPitch] = useState<PitchView>("concert");
+  // #427: 表示移調 — uiSession.pitchView に永続化し、開き直しで復元。
+  //  baseline は「復元した/保存した値」— 比較で dirty を出す。
+  const pitchRef = useRef<PitchView>("concert");
+  pitchRef.current = pitch;
+  const pitchBaselineRef = useRef<PitchView>("concert");
   // UI-060: persisted settings (localStorage) + the two secondary surfaces
   // (書き出し dialog / 診断情報 sheet) that live outside the workspace.
   const { settings, update: updateSettings } = useAppSettings();
@@ -628,6 +633,16 @@ export default function App() {
       );
       // 復元待ちに戻す — 新 doc の onPartMixRestored で確定する。
       partMixBaselineRef.current = undefined;
+      // #427: 表示移調は持ち越す — bFlat 非対応 doc なら hornF に
+      //  落とし(マウント後のフォールバック effect と同じ規則)、
+      //  その実効値が dirty baseline。
+      const carriedPitch =
+        pitchRef.current === "bFlat" &&
+        doc.supportsPitchView?.("bFlat") !== true
+          ? "hornF"
+          : pitchRef.current;
+      if (carriedPitch !== pitchRef.current) setPitch(carriedPitch);
+      pitchBaselineRef.current = carriedPitch;
       // #240: the completed result is this score's provenance.
       setScoreProvenance(result);
       scoreAudioIdentityRef.current = identity;
@@ -950,6 +965,17 @@ export default function App() {
             //  報告するまで待つ(index マージで実値が変わり得るため)。
             setSavedPartMix(project.savedPartMix ?? null);
             partMixBaselineRef.current = undefined;
+            // #427: 保存されていた表示移調を復元 — bFlat は doc が
+            //  対応しない限り hornF に落とす(下のフォールバック
+            //  effect と同じ規則)。baseline は実効値と一致させる。
+            const savedPv = project.savedPitchView;
+            const effPitch =
+              savedPv === "bFlat" &&
+              doc.supportsPitchView?.("bFlat") !== true
+                ? "hornF"
+                : (savedPv ?? pitchRef.current);
+            if (effPitch !== pitchRef.current) setPitch(effPitch);
+            pitchBaselineRef.current = effPitch;
             scoreAudioIdentityRef.current = project.sourceHash
               ? `hash:${project.sourceHash}`
               : (audioIdentityRef.current ?? "?");
@@ -1109,7 +1135,12 @@ export default function App() {
         mixBaseline !== undefined &&
         liveMix.length > 0 &&
         !samePartMix(liveMix, mixBaseline);
-      const dirtyAll = dirty || mixDirty;
+      // #427: 表示移調の切り替えも未保存差分 — baseline は
+      //  復元/保存時の実効値。bFlat→hornF フォールバックは
+      //  baseline 側も同じ規則で落ちるので誤 dirty にならない。
+      const pitchDirty =
+        doc != null && pitchRef.current !== pitchBaselineRef.current;
+      const dirtyAll = dirty || mixDirty || pitchDirty;
       const was = dirtyRef.current;
       dirtyRef.current = dirtyAll;
       setIsDirty(dirtyAll);
@@ -1157,6 +1188,8 @@ export default function App() {
         priorSourceAudio: projectSourceRef.current,
         // #416: ミキサー行もスナップショットに含めて復元を揃える。
         partMix: partMixLiveRef.current,
+        // #427: 表示移調もスナップショットに。
+        pitchView: pitchRef.current,
       });
       if (!project) return null;
       // #389: same validator as manual save — a malformed snapshot
@@ -1780,6 +1813,8 @@ export default function App() {
        *  baseline 更新に使うため先に snapshot(行は immutable なので
        *  参照コピーで「書いたもの」と一致する)。 */
       const mixWritten = partMixLiveRef.current;
+      // #427: 表示移調も保存 — 後で baseline 更新に使う snapshot。
+      const pitchWritten = pitchRef.current;
       const project = await buildProjectDocument({
         audio: audioForProject,
         doc,
@@ -1794,6 +1829,8 @@ export default function App() {
         regionLabels: serializeRegionLabels(regionLabelsRef.current),
         // #416: ミキサー行を uiSession.partMix に永続化。
         partMix: mixWritten,
+        // #427: 表示移調を uiSession.pitchView に永続化。
+        pitchView: pitchWritten,
       });
       if (!project) {
         setStatusMessage(ja.notifications.projectSaveUnsupported);
@@ -1858,6 +1895,8 @@ export default function App() {
       savedFingerprintRef.current = savedFp;
       // #416: 書いた行が新しい dirty baseline(= 今きれいな状態)。
       partMixBaselineRef.current = mixWritten;
+      // #427: 書いた表示移調も baseline。
+      pitchBaselineRef.current = pitchWritten;
       void invoke("project_autosave_clear").catch(() => undefined);
       setStatusMessage(ja.notifications.projectSaved);
       return true;

@@ -6,6 +6,7 @@ import {
   deriveProjectId,
   isSaveableRevision,
   parseSavedPartMix,
+  parseSavedPitchView,
   serializePartMix,
   validateProjectDocument,
   writeProjectDocument,
@@ -241,6 +242,33 @@ describe("buildProjectDocument", () => {
     });
     expect(bare!.uiSession).toBeNull();
   });
+
+  it("#427: persists 表示移調 under uiSession.pitchView", async () => {
+    const doc = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc(),
+      result: RESULT,
+      partMix: [
+        { name: "Horn in F", volume: 1, muted: false, solo: false, visible: true },
+      ],
+      pitchView: "bFlat",
+    });
+    expect(doc!.uiSession).toEqual({
+      partMix: [
+        { name: "Horn in F", volume: 1, muted: false, solo: false, visible: true },
+      ],
+      pitchView: "bFlat",
+    });
+    expect(validateProjectDocument(doc)).toBeNull();
+    // pitchView 単独でも uiSession は dict になる。
+    const pv = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc(),
+      result: RESULT,
+      pitchView: "hornF",
+    });
+    expect(pv!.uiSession).toEqual({ pitchView: "hornF" });
+  });
 });
 
 describe("#416: partMix serialize/parse", () => {
@@ -311,6 +339,23 @@ describe("#416: partMix serialize/parse", () => {
       { name: "Piano", volume: 0.4, muted: true, solo: false, visible: false },
     ];
     expect(parseSavedPartMix({ partMix: serializePartMix(mix) })).toEqual(mix);
+  });
+});
+
+describe("#427: savedPitchView parse", () => {
+  it("reads uiSession.pitchView when it is a known view", () => {
+    expect(parseSavedPitchView({ pitchView: "bFlat" })).toBe("bFlat");
+    expect(parseSavedPitchView({ pitchView: "hornF" })).toBe("hornF");
+    expect(parseSavedPitchView({ pitchView: "concert" })).toBe("concert");
+  });
+
+  it("returns null for absent/unknown values", () => {
+    expect(parseSavedPitchView(null)).toBeNull();
+    expect(parseSavedPitchView({})).toBeNull();
+    expect(parseSavedPitchView({ pitchView: "alto" })).toBeNull();
+    expect(parseSavedPitchView({ pitchView: 42 })).toBeNull();
+    // partMix だけが入った uiSession も「記録なし」。
+    expect(parseSavedPitchView({ partMix: [] })).toBeNull();
   });
 });
 

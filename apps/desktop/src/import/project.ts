@@ -39,6 +39,9 @@ export interface ProjectSaveInput {
    *  正式な任意 dict(model.py: optional, non-authoritative)なので
    *  バリデータを素通りしつつ extras と違ってキー衝突で負けない。 */
   readonly partMix?: readonly ProjectPartMixRow[];
+  /** #427: 表示移調(concert/hornF/bFlat) — `uiSession.pitchView`。
+   *  譜面固有のユーザー選択なのでプロジェクト側に保存する。 */
+  readonly pitchView?: "concert" | "hornF" | "bFlat";
 }
 
 /** One persisted mixer row — score/playbackSynth.ts PartMixEntry と
@@ -97,6 +100,17 @@ export function parseSavedPartMix(
       visible: o.visible !== false,
     };
   });
+}
+
+/** #427: uiSession → 表示移調。許容値以外(旧版の別語彙/壊れた値)
+ *  は null — 呼び出し側は「記録なし=従来どおり現行値を維持」と
+ *  解釈する。 */
+export function parseSavedPitchView(
+  uiSession: unknown,
+): "concert" | "hornF" | "bFlat" | null {
+  if (typeof uiSession !== "object" || uiSession === null) return null;
+  const v = (uiSession as Record<string, unknown>).pitchView;
+  return v === "concert" || v === "hornF" || v === "bFlat" ? v : null;
 }
 
 /** `prj-<16hex>` — deterministic content-derived id (ids.py contract). */
@@ -290,10 +304,14 @@ export async function buildProjectDocument(
     reviewDecisions,
     // #416: ミキサー行は schema の uiSession(dict 可)に載せる — extras
     // 違いスキーマキーなので name 衝突で将来フィールドに潰されない。
-    uiSession:
-      input.partMix != null
-        ? { partMix: serializePartMix(input.partMix) }
-        : null,
+    uiSession: (() => {
+      // #416: ミキサー行 / #427: 表示移調 — 両方省略なら null の
+      //  まま(レガシーファイルと同じ形)。
+      const s: Record<string, unknown> = {};
+      if (input.partMix != null) s.partMix = serializePartMix(input.partMix);
+      if (input.pitchView != null) s.pitchView = input.pitchView;
+      return Object.keys(s).length > 0 ? s : null;
+    })(),
     // --- preserved extras (ignored by the v1 validator) ---
     // #115: the LIVE canonical payload — after an engine rhythm edit the
     // document's scoreDocument is newer than the job result's, and saving
