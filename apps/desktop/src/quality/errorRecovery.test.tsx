@@ -234,6 +234,39 @@ describe("error-recovery surfaces (§13)", () => {
     expect(primaryCalls).toBe(1);
   });
 
+  // #402: ENGINE_DEPENDENCY_MISSING leads with 診断情報を見る — a second
+  // generic diagnostics button would open the same dialog, so the
+  // surface renders exactly one diagnostics-opening action.
+  it("dependency-missing surface renders a single diagnostics action", async () => {
+    await render(
+      <TranscriptionErrorView
+        kind="transcriptionFailed"
+        errorCode="ENGINE_DEPENDENCY_MISSING"
+        errorPackage="numpy"
+        restarting={false}
+        diagnostics={() => "diagnostic text"}
+        onPrimary={NOOP}
+        onClose={NOOP}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain(ja.errors.dependencyMissing.title);
+    const actionButtons = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        ".hs-error-surface__actions button",
+      ),
+    ];
+    const diagnosticsButtons = actionButtons.filter((b) =>
+      (b.textContent ?? "").includes("診断情報"),
+    );
+    expect(diagnosticsButtons).toHaveLength(1);
+    expect(diagnosticsButtons[0]?.textContent).toBe(
+      ja.errors.dependencyMissing.diagnostics,
+    );
+    // Still not a dead end: diagnostics + close remain reachable.
+    expect(actionButtons.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("audioReady keeps the workspace live (transcribe action present)", async () => {
     await render(
       <ImportScreenBody
