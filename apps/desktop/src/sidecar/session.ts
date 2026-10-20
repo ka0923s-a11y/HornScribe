@@ -129,6 +129,10 @@ export class TranscriptionSession {
   private readonly cancelGraceMs: number;
   private readonly now: () => number;
   private client: SidecarClient | null = null;
+  /** #418: in-flight lazy spawn — concurrent `ensureEngine` callers
+   *  share it instead of racing a second `engine_spawn`, which the
+   *  Rust-side singleton rejects with ENGINE_ALREADY_RUNNING. */
+  private starting: Promise<void> | null = null;
   private readonly listeners = new Set<Listener>();
   private snap: SessionSnapshot = {
     engine: "offline",
@@ -189,32 +193,53 @@ export class TranscriptionSession {
     return client;
   }
 
-  /** Lazily spawn + handshake. Idempotent while `ready`. */
+  /** Lazily spawn + handshake. Idempotent while `ready`. #418:
+   *  concurrent callers share ONE in-flight spawn → a second
+   *  engine_spawn while the first is mid-handshake would bounce off
+   *  the Rust-side singleton (ENGINE_ALREADY_RUNNING), mark a healthy
+   *  spawn crashed, and strand a stale failure on the surface. */
   private async ensureEngine(): Promise<void> {
     if (this.client && this.snap.engine === "ready") return;
-    this.update({ engine: "starting" });
-    const client = this.buildClient();
-    this.client = client;
+    if (this.starting) return this.starting;
+    const starting = (async () => {
+      // Tear down the stale client before spawning → an unresponsive
+      // worker still holds the singleton spawn slot and would fail
+      // the replacement spawn unconditionally; a crashed/closed one
+      // may still be draining. Same discipline as restartEngine, so
+      // lazy paths self-heal from 'unresponsive' too.
+      const old = this.client;
+      this.client = null;
+      if (old) await old.shutdown(800).catch(() => undefined);
+      this.update({ engine: "starting" });
+      const client = this.buildClient();
+      this.client = client;
+      try {
+        const hs = await client.start();
+        this.update({
+          engine: "ready",
+          engineInfo: hs.engineInfo,
+          protocolVersion: hs.protocolVersion,
+          capabilities: hs.capabilities,
+        });
+      } catch (e) {
+        // Spawn/handshake failure → the engine is down, the error surface
+        // offers エンジンを再起動 (which builds a fresh port+client).
+        this.update({
+          engine: "crashed",
+          failure: {
+            kind: "workerNotResponding",
+            detail: e instanceof Error ? e.message : String(e),
+            errorCode: e instanceof SidecarError ? e.code : undefined,
+          },
+        });
+        throw e;
+      }
+    })();
+    this.starting = starting;
     try {
-      const hs = await client.start();
-      this.update({
-        engine: "ready",
-        engineInfo: hs.engineInfo,
-        protocolVersion: hs.protocolVersion,
-        capabilities: hs.capabilities,
-      });
-    } catch (e) {
-      // Spawn/handshake failure → the engine is down, the error surface
-      // offers エンジンを再起動 (which builds a fresh port+client).
-      this.update({
-        engine: "crashed",
-        failure: {
-          kind: "workerNotResponding",
-          detail: e instanceof Error ? e.message : String(e),
-          errorCode: e instanceof SidecarError ? e.code : undefined,
-        },
-      });
-      throw e;
+      await starting;
+    } finally {
+      if (this.starting === starting) this.starting = null;
     }
   }
 
@@ -240,40 +265,59 @@ export class TranscriptionSession {
         "cannot restart while a job is running",
       );
     }
-    const old = this.client;
-    this.client = null;
-    if (old) {
-      // #233: await the teardown — shutdown() now kills the worker when
-      // the graceful path times out, and the respawn must not race a
-      // still-living process (ENGINE_ALREADY_RUNNING).
-      await old.shutdown(800).catch(() => undefined);
-    }
-    this.update({ engine: "starting", failure: null });
-    const client = this.buildClient();
-    this.client = client;
+    // #418: a lazy spawn may still be in flight — await it before
+    // teardown or the restart spawns while the first worker is still
+    // coming up (ENGINE_ALREADY_RUNNING / orphaned client).
+    if (this.starting) await this.starting.catch(() => undefined);
+    // #418: publish the restart under the same `starting` slot an
+    // ensureEngine caller would dedupe on — a lazy RPC arriving
+    // mid-restart must await this spawn, not race a second one.
+    const restarting = (async () => {
+      const old = this.client;
+      this.client = null;
+      if (old) {
+        // #233: await the teardown — shutdown() now kills the worker when
+        // the graceful path times out, and the respawn must not race a
+        // still-living process (ENGINE_ALREADY_RUNNING).
+        await old.shutdown(800).catch(() => undefined);
+      }
+      this.update({ engine: "starting", failure: null });
+      const client = this.buildClient();
+      this.client = client;
+      try {
+        const hs = await client.start();
+        this.update({
+          engine: "ready",
+          engineInfo: hs.engineInfo,
+          protocolVersion: hs.protocolVersion,
+          capabilities: hs.capabilities,
+        });
+      } catch (e) {
+        this.update({
+          engine: "crashed",
+          failure: {
+            kind: "workerNotResponding",
+            detail: e instanceof Error ? e.message : String(e),
+            errorCode: e instanceof SidecarError ? e.code : undefined,
+          },
+        });
+        throw e;
+      }
+    })();
+    this.starting = restarting;
     try {
-      const hs = await client.start();
-      this.update({
-        engine: "ready",
-        engineInfo: hs.engineInfo,
-        protocolVersion: hs.protocolVersion,
-        capabilities: hs.capabilities,
-      });
-    } catch (e) {
-      this.update({
-        engine: "crashed",
-        failure: {
-          kind: "workerNotResponding",
-          detail: e instanceof Error ? e.message : String(e),
-          errorCode: e instanceof SidecarError ? e.code : undefined,
-        },
-      });
-      throw e;
+      await restarting;
+    } finally {
+      if (this.starting === restarting) this.starting = null;
     }
   }
 
   /** Graceful teardown for app shutdown — never throws. */
   async dispose(): Promise<void> {
+    // #418: settle an in-flight spawn first — otherwise the fresh
+    // client lands on this.client after the null-out and its worker
+    // leaks past app quit.
+    if (this.starting) await this.starting.catch(() => undefined);
     const client = this.client;
     this.client = null;
     if (client) await client.shutdown();
