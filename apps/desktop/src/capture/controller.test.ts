@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { CaptureController, issueText } from "./controller";
 import type { CapturePort } from "./ports";
+import { ja } from "../strings/ja";
 import type {
   CaptureResult,
   CaptureSessionInfo,
@@ -545,6 +546,11 @@ describe("CaptureController", () => {
     vi.useFakeTimers();
     try {
       const port = makePort({
+        // #398: nothing salvageable — stop() throws like a session
+        // whose worker died without a finalized take (io_error).
+        stop: vi.fn(async () => {
+          throw new Error("capture produced no audio file");
+        }),
         status: vi.fn(async (): Promise<CaptureStatus> => ({
           active: true,
           source: "microphone",
@@ -558,9 +564,50 @@ describe("CaptureController", () => {
       await c.start("microphone");
       // The 200 ms status poll picks the worker error up.
       await vi.advanceTimersByTimeAsync(300);
+      expect(port.stop).toHaveBeenCalled();
       expect(c.getState().phase).toBe("error");
       expect(c.getState().issue?.kind).toBe("interrupted");
       expect(port.cancel).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("#398: salvages the partial take when stop() still yields it", async () => {
+    vi.useFakeTimers();
+    try {
+      const port = makePort({
+        // The worker finalized its temp WAV before dying — stop()
+        // returns the recorded-so-far audio with the reason attached.
+        stop: vi.fn(async (): Promise<CaptureResult> => ({
+          path: "/rec/PCの音_partial.wav",
+          durationSeconds: 42,
+          sampleRate: 48000,
+          channels: 2,
+          silentRatio: 0.1,
+          interruptedError: "GetBuffer: HRESULT 0x88890004",
+        })),
+        status: vi.fn(async (): Promise<CaptureStatus> => ({
+          active: true,
+          source: "loopback",
+          elapsedSeconds: 42,
+          deviceName: "dev",
+          error: "GetBuffer: HRESULT 0x88890004",
+        })),
+      });
+      const { events, completed, announced } = makeEvents();
+      const c = new CaptureController(port, events);
+      await c.start("loopback");
+      await vi.advanceTimersByTimeAsync(300);
+      // The partial take is imported through the normal finish path —
+      // never discarded, never left in the error phase.
+      expect(port.stop).toHaveBeenCalled();
+      expect(port.cancel).not.toHaveBeenCalled();
+      expect(completed).toHaveLength(1);
+      expect(completed[0].source).toBe("loopback");
+      expect(completed[0].fileName).toMatch(/\.wav$/);
+      expect(c.getState().phase).toBe("idle");
+      expect(announced).toContain(ja.capture.interruptedFinish);
     } finally {
       vi.useRealTimers();
     }

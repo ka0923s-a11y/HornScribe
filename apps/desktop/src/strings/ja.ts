@@ -2672,6 +2672,10 @@ export const ja = {
     playalongCancel: "キャンセル",
     limitReachedFinish:
       "連続録音の上限(30分)に達したため、録音を終了しました。",
+    /** #398: 致命的エラーで中断したテイクの救出告知 — 部分取り込み
+     *  であることを必ず伝える(無音確認は finishTake 側で済む)。 */
+    interruptedFinish:
+      "録音が途中で中断されましたが、それまでに録れた音を取り込みました",
     cancelledAnnounce: "録音を取りやめました",
     /** #99: 録音開始カウントイン — カウント中のボタン残数と開始告知。 */
     countInLabel: (n: number) => "あと " + n + " 秒で開始",
