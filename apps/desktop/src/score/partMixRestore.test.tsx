@@ -104,7 +104,7 @@ afterEach(async () => {
 describe("ScoreReadyWorkspace partMix restore (#416)", () => {
   it("seeds the mixer from initialPartMix and reports the restored rows", async () => {
     rendererMock.getScoreRenderer.mockResolvedValue(RENDERER_STUB);
-    const restored: readonly PartMixEntry[][] = [];
+    const restored: (readonly PartMixEntry[])[] = [];
     const saved: PartMixEntry[] = [
       // 保存行は canonical 順の index 結合 — name は canonical 側が勝つ。
       { name: "saved horn", volume: 0.4, muted: true, solo: false, visible: false },
@@ -127,7 +127,7 @@ describe("ScoreReadyWorkspace partMix restore (#416)", () => {
 
   it("without initialPartMix every row is a default", async () => {
     rendererMock.getScoreRenderer.mockResolvedValue(RENDERER_STUB);
-    const restored: readonly PartMixEntry[][] = [];
+    const restored: (readonly PartMixEntry[])[] = [];
     const states = await mount({
       onPartMixRestored: (rows) => restored.push(rows),
     });

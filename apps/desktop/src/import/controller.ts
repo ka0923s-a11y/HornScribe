@@ -32,7 +32,7 @@ import {
   loadRecentProjects,
 } from "./recentProjects";
 import { parseRegionLabels } from "../workspace/regionLabels";
-import { parseSavedPartMix } from "./project";
+import { parseSavedPartMix, parseSavedPitchView } from "./project";
 import type {
   AudioFileRef,
   AudioFormat,
@@ -116,6 +116,10 @@ export interface ImportEvents {
         solo: boolean;
         visible: boolean;
       }[];
+      /** #427: the saved uiSession.pitchView — the host restores
+       *  the displayed transposition (bFlat falls back to hornF
+       *  when the document cannot render it). */
+      savedPitchView?: "concert" | "hornF" | "bFlat" | null;
     },
   ): void;
   /** Optional (#264): a project document was opened (or relinked) —
@@ -754,6 +758,7 @@ export class ImportController {
         recovered: project.recovered,
         regionLabels: project.regionLabels,
         savedPartMix: project.savedPartMix,
+        savedPitchView: project.savedPitchView,
       });
     }
     // #391: a .recovery restore has no card of its own — the status
@@ -812,6 +817,7 @@ export class ImportController {
         recovered: project.recovered,
         regionLabels: project.regionLabels,
         savedPartMix: project.savedPartMix,
+        savedPitchView: project.savedPitchView,
       });
       this.announceOpened(project);
     } else {
@@ -974,6 +980,7 @@ function projectSummaryFromDocument(
     // #416: uiSession.partMix — ミキサー行を index 復元用に渡す
     //  (壊れた行は既定行に置き換えて位置を維持する)。
     savedPartMix: parseSavedPartMix(data.uiSession),
+    savedPitchView: parseSavedPitchView(data.uiSession),
     recovered: recovered || undefined,
   };
 }
