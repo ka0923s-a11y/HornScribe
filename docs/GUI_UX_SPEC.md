@@ -647,9 +647,14 @@ MusicXMLとMIDIはそのまま書き出せます。
 - 戻る/進む秒数
 - 再生位置追従
 
+## 録音
+
+- 録音開始カウントイン（オフ / n秒 #99）
+- 録音停止後そのまま採譜（#166、既定 OFF）
+- 録音フォルダ: 保存先を開く / 件数・合計サイズ / 全削除・個別削除（#78）
+
 ## 採譜
 
-- backend（詳細設定）
 - BPM
 - 拍子
 - 最小音価
@@ -664,15 +669,19 @@ MusicXMLとMIDIはそのまま書き出せます。
 
 - default folder
 - MuseScore path
+- 前回選んだ形式を記憶（#377）
 
 ## ツール
 
 - FFmpeg
 - MuseScore
 - model info
+- 分離アドオン(demucs)の導入状態・導入経路（#165/#302）
 
 ## 詳細設定
 
+- 採譜エンジン（backend、#108）
+- エンジン再起動
 - cache
 - logs
 - protocol/backend diagnostics
