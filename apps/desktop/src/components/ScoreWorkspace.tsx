@@ -88,6 +88,7 @@ export function ScoreWorkspace({
   pitch = "concert",
   initialViewMode = "continuous",
   followPlayback = true,
+  initialPlaybackRate,
   onInspectorChange,
   onScoreStateChange,
   scoreControllerRef,
@@ -123,6 +124,9 @@ export function ScoreWorkspace({
   initialViewMode?: ScoreViewMode;
   /** 設定→再生 再生位置を追従 — seeds the follow toggle. */
   followPlayback?: boolean;
+  /** #412: 設定→再生 標準再生速度 — seeds the score clock so score-only
+   *  audition honours the same default speed as the media transport. */
+  initialPlaybackRate?: number;
   onInspectorChange?(model: InspectorModel): void;
   onScoreStateChange?(state: ScoreWorkspaceState): void;
   scoreControllerRef?(controller: ScoreWorkspaceController | null): void;
@@ -235,6 +239,7 @@ export function ScoreWorkspace({
             pitch={pitch}
             initialViewMode={initialViewMode}
             followPlayback={followPlayback}
+            initialPlaybackRate={initialPlaybackRate}
             onInspectorChange={(m) => onInspectorChange?.(m)}
             onStateChange={(s) => onScoreStateChange?.(s)}
             controllerRef={(c) => scoreControllerRef?.(c)}

@@ -13,6 +13,7 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { EXPORT_FORMAT_IDS, type ExportFormatId } from "../export/types";
+import { SUPPORTED_RATES } from "../import/mediaTransport";
 
 const STORAGE_KEY = "hornscribe.settings";
 
@@ -108,7 +109,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ) as Record<ExportFormatId, boolean>,
 };
 
-const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
+/** #412: 標準再生速度の提供値は TransportBar サイクルと同じ
+ *  SUPPORTED_RATES を参照する — 別リストにすると片側更新で再び
+ *  「設定にあってサイクルに無い速度」が生まれる。 */
+const RATES: readonly number[] = SUPPORTED_RATES;
 /** 録音保持日数の提供値 — 設定UIのセレクトと同じセット
  *  (#354: a stored value outside the list renders as a dead select,
  *  so parse validates membership, not just range). */

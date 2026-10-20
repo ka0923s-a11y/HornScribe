@@ -14,6 +14,7 @@ import {
   playbackRateOptions,
   saveSettings,
 } from "./store";
+import { SUPPORTED_RATES } from "../import/mediaTransport";
 
 describe("parseSettings", () => {
   it("returns defaults for null / empty / invalid JSON", () => {
@@ -128,6 +129,12 @@ describe("categories", () => {
       expect(r).toBeGreaterThanOrEqual(0.5);
       expect(r).toBeLessThanOrEqual(2);
     }
+  });
+
+  it("#412: offered rates are the transport cycle list (single source)", () => {
+    // 設定の提供値と速度ボタンのサイクルは同じ配列を指す — 片側にだけ
+    // 存在する速度(例: 設定に 2.0x があってサイクルに無い)を防ぐ。
+    expect(playbackRateOptions()).toBe(SUPPORTED_RATES);
   });
 });
 
