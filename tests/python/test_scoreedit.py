@@ -904,6 +904,34 @@ class TestRequantize:
         assert qs["triplets"] == "none"
         assert qs["simplicity"] == "standard"
 
+    def test_stored_enum_triplet_policy_survives_requantize(self) -> None:
+        """#424: payloads store the TripletPolicy ENUM values
+        ("always"/"never") in quantizationSettings.triplets, while new
+        edits arrive in the RPC vocabulary ("allow"/"none"). Rebuilding
+        the profile must accept both — a requantize that only touches
+        minDurationQl used to silently flip a stored "always" to the
+        profile default AUTO."""
+        from hornscribe.rhythm.profile import TripletPolicy
+        from hornscribe.transcription.scoreedit import _profile_from_settings
+
+        assert (
+            _profile_from_settings({"triplets": "always"}).triplet_policy
+            is TripletPolicy.ALWAYS
+        )
+        assert (
+            _profile_from_settings({"triplets": "never"}).triplet_policy
+            is TripletPolicy.NEVER
+        )
+        # RPC vocabulary still resolves.
+        assert (
+            _profile_from_settings({"triplets": "allow"}).triplet_policy
+            is TripletPolicy.ALWAYS
+        )
+        assert (
+            _profile_from_settings({"triplets": "none"}).triplet_policy
+            is TripletPolicy.NEVER
+        )
+
     def test_triplets_none_rewrites_atoms(self) -> None:
         # Sixteenth-grid onsets re-quantized with triplets disabled can
         # no longer use triplet atoms — the written decomposition must
