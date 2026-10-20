@@ -504,6 +504,91 @@ describe("CaptureController", () => {
       expect(calls[1][1]).not.toHaveProperty("monitorOnly");
     });
 
+    it("#413: recording during a monitor open waits — no parallel port.start", async () => {
+      // モニターの port.start() がまだ返らない間に録音開始すると、
+      // 従来は録音側の port.start() が並行して飛び BUSY になり得た。
+      // 今は開設の解決を待ってから畳み、録音の start に進む。
+      let releaseMonitor!: () => void;
+      const calls: string[] = [];
+      const port = makePort({
+        start: vi.fn(
+          async (source, opts): Promise<CaptureSessionInfo> => {
+            calls.push(opts?.monitorOnly ? "start:monitor" : "start:record");
+            if (opts?.monitorOnly) {
+              await new Promise<void>((r) => {
+                releaseMonitor = r;
+              });
+            }
+            return {
+              source,
+              deviceName: "dev",
+              sampleRate: 48000,
+              channels: 2,
+            };
+          },
+        ),
+        cancel: vi.fn(async () => {
+          calls.push("cancel");
+        }),
+      });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      const monitorP = c.startMonitor("microphone");
+      await vi.waitFor(() => expect(calls).toContain("start:monitor"));
+      const startP = c.start("microphone");
+      // 録音側の port.start() はまだ呼ばれない(モニター開設中)。
+      await new Promise<void>((r) => setTimeout(r, 0));
+      expect(calls).not.toContain("start:record");
+      releaseMonitor();
+      await monitorP;
+      await startP;
+      // 開いたモニターは畳まれてから録音の start が走る。
+      expect(calls).toEqual([
+        "cancel", // startMonitor 冒頭の残滓掃除
+        "start:monitor",
+        "cancel", // openMonitor のセルフ畳み(phase は既に starting)
+        "start:record",
+      ]);
+      expect(c.getState().phase).toBe("recording");
+      expect(c.getState().monitor).toBeNull();
+    });
+
+    it("#413: toggling a monitor mid-open does not double-start the port", async () => {
+      let releaseMonitor!: () => void;
+      const port = makePort({
+        start: vi.fn(
+          async (source, opts): Promise<CaptureSessionInfo> => {
+            if (opts?.monitorOnly) {
+              await new Promise<void>((r) => {
+                releaseMonitor = r;
+              });
+            }
+            return {
+              source,
+              deviceName: "dev",
+              sampleRate: 48000,
+              channels: 2,
+            };
+          },
+        ),
+      });
+      const { events } = makeEvents();
+      const c = new CaptureController(port, events);
+      const monitorP = c.startMonitor("microphone");
+      await vi.waitFor(() =>
+        expect(port.start).toHaveBeenCalledTimes(1),
+      );
+      // 開設中のトグル — 解決を待って monitor が立ったことを確認して
+      // から畳むので、port.start() は1回だけ。
+      const toggleP = c.toggleMonitor("microphone");
+      releaseMonitor();
+      await monitorP;
+      await toggleP;
+      expect(port.start).toHaveBeenCalledTimes(1);
+      expect(c.getState().monitor).toBeNull();
+      expect(port.cancel).toHaveBeenCalled();
+    });
+
     it("a failed monitor start announces the pre-flight issue", async () => {
       const port = monitorPort();
       port.start = vi.fn(async () => {

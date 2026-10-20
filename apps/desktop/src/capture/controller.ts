@@ -186,6 +186,16 @@ export class CaptureController {
   private targetApp: AudioSessionApp | null = null;
   /** #100: 再起動を跨ぐために残すアプリ名(選択の復元元)。 */
   private targetAppName: string | null = null;
+  /** #413: 開設が解決していないモニターセッション。port.start() が
+   *  返るまで state.monitor は立たないので、その間に録音 start() や
+   *  別のモニター操作が走ると 2 つの port.start() が並行して後着側を
+   *  CAPTURE_BUSY で潰す。開設全体を追跡し、競合し得る操作はこれを
+   *  待ってから状態を判定する。done は決して reject しない。 */
+  private monitorOpening: {
+    readonly source: CaptureSource;
+    readonly deviceId: string | null;
+    readonly done: Promise<void>;
+  } | null = null;
 
   constructor(
     private readonly port: CapturePort,
@@ -333,6 +343,30 @@ export class CaptureController {
     ) {
       return;
     }
+    // "starting" — ポートがデバイスを開くまでの pre-session 状態。
+    // getUserMedia の許可待ちやドライバ応答待ちで何秒でも掛かり得る
+    // 間は「録音中」ではない:タイマーは 0 のまま、一時停止も無効。
+    // #413: phase はモニター待機より先に倒す — 従来は同期遷移だった
+    // ため二重 start は自然に弾かれていたが、待機が入るとその窓が
+    // 開く。先に倒すことで openMonitor 側にも「録音優先」を伝える。
+    this.setState({
+      phase: "starting",
+      source,
+      elapsedSeconds: 0,
+      deviceName: null,
+      issue: null,
+      level: null,
+      paused: false,
+      monitor: this.state.monitor,
+    });
+    // #413: モニター開設がまだ解決していなければ待つ — 待たないと
+    // 自分の port.start() がモニターの port.start() と並行して飛び、
+    // 後着側が BUSY で失敗する。連続して開設が続く限り待つ。
+    while (this.monitorOpening) {
+      await this.monitorOpening.done;
+    }
+    // 待機中に cancel()/dispose() で starting を離れた — 何も始めない。
+    if (this.getState().phase !== "starting") return;
     // #42: モニターセッションは同じセッション枠を使うので、実録音の
     // 前に破棄する(cancel = temp無しの監視を閉じるだけ)。
     if (this.state.monitor) {
@@ -342,20 +376,11 @@ export class CaptureController {
       } catch {
         /* モニター掃除はベストエフォート — 録音開始を妨げない */
       }
+      this.setState({ ...this.getState(), monitor: null });
     }
-    // "starting" — ポートがデバイスを開くまでの pre-session 状態。
-    // getUserMedia の許可待ちやドライバ応答待ちで何秒でも掛かり得る
-    // 間は「録音中」ではない:タイマーは 0 のまま、一時停止も無効。
-    this.setState({
-      phase: "starting",
-      source,
-      elapsedSeconds: 0,
-      deviceName: null,
-      issue: null,
-      level: null,
-      paused: false,
-      monitor: null,
-    });
+    // モニター掃除の await 中にも cancel() は割り込み得る — 解除済みなら
+    // カウントイン告知もデバイスオープンもしない。
+    if (this.getState().phase !== "starting") return;
     // #99: 録音開始カウントイン — デバイスを開く前の準備猶予。カウント中は
     // ポートに触れないので何も録られない(鳴っていても捨てる安全側仕様)。
     if (this.countInSeconds > 0) {
@@ -624,6 +649,13 @@ export class CaptureController {
    *  拒否をここで先に知れるのがこの機能の価値)。 */
   async startMonitor(source: CaptureSource): Promise<void> {
     if (this.state.phase !== "idle") return;
+    // #413: 前の開設がまだ解決していなければ待つ — 並行 port.start()
+    // は後着側を BUSY で失敗させる。待っている間に録音開始などで
+    // idle を離れたらここで終わる。
+    while (this.monitorOpening) {
+      await this.monitorOpening.done;
+      if (this.state.phase !== "idle") return;
+    }
     const deviceId = this.deviceIds[source];
     if (
       this.state.monitor?.source === source &&
@@ -637,6 +669,29 @@ export class CaptureController {
     } catch {
       /* セッション無しなら何も起きない */
     }
+    // #413: 開設全体を monitorOpening として追跡 — 録音 start() 等は
+    // この解決を待つ。openMonitor は内部で失敗を announce 済みなので
+    // done は待機側へ投げない。
+    const done: Promise<void> = this.openMonitor(source, deviceId).then(
+      () => undefined,
+      () => undefined,
+    );
+    this.monitorOpening = { source, deviceId, done };
+    try {
+      await done;
+    } finally {
+      // 自分の開設だけをクリア — 連続開設で後の追跡を消さない。
+      if (this.monitorOpening?.done === done) this.monitorOpening = null;
+    }
+  }
+
+  /** #413: モニターの実開設 — resolveTargetPid → port.start → 状態確定
+   *  までを一単位にする。失敗は内部で announce し、呼び出し側へは
+   *  投げない(monitorOpening の待機側を例外で潰さない)。 */
+  private async openMonitor(
+    source: CaptureSource,
+    deviceId: string | null,
+  ): Promise<void> {
     try {
       // #100: ループバックのモニターも対象アプリフィルタに従う —
       // 録るものと同じ信号を事前に聴ける。
@@ -650,6 +705,17 @@ export class CaptureController {
         monitorOnly: true,
         targetPid,
       });
+      // #413: 開設の解決までに idle を離れた(録音 start が待っている)
+      // — 表示状態だけ立てて放置はしない。セッションは自ら畳み、
+      // start() 側の待機はこの後解ける。
+      if (this.state.phase !== "idle") {
+        try {
+          await this.port.cancel();
+        } catch {
+          /* 掃除失敗は無視 — 録音側の port.start を妨げない */
+        }
+        return;
+      }
       this.setState({
         ...this.state,
         monitor: { source, deviceId, level: null },
@@ -670,6 +736,9 @@ export class CaptureController {
 
   /** モニターを畳む(メニューを閉じた時/録音前)。 */
   async stopMonitor(): Promise<void> {
+    // #413: 開設中ならまず解決を待つ — 開き終わったセッションだけ
+    // 畳ける(state.monitor が立つ前の cancel では開設が生き残る)。
+    if (this.monitorOpening) await this.monitorOpening.done;
     if (!this.state.monitor) return;
     this.stopMonitorTimer();
     try {
@@ -682,6 +751,9 @@ export class CaptureController {
 
   /** メニューの「入力レベル」行のトグル。 */
   async toggleMonitor(source: CaptureSource): Promise<void> {
+    // #413: 開設中のモニターは「ある」ものとして扱う — 解決を待って
+    // から立っているか判定しないと二重開設になる。
+    if (this.monitorOpening) await this.monitorOpening.done;
     if (this.state.monitor?.source === source) {
       await this.stopMonitor();
       return;
