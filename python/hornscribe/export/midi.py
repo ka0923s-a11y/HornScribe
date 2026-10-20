@@ -300,11 +300,21 @@ def playback_midi_bytes(
     total_ticks = 0
     tempo_events: list[tuple[int, mido.MetaMessage]] = []
     # #157: tempo_map bpm counts primary beats (6/8 -> dotted quarter),
-    # not payload beats — match the notation referent.
+    # not payload beats — match the notation referent. #410: the
+    # referent is the meter active AT the segment's start beat — a
+    # mark inside a mid-piece meter change used to inherit the head
+    # signature and shift the section's rate (6/8 under a 4/4 head
+    # played 1.5x slow). meter_changes[0] is the head signature at
+    # beat 0 by domain invariant.
     beat_ql = Fraction(4, ts.beat_unit)
-    primary_ql = primary_beat_beats(ts, beat_ql) * beat_ql
     for seg in payload.tempo_map:
         tick = _beat_to_tick(seg.start_beat, ts.beat_unit, ticks_per_beat)
+        meter = ts
+        for ch in payload.meter_changes:
+            if ch.start_beat > seg.start_beat:
+                break
+            meter = ch.time_signature
+        primary_ql = primary_beat_beats(meter, beat_ql) * beat_ql
         us_per_quarter = _tempo_us_per_quarter(seg.bpm, primary_ql)
         tempo_events.append(
             (tick, mido.MetaMessage("set_tempo", tempo=us_per_quarter, time=0))
@@ -312,8 +322,27 @@ def playback_midi_bytes(
     if not tempo_events:
         tempo_events.append((0, mido.MetaMessage("set_tempo", tempo=500000, time=0)))
 
+    # #410: mid-piece meter changes — the conductor track previously
+    # carried only the head signature, so a 4/4->6/8 score played its
+    # 6/8 section under the wrong declared meter. Emit each change as
+    # a time_signature meta event; meter events precede same-tick
+    # tempo events (stable sort) so the new referent lands first.
+    meter_events: list[tuple[int, mido.MetaMessage]] = [
+        (
+            _beat_to_tick(ch.start_beat, ts.beat_unit, ticks_per_beat),
+            mido.MetaMessage(
+                "time_signature",
+                numerator=ch.time_signature.beats_per_measure,
+                denominator=ch.time_signature.beat_unit,
+                time=0,
+            ),
+        )
+        for ch in payload.meter_changes
+        if ch.start_beat > 0
+    ]
+
     last = 0
-    for tick, msg in sorted(tempo_events, key=lambda e: e[0]):
+    for tick, msg in sorted(meter_events + tempo_events, key=lambda e: e[0]):
         msg.time = tick - last
         conductor.append(msg)
         last = tick

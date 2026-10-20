@@ -153,6 +153,80 @@ def test_eighth_beat_unit_tempo() -> None:
     assert tempos == [333333]  # 60e6 / (120 * 3/2) quarters/min
 
 
+def _meter_changing_score():
+    """4/4 -> 6/8 at beat 8, with a tempo mark inside each meter (#410)."""
+    from hornscribe.domain.ids import (
+        IdAllocator,
+        ScoreNoteId,
+        derive_project_id,
+    )
+    from hornscribe.domain.score import (
+        KeySignature,
+        MeterChange,
+        Part,
+        QuantizedNote,
+        ScoreDocument,
+        ScoreRevisionPayload,
+        TempoSegment,
+        TimeSignature,
+    )
+
+    alloc = IdAllocator("sn")
+    qnotes = tuple(
+        QuantizedNote(
+            id=ScoreNoteId(alloc.allocate()),
+            source_event_ids=(),
+            pitch_midi=pitch,
+            start_beat=Fraction(start),
+            duration_beats=Fraction(dur),
+            velocity=80,
+        )
+        for pitch, start, dur in ((60, 0, 1), (62, 8, 1))
+    )
+    payload = ScoreRevisionPayload(
+        tempo_map=(
+            TempoSegment(start_beat=Fraction(0), bpm=120.0),
+            TempoSegment(start_beat=Fraction(8), bpm=60.0),
+        ),
+        time_signature=TimeSignature(4, 4),
+        key_signature=KeySignature(0, "major"),
+        pickup_beats=Fraction(0),
+        meter_changes=(
+            MeterChange(Fraction(0), TimeSignature(4, 4), Fraction(0)),
+            MeterChange(Fraction(8), TimeSignature(6, 8), Fraction(0)),
+        ),
+        parts=(Part(id="part-1", name="Horn in F", notes=qnotes),),
+        quantization_settings={"grid": "1/16"},
+    )
+    return ScoreDocument(
+        project_id=derive_project_id({"fixture": "test"}),
+        payload=payload,
+        title="Meter change",
+    )
+
+
+def test_meter_change_segment_uses_local_referent() -> None:
+    """#410: a tempo mark inside a mid-piece 6/8 section counts
+    dotted-quarter beats, not head-meter quarters — and the meter
+    change itself lands on the conductor track."""
+    mid = _parse(playback_midi_bytes(_meter_changing_score()))
+    tempos = [
+        (t, m.tempo)
+        for t, m in _track_messages_at_ticks(mid.tracks[0])
+        if m.type == "set_tempo"
+    ]
+    # 120 quarters/min at tick 0; 60 dotted-quarters/min = 90
+    # quarters/min -> 666667 us/quarter at beat 8 (8 * 480 ticks).
+    # The head-meter reading produced 1000000 (60 quarters/min).
+    assert tempos == [(0, 500000), (8 * 480, 666667)]
+    sigs = [
+        (t, (m.numerator, m.denominator))
+        for t, m in _track_messages_at_ticks(mid.tracks[0])
+        if m.type == "time_signature"
+    ]
+    assert sigs == [(0, (4, 4)), (8 * 480, (6, 8))]
+
+
 def test_non_integer_tick_rejected() -> None:
     score = make_score([(60, 0, Fraction(1, 3))])  # triplet beat -> 160 ticks, exact
     assert playback_midi_bytes(score)  # 480/3 is integer -> ok

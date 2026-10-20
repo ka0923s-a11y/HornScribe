@@ -13,6 +13,11 @@
  * points — only offbeat content moves.
  */
 import { parseFraction } from "./rhythmEdits";
+import {
+  meterAtBeat,
+  meterSegments,
+  primaryBeatBeats,
+} from "./meterSegments";
 
 /** Maps a written score millisecond to its sounding millisecond. */
 export type ScoreTimeWarp = (writtenMs: number) => number;
@@ -34,9 +39,14 @@ function num(raw: unknown): number | null {
  * Canonical beats are defined by the FIRST time signature only
  * (score.py beat_ql_of), so meter changes never rescale the axis —
  * only tempo segments create breakpoints. tempo_map bpm counts
- * *primary* beats (6/8 -> dotted quarter; #157), and the exported
- * sound tempo is quarters/min = bpm * primary_ql, so one payload
- * beat lasts 60000 * beatCount / (bpm * beatsPerMeasure) ms. */
+ * *primary* beats OF THE METER ACTIVE AT THE MARK (6/8 -> dotted
+ * quarter; #157): one payload beat therefore lasts
+ * 60000 / (bpm * primaryBeatBeats) ms where primaryBeatBeats is the
+ * local meter's primary beat measured in canonical beats. #410: the
+ * lookup runs per tempo segment — a 4/4->6/8 piece no longer reads a
+ * mid-piece mark's dotted-quarter referent as a quarter, which used
+ * to stretch the section's msPerBeat 1.5x (and compress it the
+ * other way around). */
 function beatBoundaries(content: Record<string, unknown>): Boundary[] | null {
   const tempo = content["tempoMap"];
   if (!Array.isArray(tempo) || tempo.length === 0) return null;
@@ -54,18 +64,21 @@ function beatBoundaries(content: Record<string, unknown>): Boundary[] | null {
   }
 
   const head = content["timeSignature"] as Record<string, unknown> | undefined;
-  const beatsPerMeasure = num(head?.["beatsPerMeasure"]);
-  if (beatsPerMeasure == null || beatsPerMeasure <= 0) return null;
-  // Compound meters (6/8, 9/8, 12/8) beat on dotted quarters — mirrors
-  // MeterSegment.beat_count / domain primary_beat_beats.
-  const beatCount =
-    beatsPerMeasure % 3 === 0 && beatsPerMeasure > 3
-      ? beatsPerMeasure / 3
-      : beatsPerMeasure;
-  return tempoSegs.map((seg) => ({
-    beat: seg.beat,
-    msPerBeat: (60000 * beatCount) / (seg.bpm * beatsPerMeasure),
-  }));
+  const headUnit = num(head?.["beatUnit"]);
+  if (headUnit == null || headUnit <= 0) return null;
+  const beatQl = 4 / headUnit;
+  // The meter map decides each tempo mark's referent — the same
+  // segments measureLayouts tiles; a missing/malformed map is honest
+  // null (never silently head-meter).
+  const segs = meterSegments({ content });
+  if (!segs || segs.length === 0) return null;
+  return tempoSegs.map((seg) => {
+    const meter = meterAtBeat(segs, seg.beat);
+    return {
+      beat: seg.beat,
+      msPerBeat: 60000 / (seg.bpm * primaryBeatBeats(meter, beatQl)),
+    };
+  });
 }
 
 /** written beat -> written ms through the boundary map (linear inside
