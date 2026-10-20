@@ -5,6 +5,8 @@ import {
   buildProjectDocument,
   deriveProjectId,
   isSaveableRevision,
+  parseSavedPartMix,
+  serializePartMix,
   validateProjectDocument,
   writeProjectDocument,
 } from "./project";
@@ -215,6 +217,100 @@ describe("buildProjectDocument", () => {
       result: RESULT,
     });
     expect(bare!.regionLabels).toEqual([]);
+  });
+
+  it("#416: persists パートミキサー行 under uiSession.partMix", async () => {
+    const mix = [
+      { name: "Horn in F", volume: 0.85, muted: false, solo: true, visible: true },
+      { name: "Piano", volume: 0.4, muted: true, solo: false, visible: false },
+    ];
+    const doc = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc(),
+      result: RESULT,
+      partMix: mix,
+    });
+    // uiSession は schema キー — 行はそのまま往復し、検証も落ちない。
+    expect(doc!.uiSession).toEqual({ partMix: mix });
+    expect(validateProjectDocument(doc)).toBeNull();
+    // 省略時は従来どおり null(レガシーファイルと同じ形)。
+    const bare = await buildProjectDocument({
+      audio: null,
+      doc: fakeDoc(),
+      result: RESULT,
+    });
+    expect(bare!.uiSession).toBeNull();
+  });
+});
+
+describe("#416: partMix serialize/parse", () => {
+  it("serialize clamps volume and coerces flags", () => {
+    const rows = serializePartMix([
+      { name: "Horn in F", volume: 1.7, muted: true, solo: false, visible: true },
+      // @ts-expect-error 防御: 作為的に壊れた行も正規化して書く
+      { name: 42, volume: NaN, muted: 1, solo: 0, visible: null },
+    ]);
+    expect(rows[0]).toEqual({
+      name: "Horn in F",
+      volume: 1,
+      muted: true,
+      solo: false,
+      visible: true,
+    });
+    expect(rows[1]).toEqual({
+      name: 42,
+      volume: 1,
+      muted: false,
+      solo: false,
+      // 明示的 false のみ非表示 — null/undefined は既定(表示)。
+      visible: true,
+    });
+  });
+
+  it("parse reads uiSession.partMix; position is preserved on bad rows", () => {
+    const uiSession = {
+      partMix: [
+        { name: "Horn in F", volume: 0.3, muted: true, solo: false, visible: true },
+        "garbage",
+        { name: "Piano", volume: 2, muted: false, solo: true, visible: false },
+      ],
+    };
+    const rows = parseSavedPartMix(uiSession);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toEqual({
+      name: "Horn in F",
+      volume: 0.3,
+      muted: true,
+      solo: false,
+      visible: true,
+    });
+    // 壊れた行は捨てない — 既定行で出して以降の index を維持する。
+    expect(rows[1]).toEqual({
+      name: "",
+      volume: 1,
+      muted: false,
+      solo: false,
+      visible: true,
+    });
+    // 範囲外の volume は clamp される。
+    expect(rows[2].volume).toBe(1);
+    expect(rows[2].visible).toBe(false);
+  });
+
+  it("parse returns [] for missing/malformed uiSession", () => {
+    expect(parseSavedPartMix(null)).toEqual([]);
+    expect(parseSavedPartMix(undefined)).toEqual([]);
+    expect(parseSavedPartMix("str")).toEqual([]);
+    expect(parseSavedPartMix({})).toEqual([]);
+    expect(parseSavedPartMix({ partMix: "nope" })).toEqual([]);
+  });
+
+  it("round-trips through serialize then parse", () => {
+    const mix = [
+      { name: "Horn in F", volume: 0.85, muted: false, solo: true, visible: true },
+      { name: "Piano", volume: 0.4, muted: true, solo: false, visible: false },
+    ];
+    expect(parseSavedPartMix({ partMix: serializePartMix(mix) })).toEqual(mix);
   });
 });
 

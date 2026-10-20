@@ -118,6 +118,16 @@ export interface ProjectSummary {
     startSec: number;
     endSec: number;
   }[];
+  /** #416: saved uiSession.partMix — canonical part order のミキサー
+   *  行。score workspace が index で現行パート名にマージして復元する。
+   *  行なし/レガシーファイルでは空配列。 */
+  savedPartMix?: readonly {
+    name: string;
+    volume: number;
+    muted: boolean;
+    solo: boolean;
+    visible: boolean;
+  }[];
 }
 
 /** SOURCE_MISSING context: which project lost its audio, and whether the

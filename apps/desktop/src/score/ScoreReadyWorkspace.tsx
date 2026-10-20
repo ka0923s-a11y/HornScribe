@@ -233,6 +233,16 @@ interface Props {
   /** #389: 区間ラベル — waveform-region names surface on the score as
    *  boxed rehearsal marks (view + print + export paths). */
   regionLabels?: readonly RegionLabel[];
+  /** #416: プロジェクト保存の uiSession.partMix — マウント時の
+   *  partMix シード(初回 syncPartMix が index マージで canonical
+   *  パート名に引き継ぐ)。document key リマウント前提の per-score
+   *  初期値で、null/省略時は既定(先頭=1, 伴奏=0.7)。 */
+  initialPartMix?: readonly PartMixEntry[] | null;
+  /** #416: 復元されたミキサー行 — マウント後の最初の syncPartMix で
+   *  計算された「復元結果」を一度だけ報告する。App はこれを dirty
+   *  判定の baseline として採用する(保存済み行と実際に復元された
+   *  行は index マージを経るため同一とは限らない)。 */
+  onPartMixRestored?(rows: readonly PartMixEntry[]): void;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
@@ -627,6 +637,8 @@ export function ScoreReadyWorkspace({
   onOpenProperties,
   onOpenSettings,
   regionLabels,
+  initialPartMix = null,
+  onPartMixRestored,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<ScoreRenderer | null>(null);
@@ -714,8 +726,18 @@ export function ScoreReadyWorkspace({
   /* #398: per-part mixer rows (canonical part order). Ref mirrors state so
    *  the controller + rebuild helpers always see the latest mix; the state
    *  copy feeds the onStateChange mirror for the transport-bar popover. */
+  /* #416: シードは initialPartMix(プロジェクト保存行)。最初の
+   *  syncPartMix が canonical パート名へ index マージして復元し、
+   *  その結果を onPartMixRestored で一度だけ App へ報告する。 */
+  /* state は sync 完了まで空(保存行の生値を popover に出さない)
+   *  — シードは ref 側だけが持ち、最初の syncPartMix の index
+   *  マージで canonical パート名へ引き継がれる。 */
   const [partMix, setPartMix] = useState<readonly PartMixEntry[]>([]);
-  const partMixRef = useRef<readonly PartMixEntry[]>([]);
+  const partMixRef = useRef<readonly PartMixEntry[]>(initialPartMix ?? []);
+  const partMixRestoredSentRef = useRef(false);
+  // #416: prop 経由で syncPartMix([] deps)から呼ぶため最新値を ref にミラー。
+  const onPartMixRestoredRef = useRef(onPartMixRestored);
+  onPartMixRestoredRef.current = onPartMixRestored;
 
   /* Rebuild mixer rows from canonical parts, preserving fader/mute/solo by
    *  index so re-transcribing with a different part count keeps the user's
@@ -738,6 +760,12 @@ export function ScoreReadyWorkspace({
     partMixRef.current = next;
     setPartMix(next);
     pushPartGains(synthRef.current, next);
+    // #416: 復元結果を一度だけ報告 — マウント後の最初の計算が
+    //  「保存されていたミキサー」の実効値(= dirty baseline)。
+    if (!partMixRestoredSentRef.current && next.length > 0) {
+      partMixRestoredSentRef.current = true;
+      onPartMixRestoredRef.current?.(next);
+    }
     // #211: non-transposing staves (accompaniment) run the darker
     // backing timbre on their bus — the lead keeps the open one.
     transposing.forEach((t, i) =>

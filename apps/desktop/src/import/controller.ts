@@ -32,6 +32,7 @@ import {
   loadRecentProjects,
 } from "./recentProjects";
 import { parseRegionLabels } from "../workspace/regionLabels";
+import { parseSavedPartMix } from "./project";
 import type {
   AudioFileRef,
   AudioFormat,
@@ -105,6 +106,15 @@ export interface ImportEvents {
         label: string;
         startSec: number;
         endSec: number;
+      }[];
+      /** #416: the saved uiSession.partMix rows — the score workspace
+       *  seeds its mixer from them (index merge over canonical parts). */
+      savedPartMix?: readonly {
+        name: string;
+        volume: number;
+        muted: boolean;
+        solo: boolean;
+        visible: boolean;
       }[];
     },
   ): void;
@@ -743,6 +753,7 @@ export class ImportController {
         sourcePath: project.sourcePath,
         recovered: project.recovered,
         regionLabels: project.regionLabels,
+        savedPartMix: project.savedPartMix,
       });
     }
     // #391: a .recovery restore has no card of its own — the status
@@ -800,6 +811,7 @@ export class ImportController {
         sourcePath: project.sourcePath,
         recovered: project.recovered,
         regionLabels: project.regionLabels,
+        savedPartMix: project.savedPartMix,
       });
       this.announceOpened(project);
     } else {
@@ -959,6 +971,9 @@ function projectSummaryFromDocument(
     transcriptionSettings: transcriptionSettingsFromProject(data),
     // #12: 区間ラベル extras を復元(壊れた行は parse 側で捨てる)。
     regionLabels: parseRegionLabels(data.regionLabels),
+    // #416: uiSession.partMix — ミキサー行を index 復元用に渡す
+    //  (壊れた行は既定行に置き換えて位置を維持する)。
+    savedPartMix: parseSavedPartMix(data.uiSession),
     recovered: recovered || undefined,
   };
 }
