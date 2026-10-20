@@ -16,6 +16,12 @@
  */
 import { parseFraction } from "./rhythmEdits";
 import { buildBeatToMs, buildMsToBeat } from "./swingWarp";
+import {
+  contentOf,
+  measureLengthBeats,
+  primaryBeatCount,
+  segmentsFromContent,
+} from "./meterSegments";
 
 /** One measure on the canonical beat axis (mirror of MeasureSpan). */
 export interface MeasureLayout {
@@ -53,103 +59,6 @@ function num(raw: unknown): number | null {
   if (f) return f.num / f.den;
   const n = typeof raw === "number" ? raw : Number(raw);
   return Number.isFinite(n) ? n : null;
-}
-
-interface MeterSegment {
-  startBeat: number;
-  beatsPerMeasure: number;
-  beatUnit: number;
-  phaseBeats: number;
-}
-
-/** Primary beats per measure — compound meters beat on dotted units
- *  (mirrors MeterSegment.beat_count / primary_beat_beats). */
-function primaryBeatCount(beatsPerMeasure: number): number {
-  return beatsPerMeasure % 3 === 0 && beatsPerMeasure > 3
-    ? beatsPerMeasure / 3
-    : beatsPerMeasure;
-}
-
-/** Measure length in canonical beats: beats_per_measure * (4/beatUnit)
- *  quarterLength divided by the beat-defining quarterLength. */
-function measureLengthBeats(
-  beatsPerMeasure: number,
-  beatUnit: number,
-  beatQl: number,
-): number {
-  return (beatsPerMeasure * 4) / beatUnit / beatQl;
-}
-
-function contentOf(canonicalDocument: unknown): Record<
-  string,
-  unknown
-> | null {
-  const doc = canonicalDocument as Record<string, unknown> | null;
-  const content = doc?.["content"];
-  return typeof content === "object" && content !== null
-    ? (content as Record<string, unknown>)
-    : null;
-}
-
-function readSegments(
-  content: Record<string, unknown>,
-): MeterSegment[] | null {
-  const head = content["timeSignature"] as
-    | Record<string, unknown>
-    | undefined;
-  const headBeats = num(head?.["beatsPerMeasure"]);
-  const headUnit = num(head?.["beatUnit"]);
-  if (
-    headBeats == null ||
-    headBeats <= 0 ||
-    headUnit == null ||
-    headUnit <= 0
-  ) {
-    return null;
-  }
-  const pickup = num(content["pickupBeats"]) ?? 0;
-  const raw = content["meterChanges"];
-  if (Array.isArray(raw) && raw.length > 0) {
-    const segs: MeterSegment[] = [];
-    for (const entry of raw) {
-      const o = entry as Record<string, unknown>;
-      const startBeat = num(o["startBeat"]);
-      const ts = o["timeSignature"] as Record<string, unknown> | undefined;
-      const bpm_ = num(ts?.["beatsPerMeasure"]);
-      const bu = num(ts?.["beatUnit"]);
-      const phase = num(o["measurePhaseBeats"]) ?? 0;
-      if (
-        startBeat == null ||
-        bpm_ == null ||
-        bpm_ <= 0 ||
-        bu == null ||
-        bu <= 0 ||
-        phase < 0
-      ) {
-        return null;
-      }
-      segs.push({
-        startBeat,
-        beatsPerMeasure: bpm_,
-        beatUnit: bu,
-        phaseBeats: phase,
-      });
-    }
-    segs.sort((a, b) => a.startBeat - b.startBeat);
-    return segs;
-  }
-  // Legacy single-meter path: pickup must fit inside a head measure;
-  // a non-zero pickup becomes the first measure's phase (anacrusis).
-  if (pickup < 0 || pickup >= headBeats) return null;
-  const mlen0 = headBeats;
-  return [
-    {
-      startBeat: 0,
-      beatsPerMeasure: headBeats,
-      beatUnit: headUnit,
-      phaseBeats: pickup > 0 ? mlen0 - pickup : 0,
-    },
-  ];
 }
 
 /** Content end in canonical beats: max note/rest end (pickup floor). */
@@ -202,7 +111,7 @@ export function measureLayouts(
 ): MeasureLayout[] | null {
   const content = contentOf(canonicalDocument);
   if (!content) return null;
-  const segments = readSegments(content);
+  const segments = segmentsFromContent(content);
   if (!segments || segments.length === 0) return null;
   const head = content["timeSignature"] as Record<string, unknown>;
   const headUnit = num(head["beatUnit"]);

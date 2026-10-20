@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { VerovioTimemapEntry } from "verovio/esm";
 import { buildPlaybackTable } from "./playbackTable";
-import { buildSwingWarp } from "./swingWarp";
+import { buildBeatToMs, buildSwingWarp } from "./swingWarp";
 
 function doc(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -90,6 +90,57 @@ describe("buildSwingWarp", () => {
     expect(warp?.(eighth)).toBeCloseTo(eighth, 6);
     expect(warp?.(eighth / 2)).toBeCloseTo((2 / 3) * eighth, 6);
     expect(warp?.(6 * eighth)).toBeCloseTo(6 * eighth, 6);
+  });
+
+  /* #410: a tempo mark inside a mid-piece meter change takes the
+   * LOCAL meter's primary beat — before the fix every segment used
+   * the head signature and a 4/4->6/8 piece stretched the section
+   * 1.5x (each mark's dotted-quarter referent read as a quarter). */
+  it("reads a mid-piece meter change's referent per tempo segment", () => {
+    const beatToMs = buildBeatToMs(
+      doc({
+        swingFeel: undefined,
+        tempoMap: [
+          { startBeat: "0/1", bpm: 120 },
+          { startBeat: "8/1", bpm: 60 },
+        ],
+        meterChanges: [
+          {
+            startBeat: "0/1",
+            timeSignature: { beatsPerMeasure: 4, beatUnit: 4 },
+            measurePhaseBeats: "0/1",
+          },
+          {
+            startBeat: "8/1",
+            timeSignature: { beatsPerMeasure: 6, beatUnit: 8 },
+            measurePhaseBeats: "0/1",
+          },
+        ],
+      }),
+    );
+    expect(beatToMs).not.toBeNull();
+    // 4/4 section: 8 quarter-beats at 120bpm -> 4000ms.
+    expect(beatToMs?.(8)).toBeCloseTo(4000, 6);
+    // 6/8 section: bpm counts dotted quarters (1.5 canonical beats),
+    // so one canonical beat lasts 60000/60/1.5 = 666.67ms — not the
+    // 1000ms the head-meter reading produced.
+    expect(beatToMs?.(9)).toBeCloseTo(4000 + 2000 / 3, 6);
+    expect(beatToMs?.(11)).toBeCloseTo(4000 + 2000, 6);
+  });
+
+  it("keeps single-meter documents on the legacy conversion", () => {
+    // Non-regression: 4/4 and 6/8 head meters without meterChanges
+    // produce the same msPerBeat the pre-#410 formula gave.
+    const simple = buildBeatToMs(doc({ swingFeel: undefined }));
+    expect(simple?.(1)).toBeCloseTo(500, 6); // 4/4 120bpm
+    const compound = buildBeatToMs(
+      doc({
+        swingFeel: undefined,
+        tempoMap: [{ startBeat: "0/1", bpm: 60 }],
+        timeSignature: { beatsPerMeasure: 6, beatUnit: 8 },
+      }),
+    );
+    expect(compound?.(1)).toBeCloseTo(1000 / 3, 6); // eighth at dotted=60
   });
 
   it("warps a playback table's onsets and duration", () => {
