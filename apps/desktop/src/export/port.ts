@@ -31,7 +31,10 @@ export type { ExportPort } from "./types";
 
 export function createDefaultExportPort(
   source?: () => ExportSource | null,
-  midiExporter?: (scoreDocument: unknown) => Promise<string>,
+  midiExporter?: (
+    scoreDocument: unknown,
+    opts?: { partGains?: readonly number[] },
+  ) => Promise<string>,
   /** #390: engine-liveness probe for the canonical-MIDI tier —
    *  false means the exporter RPC would hit a dead worker. */
   engineReady?: () => boolean,

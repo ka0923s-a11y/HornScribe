@@ -61,6 +61,7 @@ import {
 } from "./score/review";
 import { waveformNoteOverlay } from "./score/noteOverlay";
 import { scoreHasPolyphony } from "./score/polyphony";
+import { effectivePartGains } from "./score/playbackSynth";
 import { extractTimingCorrection } from "./sidecar/resultMeta";
 import { formatTimecode as formatScoreTimecode } from "./score/timecode";
 import {
@@ -370,7 +371,7 @@ export default function App() {
     () =>
       createDefaultExportPort(
         () => exportSourceRef.current,
-        (doc) => session.exportMidi(doc).then((r) => r.midiBase64),
+        (doc, opts) => session.exportMidi(doc, opts).then((r) => r.midiBase64),
         // #390: a dead engine must not burn the canonical-MIDI RPC —
         // the port degrades that format alone instead of the whole
         // export failing.
@@ -750,6 +751,15 @@ export default function App() {
     return mix.map((m) => !(m.muted || (anySolo && !m.solo)));
   }, [scoreState?.partMix]);
 
+  // #407: the fader half of the same contract — surviving parts carry
+  // their effective gain into the MIDI bounce as scaled velocities
+  // (the bounce matches what the user hears, fader included).
+  const partMixGains = useMemo(
+    () =>
+      scoreState?.partMix ? effectivePartGains(scoreState.partMix) : null,
+    [scoreState?.partMix],
+  );
+
   // #99: keep the export port's source getter current — the doc plus a
   // basename derived from the loaded audio's file name (extension
   // stripped), matching the ENG-001 `<basename>_<artifact>` policy.
@@ -773,10 +783,11 @@ export default function App() {
           audioName: audioPath ? fileName || null : null,
           partVisible: partMixVisible ?? undefined,
           partAudible: partMixAudible ?? undefined,
+          partGains: partMixGains ?? undefined,
           regionLabels,
         }
       : null;
-  }, [scoreDocument, importState.audio, partMixVisible, partMixAudible, regionLabels]);
+  }, [scoreDocument, importState.audio, partMixVisible, partMixAudible, partMixGains, regionLabels]);
 
   // #156: a document swap while the B♭ view is active must not strand
   // the renderer on a projection the document lacks (legacy projects

@@ -619,6 +619,18 @@ class Worker:
                 protocol.ERR_INVALID_PARAMS,
                 "export.midi requires a 'scoreDocument' object",
             )
+        # #407: optional per-part mixer gains (0..1) — the desktop
+        # mixer's effective balance reaches the MIDI bounce as scaled
+        # velocities. Absent/malformed entries mean full level.
+        gains_raw = payload.get("partGains")
+        part_gains: list[float] | None = None
+        if isinstance(gains_raw, list):
+            part_gains = [
+                max(0.0, min(1.0, float(g)))
+                if isinstance(g, (int, float)) and not isinstance(g, bool)
+                else 1.0
+                for g in gains_raw
+            ]
         import base64  # noqa: PLC0415
 
         from hornscribe.domain.score import ScoreDocument  # noqa: PLC0415
@@ -631,7 +643,7 @@ class Worker:
                 f"invalid scoreDocument: {exc}",
             ) from exc
         try:
-            midi = playback_midi_bytes(document)
+            midi = playback_midi_bytes(document, part_gains=part_gains)
         except (KeyError, TypeError, ValueError) as exc:
             raise protocol.ProtocolError(
                 protocol.ERR_JOB_FAILED, f"midi export failed: {exc}"
