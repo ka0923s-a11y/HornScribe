@@ -327,6 +327,27 @@ describe("TranscriptionQueue", () => {
     q.dispose();
   });
 
+  it("#422: move swaps with the nearest pending sibling — finished rows stay put", async () => {
+    const sess = makeSession();
+    const { events } = makeEvents();
+    const q = new TranscriptionQueue(sess, events);
+    const a = q.enqueue({ label: "a.wav", params: entryParams });
+    const b = q.enqueue({ label: "b.wav", params: entryParams });
+    const c = q.enqueue({ label: "c.wav", params: entryParams });
+    await q.cancel(b.id); // cancelled — sits between two pending rows
+    // Moving c up skips the fixed cancelled row and swaps with a;
+    // b's position never changes.
+    expect(q.move(c.id, -1)).toBe(true);
+    expect(q.getSnapshot().entries.map((e) => e.label)).toEqual([
+      "c.wav",
+      "b.wav",
+      "a.wav",
+    ]);
+    // a is the last pending now — moving down finds no sibling.
+    expect(q.move(a.id, 1)).toBe(false);
+    q.dispose();
+  });
+
   it("remove drops a pending entry, clearFinished drops terminal rows", async () => {
     const sess = makeSession();
     const { events } = makeEvents();
