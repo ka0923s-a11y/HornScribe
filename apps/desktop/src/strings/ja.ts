@@ -1706,7 +1706,7 @@ export const ja = {
     repeated_section: {
       title: "繰り返されるフレーズを検出しました",
       detail:
-        "同じフレーズが後の小節で繰り返されています（サビの再現など）。譜面の内容はそのままです — 繰り返し箇所の小節番号は詳細に表示しています。",
+        "同じフレーズが後の小節で繰り返されています（サビの再現など）。楽譜の内容はそのままです — 繰り返し箇所の小節番号は詳細に表示しています。",
     },
     // #352: the auto-estimated key could not be justified — the
     // evidence branch names the estimate and why it is unsure.
