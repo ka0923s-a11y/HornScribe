@@ -619,3 +619,90 @@ describe("inspectProject — engine project.open (#365)", () => {
     await session.dispose();
   });
 });
+
+describe("ensureEngine spawn discipline (#418)", () => {
+  const doc = {
+    schemaVersion: 1,
+    projectId: "prj-0123456789abcdef",
+    sourceAudio: null,
+    scoreDocument: { content: {} },
+  };
+  const open = () => ({ documentBase64: btoa(JSON.stringify(doc)) });
+
+  it("concurrent lazy callers share one spawn — no second engine_spawn", async () => {
+    let spawns = 0;
+    const session = new TranscriptionSession({
+      portFactory: () => {
+        spawns += 1;
+        return new MockSidecarPort();
+      },
+      clientOptions: { requestTimeoutMs: 500, handshakeTimeoutMs: 800 },
+    });
+    // Two lazy RPCs racing a cold engine must not each spawn — the
+    // Rust singleton would reject the second with
+    // ENGINE_ALREADY_RUNNING and strand a stale failure on a healthy
+    // engine.
+    const [a, b] = await Promise.all([
+      session.inspectProject(open()),
+      session.inspectProject(open()),
+    ]);
+    expect(spawns).toBe(1);
+    expect(a.project).toMatchObject({ projectId: doc.projectId });
+    expect(b.project).toMatchObject({ projectId: doc.projectId });
+    expect(session.getSnapshot().engine).toBe("ready");
+    expect(session.getSnapshot().failure).toBeNull();
+    await session.dispose();
+  });
+
+  it("a lazy call self-heals an unresponsive engine — wedged worker is replaced", async () => {
+    const ports: MockSidecarPort[] = [];
+    const session = new TranscriptionSession({
+      portFactory: () => {
+        const p = new MockSidecarPort();
+        ports.push(p);
+        return p;
+      },
+      clientOptions: {
+        requestTimeoutMs: 120,
+        handshakeTimeoutMs: 800,
+        watchdogMs: 40,
+        pingTimeoutMs: 30,
+      },
+    });
+    // The watchdog only arms while a job is active — a hang must be
+    // declared mid-job to reach 'unresponsive'.
+    await session.startTranscription({ steps: 50, stepDurationMs: 60 });
+    await until(() => session.getSnapshot().job?.phase === "running");
+    ports[0].simulateHang();
+    await until(() => session.getSnapshot().engine === "unresponsive", 3000);
+    // The wedged worker still holds the supervisor's spawn slot —
+    // before #418 this path spawned blindly and died on
+    // ENGINE_ALREADY_RUNNING; now the stale client is shut down
+    // (graceful → kill fallback) before the replacement spawn.
+    const res = await session.inspectProject(open());
+    expect(res.project).toMatchObject({ projectId: doc.projectId });
+    expect(session.getSnapshot().engine).toBe("ready");
+    expect(ports.length).toBe(2);
+    await session.dispose();
+  }, 10_000);
+
+  it("dispose during an in-flight spawn still tears the worker down", async () => {
+    const exited = new Set<MockSidecarPort>();
+    const session = new TranscriptionSession({
+      portFactory: () => {
+        const p = new MockSidecarPort();
+        p.onExit(() => exited.add(p));
+        return p;
+      },
+      clientOptions: { requestTimeoutMs: 120, handshakeTimeoutMs: 800 },
+    });
+    const inspect = session.inspectProject(open());
+    // Dispose mid-handshake — the spawn must settle first so the
+    // fresh worker lands in this.client and gets shut down, not
+    // orphaned past app quit.
+    await session.dispose();
+    await inspect.catch(() => undefined);
+    expect(session.getSnapshot().engine).toBe("closed");
+    expect(exited.size).toBe(1);
+  });
+});
