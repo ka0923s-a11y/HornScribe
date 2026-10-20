@@ -206,6 +206,11 @@ interface Props {
   initialViewMode?: ScoreViewMode;
   /** 設定→再生 再生位置を追従 — seeds the follow toggle. */
   followPlayback?: boolean;
+  /** #412: 設定→再生 標準再生速度 — seeds the score clock's rate at
+   *  creation so score-only audition (no live media) honours the same
+   *  default speed as the media transport. While media is live the
+   *  extRate sync above stays authoritative and overwrites this. */
+  initialPlaybackRate?: number;
   /** #115 (spec 13): engine score.edit invoker — absent for fixture/dev
    *  documents, where rhythm edits announce as unavailable instead of
    *  pretending to work. */
@@ -608,6 +613,7 @@ export function ScoreReadyWorkspace({
   pitch,
   initialViewMode = "continuous",
   followPlayback = true,
+  initialPlaybackRate,
   onInspectorChange,
   onStateChange,
   controllerRef,
@@ -796,6 +802,10 @@ export function ScoreReadyWorkspace({
   const reviewLoopRef = useRef<ReviewLoopState>(emptyReviewLoopState());
   const sourceControlRef = useRef(sourceControl);
   sourceControlRef.current = sourceControl;
+  // #412: 時計生成 effect([initAttempt] のみ)から最新値を読むための
+  //  ref — dep に入れると設定変更のたびにスコア全体を再初期化する。
+  const initialRateRef = useRef(initialPlaybackRate);
+  initialRateRef.current = initialPlaybackRate;
 
   /** Loop-capable clocks for the review audition loop: the score cursor
    *  clock (ms -> sec adapter) plus the real media transport when a
@@ -1418,6 +1428,11 @@ export function ScoreReadyWorkspace({
         );
         const clock = new ScoreCursorClock(tableRef.current.durationMs);
         clockRef.current = clock;
+        // #412: 標準再生速度を時計の既定にする — 音源の無い自動演奏も
+        // 設定値で鳴る。media live 中は extRate 同期が直ちに上書きする。
+        if (initialRateRef.current != null) {
+          clock.setRate(initialRateRef.current);
+        }
         clock.subscribe(setClockSnap);
         // FEAT-001: audition engine follows the score clock. It consumes
         // the same PlaybackTable + the CONCERT ParsedNote map (sounding

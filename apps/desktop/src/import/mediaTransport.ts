@@ -52,7 +52,10 @@ export type Unsubscribe = () => void;
 
 export const MIN_RATE = 0.25;
 export const MAX_RATE = 4;
-export const SUPPORTED_RATES = [0.5, 0.75, 1, 1.25, 1.5] as const;
+/** #412: アプリ全体で提供する再生速度の単一ソース — 設定→再生の
+ *  「標準再生速度」セレクトも TransportBar のサイクルもここを見る。
+ *  片側だけ更新すると再び不整合になるので増減はこの配列で行う。 */
+export const SUPPORTED_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 /** Loops shorter than this are rejected (noise-level accidental drags). */
 export const MIN_LOOP_SECONDS = 0.01;
 

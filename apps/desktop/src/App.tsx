@@ -1201,6 +1201,10 @@ export default function App() {
   // (transport.setRate は [0.25,4] にクランプ済み)。
   useEffect(() => {
     transport.setRate(settings.playbackRate);
+    // #412: 音源無しの自動演奏(スコア時計)にも同じ既定を届ける。
+    // media live 中は extRate 同期が transport.rate を時計へ写すので
+    // ここで直接 push しても同じ値に収束する。
+    scoreCtlRef.current?.setRate?.(settings.playbackRate);
   }, [transport, settings.playbackRate]);
   // #99: 録音開始カウントイン — 設定は即時反映(次の録音から効く)。
   useEffect(() => {
@@ -3202,6 +3206,7 @@ export default function App() {
                   pitch={pitch}
                   initialViewMode={settings.scoreInitialView}
                   followPlayback={settings.followPlayback}
+                  initialPlaybackRate={settings.playbackRate}
                   onInspectorChange={setInspectorModel}
                   onScoreStateChange={(s) => {
                     // #399: pending engine edits are unsaved work —
