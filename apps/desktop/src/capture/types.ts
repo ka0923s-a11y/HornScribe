@@ -34,6 +34,9 @@ export interface CaptureResult {
   /** コンテナの MIME(省略時は audio/wav)。ブラウザ dev では
    *  MediaRecorder 出力(webm 等)が入るため、表示名の拡張子に使う。 */
   mimeType?: string;
+  /** #398: 致命的エラーで中断したテイクが救出された時の中断理由。
+   *  部分録音であることの出自 — 正常完了では未定義。 */
+  interruptedError?: string;
 }
 
 /** 録音状態のスナップショット。 */

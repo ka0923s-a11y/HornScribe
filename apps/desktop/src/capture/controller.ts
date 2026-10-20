@@ -15,6 +15,7 @@ import type {
   AudioSessionApp,
   CaptureDeviceList,
   CaptureIssue,
+  CaptureResult,
   CaptureSource,
   CaptureStatus,
 } from "./types";
@@ -501,60 +502,7 @@ export class CaptureController {
     this.stopTimer();
     try {
       const result = await this.port.stop();
-      // 拡張子は実際のコンテナに合わせる(ブラウザ dev は webm 等)。
-      const ext = (result.mimeType ?? "audio/wav").includes("webm")
-        ? "webm"
-        : "wav";
-      const fileName = this.pendingFileName
-        ? this.pendingFileName.replace(/\.wav$/, `.${ext}`)
-        : source === "loopback"
-          ? `PCの音_${timestampForFile()}.${ext}`
-          : `録音_${timestampForFile()}.${ext}`;
-      this.pendingFileName = null;
-      this.setState({ ...INITIAL_CAPTURE_STATE });
-      // #102: ほぼ無音のテイクは取り込み前に確認する。破棄確定なら
-      // インポートせず、保存済みファイルの後始末は呼び出し側に委ねる
-      // (前の音源はインポートが走らないのでそのまま残る)。
-      if (result.silentRatio >= 0.95 && this.events.confirmSilentImport) {
-        let proceed = true;
-        try {
-          proceed = await this.events.confirmSilentImport({
-            fileName,
-            source,
-            durationSeconds: result.durationSeconds,
-            silentRatio: result.silentRatio,
-          });
-        } catch {
-          // 確認UIの失敗で録音を捨てない — fail open で取り込む。
-          proceed = true;
-        }
-        if (!proceed) {
-          this.events.onCaptureDiscarded?.({
-            path: result.path,
-            fileName,
-            source,
-          });
-          this.events.announce(ja.capture.silentDiscarded);
-          return;
-        }
-      }
-      this.events.onCaptureComplete({
-        path: result.path,
-        bytes: result.bytes,
-        fileName,
-        source,
-        durationSeconds: result.durationSeconds,
-        silentRatio: result.silentRatio,
-        mimeType: result.mimeType,
-      });
-      // ほぼ無音の録音は取り込み後に一言添える(ブラウザ dev ポートは
-      // silentRatio=0 を返すので Tauri 経路でのみ発火する)。
-      if (result.silentRatio >= 0.95) {
-        this.events.announce(ja.capture.silentFinish);
-      }
-      if (result.limitReached) {
-        this.events.announce(ja.capture.limitReachedFinish);
-      }
+      await this.finishTake(result, source);
     } catch (e) {
       const issue = classifyError(e, this.state.source ?? "microphone");
       this.setState({
@@ -568,6 +516,68 @@ export class CaptureController {
         monitor: null,
       });
       this.events.announce(issueText(issue));
+    }
+  }
+
+  /** stop()/救出(#398)共通の取り込み後処理 — ファイル名確定、
+   *  ほぼ無音テイクの確認、onCaptureComplete、完了アナウンス。 */
+  private async finishTake(
+    result: CaptureResult,
+    source: CaptureSource,
+  ): Promise<void> {
+    // 拡張子は実際のコンテナに合わせる(ブラウザ dev は webm 等)。
+    const ext = (result.mimeType ?? "audio/wav").includes("webm")
+      ? "webm"
+      : "wav";
+    const fileName = this.pendingFileName
+      ? this.pendingFileName.replace(/\.wav$/, `.${ext}`)
+      : source === "loopback"
+        ? `PCの音_${timestampForFile()}.${ext}`
+        : `録音_${timestampForFile()}.${ext}`;
+    this.pendingFileName = null;
+    this.setState({ ...INITIAL_CAPTURE_STATE });
+    // #102: ほぼ無音のテイクは取り込み前に確認する。破棄確定なら
+    // インポートせず、保存済みファイルの後始末は呼び出し側に委ねる
+    // (前の音源はインポートが走らないのでそのまま残る)。
+    if (result.silentRatio >= 0.95 && this.events.confirmSilentImport) {
+      let proceed = true;
+      try {
+        proceed = await this.events.confirmSilentImport({
+          fileName,
+          source,
+          durationSeconds: result.durationSeconds,
+          silentRatio: result.silentRatio,
+        });
+      } catch {
+        // 確認UIの失敗で録音を捨てない — fail open で取り込む。
+        proceed = true;
+      }
+      if (!proceed) {
+        this.events.onCaptureDiscarded?.({
+          path: result.path,
+          fileName,
+          source,
+        });
+        this.events.announce(ja.capture.silentDiscarded);
+        return;
+      }
+    }
+    this.events.onCaptureComplete({
+      path: result.path,
+      bytes: result.bytes,
+      fileName,
+      source,
+      durationSeconds: result.durationSeconds,
+      silentRatio: result.silentRatio,
+      mimeType: result.mimeType,
+    });
+    // ほぼ無音の録音は取り込み後に一言添える(ブラウザ dev ポートは
+    // silentRatio=0 を返すので Tauri 経路でのみ発火する)。
+    if (result.silentRatio >= 0.95) {
+      this.events.announce(ja.capture.silentFinish);
+    }
+    if (result.limitReached) {
+      this.events.announce(ja.capture.limitReachedFinish);
     }
   }
 
@@ -752,22 +762,41 @@ export class CaptureController {
               this.state.source ?? "microphone",
             );
             this.stopTimer();
+            const source = this.state.source ?? "microphone";
+            /* #398: 中断前に部分テイクの取り込みを試みる — ワーカーは
+             *  終了時に temp WAV を finalize 済みなので、stop() が
+             *  録れた分を返し得る。取れない時だけ従来どおり破棄する。
+             *  phase を先に importing へ倒す — recording のまま
+             *  port.stop() を await すると、次の tick が同じエラー
+             *  分岐を二重に走って stop()/cancel() を重複発行する。 */
+            this.setState({ ...this.state, phase: "importing" });
+            let result: CaptureResult | null = null;
             try {
-              await this.port.cancel();
+              result = await this.port.stop();
             } catch {
-              /* 掃除失敗は無視 — 状態は error に進む */
+              /* 救出不能 — 従来どおり破棄へ */
             }
-            this.setState({
-              phase: "error",
-              source: this.state.source,
-              elapsedSeconds: 0,
-              deviceName: null,
-              issue,
-              level: null,
-              paused: false,
-              monitor: null,
-            });
-            this.events.announce(issueText(issue));
+            if (result === null) {
+              try {
+                await this.port.cancel();
+              } catch {
+                /* 掃除失敗は無視 — 状態は error に進む */
+              }
+              this.setState({
+                phase: "error",
+                source,
+                elapsedSeconds: 0,
+                deviceName: null,
+                issue,
+                level: null,
+                paused: false,
+                monitor: null,
+              });
+              this.events.announce(issueText(issue));
+              return;
+            }
+            await this.finishTake(result, source);
+            this.events.announce(ja.capture.interruptedFinish);
             return;
           }
           // #105: ライブ波形ピーク — total 差分で新規分だけ追記する

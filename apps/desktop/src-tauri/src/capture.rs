@@ -112,6 +112,10 @@ pub struct CaptureResult {
     pub silent_ratio: f64,
     /// 30分の上限で自動停止したか。UI が「上限に達した」と伝えるため。
     pub limit_reached: bool,
+    /// #398: 致命的エラーで中断したテイクを救出した時の中断理由。
+    ///  正常完了では None — 部分録音であることの出自証明。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interrupted_error: Option<String>,
 }
 
 /// `capture_devices` の1項目 — メニューのデバイス選択肢。
@@ -468,9 +472,33 @@ pub fn capture_stop(app: tauri::AppHandle) -> Result<CaptureResult, String> {
 
     let mut s = session.shared.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(err) = s.error.take() {
-        // #235: a failed session leaves its partial temp — remove it so
-        // recordings/ never accumulates broken captures.
         if let Some(p) = s.temp_path.take() {
+            // #398: a fatal mid-capture error still leaves the finalized
+            // temp WAV — salvage it instead of deleting whenever real
+            // audio was captured. The interrupted take is the user's
+            // recording; losing it silently is worse than keeping a
+            // shorter-than-planned file.
+            if s.frames > 0 {
+                if let Ok(path) = finalize_wav(&app, &session.suggested_name, &p) {
+                    let frames = s.frames;
+                    let duration_seconds = if session.info.sample_rate > 0 {
+                        frames as f64 / session.info.sample_rate as f64
+                    } else {
+                        0.0
+                    };
+                    return Ok(CaptureResult {
+                        path,
+                        duration_seconds,
+                        sample_rate: session.info.sample_rate,
+                        channels: session.info.channels,
+                        silent_ratio: s.silent_frames as f64 / frames as f64,
+                        limit_reached: false,
+                        interrupted_error: Some(err),
+                    });
+                }
+            }
+            // #235: nothing usable on disk — remove it so recordings/
+            // never accumulates broken captures.
             let _ = std::fs::remove_file(p);
         }
         return Err(err);
@@ -501,6 +529,7 @@ pub fn capture_stop(app: tauri::AppHandle) -> Result<CaptureResult, String> {
         channels: session.info.channels,
         silent_ratio,
         limit_reached: s.limit_reached,
+        interrupted_error: None,
     })
 }
 

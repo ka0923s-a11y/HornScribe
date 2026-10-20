@@ -35,6 +35,7 @@ interface RustCaptureResult {
   channels: number;
   silentRatio: number;
   limitReached: boolean;
+  interruptedError?: string;
 }
 interface RustCaptureStatus {
   active: boolean;
@@ -95,6 +96,7 @@ class TauriCapturePort implements CapturePort {
       channels: r.channels,
       silentRatio: r.silentRatio,
       limitReached: r.limitReached,
+      interruptedError: r.interruptedError,
       mimeType: "audio/wav",
     };
   }
