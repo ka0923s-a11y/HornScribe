@@ -1324,9 +1324,16 @@ def _accomp_note_pitch_f1(
         if hit is not None:
             used[hit] = True
             tp += 1
-    prec = tp / len(detected) if detected else 0.0
-    rec = tp / len(pitched) if pitched else 0.0
-    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
+    if not detected and not pitched:
+        # #401: nothing claimed, nothing missed — the same degenerate
+        # "perfect" case _score() reports as F1 1.0. Without this the
+        # row read 0.0/0.0/0.0 next to a 1.0 onset column and looked
+        # like a failure.
+        prec = rec = f1 = 1.0
+    else:
+        prec = tp / len(detected) if detected else 0.0
+        rec = tp / len(pitched) if pitched else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
     return {
         "accompNpF1": round(f1, 4),
         "accompNpP": round(prec, 3),
