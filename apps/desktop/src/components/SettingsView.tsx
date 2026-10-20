@@ -46,7 +46,11 @@ import {
   type RecordingFile,
   type RecordingsInfo,
 } from "../capture/recordings";
-import { getAddonsDir, openAddonsDir } from "../tools/addons";
+import {
+  getAddonsDir,
+  openAddonDownload,
+  openAddonsDir,
+} from "../tools/addons";
 import { HsDialog } from "./primitives/Dialog";
 import { createImportPorts } from "../import/runtimePorts";
 import { parseProjectFile } from "../import/controller";
@@ -246,6 +250,14 @@ export function SettingsView({
     // The button creates the folder — re-resolve so a stale null
     // path does not linger until the view remounts.
     void getAddonsDir().then(setAddonsDir);
+  }, [onAnnounce]);
+
+  /* #408: the demucs addon zip ships on the GitHub releases page —
+   *  the button hands it to the default browser so the install
+   *  funnel never leaves the app. */
+  const openDownload = useCallback(async () => {
+    const ok = await openAddonDownload();
+    if (!ok) onAnnounce(ja.settings.addonsDownloadFailed);
   }, [onAnnounce]);
 
   /* #190: restartEngine resolves after the handshake, so a fresh
@@ -737,6 +749,12 @@ export function SettingsView({
                     onClick={() => void openAddons()}
                   >
                     {s.addonsOpen}
+                  </HsButton>
+                  <HsButton
+                    size="small"
+                    onClick={() => void openDownload()}
+                  >
+                    {s.addonsDownload}
                   </HsButton>
                 </div>
               </div>

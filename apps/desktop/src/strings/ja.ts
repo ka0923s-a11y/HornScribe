@@ -275,8 +275,11 @@ export const ja = {
     addonsFolder: "アドオンの場所",
     addonsOpen: "フォルダを開く",
     addonsOpenFailed: "フォルダを開けませんでした",
+    /* #408: 配布ページ(releases/latest)を既定ブラウザで開く導線。 */
+    addonsDownload: "ダウンロードページを開く",
+    addonsDownloadFailed: "配布ページを開けませんでした",
     demucsAddonHint:
-      "GitHubのHornScribe配布ページ（リリース）から分離アドオン(demucs)をダウンロードし、このフォルダに展開すると高精度なボーカル分離が使えます。エンジンの再起動後に有効になります。",
+      "「ダウンロードページを開く」から分離アドオン(demucs)をダウンロードし、このフォルダに展開すると高精度なボーカル分離が使えます。エンジンの再起動後に有効になります。",
     backendLabel: "採譜エンジン",
     /* #71: エンジン選択肢 — テンポの tempoAuto と文脈が違うので
      *  専用キーを持つ(値は同じ「自動」)。 */

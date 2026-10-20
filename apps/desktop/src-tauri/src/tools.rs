@@ -166,3 +166,22 @@ pub fn open_addons_dir(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("explorer {}: {e}", dir.display()))?;
     Ok(())
 }
+
+/// The distribution page carrying the demucs addon zip (#408).
+/// `releases/latest` always resolves to the newest release, so the
+/// string never goes stale across versions.
+const ADDON_RELEASES_URL: &str =
+    "https://github.com/ka0923s-a11y/HornScribe/releases/latest";
+
+/// `open_addon_download`: open the releases page in the default
+/// browser — the demucs addon (#190) is distributed there. The URL is
+/// a hardcoded constant, so no user input reaches the spawn: same
+/// explorer pattern as open_addons_dir, no extra plugin needed.
+#[tauri::command(async)]
+pub fn open_addon_download() -> Result<(), String> {
+    std::process::Command::new("explorer")
+        .arg(ADDON_RELEASES_URL)
+        .spawn()
+        .map_err(|e| format!("explorer {ADDON_RELEASES_URL}: {e}"))?;
+    Ok(())
+}
