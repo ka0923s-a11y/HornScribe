@@ -974,4 +974,27 @@ describe("parseProjectFile", () => {
     const p = parse({ schemaVersion: 1, projectId: "x", sourceAudio: null });
     expect(p.transcriptionSettings).toBeNull();
   });
+
+  it("extracts uiSession.partMix as savedPartMix (#416)", () => {
+    const p = parse({
+      schemaVersion: 1,
+      projectId: "x",
+      sourceAudio: null,
+      uiSession: {
+        partMix: [
+          { name: "Horn in F", volume: 0.85, muted: false, solo: true, visible: true },
+          { name: "Piano", volume: 0.4, muted: true, solo: false, visible: false },
+        ],
+      },
+    });
+    expect(p.savedPartMix).toEqual([
+      { name: "Horn in F", volume: 0.85, muted: false, solo: true, visible: true },
+      { name: "Piano", volume: 0.4, muted: true, solo: false, visible: false },
+    ]);
+  });
+
+  it("no uiSession → savedPartMix is empty (#416)", () => {
+    const p = parse({ schemaVersion: 1, projectId: "x", sourceAudio: null });
+    expect(p.savedPartMix).toEqual([]);
+  });
 });

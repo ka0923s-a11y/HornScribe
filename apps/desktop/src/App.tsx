@@ -61,7 +61,10 @@ import {
 } from "./score/review";
 import { waveformNoteOverlay } from "./score/noteOverlay";
 import { scoreHasPolyphony } from "./score/polyphony";
-import { effectivePartGains } from "./score/playbackSynth";
+import {
+  effectivePartGains,
+  type PartMixEntry,
+} from "./score/playbackSynth";
 import { extractTimingCorrection } from "./sidecar/resultMeta";
 import { formatTimecode as formatScoreTimecode } from "./score/timecode";
 import {
@@ -147,7 +150,7 @@ import type { QueueEntry, QueueSnapshot } from "./queue/types";
 import { INITIAL_QUEUE_SNAPSHOT } from "./queue/types";
 import { QueuePanel } from "./components/QueuePanel";
 import { TranscriptionOptionsDialog } from "./import/TranscriptionOptionsDialog";
-import { dirtyFingerprint } from "./score/dirtyFingerprint";
+import { dirtyFingerprint, samePartMix } from "./score/dirtyFingerprint";
 import {
   optionsAfterWaveformClear,
   optionsAfterWaveformSelect,
@@ -571,6 +574,23 @@ export default function App() {
     null,
   );
   const scoreCtlRef = useRef<ScoreWorkspaceController | null>(null);
+  /* #416: パートミキサー — プロジェクト uiSession.partMix として
+   *  永続化し、開き直しでスコアワークスペースへシードする。
+   *  savedPartMix: 次にマウントする document の初期行(プロジェクト
+   *    開き=保存行、新規採譜=直前のライブ行の引き継ぎ)。
+   *  partMixLiveRef: 現在のライブ行(保存と dirty ポーリングが読む)。
+   *  partMixBaselineRef: dirty 判定の基準行 — ワークスペースの
+   *    onPartMixRestored(復元完了報告)か保存成功時に確定し、
+   *    undefined は「復元待ち」(新しい doc のマウント前)。 */
+  const [savedPartMix, setSavedPartMix] = useState<
+    readonly PartMixEntry[] | null
+  >(null);
+  const partMixLiveRef = useRef<readonly PartMixEntry[]>([]);
+  const partMixBaselineRef = useRef<readonly PartMixEntry[] | undefined>(
+    undefined,
+  );
+  // 最新のライブ行 — ワークスペースの state push 経由で毎レンダー更新。
+  partMixLiveRef.current = scoreState?.partMix ?? [];
 
   /* #18: a completed job result → the live score document. Shared by
    * the single-job lifecycle effect and the queue's 開く action — the
@@ -597,6 +617,17 @@ export default function App() {
       /* #221: a fresh transcription has no clean baseline — the score
       * is dirty until saved. */
       savedFingerprintRef.current = null;
+      /* #416: 新しい採譜でマウントされるワークスペースのミキサーは
+       *  直前のライブ行をシードに引き継ぐ(index マージで有効行は
+       *  維持される — 再採譜でユーザー調整を捨てない)。プロジェクト
+       *  由来の保存行はここでは使わない(別の譜面のもの)。 */
+      setSavedPartMix(
+        partMixLiveRef.current.length > 0
+          ? [...partMixLiveRef.current]
+          : null,
+      );
+      // 復元待ちに戻す — 新 doc の onPartMixRestored で確定する。
+      partMixBaselineRef.current = undefined;
       // #240: the completed result is this score's provenance.
       setScoreProvenance(result);
       scoreAudioIdentityRef.current = identity;
@@ -867,6 +898,10 @@ export default function App() {
               // #12: ラベルは前の音源の時間軸に付いたもの — 新しい
               // 音源には持ち越さない。
               setRegionLabels([]);
+              // #416: ミキサー行も前の譜面のもの — 次のマウントは
+              //  既定行で始める。
+              setSavedPartMix(null);
+              partMixBaselineRef.current = undefined;
               // #221: a different source owns the slot — the score's
               // project identity dies with it so the next save picks
               // a fresh path instead of overwriting project A's file.
@@ -910,6 +945,11 @@ export default function App() {
             // scoreReady path AND the sourceMissing path
             // (onProjectOpened only covers the happy open).
             setRegionLabels(project.regionLabels ?? []);
+            // #416: 保存されていたミキサー行をマウントのシードに
+            //  — 復元結果の dirty baseline は onPartMixRestored が
+            //  報告するまで待つ(index マージで実値が変わり得るため)。
+            setSavedPartMix(project.savedPartMix ?? null);
+            partMixBaselineRef.current = undefined;
             scoreAudioIdentityRef.current = project.sourceHash
               ? `hash:${project.sourceHash}`
               : (audioIdentityRef.current ?? "?");
@@ -1059,10 +1099,21 @@ export default function App() {
             priorSource: projectSourceRef.current,
             labels: regionLabelsRef.current,
           }) !== savedFingerprintRef.current);
+      /* #416: ミキサー行の変更も未保存差分 — baseline は doc ごとに
+       *  onPartMixRestored(復元完了)/保存成功で確定する。undefined は
+       *  復元待ちなのでまだ比較しない(誤 dirty を出さない)。 */
+      const mixBaseline = partMixBaselineRef.current;
+      const liveMix = partMixLiveRef.current;
+      const mixDirty =
+        doc != null &&
+        mixBaseline !== undefined &&
+        liveMix.length > 0 &&
+        !samePartMix(liveMix, mixBaseline);
+      const dirtyAll = dirty || mixDirty;
       const was = dirtyRef.current;
-      dirtyRef.current = dirty;
-      setIsDirty(dirty);
-      if (was && !dirty && isTauriRuntime()) {
+      dirtyRef.current = dirtyAll;
+      setIsDirty(dirtyAll);
+      if (was && !dirtyAll && isTauriRuntime()) {
         // #338: content is back to the saved baseline — any autosave
         // recovery snapshot is redundant now, so drop it the same
         // way a successful save does.
@@ -1104,6 +1155,8 @@ export default function App() {
         result: scoreProvenance,
         projectId: projectIdRef.current,
         priorSourceAudio: projectSourceRef.current,
+        // #416: ミキサー行もスナップショットに含めて復元を揃える。
+        partMix: partMixLiveRef.current,
       });
       if (!project) return null;
       // #389: same validator as manual save — a malformed snapshot
@@ -1723,6 +1776,10 @@ export default function App() {
           }
         }
       }
+      /* #416: 保存時点のライブミキサー行 — 非同期 write の後で
+       *  baseline 更新に使うため先に snapshot(行は immutable なので
+       *  参照コピーで「書いたもの」と一致する)。 */
+      const mixWritten = partMixLiveRef.current;
       const project = await buildProjectDocument({
         audio: audioForProject,
         doc,
@@ -1735,6 +1792,8 @@ export default function App() {
         priorSourceAudio: projectSourceRef.current,
         // #12: 区間ラベルを extras として永続化。
         regionLabels: serializeRegionLabels(regionLabelsRef.current),
+        // #416: ミキサー行を uiSession.partMix に永続化。
+        partMix: mixWritten,
       });
       if (!project) {
         setStatusMessage(ja.notifications.projectSaveUnsupported);
@@ -1797,6 +1856,8 @@ export default function App() {
       // the clean baseline; the recovery snapshot is now redundant.
       setProjectPath(res.path);
       savedFingerprintRef.current = savedFp;
+      // #416: 書いた行が新しい dirty baseline(= 今きれいな状態)。
+      partMixBaselineRef.current = mixWritten;
       void invoke("project_autosave_clear").catch(() => undefined);
       setStatusMessage(ja.notifications.projectSaved);
       return true;
@@ -3324,6 +3385,14 @@ export default function App() {
                     setView("settings");
                   }}
                   regionLabels={regionLabels}
+                  initialPartMix={savedPartMix}
+                  onPartMixRestored={(rows) => {
+                    // #416: 復元された実値が dirty baseline — 保存行と
+                    //  index マージ結果は一致しないことがあるため、
+                    //  ワークスペースの計算結果をそのまま採用する。
+                    partMixBaselineRef.current = rows;
+                    partMixLiveRef.current = rows;
+                  }}
                   banner={
                     importState.sourceMissing ? (
                       <div className="hs-source-missing-banner" role="alert">

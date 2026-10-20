@@ -19,6 +19,7 @@ import type { ScoreViewMode } from "../score/verovio";
 import type { PitchView } from "./PitchSegmented";
 import type { SettingsCategory } from "../settings/store";
 import type { RegionLabel } from "../workspace/regionLabels";
+import type { PartMixEntry } from "../score/playbackSynth";
 
 /* #115: engine rhythm edits swap a document's content in place — its
  * revisionId changes without the workspace needing a remount (a remount
@@ -102,6 +103,8 @@ export function ScoreWorkspace({
   onOpenProperties,
   onOpenSettings,
   regionLabels,
+  initialPartMix,
+  onPartMixRestored,
   banner = null,
 }: {
   screen: ScreenState;
@@ -168,6 +171,11 @@ export function ScoreWorkspace({
   /** #389: 区間ラベル — forwarded to the score so waveform section
    *  names render as rehearsal marks. */
   regionLabels?: readonly RegionLabel[];
+  /** #416: プロジェクト復元時のミキサー行シード — canonical part 順、
+   *  ScoreReadyWorkspace のマウント時のみ適用(document key リマウント)。 */
+  initialPartMix?: readonly PartMixEntry[] | null;
+  /** #416: 復元されたミキサー行の一次報告 — dirty baseline 用。 */
+  onPartMixRestored?(rows: readonly PartMixEntry[]): void;
   /** #219: persistent notice strip rendered above the score region
    *  content (SOURCE_MISSING over a restored score). */
   banner?: ReactNode;
@@ -253,6 +261,8 @@ export function ScoreWorkspace({
             onOpenProperties={onOpenProperties}
             onOpenSettings={onOpenSettings}
             regionLabels={regionLabels}
+            initialPartMix={initialPartMix}
+            onPartMixRestored={onPartMixRestored}
           />
         ) : (
           <div className="hs-score-paper" aria-hidden="true">

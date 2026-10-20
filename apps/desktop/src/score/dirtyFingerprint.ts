@@ -84,3 +84,35 @@ export function dirtyFingerprint(input: {
     labels: regionLabelsFingerprint(labels ?? []),
   });
 }
+
+/** #416: パートミキサーの dirty 比較 — name は doc 由来の表示名
+ *  (canonical part 名)でユーザー状態ではないため除外し、fader/
+ *  mute/solo/visible の実値だけを行 index 順に比べる。長さが違えば
+ *  パート構成自体が変わったということなので不一致。 */
+export function samePartMix(
+  a: readonly {
+    volume: number;
+    muted: boolean;
+    solo: boolean;
+    visible: boolean;
+  }[],
+  b: readonly {
+    volume: number;
+    muted: boolean;
+    solo: boolean;
+    visible: boolean;
+  }[],
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].volume !== b[i].volume ||
+      a[i].muted !== b[i].muted ||
+      a[i].solo !== b[i].solo ||
+      a[i].visible !== b[i].visible
+    ) {
+      return false;
+    }
+  }
+  return true;
+}

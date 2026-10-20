@@ -34,6 +34,69 @@ export interface ProjectSaveInput {
    *  extras として永続化される(バリデータは extras を無視し、
    *  Python 側 model.py も未知キーを extras に残す)。 */
   readonly regionLabels?: Record<string, unknown>[];
+  /** #416: パートミキサー行(canonical part 順) — schema キー
+   *  `uiSession.partMix` に永続化する。uiSession は v1 schema の
+   *  正式な任意 dict(model.py: optional, non-authoritative)なので
+   *  バリデータを素通りしつつ extras と違ってキー衝突で負けない。 */
+  readonly partMix?: readonly ProjectPartMixRow[];
+}
+
+/** One persisted mixer row — score/playbackSynth.ts PartMixEntry と
+ *  構造的に同一(serialize 層が synth 実装に依存しないようここで宣言)。
+ *  name は表示用で、復元は canonical part 順の index 結合。 */
+export interface ProjectPartMixRow {
+  readonly name: string;
+  /** Fader 0..1. */
+  readonly volume: number;
+  readonly muted: boolean;
+  readonly solo: boolean;
+  /** Score-view visibility (display-only). */
+  readonly visible: boolean;
+}
+
+/** PartMixEntry[] → uiSession.partMix 用のプレーン行 — fader は 0..1 に
+ *  clamp、フラグは真偽値へ正規化する(作為的な値をファイルに残さない)。 */
+export function serializePartMix(
+  rows: readonly ProjectPartMixRow[],
+): Record<string, unknown>[] {
+  return rows.map((r) => ({
+    name: r.name,
+    volume:
+      typeof r.volume === "number" && Number.isFinite(r.volume)
+        ? Math.min(1, Math.max(0, r.volume))
+        : 1,
+    muted: r.muted === true,
+    solo: r.solo === true,
+    visible: r.visible !== false,
+  }));
+}
+
+/** uiSession → パートミキサー行。復元は index 結合なので行位置は
+ *  維持する — 読めない行は捨てずに既定値の行を出す(捨てると以降の
+ *  index がずれ、別パートの設定が乗る)。uiSession 自体が dict で
+ *  ない/キーが配列でない場合は空(行なし=全既定)を返す。 */
+export function parseSavedPartMix(
+  uiSession: unknown,
+): readonly ProjectPartMixRow[] {
+  if (typeof uiSession !== "object" || uiSession === null) return [];
+  const raw = (uiSession as Record<string, unknown>).partMix;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const o =
+      typeof item === "object" && item !== null
+        ? (item as Record<string, unknown>)
+        : {};
+    return {
+      name: typeof o.name === "string" ? o.name : "",
+      volume:
+        typeof o.volume === "number" && Number.isFinite(o.volume)
+          ? Math.min(1, Math.max(0, o.volume))
+          : 1,
+      muted: o.muted === true,
+      solo: o.solo === true,
+      visible: o.visible !== false,
+    };
+  });
 }
 
 /** `prj-<16hex>` — deterministic content-derived id (ids.py contract). */
@@ -225,7 +288,12 @@ export async function buildProjectDocument(
     },
     userEdits,
     reviewDecisions,
-    uiSession: null,
+    // #416: ミキサー行は schema の uiSession(dict 可)に載せる — extras
+    // 違いスキーマキーなので name 衝突で将来フィールドに潰されない。
+    uiSession:
+      input.partMix != null
+        ? { partMix: serializePartMix(input.partMix) }
+        : null,
     // --- preserved extras (ignored by the v1 validator) ---
     // #115: the LIVE canonical payload — after an engine rhythm edit the
     // document's scoreDocument is newer than the job result's, and saving
