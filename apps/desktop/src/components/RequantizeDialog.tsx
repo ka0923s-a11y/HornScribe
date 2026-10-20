@@ -31,10 +31,21 @@ export function requantizeSeed(
   const qs = (content as Record<string, unknown>).quantizationSettings;
   if (typeof qs !== "object" || qs === null) return null;
   const q = qs as Record<string, unknown>;
+  const tripletsSeed =
+    typeof q.triplets === "string" ? q.triplets : "auto";
   return {
     minDurationQl:
       typeof q.minDurationQl === "string" ? q.minDurationQl : "1/4",
-    triplets: typeof q.triplets === "string" ? q.triplets : "auto",
+    // #424: stored payloads carry the TripletPolicy enum values
+    // ("always"/"never") — normalize to the RPC vocabulary the
+    // options below are keyed in, the same conversion
+    // transcriptionParams applies when re-reading stored settings.
+    triplets:
+      tripletsSeed === "always"
+        ? "allow"
+        : tripletsSeed === "never"
+          ? "none"
+          : tripletsSeed,
     simplicity:
       typeof q.simplicity === "string" ? q.simplicity : "standard",
   };

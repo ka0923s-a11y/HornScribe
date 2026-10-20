@@ -68,6 +68,17 @@ from .clean import split_voices
 from .options import _PROFILES, _TRIPLET_POLICIES
 from .scorebuild import _layer0_gap_rests, _part_content
 
+# #424: read-side lookup for stored settings — payloads written by
+# settings_dict() carry the TripletPolicy enum values ("always"/
+# "never"), while new edits arrive in the RPC vocabulary
+# ("allow"/"none"). Accept both when REBUILDING a profile; input
+# validation above stays RPC-only.
+_TRIPLET_READ = {
+    **_TRIPLET_POLICIES,
+    "always": _TRIPLET_POLICIES["allow"],
+    "never": _TRIPLET_POLICIES["none"],
+}
+
 
 class ScoreEditError(ValueError):
     """An edit that cannot be applied honestly (mapped to INVALID_PARAMS)."""
@@ -572,7 +583,11 @@ def _profile_from_settings(settings: dict[str, Any]) -> QuantizationProfile:
     return replace(
         base,
         min_note_value_ql=Fraction(min_dur),
-        triplet_policy=_TRIPLET_POLICIES.get(triplets, base.triplet_policy),
+        # #424: the stored payload carries the TripletPolicy ENUM values
+        # ("always"/"never"), not the RPC vocabulary — look up both or a
+        # requantize of an unrelated knob silently resets the score's
+        # stored policy to the profile default.
+        triplet_policy=_TRIPLET_READ.get(triplets, base.triplet_policy),
     )
 
 
