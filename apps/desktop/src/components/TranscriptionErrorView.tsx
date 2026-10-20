@@ -107,9 +107,13 @@ export function TranscriptionErrorView({
           >
             {primaryLabel}
           </HsButton>
-          <HsButton variant="secondary" onClick={() => setDiagOpen(true)}>
-            {ja.common.diagnostics}
-          </HsButton>
+          {/* #402: dependencyMissing already leads with 診断情報を見る —
+              a second diagnostics button would open the same dialog. */}
+          {!dependencyMissing && (
+            <HsButton variant="secondary" onClick={() => setDiagOpen(true)}>
+              {ja.common.diagnostics}
+            </HsButton>
+          )}
           <HsButton
             variant="subtle"
             onClick={noPitchedContent ? onPrimary : onClose}
