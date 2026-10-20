@@ -66,8 +66,17 @@ export interface ExportSource {
    *  user sees — the same filter the score view and the one-click
    *  print path already apply. playbackMidi is exempt on purpose:
    *  visibility is display-only (a hidden staff still sounds), so a
-   *  listening-reference file keeps every part. */
+   *  listening-reference file keeps every audible part — the mute
+   *  filter below is what shapes the bounce. */
   readonly partVisible?: readonly boolean[];
+  /** #405: per-part audibility from the mixer mute/solo — the MIDI
+   *  bounce must match what the user hears, so muted and
+   *  non-soloed parts drop out of playbackMidi while hidden-but-
+   *  audible parts stay (visibility is a notation filter, mute is
+   *  the audio one). Same payload.parts index contract as
+   *  partVisible; a mask that keeps nothing fails open — a zero-
+   *  part artifact is never produced. */
+  readonly partAudible?: readonly boolean[];
   /** #389: 区間ラベル — score artifacts carry them as rehearsal
    *  marks; omitted/empty exports marks nothing. */
   readonly regionLabels?: readonly RegionLabel[];
@@ -86,6 +95,32 @@ function toBase64(bytes: Uint8Array): string {
 
 function textToBase64(text: string): string {
   return toBase64(new TextEncoder().encode(text));
+}
+
+/** #405: drop inaudible parts from a serialized canonical scoreDocument
+ *  before export.midi — the bounce must match what the user heard. Mask
+ *  order mirrors content.parts (the same index contract partFilter
+ *  documents for MusicXML). Conservative like the score view: a missing
+ *  or all-true mask leaves the doc untouched, and an all-false mask
+ *  fails open rather than writing a zero-note artifact. */
+function filterCanonicalDocParts(
+  doc: unknown,
+  audible: readonly boolean[],
+): unknown {
+  if (!doc || typeof doc !== "object") return doc;
+  const content = (doc as { content?: unknown }).content;
+  if (!content || typeof content !== "object") return doc;
+  const parts = (content as { parts?: unknown }).parts;
+  if (!Array.isArray(parts)) return doc;
+  if (audible.length !== parts.length) return doc;
+  if (audible.every(Boolean) || audible.every((a) => !a)) return doc;
+  return {
+    ...(doc as Record<string, unknown>),
+    content: {
+      ...(content as Record<string, unknown>),
+      parts: parts.filter((_, i) => audible[i]),
+    },
+  };
 }
 
 /** Filesystem-safe basename: strip separators and illegal chars. */
@@ -360,6 +395,9 @@ export class TauriExportPort implements ExportPort {
         // to the client-side MusicXML→MIDI rebuild; the result flags
         // the downgrade. engineReady()===false skips the doomed RPC.
         const canonical = source.doc.canonicalDocument?.();
+        // #405: the mixer mute/solo is the audition contract — the
+        // MIDI bounce carries only the parts the user actually hears.
+        const audible = source.partAudible ?? [];
         let producedCanonical = false;
         if (
           canonical &&
@@ -369,7 +407,9 @@ export class TauriExportPort implements ExportPort {
           try {
             batch.push({
               name,
-              dataBase64: await this.midiExporter(canonical),
+              dataBase64: await this.midiExporter(
+                filterCanonicalDocParts(canonical, audible),
+              ),
             });
             producedCanonical = true;
           } catch {
@@ -380,7 +420,12 @@ export class TauriExportPort implements ExportPort {
           batch.push({
             name,
             dataBase64: toBase64(
-              buildMidiFile(source.doc.musicXml("concert")),
+              buildMidiFile(
+                filterScorePartsXml(
+                  source.doc.musicXml("concert"),
+                  audible,
+                ),
+              ),
             ),
           });
           // Only a real canonical path lost counts as degraded — a
