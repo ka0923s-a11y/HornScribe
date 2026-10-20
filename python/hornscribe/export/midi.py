@@ -263,16 +263,28 @@ def playback_midi_bytes(
     *,
     ticks_per_beat: int = DEFAULT_TICKS_PER_BEAT,
     gm_program: int = GM_PROGRAM_HORN,
+    part_gains: tuple[float, ...] | list[float] | None = None,
 ) -> bytes:
     """Serialize *score* to a ``playback.mid`` SMF (format 1) byte string.
 
     Note pitches are the canonical sounding/concert ``pitch_midi`` values;
     tempo map, meter, and key signature are emitted as meta-events.
     Deterministic: identical input yields identical bytes.
+
+    ``part_gains`` (#407): the desktop mixer's effective per-part gain
+    (solo/mute/volume already folded in). A gain <= 0 drops that part's
+    notes outright — the bounce must match what the user hears (#405);
+    a surviving part's note velocities scale by its gain so a lowered
+    fader writes a quieter MIDI. None keeps the historical flat file.
     """
     payload = score.payload
     ts = payload.time_signature
     swing_warp = _swing_warper(payload.swing_feel)
+    gains = (
+        [max(0.0, min(1.0, float(g))) for g in part_gains]
+        if part_gains is not None
+        else None
+    )
 
     # #228: track_name carries the part display name verbatim — the
     # accompaniment staff is literally named 伴奏, and mido latin-1
@@ -378,9 +390,19 @@ def playback_midi_bytes(
         # Emit in start order: a prior note's wheel reset (order key 1,
         # insertion order) must land before the next note's pre-bend at
         # the same tick even when part.notes is not time-sorted.
+        # #407: a part the mixer silenced (effective gain <= 0) leaves
+        # no notes in the bounce — same contract as the client's
+        # audible-parts filter, enforced engine-side too.
+        part_silent = (
+            gains is not None
+            and part_index < len(gains)
+            and gains[part_index] <= 0.0
+        )
         for ni, n in sorted(
             enumerate(part.notes), key=lambda e: e[1].start_beat
         ):
+            if part_silent:
+                continue
             channel = note_channels[part_index].get(ni, base)
             # #206: swung scores shift offbeat onsets/offsets just like
             # the audition does — otherwise the exported MIDI plays
@@ -407,7 +429,16 @@ def playback_midi_bytes(
                 else:
                     raise MidiExportError(f"note {n.id} has non-positive duration in ticks")
             total_ticks = max(total_ticks, off_tick)
-            velocity = n.velocity if n.velocity is not None else _DEFAULT_VELOCITY
+            base_velocity = n.velocity if n.velocity is not None else _DEFAULT_VELOCITY
+            # #407: the mixer's effective gain scales note velocity — the
+            # bounce honours the audition balance. Clamp at 1 so an
+            # almost-zero fader never emits a velocity-0 note_on (which
+            # parsers read as a note_off).
+            velocity = (
+                base_velocity
+                if gains is None or part_index >= len(gains)
+                else max(1, min(127, round(base_velocity * gains[part_index])))
+            )
             note_on = mido.Message(
                 "note_on", channel=channel, note=n.pitch_midi, velocity=velocity
             )

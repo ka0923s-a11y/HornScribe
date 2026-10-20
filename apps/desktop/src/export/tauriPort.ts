@@ -77,6 +77,10 @@ export interface ExportSource {
    *  partVisible; a mask that keeps nothing fails open — a zero-
    *  part artifact is never produced. */
   readonly partAudible?: readonly boolean[];
+  /** #407: mixer's effective per-part gain (0..1, effectivePartGains)
+   *  — surviving parts scale their MIDI velocities by it so the bounce
+   *  carries the audition balance, not a flat default. */
+  readonly partGains?: readonly number[];
   /** #389: 区間ラベル — score artifacts carry them as rehearsal
    *  marks; omitted/empty exports marks nothing. */
   readonly regionLabels?: readonly RegionLabel[];
@@ -189,7 +193,10 @@ export class TauriExportPort implements ExportPort {
    *  rebuild is used as before. #390: a FAILED engine call degrades
    *  to that same client-side build instead of aborting the whole
    *  transaction — MusicXML/PDF never needed the worker. */
-  private readonly midiExporter?: (scoreDocument: unknown) => Promise<string>;
+  private readonly midiExporter?: (
+    scoreDocument: unknown,
+    opts?: { partGains?: readonly number[] },
+  ) => Promise<string>;
 
   /** #390: engine-liveness probe — false means the canonical MIDI
    *  RPC would just burn a round trip on a dead worker, so export()
@@ -202,7 +209,10 @@ export class TauriExportPort implements ExportPort {
 
   constructor(
     private readonly source: () => ExportSource | null,
-    midiExporter?: (scoreDocument: unknown) => Promise<string>,
+    midiExporter?: (
+      scoreDocument: unknown,
+      opts?: { partGains?: readonly number[] },
+    ) => Promise<string>,
     engineReady?: () => boolean,
   ) {
     this.midiExporter = midiExporter;
@@ -398,6 +408,13 @@ export class TauriExportPort implements ExportPort {
         // #405: the mixer mute/solo is the audition contract — the
         // MIDI bounce carries only the parts the user actually hears.
         const audible = source.partAudible ?? [];
+        // #407: partGains indexes the ORIGINAL part order — after the
+        // audible filter drops parts, the surviving gains must be
+        // filtered by the same mask or a later part inherits an
+        // earlier part's fader.
+        const partGains = source.partGains?.filter((_, i) =>
+          audible.length ? audible[i] !== false : true,
+        );
         let producedCanonical = false;
         if (
           canonical &&
@@ -409,6 +426,7 @@ export class TauriExportPort implements ExportPort {
               name,
               dataBase64: await this.midiExporter(
                 filterCanonicalDocParts(canonical, audible),
+                { partGains },
               ),
             });
             producedCanonical = true;

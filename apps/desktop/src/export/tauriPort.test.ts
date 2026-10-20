@@ -418,6 +418,59 @@ describe("TauriExportPort MIDI resilience (#390)", () => {
     expect(sent.content.parts).toHaveLength(2);
   });
 
+  // #407: the fader half of the audition contract — gains index the
+  // ORIGINAL part order, so dropping a muted part must shift the
+  // surviving gains or a later part inherits an earlier fader.
+  it("forwards audible-filtered part gains to the canonical MIDI (#407)", async () => {
+    const midiExporter = vi.fn<
+      (doc: unknown, opts?: { partGains?: readonly number[] }) => Promise<string>
+    >(() => Promise.resolve("AAAA"));
+    const src = () => ({
+      doc: createFixtureScoreDocument({
+        canonicalDocument: {
+          schemaVersion: 1,
+          content: { parts: [{ name: "horn" }, { name: "accomp" }] },
+        },
+      }),
+      basename: "take1",
+      audioPath: null,
+      audioName: null,
+      partAudible: [false, true],
+      partGains: [0.2, 0.7],
+    });
+    const p = new TauriExportPort(src, midiExporter);
+    await p.export({
+      formats: ["playbackMidi"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    expect(midiExporter).toHaveBeenCalledTimes(1);
+    const sent = midiExporter.mock.calls[0]?.[0] as {
+      content: { parts: { name: string }[] };
+    };
+    expect(sent.content.parts.map((pt) => pt.name)).toEqual(["accomp"]);
+    // Only the surviving part's gain reaches the engine — the muted
+    // lead's 0.2 must not slide onto the accompaniment.
+    expect(midiExporter.mock.calls[0]?.[1]).toEqual({
+      partGains: [0.7],
+    });
+  });
+
+  it("omits partGains when the source has none (#407)", async () => {
+    const midiExporter = vi.fn<
+      (doc: unknown, opts?: { partGains?: readonly number[] }) => Promise<string>
+    >(() => Promise.resolve("AAAA"));
+    const p = new TauriExportPort(canonicalSource, midiExporter);
+    await p.export({
+      formats: ["playbackMidi"],
+      destination: "C:\\out",
+      basename: "take1",
+    });
+    expect(midiExporter.mock.calls[0]?.[1]).toEqual({
+      partGains: undefined,
+    });
+  });
+
   it("reports the playbackMidi capability tier honestly (#390)", async () => {
     const ready = new TauriExportPort(
       canonicalSource,

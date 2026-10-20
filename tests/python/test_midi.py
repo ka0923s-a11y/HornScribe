@@ -462,3 +462,98 @@ def test_different_programs_partition_channels() -> None:
     assert lead_chs
     assert acc_chs
     assert lead_chs.isdisjoint(acc_chs)
+
+
+def _two_part_score():
+    """Lead part plus a non-transposing accompaniment — the shape the
+    mixer's per-part gains index into (#407)."""
+    from dataclasses import replace
+
+    from hornscribe.domain.score import Part
+
+    score = make_score([(60, 0, 1), (64, 1, 1)])
+    acc_notes = tuple(score.payload.parts[0].notes)
+    return replace(
+        score,
+        payload=replace(
+            score.payload,
+            parts=(
+                score.payload.parts[0],
+                Part(
+                    id="part-2",
+                    name="accompaniment",
+                    notes=acc_notes,
+                    transposing=False,
+                ),
+            ),
+        ),
+    )
+
+
+def test_part_gains_scale_velocities() -> None:
+    """#407: a half-open fader bounces half-velocity notes — the MIDI
+    carries the audition balance instead of a flat default."""
+    mid = _parse(
+        playback_midi_bytes(_two_part_score(), part_gains=[0.5, 1.0])
+    )
+    lead_vel = {
+        m.velocity
+        for m in mid.tracks[1]
+        if m.type == "note_on" and m.velocity > 0
+    }
+    acc_vel = {
+        m.velocity
+        for m in mid.tracks[2]
+        if m.type == "note_on" and m.velocity > 0
+    }
+    assert lead_vel == {40}  # base velocity 80 scaled by 0.5
+    assert acc_vel == {80}
+
+
+def test_part_gain_zero_drops_the_part() -> None:
+    """#407: a mixer-silenced part leaves no notes in the bounce — the
+    same audible-parts contract the client enforces, applied
+    engine-side so a raw RPC cannot bypass it."""
+    mid = _parse(
+        playback_midi_bytes(_two_part_score(), part_gains=[1.0, 0.0])
+    )
+    lead_on = [
+        m for m in mid.tracks[1] if m.type == "note_on" and m.velocity > 0
+    ]
+    acc_on = [
+        m for m in mid.tracks[2] if m.type == "note_on" and m.velocity > 0
+    ]
+    assert len(lead_on) == 2
+    assert acc_on == []
+
+
+def test_part_gains_clamp_and_never_emit_velocity_zero() -> None:
+    """#407: out-of-range gains clamp to 0..1, and a tiny gain floors
+    at velocity 1 — a velocity-0 note_on is a note_off to parsers."""
+    mid = _parse(
+        playback_midi_bytes(_two_part_score(), part_gains=[0.001, 2.0])
+    )
+    lead_vel = {
+        m.velocity
+        for m in mid.tracks[1]
+        if m.type == "note_on" and m.velocity > 0
+    }
+    acc_vel = {
+        m.velocity
+        for m in mid.tracks[2]
+        if m.type == "note_on" and m.velocity > 0
+    }
+    assert lead_vel == {1}
+    assert acc_vel == {80}
+
+
+def test_part_gains_none_keeps_flat_velocities() -> None:
+    """#407: omitting the option reproduces the historical file —
+    callers that never mixed still export full-velocity notes."""
+    mid = _parse(playback_midi_bytes(_two_part_score()))
+    for track in mid.tracks[1:]:
+        assert {
+            m.velocity
+            for m in track
+            if m.type == "note_on" and m.velocity > 0
+        } == {80}

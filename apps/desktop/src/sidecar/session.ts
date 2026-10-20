@@ -349,7 +349,14 @@ export class TranscriptionSession {
    * map that the client-side MusicXML→MIDI rebuild loses. Spawns the
    * engine lazily like applyScoreEdit.
    */
-  async exportMidi(scoreDocument: unknown): Promise<{ midiBase64: string }> {
+  async exportMidi(
+    scoreDocument: unknown,
+    opts?: {
+      /** #407: mixer's effective per-part gain (0..1) — scales note
+       *  velocities so the bounce honours the audition balance. */
+      partGains?: readonly number[];
+    },
+  ): Promise<{ midiBase64: string }> {
     await this.ensureEngine();
     const client = this.client;
     if (!client) {
@@ -357,6 +364,7 @@ export class TranscriptionSession {
     }
     return client.call<{ midiBase64: string }>("export.midi", {
       scoreDocument,
+      ...(opts?.partGains ? { partGains: [...opts.partGains] } : {}),
     });
   }
 
